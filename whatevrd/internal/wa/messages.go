@@ -186,6 +186,11 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 				publishProcessingProgress(false)
 				continue
 			}
+			// ParseWebMessage bypasses whatsmeow's own storeMessageSecret, which
+			// only runs on the live path. Without the secret a poll that arrived
+			// through backfill can never have its votes decrypted, so capture it
+			// here where the parsed message is in hand.
+			c.storeBackfilledMessageSecret(ctx, parsedEvt)
 			opts := ingestOptions{
 				source:           sourceHistorySync,
 				chatNameOverride: chatNameOverride,
@@ -737,9 +742,13 @@ func (c *Client) mediaInputBase(ctx context.Context, evt *events.Message, opts i
 		Timestamp:      messageTimestamp(info, opts, evt.SourceWebMsg),
 		Direction:      direction,
 		Status:         status,
-		IsGroup:        info.IsGroup,
-		CountUnread:    shouldCountUnread(evt, opts),
-		ReplyTo:        c.replyFromContextInfo(ctx, chatID, contextInfo),
+		IsGroup:     info.IsGroup,
+		CountUnread: shouldCountUnread(evt, opts),
+		ReplyTo:     c.replyFromContextInfo(ctx, chatID, contextInfo),
+		// Mentions come from the context info the caller already picked out for
+		// this kind, not from re-deriving it: a captioned photo or video can
+		// @-mention people, and until now the media path dropped every one.
+		Mentions: c.resolveMentions(ctx, mentionedJIDsFromContextInfo(contextInfo)),
 	}, chatID, true
 }
 
@@ -1052,32 +1061,55 @@ func (c *Client) unsupportedMessageInput(ctx context.Context, evt *events.Messag
 		return appstore.MediaMessageInput{}, false
 	}
 
-	info := evt.Info
-	chatJID := c.normalizeJIDForChat(ctx, info.Chat)
-	chatID := chatJID.String()
-	if chatID == "" || info.ID == "" {
+	base, _, ok := c.mediaInputBase(ctx, evt, opts, label, unsupportedContextInfo(evt.Message))
+	if !ok {
 		return appstore.MediaMessageInput{}, false
 	}
 
-	direction, status := messageDirectionAndStatus(info, opts)
 	return appstore.MediaMessageInput{
-		TextMessageInput: appstore.TextMessageInput{
-			ID:             internalMessageIDForChat(chatID, info.ID),
-			ChatID:         chatID,
-			ChatName:       c.chatName(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
-			ChatNameSource: c.chatNameSource(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
-			SenderID:       senderID(info),
-			SenderName:     c.senderName(ctx, senderJID(info)),
-			Text:           label,
-			Timestamp:      messageTimestamp(info, opts, evt.SourceWebMsg),
-			Direction:      direction,
-			Status:         status,
-			IsGroup:        info.IsGroup,
-			CountUnread:    shouldCountUnread(evt, opts),
-			ReplyTo:        c.replyFromContextInfo(ctx, chatID, unsupportedContextInfo(evt.Message)),
-		},
-		MediaKind: appstore.MediaKindUnsupported,
+		TextMessageInput: base,
+		MediaKind:        appstore.MediaKindUnsupported,
+		// Keep the marshalled payload even though nothing reads it today. A
+		// tombstone that stored nothing could never be upgraded when a later
+		// build learned its kind, which is why every location and poll ingested
+		// before this change stays grey forever. This one will not.
+		MediaPayload: marshalMessagePayload(evt.Message),
 	}, true
+}
+
+// storeBackfilledMessageSecret persists the message secret of a history-synced
+// message into whatsmeow's own secret store. Polls, events, reactions and
+// comments are all encrypted against that secret, and whatsmeow only records it
+// for messages that arrived live, so without this a poll pulled out of backfill
+// decrypts to ErrOriginalMessageSecretNotFound forever.
+func (c *Client) storeBackfilledMessageSecret(ctx context.Context, evt *events.Message) {
+	if evt == nil || evt.Message == nil {
+		return
+	}
+	secret := evt.Message.GetMessageContextInfo().GetMessageSecret()
+	if len(secret) == 0 {
+		return
+	}
+	client := c.currentClient()
+	if client == nil || client.Store == nil || client.Store.MsgSecrets == nil {
+		return
+	}
+	if err := client.Store.MsgSecrets.PutMessageSecret(ctx, evt.Info.Chat, evt.Info.Sender, evt.Info.ID, secret); err != nil {
+		c.log.Warnf("Failed to store backfilled message secret for %s: %v", evt.Info.ID, err)
+	}
+}
+
+// marshalMessagePayload serializes a whole waE2E message for later re-parsing.
+// A failure is not worth losing the row over: the tombstone still has its label.
+func marshalMessagePayload(message *waE2E.Message) []byte {
+	if message == nil {
+		return nil
+	}
+	payload, err := proto.Marshal(message)
+	if err != nil {
+		return nil
+	}
+	return payload
 }
 
 // unsupportedMessageLabel maps not-yet-rendered payload types to a short
@@ -1237,7 +1269,12 @@ func (c *Client) textMessageInput(ctx context.Context, evt *events.Message, opts
 // `@<userpart>` tokens already live in the message text; the renderer pairs
 // them up. Returns nil when there are no mentions.
 func mentionedJIDsFromMessage(message *waE2E.Message) []string {
-	contextInfo := contextInfoFromMessage(message)
+	return mentionedJIDsFromContextInfo(contextInfoFromMessage(message))
+}
+
+// mentionedJIDsFromContextInfo is the same thing for a caller that already
+// holds the right context info for its kind.
+func mentionedJIDsFromContextInfo(contextInfo *waE2E.ContextInfo) []string {
 	if contextInfo == nil {
 		return nil
 	}
@@ -1827,6 +1864,7 @@ func toDaemonMessage(message appstore.Message) app.Message {
 		MediaHeight:             message.MediaHeight,
 		MediaAnimated:           message.MediaAnimated,
 		MediaCacheKey:           message.MediaCacheKey,
+		Preview:                 appstore.MessagePreviewLine(message),
 		IsRevoked:               message.IsRevoked,
 		IsEdited:                message.IsEdited,
 		IsStarred:               message.IsStarred,

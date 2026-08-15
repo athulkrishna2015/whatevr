@@ -344,6 +344,13 @@ func (db *DB) migrate(ctx context.Context) error {
 		return err
 	}
 
+	if err := db.ensurePayloadColumns(ctx); err != nil {
+		return err
+	}
+	if err := db.ensureRichMessageTables(ctx); err != nil {
+		return err
+	}
+
 	if err := db.ensureSendRetryColumns(ctx); err != nil {
 		return err
 	}
@@ -1013,6 +1020,165 @@ func (db *DB) ensureMediaColumns(ctx context.Context) error {
 		}
 		if _, err := db.conn.ExecContext(ctx, a.def); err != nil {
 			return fmt.Errorf("add messages.%s: %w", a.col, err)
+		}
+	}
+	return nil
+}
+
+// existingColumns reads the column names of one table. Every ensure*Columns
+// step needs this before it can decide what to ALTER.
+func (db *DB) existingColumns(ctx context.Context, table string) (map[string]bool, error) {
+	rows, err := db.conn.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_info(%s)`, table))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	existing := make(map[string]bool)
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, pk int
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return nil, err
+		}
+		existing[name] = true
+	}
+	return existing, rows.Err()
+}
+
+// addColumns applies the ALTER statements whose column is not there yet. The
+// statements are written in full rather than generated so a reader of this file
+// sees exactly the DDL that runs.
+func (db *DB) addColumns(ctx context.Context, table string, alterations [][2]string) error {
+	existing, err := db.existingColumns(ctx, table)
+	if err != nil {
+		return err
+	}
+	for _, alteration := range alterations {
+		col, statement := alteration[0], alteration[1]
+		if existing[col] {
+			continue
+		}
+		if _, err := db.conn.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("add %s.%s: %w", table, col, err)
+		}
+	}
+	return nil
+}
+
+// ensurePayloadColumns adds the per-kind payload columns that let a message
+// carry something structured without growing a column per kind. payload_summary
+// is separate from payload_json so the chat-list preview and the wire fallback
+// never parse JSON to render one line.
+func (db *DB) ensurePayloadColumns(ctx context.Context) error {
+	if err := db.addColumns(ctx, "messages", [][2]string{
+		{"payload_json", `ALTER TABLE messages ADD COLUMN payload_json TEXT NOT NULL DEFAULT ''`},
+		{"payload_summary", `ALTER TABLE messages ADD COLUMN payload_summary TEXT NOT NULL DEFAULT ''`},
+		{"album_parent_id", `ALTER TABLE messages ADD COLUMN album_parent_id TEXT NOT NULL DEFAULT ''`},
+		{"album_index", `ALTER TABLE messages ADD COLUMN album_index INTEGER NOT NULL DEFAULT 0`},
+		{"is_kept", `ALTER TABLE messages ADD COLUMN is_kept INTEGER NOT NULL DEFAULT 0`},
+	}); err != nil {
+		return err
+	}
+	// Album children are excluded from every transcript query by a correlated
+	// lookup on this column, so it needs to be cheap to ask "is this row in an
+	// album" and "give me this album's children in order".
+	_, err := db.conn.ExecContext(ctx, `
+		CREATE INDEX IF NOT EXISTS idx_messages_album_parent
+		ON messages(album_parent_id, album_index)
+		WHERE album_parent_id != ''
+	`)
+	return err
+}
+
+// ensureRichMessageTables creates the side tables for the kinds whose state is
+// mutated after the message lands (poll tallies, live-location trails, event
+// RSVPs). Everything static enough to be written once lives in payload_json
+// instead.
+func (db *DB) ensureRichMessageTables(ctx context.Context) error {
+	statements := []string{
+		// A poll's options, in wire order. sha256 is what a decrypted vote
+		// names, so votes are matched back to options by hash, never by text.
+		`CREATE TABLE IF NOT EXISTS poll_options (
+			message_id TEXT NOT NULL,
+			idx INTEGER NOT NULL,
+			name TEXT NOT NULL,
+			sha256 BLOB NOT NULL,
+			PRIMARY KEY (message_id, idx),
+			FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_poll_options_hash ON poll_options(message_id, sha256)`,
+		// One row per (poll, voter, chosen option). A vote message carries a
+		// voter's entire current selection rather than a delta, so applying one
+		// deletes that voter's rows and re-inserts them.
+		`CREATE TABLE IF NOT EXISTS poll_votes (
+			message_id TEXT NOT NULL,
+			voter_jid TEXT NOT NULL,
+			option_sha BLOB NOT NULL,
+			voted_at INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (message_id, voter_jid, option_sha),
+			FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+		)`,
+		// Votes that arrived before the poll they vote on: history sync does not
+		// promise ordering, and a resend can outrun its original. No foreign key
+		// here precisely because the poll row does not exist yet.
+		`CREATE TABLE IF NOT EXISTS poll_votes_pending (
+			id TEXT PRIMARY KEY,
+			chat_id TEXT NOT NULL,
+			poll_message_id TEXT NOT NULL,
+			voter_jid TEXT NOT NULL,
+			enc_payload BLOB NOT NULL,
+			enc_iv BLOB NOT NULL,
+			sender_ts INTEGER NOT NULL DEFAULT 0,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch())
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_poll_votes_pending_poll ON poll_votes_pending(poll_message_id)`,
+		// One open live-location share. whatsmeow has no concept of these, so
+		// the correlation between an opening LocationMessage and the
+		// LiveLocationMessage updates that follow is entirely ours.
+		`CREATE TABLE IF NOT EXISTS live_location_shares (
+			message_id TEXT PRIMARY KEY,
+			chat_id TEXT NOT NULL,
+			sender_id TEXT NOT NULL,
+			started_at INTEGER NOT NULL,
+			expires_at INTEGER NOT NULL DEFAULT 0,
+			last_seq INTEGER NOT NULL DEFAULT 0,
+			last_update_at INTEGER NOT NULL DEFAULT 0,
+			ended INTEGER NOT NULL DEFAULT 0,
+			FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_live_shares_open ON live_location_shares(chat_id, ended, expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_live_shares_sender ON live_location_shares(chat_id, sender_id, ended)`,
+		// The trail. Ordered and deduped by the sender's sequence number, so a
+		// late or replayed update never drags the pin backwards.
+		`CREATE TABLE IF NOT EXISTS live_location_points (
+			message_id TEXT NOT NULL,
+			seq INTEGER NOT NULL,
+			ts INTEGER NOT NULL,
+			lat REAL NOT NULL,
+			lng REAL NOT NULL,
+			accuracy_m INTEGER NOT NULL DEFAULT 0,
+			speed_mps REAL NOT NULL DEFAULT 0,
+			heading_deg INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (message_id, seq),
+			FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+		)`,
+		// One RSVP per responder, replaced when they change their mind.
+		`CREATE TABLE IF NOT EXISTS event_responses (
+			message_id TEXT NOT NULL,
+			responder_jid TEXT NOT NULL,
+			response TEXT NOT NULL,
+			extra_guests INTEGER NOT NULL DEFAULT 0,
+			ts INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (message_id, responder_jid),
+			FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+		)`,
+	}
+	for _, statement := range statements {
+		if _, err := db.conn.ExecContext(ctx, statement); err != nil {
+			return err
 		}
 	}
 	return nil

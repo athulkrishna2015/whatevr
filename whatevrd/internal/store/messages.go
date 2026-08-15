@@ -27,9 +27,45 @@ const (
 	MediaKindVoice    = "voice"
 	MediaKindAudio    = "audio"
 	MediaKindDocument = "document"
+
+	// MediaKindLocation is a LocationMessage. The "media" it carries is the map
+	// the daemon stitches for it, which is why it goes through the ordinary
+	// download lifecycle rather than inventing a second one.
+	MediaKindLocation = "location"
+	// MediaKindLiveLocation is the opening LocationMessage of a live share. The
+	// LiveLocationMessage updates that follow do not become rows of their own;
+	// they move this one. See live_locations.go.
+	MediaKindLiveLocation = "live_location"
+	MediaKindContact      = "contact"
+	MediaKindContacts     = "contacts"
+	MediaKindPoll         = "poll"
+	MediaKindGroupInvite  = "group_invite"
+	MediaKindEvent        = "event"
+	// MediaKindAlbum is the AlbumMessage header. Its children are ordinary rows
+	// carrying album_parent_id, hidden from the transcript and delivered inside
+	// this row instead.
+	MediaKindAlbum = "album"
+	// MediaKindInteractive covers the business message family: buttons, lists,
+	// hydrated templates and interactive messages, which differ in wire shape
+	// but render as the same card.
+	MediaKindInteractive = "interactive"
+	MediaKindProduct     = "product"
+	MediaKindOrder       = "order"
+	MediaKindPayment     = "payment"
+	MediaKindStickerPack = "sticker_pack"
+	MediaKindCallLog     = "call_log"
+	// MediaKindSystem is a synthetic row for something that happened to the
+	// chat rather than in it: a join, a subject change, a disappearing-timer
+	// change, a security-code change. Never counted as unread.
+	MediaKindSystem = "system"
+	// MediaKindWaiting is a message we could not decrypt and have asked the
+	// phone to resend. Unlike every other kind, this row is expected to be
+	// replaced in place when the real message arrives under the same id.
+	MediaKindWaiting = "waiting"
 	// MediaKindUnsupported marks a real message whose payload whatevr cannot
-	// render yet (location, poll, contact card, ...). The text column carries a
-	// human-readable label; there is no downloadable media.
+	// render yet. The text column carries a human-readable label and
+	// media_payload keeps the marshalled proto, so a later build that learns
+	// the kind can upgrade the row instead of leaving it grey forever.
 	MediaKindUnsupported = "unsupported"
 
 	StatusPending   = "pending"
@@ -132,7 +168,25 @@ type Message struct {
 	MediaWaveform []byte
 	// MediaPlayed records that we already sent a played receipt for an inbound
 	// voice note, so marking it played twice is a no-op.
-	MediaPlayed     bool
+	MediaPlayed bool
+	// PayloadJSON is the kind-specific structured payload (a location's
+	// coordinates, a vCard's parsed fields, a poll's settings, a system event's
+	// participants). Opaque here; decoded by the protocol layer into the
+	// message item's nested object for that kind.
+	PayloadJSON string
+	// PayloadSummary is the one-line detail the ingest derived from that
+	// payload: a poll's question, a place name, "Ana and 12 others joined". It
+	// is a column rather than a field inside PayloadJSON so the preview paths
+	// never parse JSON.
+	PayloadSummary string
+	// AlbumParentID names the AlbumMessage this media belongs to. A row with a
+	// parent that exists is hidden from the transcript and delivered inside the
+	// album row instead.
+	AlbumParentID string
+	AlbumIndex    int32
+	// IsKept records a KeepInChatMessage naming this row: a disappearing
+	// message somebody asked to keep.
+	IsKept          bool
 	IsRevoked       bool
 	IsForwarded     bool
 	IsEdited        bool
@@ -175,6 +229,10 @@ type MediaMessageInput struct {
 	MediaFileName           string
 	MediaPageCount          int32
 	MediaWaveform           []byte
+	PayloadJSON             string
+	PayloadSummary          string
+	AlbumParentID           string
+	AlbumIndex              int32
 }
 
 type ReadCandidate struct {
@@ -425,7 +483,7 @@ func (db *DB) SaveMediaMessage(ctx context.Context, input MediaMessageInput) (Sa
 // saveMediaMessageTx stores one already-normalized media message inside the
 // caller's transaction.
 func saveMediaMessageTx(ctx context.Context, tx *sql.Tx, input MediaMessageInput) (SavedTextMessage, error) {
-	lastMessage := messageSummary(input.Text, input.MediaKind, input.MediaMimeType, input.MediaFileName)
+	lastMessage := mediaInputSummary(input)
 
 	if err := upsertChat(ctx, tx, input.TextMessageInput); err != nil {
 		return SavedTextMessage{}, err
@@ -435,12 +493,13 @@ func saveMediaMessageTx(ctx context.Context, tx *sql.Tx, input MediaMessageInput
 	}
 
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO messages (id, chat_id, sender_id, text, timestamp, direction, is_read, status, is_forwarded, mentioned_jids, media_kind, media_mime_type, media_local_path, media_thumbnail_local_path, media_width, media_height, media_animated, media_payload, media_cache_key, media_duration_secs, media_size_bytes, media_file_name, media_page_count, media_waveform, reply_to_message_id, reply_to_sender_id, reply_to_sender_name, reply_to_text, reply_to_media_kind, reply_to_media_mime_type, reply_to_direction)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO messages (id, chat_id, sender_id, text, timestamp, direction, is_read, status, is_forwarded, mentioned_jids, media_kind, media_mime_type, media_local_path, media_thumbnail_local_path, media_width, media_height, media_animated, media_payload, media_cache_key, media_duration_secs, media_size_bytes, media_file_name, media_page_count, media_waveform, payload_json, payload_summary, album_parent_id, album_index, reply_to_message_id, reply_to_sender_id, reply_to_sender_name, reply_to_text, reply_to_media_kind, reply_to_media_mime_type, reply_to_direction)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO NOTHING
 	`, input.ID, input.ChatID, input.SenderID, input.Text, input.Timestamp.Unix(), input.Direction,
 		boolToInt(!input.CountUnread), input.Status, boolToInt(input.IsForwarded), encodeMentions(input.Mentions), input.MediaKind, input.MediaMimeType, input.MediaLocalPath, input.MediaThumbnailLocalPath, input.MediaWidth, input.MediaHeight, boolToInt(input.MediaAnimated), input.MediaPayload, input.MediaCacheKey,
 		input.MediaDurationSecs, input.MediaSizeBytes, input.MediaFileName, input.MediaPageCount, input.MediaWaveform,
+		input.PayloadJSON, input.PayloadSummary, input.AlbumParentID, input.AlbumIndex,
 		input.ReplyTo.MessageID, input.ReplyTo.SenderID, input.ReplyTo.SenderName, input.ReplyTo.Text, input.ReplyTo.MediaKind, input.ReplyTo.MediaMimeType, input.ReplyTo.Direction)
 	if err != nil {
 		return SavedTextMessage{}, err
@@ -566,47 +625,18 @@ func toTextutilMentions(mentions []MessageMention) []textutil.Mention {
 	return out
 }
 
-// messageSummary is the chat-list preview for one message: its own text when it
-// has any (a caption counts), otherwise a bracketed placeholder for the kind.
-// A document with no caption previews as its filename, which is what WhatsApp
-// shows and is far more useful than "[Document]".
-func messageSummary(text, mediaKind, mediaMimeType, mediaFileName string) string {
-	if text != "" {
-		return text
-	}
-	switch mediaKind {
-	case MediaKindSticker:
-		return "[Sticker]"
-	case MediaKindImage:
-		return "[Image]"
-	case MediaKindVideo:
-		return "[Video]"
-	case MediaKindGIF:
-		return "[GIF]"
-	case MediaKindVideoNote:
-		return "[Video message]"
-	case MediaKindVoice:
-		return "[Voice message]"
-	case MediaKindAudio:
-		return "[Audio]"
-	case MediaKindDocument:
-		if name := strings.TrimSpace(mediaFileName); name != "" {
-			return name
-		}
-		return "[Document]"
-	}
-	// Older rows predate media_kind carrying anything but image/sticker, so
-	// keep sniffing the mime type for them.
-	switch {
-	case strings.HasPrefix(mediaMimeType, "image/"):
-		return "[Image]"
-	case strings.HasPrefix(mediaMimeType, "video/"):
-		return "[Video]"
-	case strings.HasPrefix(mediaMimeType, "audio/"):
-		return "[Audio]"
-	default:
-		return "[Media]"
-	}
+// mediaInputSummary is the chat-list preview for one message being inserted.
+// The rendering itself lives in PreviewLine (kinds.go) so the chat row, the
+// wire fallback and a reconstructed quote all read the same.
+func mediaInputSummary(input MediaMessageInput) string {
+	return PreviewLine(PreviewFacts{
+		Text:           input.Text,
+		PayloadSummary: input.PayloadSummary,
+		MediaKind:      input.MediaKind,
+		MediaMimeType:  input.MediaMimeType,
+		MediaFileName:  input.MediaFileName,
+		DurationSecs:   input.MediaDurationSecs,
+	})
 }
 
 func (db *DB) RecordUndecryptableMessageTimestamp(ctx context.Context, id, chatID, messageID, senderID string, timestamp time.Time) (MessageTimestampCorrection, error) {
@@ -745,7 +775,7 @@ func recomputeChatSummaryTx(ctx context.Context, tx *sql.Tx, chatID string) erro
 		return err
 	}
 
-	summary := "This message was deleted"
+	summary := RevokedPreview
 	if !latest.IsRevoked {
 		chat, err := getChatTx(ctx, tx, chatID)
 		if err != nil {
@@ -756,7 +786,7 @@ func recomputeChatSummaryTx(ctx context.Context, tx *sql.Tx, chatID string) erro
 			Direction:  latest.Direction,
 			SenderName: latest.SenderName,
 			Mentions:   latest.Mentions,
-		}, messageSummary(latest.Text, latest.MediaKind, latest.MediaMimeType, latest.MediaFileName))
+		}, MessagePreviewLine(latest))
 	}
 
 	_, err = tx.ExecContext(ctx, `
@@ -776,6 +806,7 @@ const messageSelectPrefix = `
 	       COALESCE(NULLIF(sa.local_path, ''), NULLIF(ca.local_path, ''), NULLIF(s.avatar_local_path, ''), NULLIF(c.avatar_local_path, ''), ''),
 	       m.text, m.timestamp, m.rowid, m.direction, m.is_read, m.status, m.media_kind, m.media_mime_type, m.media_local_path, m.media_thumbnail_local_path, m.media_width, m.media_height, m.media_animated, m.media_download_error,
 	       m.media_duration_secs, m.media_size_bytes, m.media_file_name, m.media_page_count, m.media_waveform, m.media_played,
+	       m.payload_json, m.payload_summary, m.album_parent_id, m.album_index, m.is_kept,
 	       m.reply_to_message_id, m.reply_to_sender_id, m.reply_to_sender_name, m.reply_to_text, m.reply_to_media_kind, m.reply_to_media_mime_type, m.reply_to_direction,
 	       m.send_attempts, m.last_send_error, m.next_send_attempt, m.is_revoked, m.is_edited, m.is_starred, m.pinned_at, m.pinned_until, m.mentioned_jids
 	FROM messages m
@@ -2218,6 +2249,7 @@ func getMessageRow(ctx context.Context, queryer interface {
 		       COALESCE(NULLIF(sa.local_path, ''), NULLIF(ca.local_path, ''), NULLIF(s.avatar_local_path, ''), NULLIF(c.avatar_local_path, ''), ''),
 		       m.text, m.timestamp, m.rowid, m.direction, m.is_read, m.status, m.media_kind, m.media_mime_type, m.media_local_path, m.media_thumbnail_local_path, m.media_width, m.media_height, m.media_animated, m.media_download_error, m.media_payload, m.media_cache_key,
 		       m.media_duration_secs, m.media_size_bytes, m.media_file_name, m.media_page_count, m.media_waveform, m.media_played,
+		       m.payload_json, m.payload_summary, m.album_parent_id, m.album_index, m.is_kept,
 		       m.reply_to_message_id, m.reply_to_sender_id, m.reply_to_sender_name, m.reply_to_text, m.reply_to_media_kind, m.reply_to_media_mime_type, m.reply_to_direction,
 		       m.send_attempts, m.last_send_error, m.next_send_attempt, m.is_revoked, m.is_edited, m.is_starred, m.pinned_at, m.pinned_until, m.mentioned_jids
 		FROM messages m
@@ -2254,6 +2286,11 @@ func getMessageRow(ctx context.Context, queryer interface {
 		&message.MediaPageCount,
 		&message.MediaWaveform,
 		&message.MediaPlayed,
+		&message.PayloadJSON,
+		&message.PayloadSummary,
+		&message.AlbumParentID,
+		&message.AlbumIndex,
+		&message.IsKept,
 		&message.ReplyTo.MessageID,
 		&message.ReplyTo.SenderID,
 		&message.ReplyTo.SenderName,
@@ -2433,6 +2470,11 @@ func scanMessageRows(rows *sql.Rows, capacity int) ([]Message, error) {
 			&message.MediaPageCount,
 			&message.MediaWaveform,
 			&message.MediaPlayed,
+			&message.PayloadJSON,
+			&message.PayloadSummary,
+			&message.AlbumParentID,
+			&message.AlbumIndex,
+			&message.IsKept,
 			&message.ReplyTo.MessageID,
 			&message.ReplyTo.SenderID,
 			&message.ReplyTo.SenderName,

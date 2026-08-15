@@ -393,6 +393,10 @@ QVariant ProtocolMessageModel::data(const QModelIndex &index, int role) const
         return mediaData().value(QStringLiteral("waveform")).toList();
     case MediaPlayedRole:
         return mediaData().value(QStringLiteral("played")).toBool();
+    case HasMediaRole:
+        return !mediaData().isEmpty();
+    case IsKeptRole:
+        return item.value(QStringLiteral("kept")).toBool();
     case ShowSenderHeaderRole:
         return groupChat && !outgoing && startsSenderGroup(index.row());
     case ShowSenderAvatarRole:
@@ -533,6 +537,8 @@ QHash<int, QByteArray> ProtocolMessageModel::roleNames() const
         {PinnedUntilUnixRole, "pinnedUntilUnix"},
         {ReactionsRole, "reactions"},
         {MediaDownloadProgressRole, "mediaDownloadProgress"},
+        {HasMediaRole, "hasMedia"},
+        {IsKeptRole, "isKept"},
     };
 }
 

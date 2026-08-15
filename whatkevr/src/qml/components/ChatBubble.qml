@@ -50,6 +50,11 @@ Item {
     required property int mediaPageCount
     required property var mediaWaveform
     required property bool mediaPlayed
+    // Whether the daemon attached a media object at all. A kind alone does not
+    // imply something to fetch: a poll and a contact card have kinds and no
+    // bytes behind them.
+    required property bool hasMedia
+    required property bool isKept
     required property bool isRevoked
     required property bool isEdited
     required property bool isStarred
@@ -274,8 +279,13 @@ Item {
     // the per-kind "auto-download" preferences; with the toggle off the user
     // downloads manually via the in-bubble button.
     readonly property bool mediaIsLocal: isSticker ? hasLocalSticker : mediaLocalPath.length > 0
-    readonly property bool hasDownloadableMedia: !mediaIsLocal && !isUnsupported
-        && (mediaMimeType.length > 0 || mediaCacheKey.length > 0 || mediaKind.length > 0)
+    // `hasMedia` is the daemon's own answer to "is there anything to fetch",
+    // and it is the only one worth trusting: a kind is not a promise of bytes.
+    // Deriving this from `mediaKind.length > 0` meant every structured kind
+    // (poll, contact card, system event) looked downloadable and fired a
+    // media.download on every scroll-in, falling through to the documents
+    // auto-download preference on the way.
+    readonly property bool hasDownloadableMedia: hasMedia && !mediaIsLocal && !isUnsupported
     // The user's ceiling, defaulting to 16 MiB: big enough for a voice note, a
     // photo or a short clip, small enough that a scroll past a long video does
     // not commit the connection. 0 means no limit.

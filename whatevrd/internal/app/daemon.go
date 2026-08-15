@@ -361,7 +361,11 @@ type Message struct {
 	MediaHeight             int32
 	MediaAnimated           bool
 	MediaCacheKey           string
-	IsRevoked               bool
+	// Preview is the message rendered as one human-readable line, computed
+	// once by the store so the notifier, the chat row and the wire `fallback`
+	// cannot say three different things about the same message.
+	Preview   string
+	IsRevoked bool
 	IsEdited                bool
 	IsStarred               bool
 	PinnedUntilUnix         int64

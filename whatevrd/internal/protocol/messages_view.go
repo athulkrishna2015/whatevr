@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"strings"
+
 	"sync"
 
 	"whatevrd/internal/app"
@@ -537,7 +537,16 @@ type messageItem struct {
 	Starred     bool              `json:"starred,omitempty"`
 	Forwarded   bool              `json:"forwarded,omitempty"`
 	PinnedUntil int64             `json:"pinned_until,omitempty"`
-	Media       *messageMedia     `json:"media,omitempty"`
+	// Kept marks a disappearing message somebody asked to keep in the chat.
+	Kept  bool          `json:"kept,omitempty"`
+	Media *messageMedia `json:"media,omitempty"`
+
+	// Kind-specific payloads. Exactly one is ever set, chosen by `kind`, and a
+	// frontend that does not know the kind ignores all of them and renders
+	// `fallback` instead (rule 5). Each lands with the phase that implements
+	// its kind; the shapes themselves live in store/payloads.go, because the
+	// store writes them and the protocol reads them back.
+	Location *store.LocationPayload `json:"location,omitempty"`
 }
 
 type messageSender struct {
@@ -578,11 +587,11 @@ type messageMedia struct {
 	DownloadError string `json:"download_error,omitempty"`
 	// Downloading is true while a fetch for this message is in flight. Only the
 	// `messages` view sets it; `transfers` still carries the byte counters.
-	Downloading bool `json:"downloading,omitempty"`
-	SizeBytes     int64  `json:"size_bytes,omitempty"`
-	DurationSecs  int32  `json:"duration_secs,omitempty"`
-	Filename      string `json:"filename,omitempty"`
-	PageCount     int32  `json:"page_count,omitempty"`
+	Downloading  bool   `json:"downloading,omitempty"`
+	SizeBytes    int64  `json:"size_bytes,omitempty"`
+	DurationSecs int32  `json:"duration_secs,omitempty"`
+	Filename     string `json:"filename,omitempty"`
+	PageCount    int32  `json:"page_count,omitempty"`
 	// Waveform is the voice-note amplitude envelope: 64 buckets of 0-100. It
 	// is the one piece of media data that crosses the socket rather than
 	// living in a file, because it is tiny and the bubble needs it before any
@@ -597,7 +606,8 @@ func messageItemFromStore(m store.Message) messageItem {
 		ID:          m.ID,
 		ChatID:      m.ChatID,
 		Kind:        kind,
-		Fallback:    messageFallback(m, kind),
+		Fallback:    messageFallback(m),
+		Kept:        m.IsKept,
 		Text:        m.Text,
 		Sender:      messageSender{ID: m.SenderID, Name: m.SenderName, AvatarPath: m.SenderAvatarLocalPath},
 		Timestamp:   m.TimestampUnix,
@@ -612,6 +622,7 @@ func messageItemFromStore(m store.Message) messageItem {
 		Mentions:    messageMentions(m.Mentions),
 		Media:       messageMediaFromStore(m),
 	}
+	attachMessagePayload(&item, m)
 	if r := m.ReplyTo; r.MessageID != "" {
 		item.ReplyTo = &messageReply{
 			MessageID:  r.MessageID,
@@ -646,68 +657,31 @@ func mediaKindToWire(mediaKind string) string {
 }
 
 // messageFallback is the one-line human rendering a frontend shows for any kind
-// it does not implement (and the natural preview for the ones it does).
-func messageFallback(m store.Message, kind string) string {
-	if m.IsRevoked {
-		return "This message was deleted"
-	}
-	caption := oneLine(m.Text)
-	withCaption := func(label string) string {
-		if caption != "" {
-			return caption
-		}
-		return label
-	}
-	switch kind {
-	case store.MediaKindImage:
-		return withCaption("📷 Photo")
-	case store.MediaKindSticker:
-		return "🎨 Sticker"
-	case store.MediaKindVideo:
-		return withCaption("🎥 Video" + durationSuffix(m.MediaDurationSecs))
-	case store.MediaKindGIF:
-		return withCaption("🎞️ GIF")
-	case store.MediaKindVideoNote:
-		return withCaption("📹 Video message" + durationSuffix(m.MediaDurationSecs))
-	case store.MediaKindVoice:
-		return withCaption("🎤 Voice message" + durationSuffix(m.MediaDurationSecs))
-	case store.MediaKindAudio:
-		return withCaption("🎵 Audio" + durationSuffix(m.MediaDurationSecs))
-	case store.MediaKindDocument:
-		// A document's own name beats its caption: it is what the recipient
-		// is looking for in a chat list full of attachments.
-		if name := oneLine(m.MediaFileName); name != "" {
-			return "📄 " + name
-		}
-		return withCaption("📄 Document")
-	case store.MediaKindUnsupported:
-		return withCaption("Unsupported message")
-	default: // text and unknown kinds
-		return caption
-	}
+// it does not implement (and the natural preview for the ones it does). It is
+// the same rendering the chat row's preview uses, from the same table.
+func messageFallback(m store.Message) string {
+	return store.MessagePreviewLine(m)
 }
 
-// durationSuffix renders " (0:12)" for a known duration and nothing for an
-// unknown one, so a fallback reads "🎤 Voice message (0:12)".
-func durationSuffix(seconds int32) string {
-	if seconds <= 0 {
-		return ""
+// attachMessagePayload hangs the row's kind-specific object off the item. It is
+// one decode of payload_json per row, and the switch keeps a kind from ever
+// emitting a payload belonging to a different one.
+func attachMessagePayload(item *messageItem, m store.Message) {
+	if m.PayloadJSON == "" {
+		return
 	}
-	return fmt.Sprintf(" (%d:%02d)", seconds/60, seconds%60)
+	payload := store.DecodePayload(m.PayloadJSON)
+	switch m.MediaKind {
+	case store.MediaKindLocation, store.MediaKindLiveLocation:
+		item.Location = payload.Location
+	}
 }
 
 func messageMediaFromStore(m store.Message) *messageMedia {
-	switch m.MediaKind {
-	case store.MediaKindImage,
-		store.MediaKindSticker,
-		store.MediaKindVideo,
-		store.MediaKindGIF,
-		store.MediaKindVideoNote,
-		store.MediaKindVoice,
-		store.MediaKindAudio,
-		store.MediaKindDocument:
-	default:
-		// Unsupported tombstones and text rows carry no media object at all.
+	// Text rows, unsupported tombstones and every structured kind that has
+	// nothing to fetch (a poll, a contact card, a system event) carry no media
+	// object at all, so nothing downstream mistakes them for a pending download.
+	if !store.IsMediaBearingKind(m.MediaKind) {
 		return nil
 	}
 	return &messageMedia{
@@ -770,6 +744,3 @@ func messageMentions(mentions []store.MessageMention) []messageMention {
 
 // oneLine collapses whitespace runs into single spaces so a fallback is a
 // genuine one-liner even when the source text spans multiple lines.
-func oneLine(s string) string {
-	return strings.Join(strings.Fields(s), " ")
-}

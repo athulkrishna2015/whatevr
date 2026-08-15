@@ -870,7 +870,11 @@ func quotedMessageFromStored(message appstore.Message) *waE2E.Message {
 		if message.Text != "" {
 			return &waE2E.Message{Conversation: proto.String(message.Text)}
 		}
-		return &waE2E.Message{Conversation: proto.String(replyMediaSummary(message.MediaKind, message.MediaMimeType))}
+		return &waE2E.Message{Conversation: proto.String(replyMediaSummary(appstore.MessageReply{
+			Text:          message.Text,
+			MediaKind:     message.MediaKind,
+			MediaMimeType: message.MediaMimeType,
+		}))}
 	}
 }
 
@@ -932,38 +936,18 @@ func quotedMessageForReply(reply appstore.MessageReply) *waE2E.Message {
 	if reply.Text != "" {
 		return &waE2E.Message{Conversation: proto.String(reply.Text)}
 	}
-	return &waE2E.Message{Conversation: proto.String(replyMediaSummary(reply.MediaKind, reply.MediaMimeType))}
+	return &waE2E.Message{Conversation: proto.String(replyMediaSummary(reply))}
 }
 
-func replyMediaSummary(mediaKind, mediaMimeType string) string {
-	switch mediaKind {
-	case appstore.MediaKindSticker:
-		return "[Sticker]"
-	case appstore.MediaKindVideo:
-		return "[Video]"
-	case appstore.MediaKindGIF:
-		return "[GIF]"
-	case appstore.MediaKindVideoNote:
-		return "[Video message]"
-	case appstore.MediaKindVoice:
-		return "[Voice message]"
-	case appstore.MediaKindAudio:
-		return "[Audio]"
-	case appstore.MediaKindDocument:
-		return "[Document]"
+// replyMediaSummary is the stand-in body we put in a quote we could not rebuild
+// from the original media. It reads the same as everything else the daemon
+// renders on one line, and the peer's client shows it verbatim inside the
+// quote strip.
+func replyMediaSummary(reply appstore.MessageReply) string {
+	if line := appstore.ReplyPreviewLine(reply); line != "" {
+		return line
 	}
-	switch {
-	case mediaKind == appstore.MediaKindImage || strings.HasPrefix(mediaMimeType, "image/"):
-		return "[Image]"
-	case strings.HasPrefix(mediaMimeType, "video/"):
-		return "[Video]"
-	case strings.HasPrefix(mediaMimeType, "audio/"):
-		return "[Audio]"
-	case mediaKind != "" || mediaMimeType != "":
-		return "[Media]"
-	default:
-		return "[Message]"
-	}
+	return "Message"
 }
 
 func (c *Client) markPendingMessageSent(ctx context.Context, messageID string) {

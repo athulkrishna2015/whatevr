@@ -81,6 +81,10 @@ QVariantMap baseProps()
         {QStringLiteral("mediaPageCount"), 0},
         {QStringLiteral("mediaWaveform"), QVariantList()},
         {QStringLiteral("mediaPlayed"), false},
+        // A kind is not a promise of bytes: rows whose kind has nothing to
+        // fetch leave this false, and the media samples below set it.
+        {QStringLiteral("hasMedia"), false},
+        {QStringLiteral("isKept"), false},
         {QStringLiteral("isRevoked"), false},
         {QStringLiteral("isEdited"), false},
         {QStringLiteral("isStarred"), false},
@@ -236,6 +240,7 @@ void ChatBubblePerf::delegateCost_data()
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m6")},
                     {QStringLiteral("mediaKind"), QStringLiteral("image")},
+                    {QStringLiteral("hasMedia"), true},
                     {QStringLiteral("mediaMimeType"), QStringLiteral("image/jpeg")},
                     {QStringLiteral("mediaWidth"), 1280},
                     {QStringLiteral("mediaHeight"), 720}}), 122},
@@ -243,6 +248,7 @@ void ChatBubblePerf::delegateCost_data()
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m6-video")},
                     {QStringLiteral("mediaKind"), QStringLiteral("video")},
+                    {QStringLiteral("hasMedia"), true},
                     {QStringLiteral("mediaMimeType"), QStringLiteral("video/mp4")},
                     {QStringLiteral("mediaWidth"), 1280},
                     {QStringLiteral("mediaHeight"), 720},
@@ -256,6 +262,7 @@ void ChatBubblePerf::delegateCost_data()
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m7")},
                     {QStringLiteral("mediaKind"), QStringLiteral("sticker")},
+                    {QStringLiteral("hasMedia"), true},
                     {QStringLiteral("mediaMimeType"), QStringLiteral("image/webp")}}), 152},
         // A voice note and a video note are the two kinds whose layout is not a
         // picture: one is a fixed-height row inside the bubble, the other a
@@ -266,6 +273,7 @@ void ChatBubblePerf::delegateCost_data()
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m8")},
                     {QStringLiteral("mediaKind"), QStringLiteral("voice")},
+                    {QStringLiteral("hasMedia"), true},
                     {QStringLiteral("mediaMimeType"), QStringLiteral("audio/ogg")},
                     {QStringLiteral("mediaDurationSecs"), 6}}), 135},
         // The other audio row: a shared track, which is a squared-off tile, a
@@ -274,6 +282,7 @@ void ChatBubblePerf::delegateCost_data()
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m8-audio")},
                     {QStringLiteral("mediaKind"), QStringLiteral("audio")},
+                    {QStringLiteral("hasMedia"), true},
                     {QStringLiteral("mediaMimeType"), QStringLiteral("audio/mpeg")},
                     {QStringLiteral("mediaFileName"), QStringLiteral("Interstellar - Main.mp3")},
                     {QStringLiteral("mediaSizeBytes"), 4.2 * 1024 * 1024},
@@ -282,6 +291,7 @@ void ChatBubblePerf::delegateCost_data()
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m9")},
                     {QStringLiteral("mediaKind"), QStringLiteral("video_note")},
+                    {QStringLiteral("hasMedia"), true},
                     {QStringLiteral("mediaMimeType"), QStringLiteral("video/mp4")},
                     {QStringLiteral("mediaWidth"), 480},
                     {QStringLiteral("mediaHeight"), 480},
@@ -387,6 +397,7 @@ void ChatBubblePerf::idleVideoDefersItsBackendAndUsesASharpPoster()
         baseProps(),
         {{QStringLiteral("messageId"), QStringLiteral("video-idle")},
          {QStringLiteral("mediaKind"), QStringLiteral("video")},
+         {QStringLiteral("hasMedia"), true},
          {QStringLiteral("mediaMimeType"), QStringLiteral("video/mp4")},
          {QStringLiteral("mediaLocalPath"), QStringLiteral("/tmp/whatkevr-video.mp4")},
          {QStringLiteral("mediaThumbnailLocalPath"), thumbnailPath},
@@ -452,6 +463,7 @@ void ChatBubblePerf::rectangularVideoStreamsOnceAndLatchesItsSource()
         baseProps(),
         {{QStringLiteral("messageId"), QStringLiteral("video-stream")},
          {QStringLiteral("mediaKind"), QStringLiteral("video")},
+         {QStringLiteral("hasMedia"), true},
          {QStringLiteral("mediaMimeType"), QStringLiteral("video/mp4")},
          {QStringLiteral("mediaWidth"), 1280},
          {QStringLiteral("mediaHeight"), 720},
@@ -515,6 +527,7 @@ void ChatBubblePerf::rejectedStreamFallsBackAndStartsDownloadedFile()
         baseProps(),
         {{QStringLiteral("messageId"), QStringLiteral("video-fallback")},
          {QStringLiteral("mediaKind"), QStringLiteral("video")},
+         {QStringLiteral("hasMedia"), true},
          {QStringLiteral("mediaMimeType"), QStringLiteral("video/mp4")},
          {QStringLiteral("mediaWidth"), 1280},
          {QStringLiteral("mediaHeight"), 720}});
@@ -559,6 +572,7 @@ void ChatBubblePerf::videoDelegateReuseClearsPlaybackState()
         baseProps(),
         {{QStringLiteral("messageId"), QStringLiteral("video-old")},
          {QStringLiteral("mediaKind"), QStringLiteral("video")},
+         {QStringLiteral("hasMedia"), true},
          {QStringLiteral("mediaMimeType"), QStringLiteral("video/mp4")},
          {QStringLiteral("mediaWidth"), 1280},
          {QStringLiteral("mediaHeight"), 720}});
@@ -605,6 +619,7 @@ void ChatBubblePerf::endOfFileReturnsToThePosterAndCanReplay()
         baseProps(),
         {{QStringLiteral("messageId"), QStringLiteral("video-replay")},
          {QStringLiteral("mediaKind"), QStringLiteral("video_note")},
+         {QStringLiteral("hasMedia"), true},
          {QStringLiteral("mediaMimeType"), QStringLiteral("video/mp4")},
          {QStringLiteral("mediaLocalPath"), QStringLiteral("/tmp/whatkevr-video-note.mp4")},
          {QStringLiteral("mediaWidth"), 480},

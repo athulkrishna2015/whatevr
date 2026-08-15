@@ -353,6 +353,52 @@ private Q_SLOTS:
         QCOMPARE(role(model, 1, ProtocolMessageModel::TextRole).toString(),
                  QStringLiteral("This message was deleted"));
     }
+
+    // The bubble decides whether to offer a download from `hasMedia`, not from
+    // the kind. A structured kind (a poll, a contact card, a system event) has
+    // a kind and no bytes behind it, and inferring one from the other put a
+    // download button over nothing and fired media.download on every scroll-in.
+    void hasMediaFollowsTheDaemonNotTheKind()
+    {
+        CollectionViewModel source;
+        ProtocolMessageModel model(&source);
+
+        QJsonObject poll = message(QStringLiteral("m1"), 1'700'000'000);
+        poll.insert(QStringLiteral("kind"), QStringLiteral("poll"));
+        poll.insert(QStringLiteral("fallback"), QStringLiteral("📊 Poll: dinner?"));
+        poll.remove(QStringLiteral("text"));
+
+        QJsonObject photo = message(QStringLiteral("m2"), 1'700'000'001);
+        photo.insert(QStringLiteral("kind"), QStringLiteral("image"));
+        photo.insert(QStringLiteral("media"), QJsonObject{
+            {QStringLiteral("mime"), QStringLiteral("image/jpeg")},
+        });
+
+        source.onUpsert(QStringLiteral("0001"), poll);
+        source.onUpsert(QStringLiteral("0002"), photo);
+
+        QCOMPARE(role(model, 0, ProtocolMessageModel::HasMediaRole).toBool(), false);
+        QCOMPARE(role(model, 1, ProtocolMessageModel::HasMediaRole).toBool(), true);
+        // A kind with no media of its own still has its label to render.
+        QCOMPARE(role(model, 0, ProtocolMessageModel::TextRole).toString(),
+                 QStringLiteral("📊 Poll: dinner?"));
+    }
+
+    void keptRidesTheItem()
+    {
+        CollectionViewModel source;
+        ProtocolMessageModel model(&source);
+
+        QJsonObject plain = message(QStringLiteral("m1"), 1'700'000'000);
+        QJsonObject kept = message(QStringLiteral("m2"), 1'700'000'001);
+        kept.insert(QStringLiteral("kept"), true);
+
+        source.onUpsert(QStringLiteral("0001"), plain);
+        source.onUpsert(QStringLiteral("0002"), kept);
+
+        QCOMPARE(role(model, 0, ProtocolMessageModel::IsKeptRole).toBool(), false);
+        QCOMPARE(role(model, 1, ProtocolMessageModel::IsKeptRole).toBool(), true);
+    }
 };
 
 QTEST_MAIN(TestProtocolMessageModel)

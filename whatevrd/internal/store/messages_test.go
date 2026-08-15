@@ -550,7 +550,7 @@ func TestRecordUndecryptableMessageTimestampCorrectsExistingMessageAndChatSummar
 	if err != nil {
 		t.Fatalf("get chat before correction: %v", err)
 	}
-	if chat.LastMessage != "[Image]" || chat.LastMessageTime != 400 {
+	if chat.LastMessage != "📷 Photo" || chat.LastMessageTime != 400 {
 		t.Fatalf("chat before correction = %+v, want image at 400", chat)
 	}
 
@@ -2183,7 +2183,7 @@ func TestSaveMessagesBatchMatchesSingleSaveSemantics(t *testing.T) {
 	if saved[1].Chat.UnreadCount != 2 {
 		t.Fatalf("expected unread=2 after batch, got %+v", saved[1].Chat)
 	}
-	if saved[1].Chat.LastMessage != "[Image]" || saved[1].Chat.LastMessageTime != 200 {
+	if saved[1].Chat.LastMessage != "📷 Photo" || saved[1].Chat.LastMessageTime != 200 {
 		t.Fatalf("unexpected chat summary after batch: %+v", saved[1].Chat)
 	}
 

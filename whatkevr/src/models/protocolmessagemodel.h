@@ -84,6 +84,13 @@ public:
         PinnedUntilUnixRole,
         ReactionsRole,
         MediaDownloadProgressRole,
+        // Whether the daemon attached a `media` object at all. Kinds with
+        // nothing to fetch (a poll, a contact card, a system event) have a
+        // kind but no media, and a bubble that inferred "downloadable" from
+        // the kind alone would put a download button over nothing.
+        HasMediaRole,
+        // A disappearing message somebody asked to keep in the chat.
+        IsKeptRole,
     };
     Q_ENUM(Role)
 
