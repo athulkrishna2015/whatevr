@@ -191,13 +191,18 @@ void ChatBubblePerf::delegateCost_data()
         "the whole point of this row is that it wraps across several lines so "
         "the body text actually has to lay out more than one line of content");
 
+    // The text rows below are each one object up on their old ceiling, and all
+    // for the same reason: the media slot's audio loader now picks between a
+    // voice note's row and a shared audio file's, so it carries a Component for
+    // each instead of one inline. Two loaders would have cost twice that on
+    // every delegate in the chat, this one included.
     const QList<Sample> samples = {
         {"plain-text-incoming",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m1")},
                     {QStringLiteral("text"), shortBody},
                     {QStringLiteral("layoutText"), shortBody},
-                    {QStringLiteral("status"), 4}}), 60},
+                    {QStringLiteral("status"), 4}}), 61},
         {"plain-text-outgoing",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m2")},
@@ -210,7 +215,7 @@ void ChatBubblePerf::delegateCost_data()
                    {{QStringLiteral("messageId"), QStringLiteral("m3")},
                     {QStringLiteral("text"), longBody},
                     {QStringLiteral("layoutText"), longBody},
-                    {QStringLiteral("status"), 3}}), 60},
+                    {QStringLiteral("status"), 3}}), 61},
         {"text-with-reply",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m4")},
@@ -218,7 +223,7 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("layoutText"), shortBody},
                     {QStringLiteral("replyToMessageId"), QStringLiteral("m1")},
                     {QStringLiteral("replyToSenderName"), QStringLiteral("Aditi")},
-                    {QStringLiteral("replyToText"), shortBody}}), 90},
+                    {QStringLiteral("replyToText"), shortBody}}), 91},
         {"text-with-sender-header",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m5")},
@@ -263,6 +268,16 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("mediaKind"), QStringLiteral("voice")},
                     {QStringLiteral("mediaMimeType"), QStringLiteral("audio/ogg")},
                     {QStringLiteral("mediaDurationSecs"), 6}}), 135},
+        // The other audio row: a shared track, which is a squared-off tile, a
+        // filename and a plain seek line rather than a disc and a waveform.
+        {"audio-file",
+         withProps(baseProps(),
+                   {{QStringLiteral("messageId"), QStringLiteral("m8-audio")},
+                    {QStringLiteral("mediaKind"), QStringLiteral("audio")},
+                    {QStringLiteral("mediaMimeType"), QStringLiteral("audio/mpeg")},
+                    {QStringLiteral("mediaFileName"), QStringLiteral("Interstellar - Main.mp3")},
+                    {QStringLiteral("mediaSizeBytes"), 4.2 * 1024 * 1024},
+                    {QStringLiteral("mediaDurationSecs"), 204}}), 141},
         {"video-note",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m9")},

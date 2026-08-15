@@ -112,6 +112,7 @@ set(WHATKEVR_QML_FILES
         qml/components/SearchHighlight.js
         qml/components/PinnedMessagesBanner.qml
         qml/components/HistorySyncStrip.qml
+        qml/components/NowPlayingBar.qml
         qml/components/KineticWheelScroller.qml
         qml/components/DiscreetScrollBar.qml
         qml/components/RowScrollBar.qml
@@ -130,6 +131,9 @@ set(WHATKEVR_QML_FILES
     qml/components/MediaOverlayButton.qml
     qml/components/MediaDragArea.qml
     qml/components/VoiceBubble.qml
+    qml/components/AudioFileBubble.qml
+    qml/components/AudioSeekLine.qml
+    qml/components/AudioTransport.qml
         qml/components/FramelessBubble.qml
         qml/components/QuickReactionBar.qml
         qml/components/QuickReactionPopup.qml

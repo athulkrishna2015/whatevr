@@ -953,10 +953,16 @@ QVariantMap ProtocolMessageModel::nextVoiceMessage(const QString &messageId) con
         if (path.isEmpty()) {
             return {};
         }
+        // The sender fields ride along so the handoff can refresh the player's
+        // now-playing snapshot; a chained note is nobody's bubble's doing.
         return {
             {QStringLiteral("messageId"), item.value(QStringLiteral("id")).toString()},
             {QStringLiteral("localPath"), path},
             {QStringLiteral("durationSecs"), mediaData.value(QStringLiteral("duration_secs"))},
+            {QStringLiteral("senderName"), senderDisplayName(item)},
+            {QStringLiteral("avatarPath"), sender(item).value(QStringLiteral("avatar_path"))},
+            {QStringLiteral("waveform"), mediaData.value(QStringLiteral("waveform"))},
+            {QStringLiteral("isOutgoing"), item.value(QStringLiteral("direction")).toString() == QLatin1String("outgoing")},
         };
     }
     return {};

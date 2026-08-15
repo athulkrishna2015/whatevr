@@ -2045,12 +2045,18 @@ Item {
     }
 
     // Voice notes chain: finishing one plays the next one down the chat, the
-    // way WhatsApp does, and switching chats stops whatever is playing.
+    // way WhatsApp does.
     Connections {
         target: Whatevr.AudioPlayer
 
         function onFinished(messageId) {
             if (!Whatevr.Settings.advanceVoiceMessages) {
+                return
+            }
+            // messageListModel is the *open* chat, so without this a note
+            // finishing in a chat you have since left would chain into whatever
+            // voice note happens to sit below in the chat you are reading now.
+            if (Whatevr.AudioPlayer.chatId !== Whatevr.ProtocolController.selectedChatId) {
                 return
             }
             const next = Whatevr.ProtocolController.messageListModel.nextVoiceMessage(messageId)
@@ -2059,18 +2065,22 @@ Item {
             }
             Whatevr.AudioPlayer.play(next.messageId,
                                      Whatevr.ProtocolController.localFileUrl(next.localPath),
-                                     next.durationSecs)
+                                     next.durationSecs,
+                                     {
+                                         "chat_id": Whatevr.ProtocolController.selectedChatId,
+                                         "chat_name": Whatevr.ProtocolController.selectedChatName,
+                                         "sender_name": next.isOutgoing ? "" : next.senderName,
+                                         "avatar_path": next.isOutgoing ? "" : next.avatarPath,
+                                         "file_name": "",
+                                         "is_voice": true,
+                                         "is_outgoing": next.isOutgoing,
+                                         "waveform": next.waveform ? next.waveform : []
+                                     })
         }
     }
 
     Connections {
         target: Whatevr.ProtocolController
-
-        function onSelectionChanged() {
-            // A voice note playing out of a chat you have left is nobody's
-            // intent; the bubble it belongs to is not even on screen.
-            Whatevr.AudioPlayer.stop()
-        }
 
         function onMessageActionFailed(errorText) {
             root.showNotification(errorText)

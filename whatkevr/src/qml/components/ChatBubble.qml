@@ -404,11 +404,15 @@ Item {
     // Voice notes, audio files and documents are rows, not pictures: a fixed
     // height and a comfortable width that does not depend on decode.
     readonly property real attachmentBlockWidth: Math.min(maxContentWidth, Kirigami.Units.gridUnit * 17)
-    // Two lines: the waveform (or the filename) and the line under it that now
-    // carries the timestamp too, so the block no longer reserves a third.
-    readonly property real attachmentBlockHeight: isDocument
-        ? Kirigami.Units.gridUnit * 2.9
-        : Kirigami.Units.gridUnit * 2.6
+    // Two lines for a voice note: the waveform and the line under it that now
+    // carries the timestamp too, so the block no longer reserves a third. An
+    // audio file needs three, since its name will not share a line with its
+    // seek track the way a nameless recording's waveform does.
+    readonly property real attachmentBlockHeight: isAudioFile
+        ? Kirigami.Units.gridUnit * 3.4
+        : isDocument
+            ? Kirigami.Units.gridUnit * 2.9
+            : Kirigami.Units.gridUnit * 2.6
 
     readonly property int imageDecodeWidth: decodeWidthForAspect(imageDecodeWidthCap, imageDecodeHeightCap, reservedImageAspectRatio)
     readonly property int imageDecodeHeight: decodeHeightForAspect(imageDecodeWidthCap, imageDecodeHeightCap, reservedImageAspectRatio)
@@ -1312,11 +1316,30 @@ Item {
                     }
                 }
 
+                // A recording and a shared track are different rows (round and
+                // wordless against square and named), but they are the same slot
+                // and never both: one Loader picking between them, rather than
+                // one each, keeps two objects off every delegate in the chat,
+                // text rows included.
                 Loader {
                     anchors.fill: parent
                     active: mediaSlot.visible && (root.isVoice || root.isAudioFile)
-                    sourceComponent: VoiceBubble {
-                        row: root
+                    sourceComponent: root.isVoice ? voiceRow : audioFileRow
+
+                    Component {
+                        id: voiceRow
+
+                        VoiceBubble {
+                            row: root
+                        }
+                    }
+
+                    Component {
+                        id: audioFileRow
+
+                        AudioFileBubble {
+                            row: root
+                        }
                     }
                 }
 
