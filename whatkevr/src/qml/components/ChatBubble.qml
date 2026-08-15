@@ -666,15 +666,32 @@ Item {
                                                        imageDisplayWidth - innerPadding * 2)
     readonly property real textRegionWidth: hasInlineMedia ? innerContentWidth : contentBlockWidth
 
+    // Whether the media slot has real artwork on screen rather than an empty
+    // plate. Bound from inside whichever media stack is loaded (see the Binding
+    // in the image component below, and the one in VideoBubble); a plain value
+    // rather than a binding here, so a text row or a recycled delegate with no
+    // stack at all reads false.
+    property bool mediaArtworkShown: false
+    // The footer is only sitting on a picture once there is a picture. An
+    // undownloaded photo is an empty plate with a "Load image" button on it, and
+    // white-on-nothing under a scrim is neither readable nor honest about what
+    // is there.
+    readonly property bool footerOverArtwork: imageOnly && mediaArtworkShown
+
     // Footer (time + ticks) colours. Over the image-only vignette they switch to
     // light tones for contrast; otherwise the muted theme colours are used.
-    readonly property color footerTextColor: imageOnly ? "white" : Kirigami.Theme.disabledTextColor
+    //
+    // Switched rather than cross-faded: a Behavior here is three more objects on
+    // every row in the chat, text rows included, to smooth one frame on the two
+    // kinds that can ever make the change. The vignette under them fades, which
+    // is the part the eye follows.
+    readonly property color footerTextColor: footerOverArtwork ? "white" : Kirigami.Theme.disabledTextColor
     readonly property color statusTickColor: statusIsRead
-        ? (imageOnly ? Qt.lighter(Whatevr.Palette.highlight, 1.4) : Whatevr.Palette.highlight)
-        : (imageOnly ? "white" : Kirigami.Theme.disabledTextColor)
+        ? (footerOverArtwork ? Qt.lighter(Whatevr.Palette.highlight, 1.4) : Whatevr.Palette.highlight)
+        : (footerOverArtwork ? "white" : Kirigami.Theme.disabledTextColor)
     readonly property color statusSingleColor: statusIsFailed
         ? Kirigami.Theme.negativeTextColor
-        : (imageOnly ? "white" : Kirigami.Theme.disabledTextColor)
+        : (footerOverArtwork ? "white" : Kirigami.Theme.disabledTextColor)
 
     // Per-corner radii for the edge-to-edge media. Top corners follow the
     // bubble's top corners; bottom corners are only rounded for image-only
@@ -1012,6 +1029,19 @@ Item {
                       Item {
                         anchors.fill: parent
 
+                // Reported up so the footer knows whether it is sitting on a
+                // picture or on an empty plate. A Binding rather than a typed
+                // Loader.item handle because this component is inline and has no
+                // name to read it back through; it is released with the stack,
+                // which is exactly when the answer goes back to false.
+                Binding {
+                    target: root
+                    property: "mediaArtworkShown"
+                    restoreMode: Binding.RestoreBindingOrValue
+                    value: (root.hasLocalImage && img.status === Image.Ready)
+                           || (root.hasThumbnailImage && thumb.status === Image.Ready)
+                }
+
                 Kirigami.ShadowedRectangle {
                     id: mediaBackground
 
@@ -1264,6 +1294,17 @@ Item {
                         anchors.bottom: parent.bottom
                         height: Math.min(parent.height, Kirigami.Units.gridUnit * 2.4)
                         radius: Math.max(root.mediaBottomLeftRadius, root.mediaBottomRightRadius)
+                        // Faded rather than unloaded: `active` above stays keyed
+                        // on the kind, so a decode (or a re-decode after a fling
+                        // settles) never tears this down and builds it again.
+                        opacity: root.footerOverArtwork ? 1 : 0
+
+                        Behavior on opacity {
+                            NumberAnimation {
+                                duration: Kirigami.Units.shortDuration
+                                easing.type: Easing.OutCubic
+                            }
+                        }
                         gradient: Gradient {
                             GradientStop { position: 0.0; color: "transparent" }
                             GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.5) }

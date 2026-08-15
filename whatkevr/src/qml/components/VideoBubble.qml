@@ -578,6 +578,17 @@ Item {
     // clips costs no framebuffers; only the few bubbles actually decoding video
     // pay for a layer.
 
+    // Reported up so the row's footer knows whether it is sitting on a picture
+    // or on the empty placeholder plate. The poster and the running surface are
+    // the two things that put one there; a clip that arrived with no artwork and
+    // has never been played has neither.
+    Binding {
+        target: root.row
+        property: "mediaArtworkShown"
+        restoreMode: Binding.RestoreBindingOrValue
+        value: poster.status === Image.Ready || root.showsVideo
+    }
+
     Item {
         id: picture
 
