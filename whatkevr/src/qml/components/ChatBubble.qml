@@ -1296,7 +1296,13 @@ Item {
                         anchors.left: parent.left
                         anchors.right: parent.right
                         anchors.bottom: parent.bottom
-                        height: Math.min(parent.height, Kirigami.Units.gridUnit * 2.4)
+                        // Tall enough to seat the time and ticks and no taller:
+                        // the footer sits footerInset off the bottom and is
+                        // tntHeight tall, so this is that line plus the same
+                        // margin again above it. A fixed 2.4 gridUnits ran a
+                        // visible grey a third of the way up the picture, where
+                        // there is nothing to make legible.
+                        height: Math.min(parent.height, root.tntHeight + root.footerInset * 2)
                         radius: Math.max(root.mediaBottomLeftRadius, root.mediaBottomRightRadius)
                         // Faded rather than unloaded: `active` above stays keyed
                         // on the kind, so a decode (or a re-decode after a fling
@@ -1311,7 +1317,7 @@ Item {
                         }
                         gradient: Gradient {
                             GradientStop { position: 0.0; color: "transparent" }
-                            GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.5) }
+                            GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.55) }
                         }
                     }
                 }
