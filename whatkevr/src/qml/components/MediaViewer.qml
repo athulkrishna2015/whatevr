@@ -37,6 +37,12 @@ QQC2.Popup {
     /// than when the dialog opened.
     property string fileName: ""
     property real timestampUnix: 0
+    /// The clip's native pixel size. The viewer needs it to know where the
+    /// picture actually ends, because a clip is fitted inside its frame and
+    /// everything either side of it is backdrop. Zero when the sender shipped
+    /// no dimensions, in which case the whole frame counts as picture.
+    property real mediaWidth: 0
+    property real mediaHeight: 0
     property string returnMessageId: ""
     property real returnPosition: 0
     property bool returnPlaying: false
@@ -97,7 +103,7 @@ QQC2.Popup {
         open()
     }
 
-    function showVideo(id, path, url, streamId, mediaKind, duration, at, name, sentAtUnix) {
+    function showVideo(id, path, url, streamId, mediaKind, duration, at, name, sentAtUnix, width, height) {
         kind = mediaKind && mediaKind.length > 0 ? mediaKind : "video"
         messageId = id
         localPath = path
@@ -106,6 +112,8 @@ QQC2.Popup {
         durationSecs = duration
         fileName = name ?? ""
         timestampUnix = sentAtUnix ?? 0
+        mediaWidth = width ?? 0
+        mediaHeight = height ?? 0
         // Before open(), so the surface engages with it already set: the start
         // position is read once, when the file is loaded. Same for the still
         // the bubble just captured, which stands in until the decoder catches
@@ -295,12 +303,12 @@ QQC2.Popup {
     contentItem: Item {
         id: viewerContent
 
-        // On a video, a tap anywhere that is not a control plays or pauses:
-        // the clip is what the screen is for, and a full-screen player that
-        // exits when the pointer misses the picture by ten pixels is a trap.
-        // A photo has nothing to toggle, so there the backdrop still closes.
-        // The chrome bars and the controls are above this and take their own
-        // presses first.
+        // The backdrop: everything that is not the picture itself. A click here
+        // dismisses, for a video as much as for a photo. Play and pause belong
+        // to the picture, which takes its own presses (see videoFrame below and
+        // the photo's own area); the letterbox either side of a clip is not the
+        // clip, and treating it as such made closing a video a hunt for the one
+        // corner the transport bar did not cover.
         //
         // A MouseArea rather than a TapHandler, and this is the whole reason:
         // a handler watches events without consuming them, and modality does
@@ -316,11 +324,6 @@ QQC2.Popup {
             onPositionChanged: root.wakeChrome()
             onClicked: mouse => {
                 if (mouse.button !== Qt.LeftButton) {
-                    return
-                }
-                if (root.isVideo) {
-                    root.togglePlayback()
-                    root.wakeChrome()
                     return
                 }
                 root.close()
@@ -420,6 +423,51 @@ QQC2.Popup {
                 ? width
                 : parent.height - Kirigami.Units.gridUnit * 6
 
+            // The clip is fitted inside this frame, so the frame is wider or
+            // taller than the picture on every clip whose shape is not the
+            // screen's. This is the picture: what a tap is allowed to play or
+            // pause, and the only part of the frame that is not backdrop.
+            // Falls back to the whole frame when the sender shipped no
+            // dimensions, since guessing a smaller area would put dead pixels
+            // where the video plainly is.
+            readonly property real pictureScale: root.mediaWidth > 0 && root.mediaHeight > 0
+                ? Math.min(width / root.mediaWidth, height / root.mediaHeight)
+                : 0
+
+            // Declared first so every overlay below (the big play button, the
+            // buffering and failure states) still takes its own presses; this
+            // only catches what falls through to the picture itself.
+            MouseArea {
+                id: pictureHit
+
+                anchors.centerIn: parent
+                width: videoFrame.pictureScale > 0 ? root.mediaWidth * videoFrame.pictureScale : parent.width
+                height: videoFrame.pictureScale > 0 ? root.mediaHeight * videoFrame.pictureScale : parent.height
+                acceptedButtons: Qt.LeftButton
+
+                // A video note is drawn round, so its corners are backdrop even
+                // though its bounds are square. Without this, a quarter of the
+                // circle's bounding box played and paused a picture that was
+                // not under the pointer.
+                containmentMask: QtObject {
+                    function contains(point) {
+                        if (!root.isVideoNote) {
+                            return point.x >= 0 && point.y >= 0
+                                && point.x <= pictureHit.width && point.y <= pictureHit.height
+                        }
+                        const radius = Math.min(pictureHit.width, pictureHit.height) / 2
+                        const dx = point.x - pictureHit.width / 2
+                        const dy = point.y - pictureHit.height / 2
+                        return dx * dx + dy * dy <= radius * radius
+                    }
+                }
+
+                onClicked: {
+                    root.togglePlayback()
+                    root.wakeChrome()
+                }
+            }
+
             // The frame the bubble was showing when it handed over, held until
             // this viewer's own decoder has one. Opening a file and seeking to
             // the handoff position takes long enough to see, and what used to
@@ -470,9 +518,9 @@ QQC2.Popup {
                 // loops.
                 onEndOfFile: surface.playbackWanted = false
 
-                // No tap handler of its own: the whole viewer toggles playback
-                // now, and two handlers over the same pixels both fired on one
-                // tap, which is a toggle that toggles back.
+                // No tap handler of its own: pictureHit above covers the picture
+                // for the whole frame, and two handlers over the same pixels
+                // both fired on one tap, which is a toggle that toggles back.
             }
 
             // A paused full-screen video used to show a still frame and nothing

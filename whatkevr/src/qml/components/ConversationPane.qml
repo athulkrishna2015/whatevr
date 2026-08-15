@@ -768,7 +768,9 @@ Kirigami.Page {
                     const snapshot = messageView.messageSnapshot(messageId)
                     messageImageViewer.showVideo(messageId, localPath, streamUrl, streamId, kind, durationSecs, startAt,
                                                  snapshot ? String(snapshot.mediaFileName || "") : "",
-                                                 snapshot ? Number(snapshot.timestampUnix || 0) : 0)
+                                                 snapshot ? Number(snapshot.timestampUnix || 0) : 0,
+                                                 snapshot ? Number(snapshot.mediaWidth || 0) : 0,
+                                                 snapshot ? Number(snapshot.mediaHeight || 0) : 0)
                 }
             }
 

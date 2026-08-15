@@ -905,6 +905,10 @@ QVariantMap ProtocolMessageModel::messageSnapshot(const QString &messageId) cons
         {QStringLiteral("mediaFileName"), mediaData.value(QStringLiteral("filename"))},
         {QStringLiteral("mediaSizeBytes"), mediaData.value(QStringLiteral("size_bytes"))},
         {QStringLiteral("mediaDurationSecs"), mediaData.value(QStringLiteral("duration_secs"))},
+        // The clip's own pixel size, which is what lets the full-screen viewer
+        // tell the picture apart from the letterbox around it.
+        {QStringLiteral("mediaWidth"), mediaData.value(QStringLiteral("width"))},
+        {QStringLiteral("mediaHeight"), mediaData.value(QStringLiteral("height"))},
         {QStringLiteral("mediaCacheKey"), QString()},
         // Download state, so the context menu can offer Download, Cancel and
         // Retry rather than being blind to anything that is not on disk yet.
