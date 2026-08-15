@@ -116,12 +116,12 @@ Item {
                 // A track at rest shows what it is; hovering or playing turns
                 // the tile into a transport control.
                 //
-                // The resting glyph is the mimetype icon rather than a
-                // "-symbolic" name: Breeze ships no audio-x-generic-symbolic, so
-                // that name resolved to the theme's unknown-file page, which
-                // isMask then flattened into a solid blue rectangle. The
-                // mimetype icon's silhouette is a pair of beamed notes, which is
-                // what this wanted in the first place.
+                // The resting glyph is an action icon, not the audio mimetype
+                // one. A mimetype icon is drawn differently per size in Breeze:
+                // a bare pair of notes at 22px, a document card at 64px. A
+                // HiDPI screen asks for 44px and so gets the card, which isMask
+                // then flattens into a featureless slab. Action icons ship one
+                // drawing at every size, so this looks the same everywhere.
                 source: {
                     if (root.row.mediaDownloading)
                         return ""
@@ -131,8 +131,10 @@ Item {
                         return "media-playback-pause-symbolic"
                     if (playTile.hovered || transport.isCurrent)
                         return "media-playback-start-symbolic"
-                    return "audio-x-generic"
+                    return "media-album-track-symbolic"
                 }
+                // A theme without it falls back to the transport glyph rather
+                // than to a mimetype icon, which would reintroduce the slab.
                 fallback: "media-playback-start-symbolic"
                 color: root.row.isOutgoing ? Kirigami.Theme.highlightColor : Whatevr.Palette.highlight
                 isMask: true
