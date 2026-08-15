@@ -1146,25 +1146,6 @@ Item {
                     }
                 }
 
-                // Dark scrim behind the time+ticks overlaid on image-only
-                // messages. A uniform radius is fine here: the top corners sit in
-                // the transparent part of the gradient, so only the rounded
-                // bottom corners are visible and they line up with the image.
-                Rectangle {
-                    id: mediaScrim
-
-                    visible: root.imageOnly
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    height: Math.min(parent.height, Kirigami.Units.gridUnit * 2.4)
-                    radius: Math.max(root.mediaBottomLeftRadius, root.mediaBottomRightRadius)
-                    gradient: Gradient {
-                        GradientStop { position: 0.0; color: "transparent" }
-                        GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.5) }
-                    }
-                }
-
                 Item {
                     id: imageOverlay
                     anchors.fill: parent
@@ -1263,6 +1244,30 @@ Item {
                         topRightRadius: root.mediaTopRightRadius
                         bottomLeftRadius: root.mediaBottomLeftRadius
                         bottomRightRadius: root.mediaBottomRightRadius
+                    }
+                }
+
+                // Dark scrim behind the time and ticks overlaid on media that
+                // fills its bubble, video as much as photo: the same reading
+                // aid in the same place, rather than a gradient on one kind and
+                // a black pill on the other. Declared after the media loaders
+                // so it sits over whichever of them built something, and a
+                // uniform radius is fine because the top corners are in the
+                // transparent part of the gradient.
+                Loader {
+                    anchors.fill: parent
+                    active: mediaSlot.visible && root.imageOnly
+
+                    sourceComponent: Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        height: Math.min(parent.height, Kirigami.Units.gridUnit * 2.4)
+                        radius: Math.max(root.mediaBottomLeftRadius, root.mediaBottomRightRadius)
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: "transparent" }
+                            GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.5) }
+                        }
                     }
                 }
 
@@ -1539,15 +1544,6 @@ Item {
                 }
                 width: root.tntWidth
                 height: root.tntHeight
-
-                Rectangle {
-                    anchors.fill: parent
-                    anchors.margins: -root.tntSpacing
-                    visible: root.imageOnly && root.isPlayableVideo
-                    z: -1
-                    radius: height / 2
-                    color: Qt.alpha("black", 0.55)
-                }
 
                 // Delivery status, built only for rows that show one — i.e.
                 // never for incoming messages. The single/double forms share

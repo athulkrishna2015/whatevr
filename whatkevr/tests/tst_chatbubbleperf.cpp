@@ -241,7 +241,12 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("mediaMimeType"), QStringLiteral("video/mp4")},
                     {QStringLiteral("mediaWidth"), 1280},
                     {QStringLiteral("mediaHeight"), 720},
-                    {QStringLiteral("mediaDurationSecs"), 12}}), 135},
+                    // Raised from 135 when video rows took on the same bottom
+                    // vignette photos use (a loader, a gradient and its two
+                    // stops, less the pill it replaced) and the bubble gained
+                    // the two grace timers that keep a handoff and a scroll
+                    // from flashing a spinner or a stale poster.
+                    {QStringLiteral("mediaDurationSecs"), 12}}), 140},
         {"sticker",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m7")},
