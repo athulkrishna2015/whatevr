@@ -115,6 +115,13 @@ Item {
             contentItem: Kirigami.Icon {
                 // A track at rest shows what it is; hovering or playing turns
                 // the tile into a transport control.
+                //
+                // The resting glyph is the mimetype icon rather than a
+                // "-symbolic" name: Breeze ships no audio-x-generic-symbolic, so
+                // that name resolved to the theme's unknown-file page, which
+                // isMask then flattened into a solid blue rectangle. The
+                // mimetype icon's silhouette is a pair of beamed notes, which is
+                // what this wanted in the first place.
                 source: {
                     if (root.row.mediaDownloading)
                         return ""
@@ -124,8 +131,9 @@ Item {
                         return "media-playback-pause-symbolic"
                     if (playTile.hovered || transport.isCurrent)
                         return "media-playback-start-symbolic"
-                    return "audio-x-generic-symbolic"
+                    return "audio-x-generic"
                 }
+                fallback: "media-playback-start-symbolic"
                 color: root.row.isOutgoing ? Kirigami.Theme.highlightColor : Whatevr.Palette.highlight
                 isMask: true
                 implicitWidth: Kirigami.Units.iconSizes.smallMedium
