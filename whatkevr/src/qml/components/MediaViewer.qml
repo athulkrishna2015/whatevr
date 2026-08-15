@@ -273,10 +273,25 @@ QQC2.Popup {
         // the clip is what the screen is for, and a full-screen player that
         // exits when the pointer misses the picture by ten pixels is a trap.
         // A photo has nothing to toggle, so there the backdrop still closes.
-        // The chrome bars carry their own handlers so a tap on a bar's
-        // background does not fall through to here.
-        TapHandler {
-            onTapped: {
+        // The chrome bars and the controls are above this and take their own
+        // presses first.
+        //
+        // A MouseArea rather than a TapHandler, and this is the whole reason:
+        // a handler watches events without consuming them, and modality does
+        // not help here because the press lands inside the viewer's own area
+        // rather than outside it. With nothing in the popup accepting the
+        // press, it carried on down to the conversation and started the bubble
+        // underneath playing, behind a viewer that had just been revoked.
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.AllButtons
+            hoverEnabled: true
+
+            onPositionChanged: root.wakeChrome()
+            onClicked: mouse => {
+                if (mouse.button !== Qt.LeftButton) {
+                    return
+                }
                 if (root.isVideo) {
                     root.togglePlayback()
                     root.wakeChrome()
@@ -284,9 +299,13 @@ QQC2.Popup {
                 }
                 root.close()
             }
+            // Nothing behind a full-screen viewer may scroll, either.
+            onWheel: wheel => wheel.accepted = true
         }
 
         // Any pointer movement anywhere brings the controls back.
+        // Movement over the controls themselves, which sit above the blocking
+        // area below and so never reach its own hover reporting.
         HoverHandler {
             onPointChanged: root.wakeChrome()
         }
@@ -313,10 +332,12 @@ QQC2.Popup {
             width: implicitWidth * fitScale
             height: implicitHeight * fitScale
 
-            // Takes the tap that would otherwise reach the backdrop handler:
-            // a click on the photo itself must not dismiss the viewer.
-            TapHandler {
-                onTapped: root.wakeChrome()
+            // Takes the click that would otherwise reach the blocking area
+            // below: a click on the photo itself must not dismiss the viewer.
+            // It has to consume the press to do that, which a handler does not.
+            MouseArea {
+                anchors.fill: parent
+                onClicked: root.wakeChrome()
             }
         }
 
@@ -572,10 +593,12 @@ QQC2.Popup {
             radius: Kirigami.Units.cornerRadius
             color: Qt.rgba(0, 0, 0, 0.6)
 
-            // Swallows taps on the bar's own background, which would otherwise
-            // reach the backdrop handler and close the viewer.
-            TapHandler {
-                onTapped: root.wakeChrome()
+            // Swallows clicks on the bar's own background, which would
+            // otherwise reach the blocking area below and be read as a tap on
+            // the video. Consuming the press is the part that matters.
+            MouseArea {
+                anchors.fill: parent
+                onClicked: root.wakeChrome()
             }
 
             RowLayout {
@@ -655,10 +678,11 @@ QQC2.Popup {
             radius: Kirigami.Units.cornerRadius
             color: Qt.rgba(0, 0, 0, 0.6)
 
-            // Same as the action bar: a tap on the bar itself must not fall
-            // through to the backdrop's close handler.
-            TapHandler {
-                onTapped: root.wakeChrome()
+            // Same as the action bar: a click on the bar itself must not fall
+            // through to the blocking area below.
+            MouseArea {
+                anchors.fill: parent
+                onClicked: root.wakeChrome()
             }
 
             RowLayout {
