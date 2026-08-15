@@ -166,8 +166,19 @@ public:
      */
     void reopenVideoTrack();
 
-    /// The frame on screen, straight out of mpv. Null if there is none.
-    QImage grabStill() const;
+    /**
+     * Asks mpv for the frame on screen; the picture arrives later, on
+     * stillReady().
+     *
+     * Asynchronous because the reply is not worth a stall: a synchronous
+     * command is serviced by the core, and a core waiting on bytes the daemon
+     * has not fetched services nothing for as long as that takes. Every caller
+     * asks at a moment that has to stay smooth (a clip leaving the viewport, a
+     * viewer closing), so the GUI thread must not wait for any of them.
+     *
+     * Returns whether a request was sent at all.
+     */
+    bool requestStill();
 
 public Q_SLOTS:
     /// Drains mpv's event queue. Called on the GUI thread in response to
@@ -188,6 +199,9 @@ Q_SIGNALS:
     /// Playback reached the end of the file (not emitted while looping).
     void endOfFile();
     void errorOccurred(const QString &message);
+    /// A frame asked for by requestStill() came back. Never emitted with a null
+    /// image: a request that produced nothing is simply dropped.
+    void stillReady(const QImage &image);
 
 private:
     void observeProperties();
@@ -195,6 +209,12 @@ private:
     void setProperty(const QString &name, const QVariant &value);
     /// Applies a flag property change and reports whether it moved.
     static bool updateFlag(bool &target, bool value);
+
+    /// Tags our own screenshot replies apart from any other async command.
+    static constexpr uint64_t stillRequestId = 1;
+    /// Whether a still request is in flight. One at a time: a second while the
+    /// first is outstanding would only ask for the same frame again.
+    bool m_stillPending = false;
 
     Mode m_mode = Mode::Audio;
     mpv_handle *m_mpv = nullptr;

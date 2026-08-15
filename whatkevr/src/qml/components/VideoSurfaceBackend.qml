@@ -63,9 +63,4 @@ Item {
 
     function surfaceSeek(seconds) {
     }
-
-    /// Hands the frame on screen to the arbiter, so whatever draws this clip
-    /// next has a picture before its own decoder produces one.
-    function captureStill() {
-    }
 }

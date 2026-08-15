@@ -146,7 +146,10 @@ public:
     /// A finished clip playing again from the top.
     Q_INVOKABLE void replayFromStart();
 
-    /// Hands the frame on screen to whoever is keeping stills.
+    /// Asks for the frame on screen; it reaches whoever is keeping stills when
+    /// mpv answers, which is a few milliseconds later and never blocks the
+    /// caller. A capture asked for on behalf of one message and answered after
+    /// the session moved to another is dropped.
     Q_INVOKABLE void captureStill();
 
 Q_SIGNALS:
@@ -199,6 +202,9 @@ private:
     QPointer<QQuickWindow> m_window;
 
     QString m_messageId;
+    /// The message a still was asked for, kept until mpv answers. Empty when
+    /// nothing is outstanding.
+    QString m_pendingStillId;
     QUrl m_source;
     double m_startAt = 0.0;
     /// Whether the current source has been handed to mpv. False while waiting

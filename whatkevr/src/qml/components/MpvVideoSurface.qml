@@ -41,12 +41,6 @@ VideoSurfaceBackend {
         }
     }
 
-    function captureStill() {
-        if (session) {
-            session.captureStill()
-        }
-    }
-
     // The owner's wishes, pushed into the session rather than bound: two views
     // exist for a moment during a handoff, and only the one holding the session
     // may steer it.

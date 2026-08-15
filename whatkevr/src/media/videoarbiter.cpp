@@ -40,6 +40,11 @@ void VideoPlaybackArbiter::setAnimatedLimit(int limit)
     m_animatedLimitOverride = limit;
 }
 
+void VideoPlaybackArbiter::setParkGrace(int milliseconds)
+{
+    m_parkGraceOverride = milliseconds;
+}
+
 bool VideoPlaybackArbiter::request(QObject *claimant, Lane lane)
 {
     if (!claimant) {
@@ -222,7 +227,7 @@ void VideoPlaybackArbiter::scheduleParking(PlaybackSession *session)
     }
     session->setPlaying(false);
     QPointer<PlaybackSession> guarded(session);
-    QTimer::singleShot(parkGraceMs, this, [this, guarded]() {
+    QTimer::singleShot(m_parkGraceOverride >= 0 ? m_parkGraceOverride : parkGraceMs, this, [this, guarded]() {
         if (!guarded) {
             return;
         }

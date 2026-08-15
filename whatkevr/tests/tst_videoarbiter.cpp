@@ -334,6 +334,9 @@ private Q_SLOTS:
     void theLastReleaseParksAfterAGraceForAnImmediateReacquire()
     {
         VideoPlaybackArbiter *pool = arbiter();
+        // The live grace is ten seconds, which is a scroll excursion rather
+        // than a tick; shortened here so the suite does not wait it out.
+        pool->setParkGrace(400);
         QObject viewer;
 
         PlaybackSession *session = pool->acquire(&viewer, QStringLiteral("clip"),
@@ -357,9 +360,38 @@ private Q_SLOTS:
         // Once nobody comes back for it, the grace runs out and the session
         // is parked for reuse under another message.
         pool->release(&bubble);
-        QTest::qWait(2600);
+        QTest::qWait(600);
         QCOMPARE(pool->liveSessionFor(QStringLiteral("clip")), nullptr);
         QVERIFY(session->messageId().isEmpty());
+    }
+
+    void aSessionSurvivesTheGraceUntilItRunsOut()
+    {
+        VideoPlaybackArbiter *pool = arbiter();
+        pool->setParkGrace(400);
+        QObject bubble;
+
+        PlaybackSession *session = pool->acquire(&bubble, QStringLiteral("clip"),
+                                                 QUrl(QStringLiteral("file:///tmp/a.mp4")), 0,
+                                                 VideoPlaybackArbiter::Exclusive);
+        QVERIFY(session);
+        // Scrolled out of the viewport: the grant goes, the engine does not.
+        // A bubble scrolled back in within the grace is handed the same one,
+        // still open at the same second, instead of reopening the file and
+        // seeking, which is the spinner and the jump this exists to avoid.
+        pool->release(&bubble);
+        QTest::qWait(200);
+        QCOMPARE(pool->liveSessionFor(QStringLiteral("clip")), session);
+
+        QObject returning;
+        QCOMPARE(pool->acquire(&returning, QStringLiteral("clip"), QUrl(), 0,
+                               VideoPlaybackArbiter::Exclusive),
+                 session);
+        // The grace timer from the release must not park a session that has
+        // been taken up again.
+        QTest::qWait(400);
+        QCOMPARE(pool->sessionFor(&returning), session);
+        QCOMPARE(session->messageId(), QStringLiteral("clip"));
     }
 
     void anAnimatedSessionIsTransferredToAnExclusiveClaimant()

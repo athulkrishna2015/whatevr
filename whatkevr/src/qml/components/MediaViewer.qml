@@ -161,18 +161,36 @@ QQC2.Popup {
     closePolicy: QQC2.Popup.CloseOnEscape
 
     onAboutToHide: {
-        if (isVideo && messageId.length > 0) {
-            // While the decoder is still attached: the frame goes back to the
-            // bubble with the position, so it comes back showing where the user
-            // was rather than the clip's first frame.
-            surface.rememberStill()
-            returnMessageId = messageId
-            returnPosition = surface.handoffPosition()
-            // Escaping a video that never started must not make the bubble
-            // start it: wanting playback only counts once there was playback,
-            // a frame on screen or a position reached.
-            returnPlaying = surface.playbackWanted && (surface.hasFrame || surface.position > 0)
+        if (!isVideo || messageId.length === 0) {
+            return
         }
+        returnMessageId = messageId
+        returnPosition = surface.handoffPosition()
+        // Escaping a video that never started must not make the bubble
+        // start it: wanting playback only counts once there was playback,
+        // a frame on screen or a position reached.
+        returnPlaying = surface.playbackWanted && (surface.hasFrame || surface.position > 0)
+        // Here rather than after the viewer has gone, and this is the whole
+        // difference: the bubble takes this session while it is still running
+        // and still attached, so the video item moves straight back into the
+        // conversation. Handing over afterwards meant a release (which pauses),
+        // a frame of nothing, and then a re-acquire, which is the play button,
+        // the spinner and the jump this viewer used to close into.
+        handBackToInline()
+    }
+
+    /// Gives the clip back to the bubble it came from, once.
+    function handBackToInline() {
+        const id = returnMessageId
+        if (id.length === 0) {
+            return
+        }
+        const at = returnPosition
+        const resume = returnPlaying
+        returnMessageId = ""
+        returnPosition = 0
+        returnPlaying = false
+        Whatevr.VideoPlayback.handoffToInline(id, at, resume)
     }
 
     onClosed: {
@@ -194,17 +212,10 @@ QQC2.Popup {
         surface.playbackWanted = true
         streamFailed = false
         stalledOut = false
-        const id = returnMessageId
-        const at = returnPosition
-        const resume = returnPlaying
-        returnMessageId = ""
-        returnPosition = 0
-        returnPlaying = false
-        if (id.length > 0) {
-            Qt.callLater(function() {
-                Whatevr.VideoPlayback.handoffToInline(id, at, resume)
-            })
-        }
+        // Ordinarily already done from onAboutToHide, and a no-op here. This
+        // covers a viewer that was closed without one: a popup hidden with its
+        // window rather than dismissed.
+        handBackToInline()
     }
 
     onOpened: {
@@ -227,6 +238,21 @@ QQC2.Popup {
     }
 
     onBufferingChanged: if (!buffering) stalledOut = false
+
+    // A spinner is for a wait the user can feel. A handoff takes the odd frame
+    // to report a picture again (a rebuilt render context has to be told to
+    // switch the video track back on), and a spinner flashed over a clip that
+    // is already playing reads as a stutter the player invented.
+    Timer {
+        id: spinnerDelay
+
+        property bool expired: false
+
+        interval: 250
+        running: root.visible && (root.buffering || surface.seeking)
+        onTriggered: expired = true
+        onRunningChanged: if (!running) expired = false
+    }
 
     Connections {
         target: Whatevr.ProtocolController
@@ -472,7 +498,7 @@ QQC2.Popup {
             // so without the indicator a slow one would look ignored.
             QQC2.BusyIndicator {
                 anchors.centerIn: parent
-                visible: (root.buffering || surface.seeking) && !root.playbackFailed
+                visible: (root.buffering || surface.seeking) && spinnerDelay.expired && !root.playbackFailed
                 running: visible
             }
 

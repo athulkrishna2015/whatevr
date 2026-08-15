@@ -64,7 +64,50 @@ Item {
         : ""
 
     function refreshStill() {
-        stillRevision = Whatevr.VideoPlayback.frameRevision(row.messageId)
+        // Guarded by hasFrame, not by the revision alone: a revision survives
+        // the still it counts (the store keeps only the handful in play), and a
+        // url pointing at an evicted frame resolves to nothing, which left the
+        // bubble showing its empty plate instead of falling back to the poster.
+        stillRevision = Whatevr.VideoPlayback.hasFrame(row.messageId)
+            ? Whatevr.VideoPlayback.frameRevision(row.messageId)
+            : 0
+    }
+
+    /**
+     * Holds the last video frame on screen after playback lets go.
+     *
+     * The picture and the playback do not end together: the still that becomes
+     * this bubble's poster is asked of mpv as the decoder is released and
+     * arrives an event turn or two later. Without this the bubble spends those
+     * turns showing the poster it already had, which on a clip watched past its
+     * opening is the sender's first frame: a jump backwards at exactly the
+     * moment the sound stops, which is the one moment the eye is already there.
+     *
+     * The video layer is not torn down at that point; its ShaderEffectSource
+     * merely stops being live, which leaves the frame it last drew in its
+     * texture for free. It goes when the new poster is up, or when it is clear
+     * no still is coming.
+     */
+    property bool holdingLastFrame: false
+
+    onShowsVideoChanged: {
+        if (showsVideo) {
+            holdingLastFrame = false
+            frameHoldTimer.stop()
+            return
+        }
+        holdingLastFrame = true
+        frameHoldTimer.restart()
+    }
+
+    Timer {
+        id: frameHoldTimer
+
+        // The backstop for a release that produces no still at all: a looping
+        // GIF, which the arbiter deliberately skips, or a decoder that could
+        // not answer.
+        interval: 400
+        onTriggered: root.holdingLastFrame = false
     }
 
     readonly property bool hasPosterFile: row.mediaThumbnailLocalPath.length > 0
@@ -91,6 +134,18 @@ Item {
      */
     property string intent: "stopped"
 
+    /**
+     * This bubble's clip is in the full-screen viewer.
+     *
+     * The viewer takes the exclusive lane as it opens, which revokes this
+     * surface, and a revocation is otherwise indistinguishable from another
+     * clip stealing the lane: the bubble stopped, went back to its poster and
+     * offered a play button, all in the instant before the viewer covered it.
+     * That is the reset that broke the illusion of the same clip growing to
+     * full screen.
+     */
+    property bool handedOff: false
+
     /// A GIF runs on its own; nothing else does. Videos and video notes carry
     /// sound and wait to be asked.
     readonly property bool autoWants: isGif && Whatevr.Settings.autoplayInlineMedia
@@ -112,6 +167,11 @@ Item {
     /// Ordinary rectangular video begins muted and remembers this choice.
     /// Video notes keep their existing unmuted startup. GIFs stay muted.
     property bool userMuted: !isVideoNote
+    /// What the clip sounded like inline before it went full screen, since the
+    /// viewer always plays out loud and says nothing about how the bubble
+    /// behind it should. Coming back to the inline default instead threw away
+    /// an unmute the user had set on this clip, every single time.
+    property bool mutedBeforeHandoff: !isVideoNote
 
     /// Where playback should pick up, refreshed from the arbiter rather than
     /// tracked here: the surface writes it down at the moment it lets go of the
@@ -155,6 +215,13 @@ Item {
      * overlay below is allowed to test.
      */
     readonly property string phase: {
+        // The clip is being watched full screen. Whatever the surface is doing
+        // underneath, this bubble shows its artwork and nothing else: no play
+        // button, no spinner, no transport. It is a placeholder for a clip
+        // that is somewhere else, and it is on screen only for the moment the
+        // viewer takes to appear and the moment it takes to go.
+        if (handedOff)
+            return "handoff"
         // A backend may retain its last decoded frame until its teardown lands.
         // That frame is presentation only, not playback state. Once the clip is
         // stopped, return to the poster and let the next tap create a fresh
@@ -210,6 +277,11 @@ Item {
         if (row.messageId.length === 0)
             return
         switch (phase) {
+        case "handoff":
+            // The viewer is modal, so this is unreachable by pointer; it is
+            // here so a tap arriving any other way cannot leave the bubble
+            // fighting the viewer for the clip.
+            return
         case "downloading":
             return
         case "needsDownload":
@@ -271,9 +343,15 @@ Item {
      * clip at once, which is what the second tap used to do.
      */
     function openFullScreen() {
-        // Before handing over: the viewer opens on this frame while its own
-        // decoder is still opening the file and seeking to the position below.
-        surface.rememberStill()
+        // Set before the viewer opens, because the revocation it causes arrives
+        // during that call and this is what tells the bubble the revocation is
+        // its own doing.
+        handedOff = true
+        mutedBeforeHandoff = userMuted
+        // Nothing is captured here. The viewer is handed this very session,
+        // video item included, so the picture it opens on is the one already on
+        // screen; a still would only be a copy of it, taken by a blocking mpv
+        // command at the exact moment the transition has to be smooth.
         row.videoActivated(row.messageId,
                            root.recoveredLocalPath.length > 0 ? root.recoveredLocalPath : row.mediaLocalPath,
                            root.streamUrl.toString(),
@@ -308,6 +386,11 @@ Item {
 
     function resetForMessage() {
         intent = "stopped"
+        handedOff = false
+        // The row is another message now, so the frame frozen above the poster
+        // belongs to a clip this bubble no longer shows.
+        holdingLastFrame = false
+        frameHoldTimer.stop()
         streamUrl = ""
         activeStreamId = ""
         recoveredLocalPath = ""
@@ -318,6 +401,7 @@ Item {
         streamFailed = false
         stalledOut = false
         userMuted = !isVideoNote
+        mutedBeforeHandoff = userMuted
         resumeAt = Whatevr.VideoPlayback.resumePosition(row.messageId)
         refreshStill()
 
@@ -347,7 +431,12 @@ Item {
 
     onAutoWantsChanged: requestAutoplaySource()
     onOnScreenChanged: requestAutoplaySource()
-    onIsVideoNoteChanged: if (intent === "stopped") userMuted = !isVideoNote
+    onIsVideoNoteChanged: {
+        if (intent === "stopped") {
+            userMuted = !isVideoNote
+            mutedBeforeHandoff = userMuted
+        }
+    }
     onIntentChanged: {
         if (intent === "stopped") {
             sessionSource = ""
@@ -457,17 +546,29 @@ Item {
                 ? seconds
                 : Whatevr.VideoPlayback.resumePosition(messageId)
             root.sessionSource = ""
-            // Back to how this kind sounds inline, whatever the viewer was
-            // doing: rectangular video is silent in a conversation, and a clip
-            // that carried on out loud under the chat after the viewer closed
-            // is the one thing worse than it stopping.
-            root.userMuted = !root.isVideoNote
+            // Back to how this clip sounded inline before it was opened, not to
+            // how the viewer left it: the viewer is always audible, so carrying
+            // that over would leave a video playing out loud under the
+            // conversation. A clip the user had unmuted inline comes back
+            // unmuted, which is the state they chose for it.
+            root.userMuted = root.mutedBeforeHandoff
             if (resumePlayback) {
                 root.latchAvailableSource()
                 root.intent = "playing"
+            } else if (seconds > 0) {
+                // Paused full screen: take the clip back paused, which keeps
+                // the decoder and so keeps the frame the user was looking at.
+                // Stopping instead threw the picture away and put a poster and
+                // a play button in its place, which is the flicker the viewer
+                // used to close into.
+                root.latchAvailableSource()
+                root.intent = "paused"
             } else {
                 root.intent = "stopped"
             }
+            // Last: the phase gate lifts on a bubble whose intent is already
+            // what it should be, so nothing in between is ever drawn.
+            root.handedOff = false
         }
     }
 
@@ -494,7 +595,18 @@ Item {
                    ? Whatevr.ProtocolController.localFileUrl(root.row.mediaThumbnailLocalPath)
                    : "")
             onTargetSourceChanged: everDecoded = false
-            onStatusChanged: if (status === Image.Ready) everDecoded = true
+            onStatusChanged: {
+                if (status !== Image.Ready) {
+                    return
+                }
+                everDecoded = true
+                // The new artwork is up, so the frozen frame above it has
+                // nothing left to cover.
+                if (root.holdingLastFrame && root.hasStill) {
+                    root.holdingLastFrame = false
+                    frameHoldTimer.stop()
+                }
+            }
 
             anchors.fill: parent
             visible: false
@@ -587,10 +699,11 @@ Item {
             }
         }
 
-        // One layer, alive only while this bubble is actually decoding.
+        // One layer, alive only while this bubble is actually decoding, plus
+        // the moment afterwards during which it holds the last frame.
         Loader {
             anchors.fill: parent
-            active: root.showsVideo
+            active: root.showsVideo || root.holdingLastFrame
 
             sourceComponent: Item {
                 anchors.fill: parent
@@ -600,7 +713,11 @@ Item {
 
                     anchors.fill: parent
                     visible: false
-                    live: true
+                    // Not live once playback has let go: the texture keeps the
+                    // frame it last drew, which is the picture the clip stopped
+                    // on and the only correct thing to show until the poster
+                    // catches up with it.
+                    live: root.showsVideo
                     hideSource: true
                     sourceItem: surface
                 }
@@ -716,9 +833,25 @@ Item {
     // transport, its spinner and its failure plate whether or not they are on
     // screen is what the DN9 object budget exists to catch.
 
+    // A spinner is for a wait the user can feel. A clip coming back from the
+    // full-screen viewer, or from a scroll out of the viewport, can spend a
+    // frame or two without a reported picture while its render context is put
+    // back together, and a spinner over that reads as a stutter the bubble
+    // invented.
+    Timer {
+        id: bufferingDelay
+
+        property bool expired: false
+
+        interval: 250
+        running: root.phase === "buffering"
+        onTriggered: expired = true
+        onRunningChanged: if (!running) expired = false
+    }
+
     Loader {
         anchors.centerIn: parent
-        active: root.phase === "buffering"
+        active: (root.phase === "buffering" && bufferingDelay.expired)
                 || (root.phase === "downloading" && root.row.mediaDownloadProgress < 0)
 
         sourceComponent: Controls.BusyIndicator {

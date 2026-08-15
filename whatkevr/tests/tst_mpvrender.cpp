@@ -149,7 +149,12 @@ private Q_SLOTS:
 
         QSignalSpy stills(&session, &PlaybackSession::stillGrabbed);
         session.captureStill();
-        QCOMPARE(stills.count(), 1);
+        // Asked for, not waited for: the request returns at once and mpv
+        // answers on its own thread, which is what keeps a clip leaving the
+        // viewport from stalling the frame it leaves on.
+        QCOMPARE(stills.count(), 0);
+        QTRY_VERIFY_WITH_TIMEOUT(stills.count() == 1, 15000);
+        QCOMPARE(stills.first().at(0).toString(), QStringLiteral("clip"));
         const QImage still = stills.first().at(1).value<QImage>();
         QCOMPARE(still.size(), QSize(frameWidth, frameHeight));
         QVERIFY(hasBrightPixels(still));

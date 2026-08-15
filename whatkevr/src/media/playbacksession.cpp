@@ -37,6 +37,18 @@ PlaybackSession::PlaybackSession(QObject *parent)
             Q_EMIT endOfMedia();
         }
     });
+    // The still comes back on its own, an event turn or two after it was asked
+    // for. It belongs to whatever this session was showing at the time, which
+    // is not necessarily what it is showing now: a clip released mid-scroll can
+    // be handed a different message before mpv answers.
+    connect(m_core, &MpvCore::stillReady, this, [this](const QImage &image) {
+        const QString owner = m_pendingStillId;
+        m_pendingStillId.clear();
+        if (owner.isEmpty() || image.isNull()) {
+            return;
+        }
+        Q_EMIT stillGrabbed(owner, image);
+    });
     connect(m_core, &MpvCore::errorOccurred, this, [this](const QString &message) {
         m_failed = true;
         m_errorText = message;
@@ -401,11 +413,9 @@ void PlaybackSession::captureStill()
     if (m_messageId.isEmpty()) {
         return;
     }
-    const QImage image = m_core->grabStill();
-    if (image.isNull()) {
-        return;
+    if (m_core->requestStill()) {
+        m_pendingStillId = m_messageId;
     }
-    Q_EMIT stillGrabbed(m_messageId, image);
 }
 
 void PlaybackSession::handlePosition()
