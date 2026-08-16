@@ -44,6 +44,12 @@ struct Sample {
     // Loader costs two objects on every row, and cards (location, and the
     // contact/poll/event kinds after it) share exactly one Loader dispatched by
     // CardBubble. That is why it is a one-time +2 and not +2 per kind.
+    //
+    // Raised by a further 1 for the row's containment mask. The row's
+    // right-click MouseArea covers everything and, being hover-enabled, took
+    // hover away from every button and field inside a card; the mask cuts the
+    // card's rectangle out of it. One object per row buys working hover for
+    // every card kind there will ever be, so it is a one-time +1 as well.
     int maxObjects;
 };
 
@@ -138,6 +144,45 @@ int objectCount(QObject *root)
     return 1 + root->findChildren<QObject *>(Qt::FindChildrenRecursively).size();
 }
 
+// findChild walks QObject parentage, and a Repeater gives its delegates a
+// visual parent without a QObject one, so anything a Repeater built is
+// invisible to it. Walking childItems finds the whole rendered tree.
+QQuickItem *findVisualChild(QQuickItem *root, const QString &name)
+{
+    if (!root) {
+        return nullptr;
+    }
+    const auto children = root->childItems();
+    for (QQuickItem *child : children) {
+        if (child->objectName() == name) {
+            return child;
+        }
+        if (QQuickItem *found = findVisualChild(child, name)) {
+            return found;
+        }
+    }
+    return nullptr;
+}
+
+// The bottom-most edge of anything the item draws, in the item's own
+// coordinates. A card reports its height to the row, and the row clips and
+// positions everything else from it, so content reaching past that height is
+// content hanging outside its own card.
+qreal deepestBottom(QQuickItem *root, QQuickItem *item)
+{
+    qreal bottom = 0;
+    const auto children = item->childItems();
+    for (QQuickItem *child : children) {
+        if (!child->isVisible() || child->width() <= 0 || child->height() <= 0) {
+            continue;
+        }
+        const QPointF corner = child->mapToItem(root, QPointF(0, child->height()));
+        bottom = std::max(bottom, corner.y());
+        bottom = std::max(bottom, deepestBottom(root, child));
+    }
+    return bottom;
+}
+
 } // namespace
 
 class ChatBubblePerf : public QObject
@@ -154,6 +199,9 @@ private Q_SLOTS:
     void rejectedStreamFallsBackAndStartsDownloadedFile();
     void videoDelegateReuseClearsPlaybackState();
     void endOfFileReturnsToThePosterAndCanReplay();
+    void tappingAPollOptionReachesTheController();
+    void cardButtonsReceiveHover();
+    void pollVotersDialogReadsTheVotesBothWays();
 
 private:
     QQuickWindow *m_window = nullptr;
@@ -215,20 +263,20 @@ void ChatBubblePerf::delegateCost_data()
                    {{QStringLiteral("messageId"), QStringLiteral("m1")},
                     {QStringLiteral("text"), shortBody},
                     {QStringLiteral("layoutText"), shortBody},
-                    {QStringLiteral("status"), 4}}), 63},
+                    {QStringLiteral("status"), 4}}), 64},
         {"plain-text-outgoing",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m2")},
                     {QStringLiteral("text"), shortBody},
                     {QStringLiteral("layoutText"), shortBody},
                     {QStringLiteral("isOutgoing"), true},
-                    {QStringLiteral("status"), 4}}), 70},
+                    {QStringLiteral("status"), 4}}), 71},
         {"multiline-text",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m3")},
                     {QStringLiteral("text"), longBody},
                     {QStringLiteral("layoutText"), longBody},
-                    {QStringLiteral("status"), 3}}), 63},
+                    {QStringLiteral("status"), 3}}), 64},
         {"text-with-reply",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m4")},
@@ -236,7 +284,7 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("layoutText"), shortBody},
                     {QStringLiteral("replyToMessageId"), QStringLiteral("m1")},
                     {QStringLiteral("replyToSenderName"), QStringLiteral("Aditi")},
-                    {QStringLiteral("replyToText"), shortBody}}), 93},
+                    {QStringLiteral("replyToText"), shortBody}}), 94},
         {"text-with-sender-header",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m5")},
@@ -266,7 +314,7 @@ void ChatBubblePerf::delegateCost_data()
                     // stops, less the pill it replaced) and the bubble gained
                     // the two grace timers that keep a handoff and a scroll
                     // from flashing a spinner or a stale poster.
-                    {QStringLiteral("mediaDurationSecs"), 12}}), 142},
+                    {QStringLiteral("mediaDurationSecs"), 12}}), 143},
         {"sticker",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m7")},
@@ -664,6 +712,192 @@ void ChatBubblePerf::endOfFileReturnsToThePosterAndCanReplay()
     QVERIFY(QMetaObject::invokeMethod(videoBubble, "activate"));
     QCOMPARE(videoBubble->property("intent").toString(), QStringLiteral("playing"));
     QVERIFY(backendLoader->property("item").value<QObject *>() != nullptr);
+}
+
+// A poll row's tap goes through QML into ProtocolController. Nothing in C++
+// references that call, so a missing or renamed method is not a build error:
+// it is a runtime TypeError, and the poll silently stops working. Driving the
+// real bubble against the real controller is what notices.
+void ChatBubblePerf::tappingAPollOptionReachesTheController()
+{
+    QVariantMap poll{
+        {QStringLiteral("question"), QStringLiteral("Where for dinner?")},
+        {QStringLiteral("selectable_count"), 1},
+        {QStringLiteral("total_voters"), 0},
+        {QStringLiteral("options"),
+         QVariantList{QVariantMap{{QStringLiteral("index"), 0}, {QStringLiteral("name"), QStringLiteral("Thai")}},
+                      QVariantMap{{QStringLiteral("index"), 1}, {QStringLiteral("name"), QStringLiteral("Pizza")}}}},
+    };
+
+    const QVariantMap props = withProps(baseProps(),
+                                        {{QStringLiteral("messageId"), QStringLiteral("poll-1")},
+                                         {QStringLiteral("mediaKind"), QStringLiteral("poll")},
+                                         {QStringLiteral("poll"), poll}});
+
+    QQmlComponent component(
+        m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/ChatBubble.qml")));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> bubble(component.createWithInitialProperties(props));
+    QVERIFY2(bubble, qPrintable(component.errorString()));
+    qobject_cast<QQuickItem *>(bubble.get())->setParentItem(m_host);
+
+    QObject *pollBubble = bubble->findChild<QObject *>(QStringLiteral("pollBubble"));
+    QVERIFY2(pollBubble, "the poll kind did not reach a poll bubble");
+
+    QVERIFY(!m_controller->pendingPollSelection(QStringLiteral("poll-1")).isValid());
+
+    QVERIFY(QMetaObject::invokeMethod(pollBubble, "toggle", Q_ARG(QVariant, QVariant(1))));
+    QCOMPARE(m_controller->pendingPollSelection(QStringLiteral("poll-1")).toList(),
+             (QVariantList{1}));
+
+    // Tapping the same answer again takes the vote back rather than sending it
+    // twice: the wire carries a whole selection, and an empty one is how a
+    // voter withdraws. The bubble reads its own pending echo to know that.
+    QVERIFY(QMetaObject::invokeMethod(pollBubble, "toggle", Q_ARG(QVariant, QVariant(1))));
+    QVERIFY(m_controller->pendingPollSelection(QStringLiteral("poll-1")).toList().isEmpty());
+}
+
+// Cards put real buttons inside a message row, and a row is a dense stack of
+// pointer surfaces: a right-click MouseArea covering everything, text edits
+// that want the I-beam, handlers for tap-to-reply. A button that never sees a
+// hover event looks like a label, which is what these cards shipped as.
+void ChatBubblePerf::cardButtonsReceiveHover()
+{
+    QVariantMap contacts{
+        {QStringLiteral("display_name"), QStringLiteral("Shared contact")},
+        {QStringLiteral("cards"),
+         QVariantList{QVariantMap{
+             {QStringLiteral("display_name"), QStringLiteral("Ana Costa")},
+             {QStringLiteral("vcard"), QStringLiteral("BEGIN:VCARD\nEND:VCARD")},
+             {QStringLiteral("phones"),
+              QVariantList{QVariantMap{{QStringLiteral("value"), QStringLiteral("+91 70600 29183")},
+                                       {QStringLiteral("label"), QStringLiteral("Mobile")},
+                                       {QStringLiteral("jid"), QStringLiteral("917060029183@s.whatsapp.net")}}}}}}},
+    };
+
+    const QVariantMap props = withProps(baseProps(),
+                                        {{QStringLiteral("messageId"), QStringLiteral("card-1")},
+                                         {QStringLiteral("mediaKind"), QStringLiteral("contact")},
+                                         {QStringLiteral("contacts"), contacts}});
+
+    QQmlComponent component(
+        m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/ChatBubble.qml")));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> bubble(component.createWithInitialProperties(props));
+    QVERIFY2(bubble, qPrintable(component.errorString()));
+    auto *bubbleItem = qobject_cast<QQuickItem *>(bubble.get());
+    bubbleItem->setParentItem(m_window->contentItem());
+    m_window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_window));
+
+    QQuickItem *buttonItem = findVisualChild(bubbleItem, QStringLiteral("cardActionButton"));
+    QVERIFY2(buttonItem, "the contact card built no action button");
+    QTRY_VERIFY(buttonItem->width() > 0 && buttonItem->height() > 0);
+
+    QVERIFY(!buttonItem->property("highlighted").toBool());
+
+    const QPointF centre =
+        buttonItem->mapToScene(QPointF(buttonItem->width() / 2, buttonItem->height() / 2));
+    QTest::mouseMove(m_window, centre.toPoint());
+    QTRY_VERIFY2(buttonItem->property("highlighted").toBool(),
+                 "a button inside a card never saw the pointer: something above it in the row "
+                 "is swallowing hover");
+
+    // And it lets go again, so the highlight does not stick to the last button
+    // the pointer crossed.
+    QTest::mouseMove(m_window, QPoint(2, 2));
+    QTRY_VERIFY(!buttonItem->property("highlighted").toBool());
+
+    // The card must be tall enough for what it drew. A card that insets its
+    // content from the top but reports only the content's height puts its last
+    // row on the bottom edge, with that row's hover plate outside the card.
+    QQuickItem *card = findVisualChild(bubbleItem, QStringLiteral("contactCardBubble"));
+    QVERIFY(card);
+    const qreal padding = card->property("contentMargin").toReal();
+    QVERIFY(padding > 0);
+    QQuickItem *content = findVisualChild(card, QStringLiteral("cardContent"));
+    QVERIFY(content);
+    const qreal bottom = content->mapToItem(card, QPointF(0, content->height())).y();
+    QVERIFY2(card->height() - bottom >= padding - 0.5,
+             qPrintable(QStringLiteral("content ends %1 from the card's bottom, want %2 of padding")
+                            .arg(card->height() - bottom)
+                            .arg(padding)));
+    // And nothing inside the content spills past it either.
+    QVERIFY2(deepestBottom(content, content) <= content->height() + 0.5,
+             "something inside the card reaches past the content block");
+
+    m_window->hide();
+    bubbleItem->setParentItem(nullptr);
+}
+
+// The wire gives a poll answer-first: each option carrying its voters. That
+// answers "what is winning" and cannot answer "what did Bo pick", which in a
+// poll allowing several answers is the more useful question. The dialog turns
+// the table on its side to get there, and that regrouping is the one piece of
+// real logic in it.
+void ChatBubblePerf::pollVotersDialogReadsTheVotesBothWays()
+{
+    const QVariantMap ana{{QStringLiteral("jid"), QStringLiteral("ana@s")},
+                          {QStringLiteral("name"), QStringLiteral("Ana")},
+                          {QStringLiteral("timestamp"), 200}};
+    const QVariantMap bo{{QStringLiteral("jid"), QStringLiteral("bo@s")},
+                         {QStringLiteral("name"), QStringLiteral("Bo")},
+                         {QStringLiteral("timestamp"), 100}};
+    const QVariantMap me{{QStringLiteral("jid"), QStringLiteral("me@s")},
+                         {QStringLiteral("from_me"), true},
+                         {QStringLiteral("timestamp"), 300}};
+
+    const QVariantMap poll{
+        {QStringLiteral("question"), QStringLiteral("Which days work?")},
+        {QStringLiteral("selectable_count"), 3},
+        {QStringLiteral("total_voters"), 3},
+        {QStringLiteral("options"),
+         QVariantList{
+             QVariantMap{{QStringLiteral("index"), 0},
+                         {QStringLiteral("name"), QStringLiteral("Mon")},
+                         {QStringLiteral("voters"), QVariantList{bo, ana, me}}},
+             QVariantMap{{QStringLiteral("index"), 1},
+                         {QStringLiteral("name"), QStringLiteral("Tue")},
+                         {QStringLiteral("voters"), QVariantList{ana}}},
+             QVariantMap{{QStringLiteral("index"), 2},
+                         {QStringLiteral("name"), QStringLiteral("Wed")},
+                         {QStringLiteral("voters"), QVariantList{}}}}},
+    };
+
+    QQmlComponent component(
+        m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/PollVotersDialog.qml")));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> dialog(component.create());
+    QVERIFY2(dialog, qPrintable(component.errorString()));
+
+    dialog->setProperty("poll", poll);
+
+    const QVariantList people = dialog->property("people").toList();
+    QCOMPARE(people.size(), 3);
+
+    // Ourselves first, then whoever answered earliest: the reader is looking
+    // for their own answer, and after that for the order people arrived in.
+    QCOMPARE(people.at(0).toMap().value(QStringLiteral("jid")).toString(), QStringLiteral("me@s"));
+    QCOMPARE(people.at(1).toMap().value(QStringLiteral("jid")).toString(), QStringLiteral("bo@s"));
+    QCOMPARE(people.at(2).toMap().value(QStringLiteral("jid")).toString(), QStringLiteral("ana@s"));
+
+    // Ana chose two days, and both of them travel with her rather than being
+    // split across two rows the way the wire has them.
+    const QVariantList anaChoices =
+        people.at(2).toMap().value(QStringLiteral("choices")).toList();
+    QCOMPARE(anaChoices.size(), 2);
+    QCOMPARE(anaChoices.at(0).toString(), QStringLiteral("Mon"));
+    QCOMPARE(anaChoices.at(1).toString(), QStringLiteral("Tue"));
+
+    // An answer nobody chose is still an answer, and the option-first reading
+    // keeps it: "nobody picked Wednesday" is a result.
+    QCOMPARE(dialog->property("visibleOptions").toList().size(), 3);
+
+    // Opening on one answer narrows to it, and only in the option-first reading.
+    dialog->setProperty("filterIndex", 1);
+    const QVariantList narrowed = dialog->property("visibleOptions").toList();
+    QCOMPARE(narrowed.size(), 1);
+    QCOMPARE(narrowed.at(0).toMap().value(QStringLiteral("name")).toString(), QStringLiteral("Tue"));
 }
 
 int main(int argc, char *argv[])

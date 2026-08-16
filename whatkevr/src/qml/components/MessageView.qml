@@ -576,6 +576,14 @@ Item {
         reactionDetailsDialog.openFor(snapshot.reactions, delegate.messageId)
     }
 
+    function openPollVoters(delegate, optionIndex) {
+        const poll = delegate.poll
+        if (!poll || !poll.options || poll.options.length === 0) {
+            return
+        }
+        pollVotersDialog.openFor(poll, delegate.messageId, optionIndex)
+    }
+
     function openReactionPicker(messageId) {
         if (messageId.length === 0) {
             return
@@ -1668,6 +1676,7 @@ Item {
             onReactionPickerRequested: (posX, posY) => root.openQuickReactions(messageDelegate, posX, posY)
             onReactionToggleRequested: emoji => root.reactToMessage(messageDelegate.messageId, emoji)
             onReactionDetailsRequested: root.openReactionDetails(messageDelegate)
+            onPollVotersRequested: optionIndex => root.openPollVoters(messageDelegate, optionIndex)
             onSelectionToggleRequested: root.toggleSelected(messageDelegate.messageId)
             onDaySelectionToggleRequested: root.toggleDaySelection(messageDelegate.messageId)
 
@@ -2711,6 +2720,10 @@ Item {
 
     ReactionDetailsDialog {
         id: reactionDetailsDialog
+    }
+
+    PollVotersDialog {
+        id: pollVotersDialog
     }
 
     MessageContentDialog {

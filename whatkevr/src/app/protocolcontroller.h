@@ -227,6 +227,11 @@ class ProtocolController final : public QObject
     // Subscribed alongside the messages window, like `presence` and `pinned`.
     Q_PROPERTY(int chatMembersRevision READ chatMembersRevision NOTIFY chatMembersChanged FINAL)
 
+    // message id -> the selection a tap asked for, for every vote still in
+    // flight. A poll row indexes this by its own id, so its in-flight state is
+    // a plain binding rather than imperative state a recycled delegate loses.
+    Q_PROPERTY(QVariantMap pendingPollVotes READ pendingPollVotes NOTIFY pollVotesChanged FINAL)
+
     // Settings/profile (D6). The object properties expose daemon rows verbatim;
     // commands are ack-only and their effects return through these views.
     Q_PROPERTY(QVariantMap privacySettings READ privacySettings NOTIFY privacySettingsChanged FINAL)
@@ -426,6 +431,7 @@ public:
     // presentation-side filtering over rows the frontend already has.
     [[nodiscard]] Q_INVOKABLE QVariantList groupMembers(const QString &query) const;
     [[nodiscard]] int chatMembersRevision() const { return m_chatMembersRevision; }
+    [[nodiscard]] QVariantMap pendingPollVotes() const { return m_pendingPollVotes; }
     // The same filtering over the conversation's roster, for the mention picker.
     [[nodiscard]] Q_INVOKABLE QVariantList chatMembers(const QString &query) const;
     // Subscribes the conversation's roster if it is not already live. The
@@ -505,6 +511,20 @@ public:
     /// Reports that the user listened to a voice note, which sends a played
     /// receipt. Repeat calls are no-ops daemon-side.
     Q_INVOKABLE void markMessagePlayed(const QString &messageId);
+    /// Casts a vote. The selection is whole rather than incremental, because
+    /// that is what a vote means on the wire: passing an empty list is how a
+    /// voter takes their answer back.
+    Q_INVOKABLE void votePoll(const QString &messageId, const QVariantList &optionIndexes);
+    /// One entry of pendingPollVotes: the selection a tap asked for while its
+    /// command is still in flight, or an invalid variant when nothing is
+    /// pending. A poll row prefers this over the daemon's tally so it answers
+    /// the tap on the same frame; the daemon's own echo replaces it
+    /// milliseconds later.
+    ///
+    /// This is presentation state about an unfinished command, not a cache of
+    /// daemon state: nothing is merged, nothing outlives the round trip, and
+    /// the tally itself still comes from the daemon and only the daemon.
+    [[nodiscard]] Q_INVOKABLE QVariant pendingPollSelection(const QString &messageId) const;
     /// Hands a downloaded file to the system's default application.
     Q_INVOKABLE bool openLocalFile(const QString &localPath);
     /// A local path as a properly encoded file URL. QML used to concatenate
@@ -637,6 +657,7 @@ Q_SIGNALS:
     void infoCardChanged();
     void groupMembersChanged();
     void chatMembersChanged();
+    void pollVotesChanged();
     void privacySettingsChanged();
     void appPreferencesChanged();
     void blocklistChanged();
@@ -928,6 +949,10 @@ private:
     int m_chatMembersRevision = 0;
     // Set once the mention picker asks for the roster; cleared on chat change.
     bool m_chatMembersWanted = false;
+
+    // message id -> the selection a tap asked for, held only until `poll.vote`
+    // answers. Never persisted, never merged with the daemon's tally.
+    QVariantMap m_pendingPollVotes;
 
     QTimer *m_startupGraceTimer = nullptr;
     QTimer *m_qrTimer = nullptr;

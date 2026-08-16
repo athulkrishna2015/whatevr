@@ -82,6 +82,19 @@ public:
     void setHoldMessagesReady(bool hold) { m_holdMessagesReady = hold; }
     void setHoldChatReady(bool hold) { m_holdChatReady = hold; }
     void setHoldExtendReady(bool hold) { m_holdExtendReady = hold; }
+    void setHoldPollVote(bool hold) { m_holdPollVote = hold; }
+    void releasePollVote(bool rejected = false)
+    {
+        if (m_heldPollVoteId < 0) {
+            return;
+        }
+        const int id = std::exchange(m_heldPollVoteId, -1);
+        if (rejected) {
+            error(id, QStringLiteral("rejected"), QStringLiteral("vote rejected"));
+        } else {
+            reply(id, QJsonObject{});
+        }
+    }
     void setRejectNextExtend(bool reject) { m_rejectNextExtend = reject; }
     void setRejectNextSend(bool reject) { m_rejectNextSend = reject; }
     void setRejectMessageCommands(bool reject) { m_rejectMessageCommands = reject; }
@@ -211,6 +224,8 @@ public:
     QStringList unsubscribedViews;
     // Every `message.*` command received, in order.
     QStringList messageCommands;
+    // Params of every `poll.vote`, in order.
+    QList<QJsonObject> pollVotes;
 
 Q_SIGNALS:
     void reconnectRequested();
@@ -425,6 +440,18 @@ private:
                 reply(id, m_checkPhone);
             }
             Q_EMIT queryReceived(method);
+        } else if (method == QLatin1String("poll.vote")) {
+            lastCommandMethod = method;
+            lastCommandParams = params;
+            pollVotes.append(params);
+            // Held so a test can look at the in-flight state, which is the
+            // whole point of an optimistic vote.
+            if (m_holdPollVote) {
+                m_heldPollVoteId = id;
+            } else {
+                reply(id, QJsonObject{});
+            }
+            Q_EMIT commandReceived();
         } else if (method == QLatin1String("contact.block")) {
             lastCommandMethod = method;
             lastCommandParams = params;
@@ -526,6 +553,8 @@ private:
     bool m_holdMessagesReady = false;
     bool m_holdChatReady = false;
     bool m_holdExtendReady = false;
+    bool m_holdPollVote = false;
+    int m_heldPollVoteId = -1;
     bool m_heldExtendExhausted = false;
     int m_activeChatsSub = -1;
     int m_heldExtendSub = -1;
@@ -1775,6 +1804,67 @@ private Q_SLOTS:
         QVERIFY(ctrl.canEditAt(QDateTime::currentSecsSinceEpoch() - 60));
         QVERIFY(!ctrl.canEditAt(QDateTime::currentSecsSinceEpoch() - 3600));
         QVERIFY(!ctrl.canEditAt(0));
+    }
+
+    // Voting sends the whole selection and answers the tap before the daemon
+    // does. The bubble calls this from QML, so its absence is not a compile
+    // error anywhere: it shipped once as a call into nothing, and every tap
+    // logged a TypeError instead of voting.
+    void pollVotesAreSentAndEchoedWhileInFlight()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats({chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_VERIFY(!ctrl.chatsLoading());
+
+        // Nothing pending for a poll nobody has touched, which is what tells a
+        // row to render the daemon's tally rather than an empty selection.
+        QVERIFY(!ctrl.pendingPollSelection(QStringLiteral("m1")).isValid());
+
+        daemon.setHoldPollVote(true);
+        QSignalSpy commandSpy(&daemon, &FakeDaemon::commandReceived);
+        ctrl.votePoll(QStringLiteral("m1"), QVariantList{0, 2});
+
+        // The echo is synchronous with the call: the row must not wait even one
+        // event loop turn to show what was tapped.
+        QCOMPARE(ctrl.pendingPollSelection(QStringLiteral("m1")).toList(), (QVariantList{0, 2}));
+
+        QVERIFY(commandSpy.wait());
+        QCOMPARE(daemon.pollVotes.size(), 1);
+        QCOMPARE(daemon.pollVotes.first().value(QStringLiteral("message_id")).toString(), QStringLiteral("m1"));
+        QCOMPARE(daemon.pollVotes.first().value(QStringLiteral("option_ids")).toArray(),
+                 (QJsonArray{0, 2}));
+        // Still in flight, so the echo still stands.
+        QCOMPARE(ctrl.pendingPollSelection(QStringLiteral("m1")).toList(), (QVariantList{0, 2}));
+
+        daemon.releasePollVote();
+        // Once the daemon has answered, its tally is the truth and the echo goes.
+        QTRY_VERIFY(!ctrl.pendingPollSelection(QStringLiteral("m1")).isValid());
+
+        // A rejected vote drops the echo too, so the row falls back to the
+        // tally the daemon rolled back to rather than showing a vote nobody
+        // else will ever see.
+        QSignalSpy failedSpy(&ctrl, &ProtocolController::messageActionFailed);
+        ctrl.votePoll(QStringLiteral("m1"), QVariantList{1});
+        QCOMPARE(ctrl.pendingPollSelection(QStringLiteral("m1")).toList(), (QVariantList{1}));
+        QTRY_COMPARE(daemon.pollVotes.size(), 2);
+        daemon.releasePollVote(true);
+        QVERIFY(failedSpy.wait());
+        QVERIFY(!ctrl.pendingPollSelection(QStringLiteral("m1")).isValid());
+
+        // Taking a vote back is an empty selection, not a missing command.
+        daemon.setHoldPollVote(false);
+        ctrl.votePoll(QStringLiteral("m1"), QVariantList{});
+        QTRY_COMPARE(daemon.pollVotes.size(), 3);
+        QVERIFY(daemon.pollVotes.at(2).value(QStringLiteral("option_ids")).toArray().isEmpty());
+
+        // An empty id never reaches the daemon.
+        ctrl.votePoll(QString(), QVariantList{0});
+        QTest::qWait(50);
+        QCOMPARE(daemon.pollVotes.size(), 3);
     }
 
     // The pinned banner is the displayed conversation's `pinned` view: it

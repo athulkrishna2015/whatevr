@@ -1877,6 +1877,49 @@ void ProtocolController::markMessagePlayed(const QString &messageId)
                       [](const QJsonObject &, const ProtocolError &) {});
 }
 
+void ProtocolController::votePoll(const QString &messageId, const QVariantList &optionIndexes)
+{
+    if (messageId.isEmpty()) {
+        return;
+    }
+
+    QJsonArray ids;
+    for (const QVariant &index : optionIndexes) {
+        bool ok = false;
+        const int value = index.toInt(&ok);
+        if (ok && value >= 0) {
+            ids.append(value);
+        }
+    }
+
+    // The tap is answered here rather than one round trip later. The daemon
+    // publishes its own version of the tally within a few milliseconds, but the
+    // send behind it takes a couple of hundred, and holding the row still for
+    // either of those makes the poll feel like it did not hear the tap.
+    m_pendingPollVotes.insert(messageId, optionIndexes);
+    Q_EMIT pollVotesChanged();
+
+    m_client->request(QStringLiteral("poll.vote"),
+                      {{QStringLiteral("message_id"), messageId}, {QStringLiteral("option_ids"), ids}},
+                      [this, messageId](const QJsonObject &, const ProtocolError &error) {
+                          // Whether it worked or not, the daemon's tally is now
+                          // the truth: on success it already carries this vote,
+                          // and on failure it has put the previous one back.
+                          m_pendingPollVotes.remove(messageId);
+                          Q_EMIT pollVotesChanged();
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(error.message.isEmpty()
+                                                             ? i18nc("@info", "Unable to vote in the poll")
+                                                             : error.message);
+                          }
+                      });
+}
+
+QVariant ProtocolController::pendingPollSelection(const QString &messageId) const
+{
+    return m_pendingPollVotes.value(messageId);
+}
+
 bool ProtocolController::openLocalFile(const QString &localPath)
 {
     if (localPath.isEmpty() || !QFileInfo::exists(localPath)) {

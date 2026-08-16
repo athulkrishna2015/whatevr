@@ -158,6 +158,9 @@ Item {
     signal reactionToggleRequested(string emoji)
     // Open the reactor list dialog for this message's reactions.
     signal reactionDetailsRequested()
+    // Open the poll's result breakdown. optionIndex focuses one answer; -1 opens
+    // on the whole poll.
+    signal pollVotersRequested(int optionIndex)
     signal replyPreviewActivated(string messageId)
     signal readMoreRequested(string messageId)
     // A downloaded message photo was clicked: open it full screen.
@@ -618,7 +621,10 @@ Item {
         if (!root.canReply) {
             return
         }
-        root.triggerReplyGlow()
+        // Deliberately no reply glow. The glow's job is to point out a row you
+        // did not choose: MessageView plays it when a jump lands. Flashing the
+        // row the pointer is already on, because it was just double-clicked,
+        // tells the reader nothing and reads as the screen glitching.
         root.messageSelectionClaimed(root.messageId)
         root.replyRequested(root.messageId, root.currentSenderNameForReply(), root.replyPreviewBody.length > 0 ? root.replyPreviewBody : root.body, root.mediaKind, root.mediaMimeType, root.isOutgoing)
         root.conversationFocusRequested()
@@ -836,8 +842,29 @@ Item {
     // Right-click context menu. A MouseArea (not a TapHandler) so the press is
     // consumed before the text-selection TextEdits see it.
     MouseArea {
+        id: rowPointerArea
+
         anchors.fill: parent
         acceptedButtons: Qt.RightButton
+        // Covering the row with a hover-enabled MouseArea takes hover away from
+        // everything under it, handlers included, which is exactly why the
+        // cursor is resolved here rather than by the things being pointed at.
+        // A card is different: it holds real buttons and fields that have to
+        // light up under the pointer, so the mask cuts a hole for it. CardBubble
+        // hands the row's context menu back for right-clicks in that hole.
+        // The parameter and return types are declared because Qt looks the mask
+        // up by the exact signature `contains(QPointF)`; an untyped QML function
+        // is registered as taking a QVariant and is silently ignored.
+        containmentMask: QtObject {
+            function contains(point: point): bool {
+                const card = cardLoader.item
+                if (!card) {
+                    return true
+                }
+                const p = rowPointerArea.mapToItem(card, point.x, point.y)
+                return p.x < 0 || p.y < 0 || p.x > card.width || p.y > card.height
+            }
+        }
         // This area sits on top of the whole row (z:9) so it consumes the
         // right-press before the body TextEdits — but a MouseArea also owns the
         // item cursor for everything beneath it. So it has to resolve the cursor

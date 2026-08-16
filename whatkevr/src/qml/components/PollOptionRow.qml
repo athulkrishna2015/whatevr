@@ -30,6 +30,8 @@ Item {
     required property real bodyPointSize
 
     signal toggled()
+    /// The faces were clicked: show who chose this answer, in full.
+    signal votersRequested()
 
     readonly property var voters: option.voters ?? []
     readonly property int count: voters.length
@@ -107,6 +109,8 @@ Item {
         // Who chose it. Overlapping so a crowded option stays one compact
         // cluster rather than pushing the count off the row.
         Item {
+            id: faces
+
             Layout.alignment: Qt.AlignVCenter
             visible: root.count > 0
             implicitHeight: Kirigami.Units.gridUnit * 1.1
@@ -115,6 +119,18 @@ Item {
                 if (shown === 0)
                     return 0
                 return Kirigami.Units.gridUnit * 1.1 + (shown - 1) * Kirigami.Units.gridUnit * 0.72
+            }
+
+            // Clicking the faces asks who they are, rather than casting a vote
+            // for the answer they happen to sit on. Taking the tap here keeps
+            // the two meanings of a click on this row apart.
+            TapHandler {
+                exclusiveSignals: TapHandler.SingleTap | TapHandler.DoubleTap
+                onSingleTapped: root.votersRequested()
+            }
+
+            HoverHandler {
+                cursorShape: Qt.PointingHandCursor
             }
 
             Repeater {

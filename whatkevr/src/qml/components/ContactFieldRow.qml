@@ -14,8 +14,14 @@ import Whatevr as Whatevr
  * for. This is the part a phone cannot do well and a desktop can: an address
  * goes to the map application, an email to the mail composer, a number to
  * whatever holds `tel:`, and any of them to the clipboard.
+ *
+ * The layout is a two-line grid rather than a single row. Line one carries the
+ * glyph, the value, the badge and the copy button, all centred on each other,
+ * so the glyph sits on the value's own line instead of floating between it and
+ * the caption. Line two is the caption, indented to the value's left edge so
+ * every field in the card shares one text column.
  */
-RowLayout {
+Item {
     id: root
 
     required property string iconName
@@ -28,9 +34,17 @@ RowLayout {
     property string actionKind: "phone"
     property bool selectionModeActive: false
 
-    spacing: Kirigami.Units.smallSpacing
+    /// Distance from the field's left edge to its text column. Every caption
+    /// and every value in the card lines up on this.
+    readonly property real textColumnX: Kirigami.Units.iconSizes.small + Kirigami.Units.smallSpacing
+
+    // An Item rather than a Layout, because the hover plate has to sit behind
+    // the whole field and a Layout may not manage an anchored child.
+    implicitWidth: layout.implicitWidth
+    implicitHeight: layout.implicitHeight
 
     readonly property bool onWhatsApp: jid.length > 0
+    readonly property bool interactive: !selectionModeActive
 
     function activate() {
         if (value.length === 0)
@@ -55,40 +69,63 @@ RowLayout {
         }
     }
 
-    Kirigami.Icon {
-        Layout.alignment: Qt.AlignTop
-        Layout.topMargin: Kirigami.Units.smallSpacing / 2
-        implicitWidth: Kirigami.Units.iconSizes.small
-        implicitHeight: Kirigami.Units.iconSizes.small
-        source: root.iconName
-        fallback: "dialog-information-symbolic"
-        color: Kirigami.Theme.disabledTextColor
+    // The whole field lights up on hover, which is what says the value is the
+    // thing you click. Without it only the cursor changed, and a cursor is not
+    // an affordance you can see coming.
+    Rectangle {
+        anchors.fill: parent
+        anchors.leftMargin: -Kirigami.Units.smallSpacing / 2
+        anchors.rightMargin: -Kirigami.Units.smallSpacing / 2
+        radius: Kirigami.Units.cornerRadius
+        color: Qt.alpha(Whatevr.Palette.highlight, fieldHover.hovered ? 0.10 : 0)
+
+        Behavior on color {
+            ColorAnimation { duration: Kirigami.Units.shortDuration }
+        }
     }
 
     ColumnLayout {
-        Layout.fillWidth: true
+        id: layout
+
+        anchors.fill: parent
         spacing: 0
 
         RowLayout {
             Layout.fillWidth: true
             spacing: Kirigami.Units.smallSpacing
 
+            Kirigami.Icon {
+                Layout.alignment: Qt.AlignVCenter
+                implicitWidth: Kirigami.Units.iconSizes.small
+                implicitHeight: Kirigami.Units.iconSizes.small
+                source: root.iconName
+                fallback: "dialog-information-symbolic"
+                color: fieldHover.hovered ? Whatevr.Palette.highlight : Kirigami.Theme.disabledTextColor
+            }
+
             Controls.Label {
                 Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
                 text: root.value
                 elide: Text.ElideRight
                 maximumLineCount: 2
                 wrapMode: Text.Wrap
                 color: root.selectionModeActive ? Kirigami.Theme.textColor : Kirigami.Theme.linkColor
                 font.pointSize: Kirigami.Theme.smallFont.pointSize
+                font.underline: fieldHover.hovered
             }
 
             // The badge is free: WhatsApp told us, in the vCard itself, which
             // numbers are reachable.
             Rectangle {
+                Layout.alignment: Qt.AlignVCenter
                 visible: root.onWhatsApp
-                implicitWidth: badgeLabel.implicitWidth + Kirigami.Units.smallSpacing
-                implicitHeight: badgeLabel.implicitHeight + Kirigami.Units.smallSpacing / 2
+                // The ends are fully round, and a round end eats the space next
+                // to the text it curves past. Side padding is therefore scaled
+                // to the pill's own height rather than set to a flat unit, which
+                // is what left the words touching the curve.
+                implicitHeight: badgeLabel.implicitHeight + Kirigami.Units.smallSpacing
+                implicitWidth: badgeLabel.implicitWidth + implicitHeight * 0.8
                 radius: height / 2
                 color: Qt.alpha(Whatevr.Palette.highlight, 0.22)
 
@@ -101,17 +138,22 @@ RowLayout {
                 }
             }
 
-            Controls.ToolButton {
+            CardActionButton {
+                Layout.alignment: Qt.AlignVCenter
                 visible: !root.selectionModeActive
-                icon.name: "edit-copy-symbolic"
-                display: Controls.AbstractButton.IconOnly
-                Accessible.name: Whatevr.I18n.i18nc("@action", "Copy")
+                iconOnly: true
+                iconName: "edit-copy-symbolic"
+                text: Whatevr.I18n.i18nc("@action", "Copy")
                 onClicked: Whatevr.ProtocolController.copyToClipboard(root.value)
             }
         }
 
+        // What kind of field this is, under the value and indented to it, so it
+        // reads as a caption on the value rather than as another value.
         Controls.Label {
             Layout.fillWidth: true
+            Layout.leftMargin: root.textColumnX
+            Layout.bottomMargin: Kirigami.Units.smallSpacing / 2
             visible: root.label.length > 0
             text: root.label
             color: Kirigami.Theme.disabledTextColor
@@ -122,13 +164,15 @@ RowLayout {
     }
 
     TapHandler {
-        enabled: !root.selectionModeActive
+        enabled: root.interactive
         exclusiveSignals: TapHandler.SingleTap | TapHandler.DoubleTap
         onSingleTapped: root.activate()
     }
 
     HoverHandler {
-        enabled: !root.selectionModeActive
+        id: fieldHover
+
+        enabled: root.interactive
         cursorShape: Qt.PointingHandCursor
     }
 }

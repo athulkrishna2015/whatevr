@@ -29,6 +29,8 @@ import Whatevr as Whatevr
 Item {
     id: root
 
+    objectName: "contactCardBubble"
+
     required property ChatBubble row
 
     readonly property var payload: row.contacts ?? ({})
@@ -39,8 +41,14 @@ Item {
     /// Collapsed by default: a card is a summary until you ask for the detail.
     property bool expanded: false
 
+    /// Padding between the card's edge and its content, on every side. The
+    /// height has to include both of them: reporting only the content's height
+    /// while insetting it from the top leaves the last row hanging over the
+    /// bottom edge, with its hover plate outside the card entirely.
+    readonly property real contentMargin: Kirigami.Units.largeSpacing
+
     implicitWidth: row.attachmentBlockWidth
-    implicitHeight: content.implicitHeight
+    implicitHeight: content.implicitHeight + contentMargin * 2
 
     function cardAt(index) {
         return index >= 0 && index < cards.length ? cards[index] : ({})
@@ -77,10 +85,12 @@ Item {
     ColumnLayout {
         id: content
 
+        objectName: "cardContent"
+
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.margins: Kirigami.Units.smallSpacing
+        anchors.margins: root.contentMargin
         spacing: Kirigami.Units.smallSpacing
 
         // The header names what arrived. For a single contact it is the person;
@@ -165,23 +175,43 @@ Item {
                 card: root.cardAt(index)
                 compact: root.isStack && !root.expanded
                 expanded: root.expanded
+                // The collapsed stack is one tight line per person and reads
+                // fine without rules; the expanded one is several fields deep
+                // per person and does not.
+                showSeparator: index > 0 && root.expanded
+                // A lone contact's name is already the card's heading.
+                showPersonHeader: root.isStack
                 selectionModeActive: root.row.selectionModeActive
             }
         }
 
         // The affordance to see the rest. A single contact with nothing beyond
         // its primary number has nothing to expand into, so it says nothing.
-        Controls.ToolButton {
+        // Left-aligned like the actions above it: a centred full-width button
+        // under a column of left-aligned rows is the one thing in the card that
+        // does not line up with anything else.
+        RowLayout {
             Layout.fillWidth: true
+            // Same pull as the action row, so every glyph in the card shares
+            // one left column.
+            Layout.leftMargin: -Kirigami.Units.smallSpacing
             visible: root.isStack || root.hasHiddenDetail
-            text: root.expanded
-                ? Whatevr.I18n.i18nc("@action collapse a shared contact card", "Show less")
-                : (root.isStack && root.cardCount > 3
-                    ? Whatevr.I18n.i18ncp("@action expand a stack of shared contacts",
-                                          "Show all %1 contacts", "Show all %1 contacts", root.cardCount)
-                    : Whatevr.I18n.i18nc("@action expand a shared contact card", "Show details"))
-            font.pointSize: Kirigami.Theme.smallFont.pointSize
-            onClicked: root.expanded = !root.expanded
+            spacing: 0
+
+            CardActionButton {
+                text: root.expanded
+                    ? Whatevr.I18n.i18nc("@action collapse a shared contact card", "Show less")
+                    : (root.isStack && root.cardCount > 3
+                        ? Whatevr.I18n.i18ncp("@action expand a stack of shared contacts",
+                                              "Show all %1 contacts", "Show all %1 contacts", root.cardCount)
+                        : Whatevr.I18n.i18nc("@action expand a shared contact card", "Show details"))
+                iconName: root.expanded ? "go-up-symbolic" : "go-down-symbolic"
+                onClicked: root.expanded = !root.expanded
+            }
+
+            Item {
+                Layout.fillWidth: true
+            }
         }
     }
 

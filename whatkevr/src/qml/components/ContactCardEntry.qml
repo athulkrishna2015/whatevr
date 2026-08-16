@@ -26,6 +26,14 @@ ColumnLayout {
     property bool compact: false
     property bool expanded: false
     property bool selectionModeActive: false
+    /// Drawn above this entry when it follows another one. Several contacts
+    /// otherwise read as one unbroken column of fields, with nothing saying
+    /// where one person stops and the next starts.
+    property bool showSeparator: false
+    /// Whether this entry names the person it belongs to. Off for a lone
+    /// contact, whose name is already the card's own heading: repeating it
+    /// under itself says nothing and reads as a duplicate.
+    property bool showPersonHeader: false
 
     spacing: 0
 
@@ -43,15 +51,43 @@ ColumnLayout {
         return phones.length > 0 ? phones[0] : null
     }
 
+    readonly property string reachableJID: primaryPhone ? String(primaryPhone.jid ?? "") : ""
+
+    function initialsFor(name) {
+        const trimmed = String(name ?? "").trim()
+        if (trimmed.length === 0)
+            return "?"
+        const words = trimmed.split(/\s+/)
+        return words.length === 1
+            ? words[0].charAt(0).toUpperCase()
+            : (words[0].charAt(0) + words[words.length - 1].charAt(0)).toUpperCase()
+    }
+
+    Item {
+        Layout.fillWidth: true
+        visible: root.showSeparator
+        implicitHeight: Kirigami.Units.largeSpacing
+
+        Rectangle {
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.left: parent.left
+            anchors.right: parent.right
+            height: 1
+            color: Qt.alpha(Kirigami.Theme.textColor, 0.15)
+        }
+    }
+
     // ---- compact: the stack's one-line-per-person form ----
 
     RowLayout {
         Layout.fillWidth: true
         Layout.topMargin: Kirigami.Units.smallSpacing / 2
+        Layout.bottomMargin: Kirigami.Units.smallSpacing / 2
         visible: root.compact
         spacing: Kirigami.Units.smallSpacing
 
         Kirigami.Icon {
+            Layout.alignment: Qt.AlignVCenter
             implicitWidth: Kirigami.Units.iconSizes.small
             implicitHeight: Kirigami.Units.iconSizes.small
             source: "user-symbolic"
@@ -61,6 +97,7 @@ ColumnLayout {
 
         Controls.Label {
             Layout.fillWidth: true
+            Layout.alignment: Qt.AlignVCenter
             text: String(root.card.display_name ?? "")
             elide: Text.ElideRight
             maximumLineCount: 1
@@ -68,6 +105,7 @@ ColumnLayout {
         }
 
         Controls.Label {
+            Layout.alignment: Qt.AlignVCenter
             visible: text.length > 0
             text: root.primaryPhone ? String(root.primaryPhone.value ?? "") : ""
             color: Kirigami.Theme.disabledTextColor
@@ -84,16 +122,31 @@ ColumnLayout {
         visible: !root.compact
         spacing: 0
 
-        // The name repeats here only when this entry is one of several: a
-        // single card already has it in the bubble's header.
-        Controls.Label {
+        // Whose fields these are. Only when the card holds several people:
+        // see showPersonHeader.
+        RowLayout {
             Layout.fillWidth: true
-            Layout.topMargin: Kirigami.Units.smallSpacing
-            visible: root.expanded && text.length > 0 && root.card.display_name !== undefined
-            text: String(root.card.display_name ?? "")
-            elide: Text.ElideRight
-            font.bold: true
-            font.pointSize: Kirigami.Theme.smallFont.pointSize
+            Layout.bottomMargin: Kirigami.Units.smallSpacing / 2
+            visible: root.showPersonHeader
+            spacing: Kirigami.Units.smallSpacing
+
+            AvatarImage {
+                Layout.alignment: Qt.AlignVCenter
+                implicitWidth: Kirigami.Units.iconSizes.small
+                implicitHeight: implicitWidth
+                // A shared card carries no picture, and looking one up would
+                // tell the server whose contacts got forwarded to us.
+                initials: root.initialsFor(String(root.card.display_name ?? ""))
+            }
+
+            Controls.Label {
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
+                text: String(root.card.display_name ?? "")
+                elide: Text.ElideRight
+                maximumLineCount: 1
+                font.bold: true
+            }
         }
 
         Repeater {
@@ -157,59 +210,45 @@ ColumnLayout {
             }
         }
 
-        Controls.Label {
+        ContactFieldRow {
             Layout.fillWidth: true
-            visible: root.expanded && text.length > 0
-            text: {
-                const birthday = String(root.card.birthday ?? "")
-                return birthday.length > 0
-                    ? Whatevr.I18n.i18nc("@label a contact's birthday", "Birthday: %1", birthday)
-                    : ""
-            }
-            color: Kirigami.Theme.disabledTextColor
-            elide: Text.ElideRight
-            font.pointSize: Kirigami.Theme.smallFont.pointSize
+            visible: root.expanded && value.length > 0
+            iconName: "view-calendar-birthday-symbolic"
+            value: String(root.card.birthday ?? "")
+            label: Whatevr.I18n.i18nc("@label a contact's birthday", "Birthday")
+            selectionModeActive: true
         }
 
-        // The primary action. It only exists when WhatsApp vouched for a number
-        // on this card, because without that a "Message" button would be a
-        // guess that fails after a round trip.
+        // The actions. They exist only when WhatsApp vouched for a number on
+        // this card, because without that a Message button would be a guess
+        // that fails after a round trip.
         RowLayout {
             Layout.fillWidth: true
             Layout.topMargin: Kirigami.Units.smallSpacing / 2
+            // Pulled left by a button's own padding so the glyphs land on the
+            // same column as the field icons above them.
+            Layout.leftMargin: -Kirigami.Units.smallSpacing
             visible: !root.selectionModeActive
-            spacing: Kirigami.Units.smallSpacing
+            spacing: 0
 
-            Controls.ToolButton {
-                visible: root.primaryPhone && String(root.primaryPhone.jid ?? "").length > 0
+            CardActionButton {
+                visible: root.reachableJID.length > 0
                 text: Whatevr.I18n.i18nc("@action open a chat with a shared contact", "Message")
-                icon.name: "mail-message-new-symbolic"
-                display: Controls.AbstractButton.TextBesideIcon
-                font.pointSize: Kirigami.Theme.smallFont.pointSize
-                onClicked: {
-                    if (root.primaryPhone)
-                        Whatevr.ProtocolController.startDirectChat(String(root.primaryPhone.jid))
-                }
+                iconName: "mail-message-new-symbolic"
+                onClicked: Whatevr.ProtocolController.startDirectChat(root.reachableJID)
             }
 
-            Controls.ToolButton {
-                visible: root.primaryPhone && String(root.primaryPhone.jid ?? "").length > 0
+            CardActionButton {
+                visible: root.reachableJID.length > 0
                 text: Whatevr.I18n.i18nc("@action open a shared contact's info card", "Info")
-                icon.name: "documentinfo-symbolic"
-                display: Controls.AbstractButton.TextBesideIcon
-                font.pointSize: Kirigami.Theme.smallFont.pointSize
-                onClicked: {
-                    if (root.primaryPhone)
-                        Whatevr.ProtocolController.openContactCard(String(root.primaryPhone.jid))
-                }
+                iconName: "documentinfo-symbolic"
+                onClicked: Whatevr.ProtocolController.openContactCard(root.reachableJID)
             }
 
-            Controls.ToolButton {
+            CardActionButton {
                 visible: String(root.card.vcard ?? "").length > 0
                 text: Whatevr.I18n.i18nc("@action save a shared contact to a file", "Save card")
-                icon.name: "document-save-symbolic"
-                display: Controls.AbstractButton.TextBesideIcon
-                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                iconName: "document-save-symbolic"
                 onClicked: Whatevr.ProtocolController.saveContactCard(
                     String(root.card.display_name ?? ""), String(root.card.vcard ?? ""))
             }

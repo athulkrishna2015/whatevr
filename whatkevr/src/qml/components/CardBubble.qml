@@ -31,6 +31,22 @@ Item {
     implicitWidth: row.attachmentBlockWidth
     implicitHeight: cardLoader.item ? cardLoader.item.implicitHeight : Kirigami.Units.gridUnit * 12
 
+    // The row's own right-click surface stops at the card's edge, so that it
+    // cannot take hover away from the buttons and fields inside. Right-clicking
+    // a card must still open the message's menu, so it is handed back here.
+    // Below everything else in the card, so an action that wants the press
+    // (nothing does today, but a map drag would) gets it first.
+    MouseArea {
+        anchors.fill: parent
+        acceptedButtons: Qt.RightButton
+        z: -1
+        onPressed: mouse => {
+            const p = mapToItem(root.row, mouse.x, mouse.y)
+            root.row.contextMenuRequested(p.x, p.y)
+            mouse.accepted = true
+        }
+    }
+
     Loader {
         id: cardLoader
 

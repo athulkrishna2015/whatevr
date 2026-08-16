@@ -25,6 +25,8 @@ import Whatevr as Whatevr
 Item {
     id: root
 
+    objectName: "pollBubble"
+
     required property ChatBubble row
 
     readonly property var poll: row.poll ?? ({})
@@ -42,8 +44,13 @@ Item {
         return endsAt > 0 && endsAt <= Math.floor(Date.now() / 1000)
     }
 
+    /// Padding between the card's edge and its content, on every side. The
+    /// height has to include both of them, or the last option sits on the
+    /// card's bottom edge with its bar hanging over it.
+    readonly property real contentMargin: Kirigami.Units.largeSpacing
+
     implicitWidth: row.attachmentBlockWidth
-    implicitHeight: content.implicitHeight
+    implicitHeight: content.implicitHeight + contentMargin * 2
 
     /** The largest vote count, so bars are relative to the leader, not the total. */
     readonly property int leadingCount: {
@@ -53,8 +60,15 @@ Item {
         return most
     }
 
-    /** The indexes we have chosen right now. */
+    /**
+     * The indexes we have chosen right now: what a tap still in flight asked
+     * for if there is one, else the daemon's tally. Reading the tally while a
+     * vote is outstanding would make a second tap repeat the first instead of
+     * toggling it, because the tally has not caught up yet.
+     */
     function selectedIndexes() {
+        if (voteInFlight)
+            return pendingSelection.slice()
         const chosen = []
         for (let i = 0; i < options.length; ++i) {
             if (options[i].self_voted)
@@ -83,18 +97,18 @@ Item {
         } else {
             next = at >= 0 ? [] : [index]
         }
-        pendingSelection = next
         Whatevr.ProtocolController.votePoll(row.messageId, next)
     }
 
-    /// Held only until the daemon's answer arrives, so the row responds to the
-    /// tap rather than waiting on a round trip.
-    property var pendingSelection: null
-
-    onPollChanged: pendingSelection = null
+    /// The selection a tap asked for while its command is in flight, or
+    /// undefined once the daemon has answered. Read as a binding rather than
+    /// held as delegate state, so scrolling a poll off screen and back does not
+    /// resurrect a vote that has already resolved.
+    readonly property var pendingSelection: Whatevr.ProtocolController.pendingPollVotes[row.messageId]
+    readonly property bool voteInFlight: pendingSelection !== undefined && pendingSelection !== null
 
     function isChosen(option) {
-        if (pendingSelection !== null)
+        if (voteInFlight)
             return pendingSelection.indexOf(option.index) >= 0
         return option.self_voted ?? false
     }
@@ -110,10 +124,12 @@ Item {
     ColumnLayout {
         id: content
 
+        objectName: "cardContent"
+
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
-        anchors.margins: Kirigami.Units.smallSpacing
+        anchors.margins: root.contentMargin
         spacing: Kirigami.Units.smallSpacing / 2
 
         RowLayout {
@@ -168,6 +184,7 @@ Item {
                 interactive: !root.row.selectionModeActive && !root.ended
                 bodyPointSize: root.row.bodyPointSize
                 onToggled: root.toggle(modelData.index)
+                onVotersRequested: root.row.pollVotersRequested(modelData.index)
             }
         }
 
@@ -177,16 +194,35 @@ Item {
             Layout.rightMargin: root.row.tntReserveWidth
             spacing: Kirigami.Units.smallSpacing
 
+            // The turnout is the way into the breakdown, so the count you want
+            // to interrogate is the thing you click. A poll nobody has answered
+            // has nothing to show, so it stays plain text.
             Controls.Label {
+                id: turnout
+
                 text: root.totalVoters > 0
-                    ? Whatevr.I18n.i18ncp("@label poll turnout", "%1 vote", "%1 votes", root.totalVoters)
+                    ? Whatevr.I18n.i18ncp("@action:button open the poll's result breakdown", "%1 vote", "%1 votes", root.totalVoters)
                     : Whatevr.I18n.i18nc("@label a poll nobody has answered", "No votes yet")
-                color: Kirigami.Theme.disabledTextColor
+                color: turnoutHover.hovered ? Whatevr.Palette.highlight : Kirigami.Theme.disabledTextColor
                 font.pointSize: Kirigami.Theme.smallFont.pointSize
+                font.underline: turnoutHover.hovered
+
+                HoverHandler {
+                    id: turnoutHover
+
+                    enabled: root.totalVoters > 0 && !root.row.selectionModeActive
+                    cursorShape: Qt.PointingHandCursor
+                }
+
+                TapHandler {
+                    enabled: turnoutHover.enabled
+                    exclusiveSignals: TapHandler.SingleTap | TapHandler.DoubleTap
+                    onSingleTapped: root.row.pollVotersRequested(-1)
+                }
             }
 
             Controls.Label {
-                visible: !root.selfVoted && !root.ended
+                visible: !root.selfVoted && !root.ended && !root.voteInFlight
                 text: Whatevr.I18n.i18nc("@label prompt to answer a poll", "· tap a row to vote")
                 color: Kirigami.Theme.disabledTextColor
                 font.pointSize: Kirigami.Theme.smallFont.pointSize
