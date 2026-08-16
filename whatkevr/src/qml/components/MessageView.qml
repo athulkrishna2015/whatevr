@@ -1413,19 +1413,37 @@ Item {
     ListView {
         id: list
 
+        objectName: "messageList"
+
         // Pin the viewport itself to the bottom and only grow as tall as content,
         // keeping short conversations adjacent to the composer.
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        // Delayed: resizing the view triggers a layout pass that revises the
-        // contentHeight estimate, so a direct binding re-enters itself while
-        // delegates churn during a scroll. Coalescing the write through the
-        // event queue breaks that cycle.
-        Binding on height {
-            value: Math.min(list.contentHeight, list.parent.height)
+
+        // The viewport hangs from the bottom edge and is never taller than its
+        // content, so both terms move it. They need opposite timing.
+        //
+        // The content's height is coalesced through the event queue: resizing
+        // the view triggers a layout pass that revises the estimate, so binding
+        // the height straight to it re-enters itself while delegates churn
+        // during a scroll.
+        //
+        // The pane's own height is not part of that cycle and must land in the
+        // frame it changes in. Anything that grows the composer (opening a
+        // reply strip, a wrapping line) shortens this pane from below, and the
+        // anchor moves the viewport up immediately; a height that arrives a
+        // turn later leaves the whole transcript drawn a strip too high for
+        // that turn and then snapping back. Parked at the newest message the
+        // drift is invisible, because pinning to the bottom was going to move
+        // the content by exactly that much anyway, which is why this only ever
+        // showed while scrolled up.
+        property real settledContentHeight: 0
+        Binding on settledContentHeight {
+            value: list.contentHeight
             delayed: true
         }
+        height: Math.min(settledContentHeight, list.parent.height)
         clip: true
 
         // A viewport-height change (e.g. the pinned banner appearing/disappearing

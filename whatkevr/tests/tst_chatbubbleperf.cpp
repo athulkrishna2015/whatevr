@@ -16,6 +16,7 @@
 #include <QDateTime>
 #include <QElapsedTimer>
 #include <QImage>
+#include <QJsonObject>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QQuickItem>
@@ -27,8 +28,12 @@
 #include <QStandardPaths>
 #include <QTest>
 
+#include "collectionviewmodel.h"
 #include "protocolcontroller.h"
+#include "protocolmessagemodel.h"
 #include "settings.h"
+
+using whatevr::proto::CollectionViewModel;
 
 namespace
 {
@@ -209,6 +214,7 @@ private Q_SLOTS:
     void groupInviteCardAnswersWhereYouAlreadyStand();
     void eventCardShowsWhoIsComingAndAnswersOnTheTap();
     void albumMosaicTilesTheWholeWidthWithoutOverlapping();
+    void aShrinkingPaneDoesNotDragTheTranscriptWithIt();
 
 private:
     QQuickWindow *m_window = nullptr;
@@ -1254,6 +1260,91 @@ void ChatBubblePerf::albumMosaicTilesTheWholeWidthWithoutOverlapping()
         m_window->hide();
         bubbleItem->setParentItem(nullptr);
     }
+}
+
+// The timeline is bottom-anchored and only as tall as its content, so the pane
+// shrinking from below (a composer that grew a reply strip, or a wrapping line)
+// moves the viewport's top edge up. The height has to follow in the same turn:
+// a turn's delay draws the whole transcript one strip too high and then snaps
+// it back, which is the flicker a reply lands with while scrolled up. At the
+// bottom it hides, because a bottom-pinned viewport moves the content by that
+// much anyway, so this asserts the scrolled-up case the eye actually catches.
+void ChatBubblePerf::aShrinkingPaneDoesNotDragTheTranscriptWithIt()
+{
+    CollectionViewModel source;
+    ProtocolMessageModel model(&source);
+    for (int i = 0; i < 40; ++i) {
+        const QString id = QStringLiteral("m%1").arg(i, 3, 10, QLatin1Char('0'));
+        source.onUpsert(id,
+                        QJsonObject{
+                            {QStringLiteral("id"), id},
+                            {QStringLiteral("chat_id"), QStringLiteral("wow3@g.us")},
+                            {QStringLiteral("kind"), QStringLiteral("text")},
+                            {QStringLiteral("text"), QStringLiteral("row %1").arg(i)},
+                            {QStringLiteral("fallback"), QStringLiteral("row %1").arg(i)},
+                            {QStringLiteral("timestamp"), 1'700'000'000 + i},
+                            {QStringLiteral("direction"), QStringLiteral("incoming")},
+                            {QStringLiteral("status"), QStringLiteral("delivered")},
+                        });
+    }
+    QCOMPARE(model.rowCount(), 40);
+
+    QQmlComponent component(
+        m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/MessageView.qml")));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> view(component.createWithInitialProperties(
+        {{QStringLiteral("chatId"), QStringLiteral("wow3@g.us")},
+         {QStringLiteral("model"), QVariant::fromValue<QObject *>(&model)}}));
+    QVERIFY2(view, qPrintable(component.errorString()));
+    auto *viewItem = qobject_cast<QQuickItem *>(view.get());
+    viewItem->setParentItem(m_window->contentItem());
+    viewItem->setWidth(700);
+    viewItem->setHeight(420);
+    m_window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_window));
+
+    QQuickItem *list = findVisualChild(viewItem, QStringLiteral("messageList"));
+    QVERIFY2(list, "the timeline has no list");
+    // Enough rows to overflow the pane, which is what makes it scrollable and
+    // is the only state where being scrolled up means anything.
+    QTRY_VERIFY(list->property("contentHeight").toReal() > viewItem->height() * 2);
+    // An open positions itself and then keeps re-pinning while rows settle from
+    // their estimated heights to their real ones. Let that finish, or the scroll
+    // below is undone by a re-pin that was already owed.
+    QTest::qWait(800);
+
+    // Away from the newest message, and staying there: following it is a
+    // separate path that legitimately re-pins on a height change.
+    viewItem->setProperty("followNewest", false);
+    const qreal parked = list->property("contentY").toReal() - 200;
+    list->setProperty("contentY", parked);
+    QTest::qWait(100);
+    QVERIFY2(qAbs(list->property("contentY").toReal() - parked) < 1,
+             qPrintable(QStringLiteral("the timeline would not stay scrolled up: went to %1, not %2")
+                            .arg(list->property("contentY").toReal())
+                            .arg(parked)));
+
+    // Where the row under the pointer is drawn, in the pane's coordinates: the
+    // viewport's own top edge, less how far the content is scrolled through it.
+    const auto contentTop = [&] { return list->y() - list->property("contentY").toReal(); };
+    const qreal before = contentTop();
+
+    // The composer grows. No event processing after it: the flicker is exactly
+    // the state the scene is left in for the turn between the two.
+    viewItem->setHeight(viewItem->height() - 48);
+    QVERIFY2(qAbs(contentTop() - before) < 0.5,
+             qPrintable(QStringLiteral("the transcript jumped %1px when the pane shrank")
+                            .arg(contentTop() - before)));
+
+    // And it is still there once everything has settled, so nothing above put
+    // it back a frame later.
+    QTest::qWait(50);
+    QVERIFY2(qAbs(contentTop() - before) < 0.5,
+             qPrintable(QStringLiteral("the transcript settled %1px from where it was")
+                            .arg(contentTop() - before)));
+
+    m_window->hide();
+    viewItem->setParentItem(nullptr);
 }
 
 int main(int argc, char *argv[])
