@@ -446,9 +446,16 @@ Item {
     // height and a comfortable width that does not depend on decode.
     // A card wants the whole content width: it is showing a picture of
     // somewhere, not a line of metadata.
+    // A card that shows a picture of somewhere wants the whole content width. A
+    // card that shows a few lines and a button does not, and stretching it to
+    // the ceiling leaves a bubble mostly full of nothing with its action
+    // stranded at the far left. So a card may publish a width it would rather
+    // have, the same way it already publishes a height; cards that publish none
+    // keep filling, which is what a map and a mosaic want.
     readonly property real attachmentBlockWidth: isCardBlock
-        ? maxContentWidth
+        ? (cardBlockWidth > 0 ? Math.min(maxContentWidth, cardBlockWidth) : maxContentWidth)
         : Math.min(maxContentWidth, Kirigami.Units.gridUnit * 17)
+    property real cardBlockWidth: 0
     // A card publishes its own height, so the row asks it rather than guessing.
     // The fallback is what the slot reserves before the card has laid out, and
     // it is deliberately close to the real thing so nothing jumps.
@@ -1449,8 +1456,15 @@ Item {
                         row: root
                     }
 
-                    onItemChanged: root.cardBlockHeight = Qt.binding(() =>
-                        cardLoader.item ? cardLoader.item.implicitHeight : Kirigami.Units.gridUnit * 12)
+                    onItemChanged: {
+                        root.cardBlockHeight = Qt.binding(() =>
+                            cardLoader.item ? cardLoader.item.implicitHeight : Kirigami.Units.gridUnit * 12)
+                        // The width a card would rather have. Read from the
+                        // dispatcher rather than the card so the row does not
+                        // have to know which kinds publish one; 0 means fill.
+                        root.cardBlockWidth = Qt.binding(() =>
+                            cardLoader.item ? cardLoader.item.preferredWidth : 0)
+                    }
                 }
             }
 

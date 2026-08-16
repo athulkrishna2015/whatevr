@@ -118,12 +118,22 @@ Item {
 
     // The row draws the time and ticks over the bottom right of the block, so
     // whichever line the card ends on has to leave room for them. Which line
-    // that is changes with the invite's state: an expired one has no action
-    // row, so its header *is* the bottom line and it is the header that has to
-    // give way. Reserving unconditionally on the header instead would indent
-    // the subtitle of every card away from a footer that is nowhere near it.
-    readonly property real headerReserve: showsTopic || showsAction ? 0 : row.tntReserveWidth
+    // that is changes with the invite's state, so the reserve follows it: with
+    // an action row the spacer beside the button carries it, and without one it
+    // falls to the topic, or to the subtitle when there is no topic either.
+    readonly property real subtitleReserve: showsTopic || showsAction ? 0 : row.tntReserveWidth
     readonly property real topicReserve: showsAction ? 0 : row.tntReserveWidth
+
+    /// The width this card would rather be. A few lines and a button do not
+    /// need the whole bubble, and taking it leaves the action stranded at the
+    /// far left of a mostly empty plate. The row caps this at what it has.
+    readonly property real preferredWidth: content.implicitWidth + contentMargin * 2
+
+    readonly property real avatarSize: Kirigami.Units.gridUnit * 2.2
+    /// Distance from the card's content edge to the text column. Everything
+    /// below the picture lines up on this, so the card reads as two columns
+    /// rather than as a header with an unrelated button under it.
+    readonly property real textColumnX: avatarSize + Kirigami.Units.smallSpacing
 
     QtObject {
         id: clock
@@ -167,7 +177,7 @@ Item {
 
             AvatarImage {
                 Layout.alignment: Qt.AlignVCenter
-                implicitWidth: Kirigami.Units.gridUnit * 2.2
+                implicitWidth: root.avatarSize
                 implicitHeight: implicitWidth
                 // The invite carries the group's picture inline, so there is
                 // nothing to fetch and nothing to tell the server about who
@@ -179,9 +189,13 @@ Item {
                 opacity: root.expired ? 0.6 : 1
             }
 
+            // Only the two lines the picture is meant to sit beside. Putting
+            // the topic and the action in here as well made the column three
+            // and four lines tall, and the picture, centred on all of it,
+            // drifted down until it was level with the subtitle instead of the
+            // name. They are indented to this column's left edge instead.
             ColumnLayout {
                 Layout.fillWidth: true
-                Layout.rightMargin: root.headerReserve
                 spacing: 0
 
                 Controls.Label {
@@ -198,6 +212,7 @@ Item {
                     objectName: "inviteSubtitle"
 
                     Layout.fillWidth: true
+                    Layout.rightMargin: root.subtitleReserve
                     visible: text.length > 0
                     text: {
                         // Two facts, one line, joined only when both are there:
@@ -223,6 +238,7 @@ Item {
         Controls.Label {
             Layout.fillWidth: true
             Layout.topMargin: Kirigami.Units.smallSpacing / 2
+            Layout.leftMargin: root.textColumnX
             Layout.rightMargin: root.topicReserve
             visible: root.showsTopic
             text: root.topic
@@ -236,10 +252,11 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             Layout.topMargin: Kirigami.Units.smallSpacing / 2
-            // Pulled left by a button's own padding, so its glyph lands on the
-            // same column as the avatar above it rather than a padding's
-            // width in.
-            Layout.leftMargin: -Kirigami.Units.smallSpacing
+            // Indented to the text column, then pulled back by the button's own
+            // padding, so its glyph starts on the same edge as the name above
+            // it. Left at the card's edge it starts under the picture and lines
+            // up with nothing.
+            Layout.leftMargin: root.textColumnX - Kirigami.Units.smallSpacing
             visible: root.showsAction
             spacing: 0
 
@@ -247,12 +264,22 @@ Item {
                 text: root.joined
                     ? Whatevr.I18n.i18nc("@action open the chat for a group already joined", "Open chat")
                     : Whatevr.I18n.i18nc("@action accept a group invitation", "Join group")
-                iconName: root.joined ? "go-next-symbolic" : "list-add-symbolic"
+                // A speech balloon rather than a chevron. A chevron is a thin
+                // mark drawn in the middle of its box, so next to a name it
+                // reads as indented even when its box is exactly aligned, and
+                // it says "forward" rather than "this is a conversation".
+                iconName: root.joined ? "view-conversation-balloon-symbolic" : "list-add-symbolic"
                 onClicked: Whatevr.ProtocolController.joinGroupInvite(root.row.messageId)
             }
 
+            // Where the row's time and ticks land when the card ends on its
+            // action. A minimum rather than a plain filler, because this card
+            // asks to be only as wide as its content: with nothing claiming the
+            // space, the card would shrink to the button and the timestamp
+            // would sit on top of it.
             Item {
                 Layout.fillWidth: true
+                Layout.minimumWidth: root.row.tntReserveWidth
             }
         }
     }

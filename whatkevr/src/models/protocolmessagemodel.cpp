@@ -596,6 +596,7 @@ bool ProtocolMessageModel::rendersItsOwnPayload(const QVariantMap &item)
         QStringLiteral("location"),
         QStringLiteral("contacts"),
         QStringLiteral("poll"),
+        QStringLiteral("invite"),
     };
     for (const QString &key : known) {
         if (!item.value(key).toMap().isEmpty()) {

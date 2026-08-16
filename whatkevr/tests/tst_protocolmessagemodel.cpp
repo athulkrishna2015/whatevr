@@ -410,6 +410,18 @@ private Q_SLOTS:
             {QStringLiteral("lat"), 12.9716}, {QStringLiteral("lng"), 77.5946},
         });
 
+        // Caught in the running app, not here: a group invite drew its card and
+        // then printed "👥 Group invite: Wow3" underneath it, because adding a
+        // card kind means adding its payload key here too and nothing said so.
+        QJsonObject invite = message(QStringLiteral("m4"), 1'700'000'003);
+        invite.insert(QStringLiteral("kind"), QStringLiteral("group_invite"));
+        invite.insert(QStringLiteral("fallback"), QStringLiteral("👥 Group invite: Wow3"));
+        invite.remove(QStringLiteral("text"));
+        invite.insert(QStringLiteral("invite"), QJsonObject{
+            {QStringLiteral("group_jid"), QStringLiteral("120@g.us")},
+            {QStringLiteral("subject"), QStringLiteral("Wow3")},
+        });
+
         // A kind from a newer daemon, whose payload this build has never heard
         // of, must still say something: that is what fallback is for.
         QJsonObject future = message(QStringLiteral("m3"), 1'700'000'002);
@@ -421,11 +433,13 @@ private Q_SLOTS:
         source.onUpsert(QStringLiteral("0001"), contact);
         source.onUpsert(QStringLiteral("0002"), location);
         source.onUpsert(QStringLiteral("0003"), future);
+        source.onUpsert(QStringLiteral("0004"), invite);
 
         QCOMPARE(role(model, 0, ProtocolMessageModel::TextRole).toString(), QString());
         QCOMPARE(role(model, 1, ProtocolMessageModel::TextRole).toString(), QString());
         QCOMPARE(role(model, 2, ProtocolMessageModel::TextRole).toString(),
                  QStringLiteral("🪩 Hologram"));
+        QCOMPARE(role(model, 3, ProtocolMessageModel::TextRole).toString(), QString());
     }
 
     // A caption on a kind that draws itself still belongs to the bubble.

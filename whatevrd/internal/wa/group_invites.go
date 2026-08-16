@@ -32,6 +32,11 @@ import (
 // moment; a hung one must not pin a goroutine for the session's lifetime.
 const groupInviteResolveTimeout = 20 * time.Second
 
+// groupInviteJoinTimeout bounds the join. Shorter than the resolve, because
+// somebody is watching this one: a button that has not answered in fifteen
+// seconds has failed, whatever the server eventually thinks.
+const groupInviteJoinTimeout = 15 * time.Second
+
 func (c *Client) groupInviteMessageInput(ctx context.Context, evt *events.Message, opts ingestOptions) (appstore.MediaMessageInput, bool) {
 	if evt == nil || evt.Message == nil {
 		return appstore.MediaMessageInput{}, false
@@ -87,35 +92,63 @@ func (c *Client) maybeResolveGroupInvite(ctx context.Context, message appstore.M
 	if groupInviteExpired(payload, time.Now()) {
 		return
 	}
+	c.log.Debugf("Resolving group invite %s for %s", message.ID, payload.GroupJID)
 	go c.resolveGroupInvite(context.WithoutCancel(ctx), message.ID)
 }
 
 // resolveGroupInvite asks WhatsApp what the invite code actually points at and
 // folds the answer back into the row.
 func (c *Client) resolveGroupInvite(ctx context.Context, messageID string) {
+	// Every way out of this prologue says why. A background job that gives up
+	// in silence is a card stuck on the sender's copy with nothing anywhere to
+	// explain it, which is exactly how long this took to diagnose the once.
 	client := c.currentClient()
 	if client == nil || !client.IsLoggedIn() {
+		c.log.Debugf("Not resolving group invite %s: not connected", messageID)
 		return
 	}
 	message, err := c.store.GetMessage(ctx, messageID)
 	if err != nil {
+		c.log.Warnf("Failed to read group invite %s back: %v", messageID, err)
 		return
 	}
 	payload := appstore.DecodePayload(message.PayloadJSON).GroupInvite
 	if payload == nil {
+		c.log.Warnf("Group invite %s stored no invite payload", messageID)
 		return
 	}
 	groupJID, inviter, ok := c.groupInviteParties(message, payload)
 	if !ok {
+		c.log.Debugf("Group invite %s names no resolvable group or inviter", messageID)
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, groupInviteResolveTimeout)
 	defer cancel()
 
+	// Two different queries describe the group, and which one applies depends
+	// on which side of the membership line we are on. Plain group info is the
+	// members' query and is the one that answers "am I in this": it is refused
+	// for a group we are not in. The invite query is the outsiders' one.
+	//
+	// The order matters and is not a preference. WhatsApp does not reply to an
+	// add_request for a group the asker is already in: not an error, no reply
+	// at all, so asking that first parks the lookup until it times out and the
+	// card sits on the sender's copy for twenty seconds before giving up on a
+	// question the other query answers at once.
+	if info, err := client.GetGroupInfo(ctx, groupJID); err == nil && info != nil {
+		c.log.Debugf("Group invite %s is for %s, which we are already in", messageID, groupJID)
+		payload.Joined = true
+		applyResolvedGroupInfo(payload, info)
+		c.saveGroupInvitePayload(ctx, messageID, payload)
+		return
+	}
+
+	c.log.Debugf("Asking WhatsApp about invite %s to %s from %s", payload.Code, groupJID, inviter)
 	info, err := client.GetGroupInfoFromInvite(ctx, groupJID, inviter, payload.Code, payload.ExpiresAt)
 	if err != nil {
 		if ctx.Err() != nil {
+			c.log.Debugf("Gave up resolving group invite %s: %v", messageID, ctx.Err())
 			return
 		}
 		// A revoked or already-used code is the common failure and is worth
@@ -123,17 +156,24 @@ func (c *Client) resolveGroupInvite(ctx context.Context, messageID string) {
 		// offering a button that will fail.
 		c.log.Debugf("Failed to resolve group invite %s: %v", messageID, err)
 		payload.ResolveError = err.Error()
-		// Membership is still worth knowing even when the lookup failed: it is
-		// exactly the case where the code was consumed because we joined.
-		payload.Joined = c.alreadyInGroup(ctx, groupJID)
 		c.saveGroupInvitePayload(ctx, messageID, payload)
 		return
 	}
 	if info == nil {
+		c.log.Debugf("Group invite %s resolved to nothing", messageID)
 		return
 	}
 
 	payload.ResolveError = ""
+	payload.Joined = groupInfoIncludesUs(info, c.ownParticipantJIDs())
+	applyResolvedGroupInfo(payload, info)
+	c.saveGroupInvitePayload(ctx, messageID, payload)
+}
+
+// applyResolvedGroupInfo folds a resolved group into the invite's payload. It
+// deliberately does not touch Joined: which query the info came from is what
+// says whether we are a member, and only the caller knows that.
+func applyResolvedGroupInfo(payload *appstore.GroupInvitePayload, info *types.GroupInfo) {
 	payload.ResolvedAt = time.Now().Unix()
 	payload.Subject = strings.TrimSpace(info.Name)
 	payload.Topic = strings.TrimSpace(info.Topic)
@@ -141,8 +181,6 @@ func (c *Client) resolveGroupInvite(ctx context.Context, messageID string) {
 	if payload.MemberCount == 0 {
 		payload.MemberCount = info.ParticipantCount
 	}
-	payload.Joined = groupInfoIncludesUs(info, c.ownParticipantJIDs()) || c.alreadyInGroup(ctx, groupJID)
-	c.saveGroupInvitePayload(ctx, messageID, payload)
 }
 
 // groupInviteParties resolves the two jids the whatsmeow calls need: the group
@@ -188,7 +226,9 @@ func (c *Client) saveGroupInvitePayload(ctx context.Context, messageID string, p
 }
 
 // alreadyInGroup answers from what we already know, with no round trip: the
-// participant list the daemon keeps for every group it has seen.
+// participant list the daemon keeps for a group it has had reason to look at.
+// A false answer means "not as far as we know", not "no": the list is filled
+// lazily, so a group we have never needed the members of has none stored.
 func (c *Client) alreadyInGroup(ctx context.Context, groupJID types.JID) bool {
 	participants, err := c.store.ListGroupParticipants(ctx, groupJID.String())
 	if err != nil || len(participants) == 0 {
@@ -273,7 +313,17 @@ func (c *Client) JoinGroupInvite(ctx context.Context, messageID string) (string,
 		return "", app.NewCommandError(app.CommandErrorRejected, "this invite has expired")
 	}
 
-	if err := client.JoinGroupWithInvite(ctx, groupJID, inviter, payload.Code, payload.ExpiresAt); err != nil {
+	// Bounded, because a code WhatsApp does not recognise is answered with
+	// silence rather than a refusal, and an unbounded join would leave the
+	// button spinning for the rest of the session waiting for a reply that is
+	// never coming.
+	joinCtx, cancel := context.WithTimeout(ctx, groupInviteJoinTimeout)
+	defer cancel()
+	if err := client.JoinGroupWithInvite(joinCtx, groupJID, inviter, payload.Code, payload.ExpiresAt); err != nil {
+		if joinCtx.Err() != nil && ctx.Err() == nil {
+			return "", app.NewCommandError(app.CommandErrorRejected,
+				"WhatsApp did not answer; this invite may have been revoked")
+		}
 		return "", app.NewCommandError(app.CommandErrorRejected, "join group: %v", err)
 	}
 

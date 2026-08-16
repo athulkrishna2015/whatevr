@@ -31,6 +31,16 @@ Item {
     implicitWidth: row.attachmentBlockWidth
     implicitHeight: cardLoader.item ? cardLoader.item.implicitHeight : Kirigami.Units.gridUnit * 12
 
+    /// The width the loaded card would rather have, or 0 for "fill the bubble".
+    /// A card opts in by declaring its own `preferredWidth`; one that does not
+    /// reports 0 here and keeps the full content width. This is the width half
+    /// of the same contract as implicitHeight, and it is deliberately a request
+    /// rather than a setting: the row still caps it at what it has to give.
+    readonly property real preferredWidth:
+        cardLoader.item && cardLoader.item.preferredWidth !== undefined
+            ? cardLoader.item.preferredWidth
+            : 0
+
     // The row's own right-click surface stops at the card's edge, so that it
     // cannot take hover away from the buttons and fields inside. Right-clicking
     // a card must still open the message's menu, so it is handed back here.
