@@ -2,6 +2,8 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"strings"
 )
 
@@ -98,23 +100,72 @@ func (db *DB) PollOptionHashes(ctx context.Context, messageID string) ([]PollOpt
 	return options, rows.Err()
 }
 
+// PollVoteHashes returns one voter's current selection. It exists so our own
+// vote can be put back when the send that was supposed to publish it fails:
+// showing a vote we never managed to cast is worse than showing none.
+func (db *DB) PollVoteHashes(ctx context.Context, messageID, voterJID string) ([][]byte, error) {
+	rows, err := db.reader().QueryContext(ctx, `
+		SELECT option_sha FROM poll_votes WHERE message_id = ? AND voter_jid = ?
+	`, messageID, voterJID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var hashes [][]byte
+	for rows.Next() {
+		var hash []byte
+		if err := rows.Scan(&hash); err != nil {
+			return nil, err
+		}
+		hashes = append(hashes, hash)
+	}
+	return hashes, rows.Err()
+}
+
 // ApplyPollVote replaces one voter's entire selection. A vote message carries a
 // voter's whole current choice rather than a delta, so anything else would
 // accumulate every option they ever touched.
-func (db *DB) ApplyPollVote(ctx context.Context, messageID, voterJID string, optionHashes [][]byte, votedAtUnix int64) error {
+//
+// A vote older than the one already recorded for that voter is dropped.
+// WhatsApp redelivers messages on reconnect and history sync promises no
+// ordering, so without this an old vote coming round again silently undoes a
+// newer one, including one the voter had withdrawn entirely.
+//
+// Reports whether the vote was applied.
+func (db *DB) ApplyPollVote(ctx context.Context, messageID, voterJID string, optionHashes [][]byte, votedAtUnix int64) (bool, error) {
 	if messageID == "" || voterJID == "" {
-		return nil
+		return false, nil
 	}
 	tx, err := db.conn.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer tx.Rollback()
 
+	var lastVotedAt int64
+	err = tx.QueryRowContext(ctx, `
+		SELECT voted_at FROM poll_voters WHERE message_id = ? AND voter_jid = ?
+	`, messageID, voterJID).Scan(&lastVotedAt)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	// Equal stamps still apply: a vote replayed at the same second is the same
+	// vote, and re-applying it changes nothing.
+	if err == nil && votedAtUnix < lastVotedAt {
+		return false, nil
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO poll_voters (message_id, voter_jid, voted_at) VALUES (?, ?, ?)
+		ON CONFLICT(message_id, voter_jid) DO UPDATE SET voted_at = excluded.voted_at
+	`, messageID, voterJID, votedAtUnix); err != nil {
+		return false, err
+	}
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM poll_votes WHERE message_id = ? AND voter_jid = ?
 	`, messageID, voterJID); err != nil {
-		return err
+		return false, err
 	}
 	for _, hash := range optionHashes {
 		if len(hash) == 0 {
@@ -125,10 +176,13 @@ func (db *DB) ApplyPollVote(ctx context.Context, messageID, voterJID string, opt
 			VALUES (?, ?, ?, ?)
 			ON CONFLICT(message_id, voter_jid, option_sha) DO UPDATE SET voted_at = excluded.voted_at
 		`, messageID, voterJID, hash, votedAtUnix); err != nil {
-			return err
+			return false, err
 		}
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // PendingPollVote is a vote that arrived before the poll it votes on.

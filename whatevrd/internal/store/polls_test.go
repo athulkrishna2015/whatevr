@@ -59,10 +59,10 @@ func TestApplyPollVoteReplacesTheWholeSelection(t *testing.T) {
 	ctx := context.Background()
 	hashes := seedPoll(t, db, "chat-1:poll", "chat-1", "Thai", "Pizza", "Sushi")
 
-	if err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", [][]byte{hashes[0]}, 100); err != nil {
+	if _, err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", [][]byte{hashes[0]}, 100); err != nil {
 		t.Fatalf("first vote: %v", err)
 	}
-	if err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", [][]byte{hashes[2]}, 200); err != nil {
+	if _, err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", [][]byte{hashes[2]}, 200); err != nil {
 		t.Fatalf("changed vote: %v", err)
 	}
 
@@ -78,6 +78,58 @@ func TestApplyPollVoteReplacesTheWholeSelection(t *testing.T) {
 	}
 }
 
+// WhatsApp redelivers messages on reconnect, so an old vote coming round again
+// is routine. Applying it would undo whatever the voter did since.
+func TestStalePollVotesAreIgnored(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	hashes := seedPoll(t, db, "chat-1:poll", "chat-1", "Thai", "Pizza")
+
+	if _, err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", [][]byte{hashes[1]}, 200); err != nil {
+		t.Fatalf("current vote: %v", err)
+	}
+	applied, err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", [][]byte{hashes[0]}, 100)
+	if err != nil {
+		t.Fatalf("replayed vote: %v", err)
+	}
+	if applied {
+		t.Error("a vote older than the one on record was applied")
+	}
+
+	poll := pollFor(t, db, "chat-1", "chat-1:poll")
+	if len(poll.Options[0].Voters) != 0 {
+		t.Errorf("the replayed choice landed: %+v", poll.Options[0].Voters)
+	}
+	if len(poll.Options[1].Voters) != 1 {
+		t.Errorf("the current choice was lost: %+v", poll.Options[1].Voters)
+	}
+}
+
+// The case that actually bit: withdrawing a vote leaves no vote rows, so a
+// redelivered older vote has nothing to look stale against unless the store
+// remembers when each voter last answered whether or not they chose anything.
+func TestAWithdrawnVoteIsNotResurrectedByAReplay(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	hashes := seedPoll(t, db, "chat-1:poll", "chat-1", "Thai", "Pizza")
+
+	if _, err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", [][]byte{hashes[0]}, 100); err != nil {
+		t.Fatalf("vote: %v", err)
+	}
+	if _, err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", nil, 200); err != nil {
+		t.Fatalf("withdraw: %v", err)
+	}
+	// The server sends the original vote again on the next reconnect.
+	if _, err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", [][]byte{hashes[0]}, 100); err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+
+	poll := pollFor(t, db, "chat-1", "chat-1:poll")
+	if poll.TotalVoters != 0 {
+		t.Fatalf("a withdrawn vote came back: %+v", poll)
+	}
+}
+
 // A poll allowing several answers counts people, not selections, or a chat of
 // three would report nine votes.
 func TestPollTotalVotersCountsPeopleNotSelections(t *testing.T) {
@@ -85,10 +137,10 @@ func TestPollTotalVotersCountsPeopleNotSelections(t *testing.T) {
 	ctx := context.Background()
 	hashes := seedPoll(t, db, "chat-1:poll", "chat-1", "Mon", "Tue", "Wed")
 
-	if err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", [][]byte{hashes[0], hashes[1], hashes[2]}, 100); err != nil {
+	if _, err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", [][]byte{hashes[0], hashes[1], hashes[2]}, 100); err != nil {
 		t.Fatalf("ana: %v", err)
 	}
-	if err := db.ApplyPollVote(ctx, "chat-1:poll", "bo@s.whatsapp.net", [][]byte{hashes[0]}, 200); err != nil {
+	if _, err := db.ApplyPollVote(ctx, "chat-1:poll", "bo@s.whatsapp.net", [][]byte{hashes[0]}, 200); err != nil {
 		t.Fatalf("bo: %v", err)
 	}
 
@@ -107,10 +159,10 @@ func TestApplyPollVoteWithNothingSelectedClearsTheVote(t *testing.T) {
 	ctx := context.Background()
 	hashes := seedPoll(t, db, "chat-1:poll", "chat-1", "Yes", "No")
 
-	if err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", [][]byte{hashes[0]}, 100); err != nil {
+	if _, err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", [][]byte{hashes[0]}, 100); err != nil {
 		t.Fatalf("vote: %v", err)
 	}
-	if err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", nil, 200); err != nil {
+	if _, err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", nil, 200); err != nil {
 		t.Fatalf("unvote: %v", err)
 	}
 
@@ -128,7 +180,7 @@ func TestPollVotesForUnknownOptionsAreIgnored(t *testing.T) {
 	seedPoll(t, db, "chat-1:poll", "chat-1", "Thai")
 
 	stranger := sha256.Sum256([]byte("Something Else"))
-	if err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", [][]byte{stranger[:]}, 100); err != nil {
+	if _, err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", [][]byte{stranger[:]}, 100); err != nil {
 		t.Fatalf("stray vote: %v", err)
 	}
 
@@ -190,7 +242,7 @@ func TestAddPollOptionAppendsWithoutDisturbingVotes(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 	hashes := seedPoll(t, db, "chat-1:poll", "chat-1", "Thai", "Pizza")
-	if err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", [][]byte{hashes[0]}, 100); err != nil {
+	if _, err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", [][]byte{hashes[0]}, 100); err != nil {
 		t.Fatalf("vote: %v", err)
 	}
 
@@ -213,7 +265,7 @@ func TestPollRowsCascadeWithTheirMessage(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()
 	hashes := seedPoll(t, db, "chat-1:poll", "chat-1", "Thai")
-	if err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", [][]byte{hashes[0]}, 100); err != nil {
+	if _, err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", [][]byte{hashes[0]}, 100); err != nil {
 		t.Fatalf("vote: %v", err)
 	}
 
@@ -240,10 +292,10 @@ func TestPollMarksOurOwnVote(t *testing.T) {
 	}
 	hashes := seedPoll(t, db, "chat-1:poll", "chat-1", "Thai", "Pizza")
 
-	if err := db.ApplyPollVote(ctx, "chat-1:poll", "me@s.whatsapp.net", [][]byte{hashes[0]}, 100); err != nil {
+	if _, err := db.ApplyPollVote(ctx, "chat-1:poll", "me@s.whatsapp.net", [][]byte{hashes[0]}, 100); err != nil {
 		t.Fatalf("our vote: %v", err)
 	}
-	if err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", [][]byte{hashes[1]}, 200); err != nil {
+	if _, err := db.ApplyPollVote(ctx, "chat-1:poll", "ana@s.whatsapp.net", [][]byte{hashes[1]}, 200); err != nil {
 		t.Fatalf("their vote: %v", err)
 	}
 

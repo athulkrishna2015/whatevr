@@ -141,11 +141,16 @@ func (c *Client) handlePollUpdate(ctx context.Context, evt *events.Message) bool
 		return true
 	}
 
-	if err := c.store.ApplyPollVote(ctx, pollID, voter, selections.GetSelectedOptions(), votedAt); err != nil {
+	applied, err := c.store.ApplyPollVote(ctx, pollID, voter, selections.GetSelectedOptions(), votedAt)
+	if err != nil {
 		c.log.Warnf("Failed to apply poll vote on %s: %v", pollID, err)
 		return true
 	}
-	c.publishPollUpdated(ctx, pollID)
+	// A vote the store judged stale changed nothing, so there is nothing to
+	// tell anybody about. Reconnects redeliver, so this is the common case.
+	if applied {
+		c.publishPollUpdated(ctx, pollID)
+	}
 	return true
 }
 
@@ -228,11 +233,14 @@ func (c *Client) drainPendingPollVotes(ctx context.Context, pollID string) {
 			c.log.Warnf("Failed to decrypt a parked vote for %s: %v", pollID, err)
 			continue
 		}
-		if err := c.store.ApplyPollVote(ctx, pollID, vote.VoterJID, selections.GetSelectedOptions(), vote.SenderTSMS); err != nil {
+		ok, err := c.store.ApplyPollVote(ctx, pollID, vote.VoterJID, selections.GetSelectedOptions(), vote.SenderTSMS)
+		if err != nil {
 			c.log.Warnf("Failed to apply a parked vote for %s: %v", pollID, err)
 			continue
 		}
-		applied++
+		if ok {
+			applied++
+		}
 	}
 	if applied > 0 {
 		c.publishPollUpdated(ctx, pollID)
@@ -355,21 +363,34 @@ func (c *Client) VotePoll(ctx context.Context, messageID string, optionIndexes [
 		return app.NewCommandError(app.CommandErrorRejected, "build poll vote: %v", err)
 	}
 
-	// Our own choice is recorded before the send so the bubble answers the tap
-	// immediately; a rejected send leaves it wrong until the next update, which
-	// is the same bargain every optimistic send in the app already makes.
+	// Our own choice is recorded before the send, so the tally moves the moment
+	// the tap arrives rather than one network round trip later. The send is the
+	// slow part by two orders of magnitude, and it is the part nobody should
+	// have to watch.
 	selfJID := ""
 	if own := client.Store.GetJID(); !own.IsEmpty() {
 		selfJID = own.ToNonAD().String()
 	}
+	previous, err := c.store.PollVoteHashes(ctx, messageID, selfJID)
+	if err != nil {
+		return err
+	}
 	if selfJID != "" {
-		if err := c.store.ApplyPollVote(ctx, messageID, selfJID, hashes, time.Now().Unix()); err != nil {
+		if _, err := c.store.ApplyPollVote(ctx, messageID, selfJID, hashes, time.Now().Unix()); err != nil {
 			return err
 		}
 		c.publishPollUpdated(ctx, messageID)
 	}
 
 	if _, err := client.SendMessage(ctx, chatJID, vote); err != nil {
+		// Optimism has to be honest: a vote nobody else will ever see must not
+		// keep sitting in our own tally, so the previous selection goes back.
+		if selfJID != "" {
+			if _, undo := c.store.ApplyPollVote(ctx, messageID, selfJID, previous, time.Now().Unix()); undo != nil {
+				c.log.Warnf("Failed to undo an unsent vote on %s: %v", messageID, undo)
+			}
+			c.publishPollUpdated(ctx, messageID)
+		}
 		return app.NewCommandError(app.CommandErrorRejected, "send poll vote: %v", err)
 	}
 	return nil

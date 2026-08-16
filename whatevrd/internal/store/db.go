@@ -1127,6 +1127,18 @@ func (db *DB) ensureRichMessageTables(ctx context.Context) error {
 			PRIMARY KEY (message_id, voter_jid, option_sha),
 			FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
 		)`,
+		// When each voter last answered, kept whether or not they currently
+		// have a selection. The vote rows alone cannot carry this: withdrawing
+		// a vote deletes them, and then a redelivered older vote has nothing to
+		// look stale against and resurrects an answer the voter took back.
+		// WhatsApp redelivers on every reconnect, so this is routine.
+		`CREATE TABLE IF NOT EXISTS poll_voters (
+			message_id TEXT NOT NULL,
+			voter_jid TEXT NOT NULL,
+			voted_at INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (message_id, voter_jid),
+			FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+		)`,
 		// Votes that arrived before the poll they vote on: history sync does not
 		// promise ordering, and a resend can outrun its original. No foreign key
 		// here precisely because the poll row does not exist yet.
