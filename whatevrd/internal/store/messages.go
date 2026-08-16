@@ -201,6 +201,10 @@ type Message struct {
 	// @-mentioned participants with names resolved at ingest. Empty for the
 	// vast majority of messages.
 	Mentions []MessageMention
+	// Poll is the live tally, attached at read time for poll rows only. It is
+	// joined rather than denormalized because a snapshot rewritten on every
+	// vote is a snapshot that can be stale.
+	Poll *PollState
 }
 
 type MessageReply struct {
@@ -855,7 +859,7 @@ func (db *DB) ListMessages(ctx context.Context, chatID string, limit int, before
 	if err != nil {
 		return nil, err
 	}
-	if err := attachReactions(ctx, db.reader(), messages); err != nil {
+	if err := db.attachMessageExtras(ctx, db.reader(), messages); err != nil {
 		return nil, err
 	}
 
@@ -1033,7 +1037,7 @@ func (db *DB) listMessagesAroundSide(ctx context.Context, chatID string, timesta
 	if err != nil {
 		return nil, err
 	}
-	if err := attachReactions(ctx, db.reader(), messages); err != nil {
+	if err := db.attachMessageExtras(ctx, db.reader(), messages); err != nil {
 		return nil, err
 	}
 	return messages, nil
@@ -1052,7 +1056,7 @@ func (db *DB) GetMessage(ctx context.Context, id string) (Message, error) {
 	if err := getMessageRow(ctx, db.reader(), id, &message); err != nil {
 		return message, err
 	}
-	if err := attachReactionsOne(ctx, db.reader(), &message); err != nil {
+	if err := db.attachMessageExtrasOne(ctx, db.reader(), &message); err != nil {
 		return message, err
 	}
 	return message, nil
@@ -1169,7 +1173,7 @@ func (db *DB) updateMessageStatus(ctx context.Context, id, status string, nextSt
 	if err != nil {
 		return Message{}, false, err
 	}
-	if err := attachReactionsOne(ctx, tx, &message); err != nil {
+	if err := db.attachMessageExtrasOne(ctx, tx, &message); err != nil {
 		return Message{}, false, err
 	}
 
@@ -1284,7 +1288,7 @@ func (db *DB) MarkMessageRevoked(ctx context.Context, id string) (Message, Chat,
 	if err != nil {
 		return Message{}, Chat{}, false, err
 	}
-	if err := attachReactionsOne(ctx, tx, &updated); err != nil {
+	if err := db.attachMessageExtrasOne(ctx, tx, &updated); err != nil {
 		return Message{}, Chat{}, false, err
 	}
 	chat, err := getChatTx(ctx, tx, message.ChatID)
@@ -1355,7 +1359,7 @@ func (db *DB) UpdateMessageText(ctx context.Context, id, newText string, mention
 	if err != nil {
 		return Message{}, Chat{}, false, err
 	}
-	if err := attachReactionsOne(ctx, tx, &updated); err != nil {
+	if err := db.attachMessageExtrasOne(ctx, tx, &updated); err != nil {
 		return Message{}, Chat{}, false, err
 	}
 	chat, err := getChatTx(ctx, tx, message.ChatID)
@@ -1406,7 +1410,7 @@ func (db *DB) SetMessageStarred(ctx context.Context, id string, starred bool) (M
 	if err != nil {
 		return Message{}, false, err
 	}
-	if err := attachReactionsOne(ctx, tx, &updated); err != nil {
+	if err := db.attachMessageExtrasOne(ctx, tx, &updated); err != nil {
 		return Message{}, false, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -1441,7 +1445,7 @@ func (db *DB) SetMessagePinned(ctx context.Context, id string, pinnedAt, pinnedU
 	if err != nil {
 		return Message{}, false, err
 	}
-	if err := attachReactionsOne(ctx, tx, &updated); err != nil {
+	if err := db.attachMessageExtrasOne(ctx, tx, &updated); err != nil {
 		return Message{}, false, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -1477,7 +1481,7 @@ func (db *DB) ListPinnedMessages(ctx context.Context, chatID string) ([]Message,
 	if err != nil {
 		return nil, err
 	}
-	if err := attachReactions(ctx, db.reader(), messages); err != nil {
+	if err := db.attachMessageExtras(ctx, db.reader(), messages); err != nil {
 		return nil, err
 	}
 	return messages, nil
@@ -1537,7 +1541,7 @@ func (db *DB) ListChatMediaMessages(ctx context.Context, chatID string, limit in
 	if err != nil {
 		return nil, err
 	}
-	if err := attachReactions(ctx, db.reader(), messages); err != nil {
+	if err := db.attachMessageExtras(ctx, db.reader(), messages); err != nil {
 		return nil, err
 	}
 	return messages, nil
@@ -1584,7 +1588,7 @@ func (db *DB) ListStarredMessages(ctx context.Context, chatID string, limit int,
 	if err != nil {
 		return nil, err
 	}
-	if err := attachReactions(ctx, db.reader(), messages); err != nil {
+	if err := db.attachMessageExtras(ctx, db.reader(), messages); err != nil {
 		return nil, err
 	}
 
@@ -1655,7 +1659,7 @@ func (db *DB) SearchMessages(ctx context.Context, query, chatID string, limit in
 	if err != nil {
 		return nil, err
 	}
-	if err := attachReactions(ctx, db.reader(), messages); err != nil {
+	if err := db.attachMessageExtras(ctx, db.reader(), messages); err != nil {
 		return nil, err
 	}
 
@@ -1796,7 +1800,7 @@ func (db *DB) UpdateMessageMediaThumbnailLocalPath(ctx context.Context, id, thum
 	if err != nil {
 		return Message{}, err
 	}
-	if err := attachReactionsOne(ctx, tx, &message); err != nil {
+	if err := db.attachMessageExtrasOne(ctx, tx, &message); err != nil {
 		return Message{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -1842,7 +1846,7 @@ func (db *DB) UpdateMessageMediaLocalPathWithDimensions(ctx context.Context, id,
 	if err != nil {
 		return Message{}, err
 	}
-	if err := attachReactionsOne(ctx, tx, &message); err != nil {
+	if err := db.attachMessageExtrasOne(ctx, tx, &message); err != nil {
 		return Message{}, err
 	}
 
@@ -1872,7 +1876,7 @@ func (db *DB) SetMessageMediaDownloadError(ctx context.Context, id, errorText st
 	if err != nil {
 		return Message{}, err
 	}
-	if err := attachReactionsOne(ctx, tx, &message); err != nil {
+	if err := db.attachMessageExtrasOne(ctx, tx, &message); err != nil {
 		return Message{}, err
 	}
 
@@ -1929,7 +1933,7 @@ func (db *DB) UpdateMessageMediaPayload(ctx context.Context, id string, payload 
 	if err != nil {
 		return Message{}, err
 	}
-	if err := attachReactionsOne(ctx, tx, &message); err != nil {
+	if err := db.attachMessageExtrasOne(ctx, tx, &message); err != nil {
 		return Message{}, err
 	}
 
@@ -1964,7 +1968,7 @@ func (db *DB) SetMessageMediaWaveform(ctx context.Context, id string, waveform [
 	if err != nil {
 		return Message{}, err
 	}
-	if err := attachReactionsOne(ctx, tx, &message); err != nil {
+	if err := db.attachMessageExtrasOne(ctx, tx, &message); err != nil {
 		return Message{}, err
 	}
 
@@ -2001,7 +2005,7 @@ func (db *DB) MarkMessageMediaPlayed(ctx context.Context, id string) (Message, b
 	if err != nil {
 		return Message{}, false, err
 	}
-	if err := attachReactionsOne(ctx, tx, &message); err != nil {
+	if err := db.attachMessageExtrasOne(ctx, tx, &message); err != nil {
 		return Message{}, false, err
 	}
 

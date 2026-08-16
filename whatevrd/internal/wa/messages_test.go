@@ -620,8 +620,10 @@ func TestUnsupportedMessageLabel(t *testing.T) {
 			evt: &events.Message{Message: &waE2E.Message{
 				PollCreationMessageV3: &waE2E.PollCreationMessage{Name: proto.String("Lunch?")},
 			}},
-			want:   "Poll: Lunch?",
-			wantOK: true,
+			// Polls render for real now, so they must fall off the
+			// tombstone whitelist.
+			want:   "",
+			wantOK: false,
 		},
 		{
 			name: "view once photo",

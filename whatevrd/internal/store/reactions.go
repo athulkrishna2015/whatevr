@@ -23,6 +23,28 @@ type reactionQueryer interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }
 
+// attachMessageExtras loads everything a page of messages needs beyond its own
+// columns: reactions for every row, and the tally for the poll rows among them.
+// One place decides what a page carries, so a new per-message collection is one
+// call here rather than one at each of the twenty read sites.
+func (db *DB) attachMessageExtras(ctx context.Context, q reactionQueryer, messages []Message) error {
+	if err := attachReactions(ctx, q, messages); err != nil {
+		return err
+	}
+	return attachPolls(ctx, q, messages, db.cachedSelfJID())
+}
+
+// attachMessageExtrasOne is the same for a single message.
+func (db *DB) attachMessageExtrasOne(ctx context.Context, q reactionQueryer, message *Message) error {
+	batch := []Message{*message}
+	if err := db.attachMessageExtras(ctx, q, batch); err != nil {
+		return err
+	}
+	message.Reactions = batch[0].Reactions
+	message.Poll = batch[0].Poll
+	return nil
+}
+
 // attachReactions loads every message's reactions in one batched query and
 // fans them onto the slice (oldest reaction first), avoiding an N+1 over the
 // page. Messages with no reactions keep a nil slice.
@@ -64,16 +86,6 @@ func attachReactions(ctx context.Context, q reactionQueryer, messages []Message)
 		}
 	}
 	return rows.Err()
-}
-
-// attachReactionsOne attaches reactions to a single message in place.
-func attachReactionsOne(ctx context.Context, q reactionQueryer, message *Message) error {
-	batch := []Message{*message}
-	if err := attachReactions(ctx, q, batch); err != nil {
-		return err
-	}
-	message.Reactions = batch[0].Reactions
-	return nil
 }
 
 // UpdateReactionSenderName backfills a reaction's display name, but never
@@ -145,7 +157,7 @@ func (db *DB) SaveReaction(ctx context.Context, messageID, senderID, senderName,
 	if err != nil {
 		return Message{}, Chat{}, false, err
 	}
-	if err := attachReactionsOne(ctx, tx, &updated); err != nil {
+	if err := db.attachMessageExtrasOne(ctx, tx, &updated); err != nil {
 		return Message{}, Chat{}, false, err
 	}
 	chat, err := getChatTx(ctx, tx, message.ChatID)

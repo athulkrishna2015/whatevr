@@ -556,6 +556,44 @@ type messageItem struct {
 	// Contacts holds one or more shared contact cards, parsed out of their
 	// vCards so a frontend never has to.
 	Contacts *store.ContactsPayload `json:"contacts,omitempty"`
+	// Poll carries the question and its live tally. The tally is joined from
+	// real tables at read time rather than snapshotted, so it is never stale.
+	Poll *messagePoll `json:"poll,omitempty"`
+}
+
+// messagePoll is a poll and where its votes currently stand.
+type messagePoll struct {
+	Question        string              `json:"question,omitempty"`
+	SelectableCount int                 `json:"selectable_count,omitempty"`
+	AllowAddOption  bool                `json:"allow_add_option,omitempty"`
+	EndsAt          int64               `json:"ends_at,omitempty"`
+	Quiz            bool                `json:"quiz,omitempty"`
+	Options         []messagePollOption `json:"options"`
+	// TotalVoters counts people, not selections: a poll that allows several
+	// answers would otherwise claim more votes than it has voters.
+	TotalVoters int `json:"total_voters,omitempty"`
+	// SelfVoted says whether we are among them, which is what tells a bubble
+	// to show its result state rather than its blank one.
+	SelfVoted bool `json:"self_voted,omitempty"`
+}
+
+type messagePollOption struct {
+	// Index addresses the option in `poll.vote`; it is the option's position,
+	// not its text, because two options may read the same.
+	Index  int                `json:"index"`
+	Name   string             `json:"name"`
+	Voters []messagePollVoter `json:"voters,omitempty"`
+	// SelfVoted marks our own choice, so a bubble does not have to search the
+	// voter list for itself.
+	SelfVoted bool `json:"self_voted,omitempty"`
+}
+
+type messagePollVoter struct {
+	JID        string `json:"jid"`
+	Name       string `json:"name,omitempty"`
+	AvatarPath string `json:"avatar_path,omitempty"`
+	Timestamp  int64  `json:"timestamp,omitempty"`
+	FromMe     bool   `json:"from_me,omitempty"`
 }
 
 type messageSender struct {
@@ -688,7 +726,47 @@ func attachMessagePayload(item *messageItem, m store.Message) {
 		item.Live = payload.LiveShare
 	case store.MediaKindContact, store.MediaKindContacts:
 		item.Contacts = payload.Contacts
+	case store.MediaKindPoll:
+		item.Poll = messagePollFromStore(m, payload.Poll)
 	}
+}
+
+// messagePollFromStore joins a poll's fixed settings with the tally the store
+// attached to the row.
+func messagePollFromStore(m store.Message, payload *store.PollPayload) *messagePoll {
+	if payload == nil {
+		return nil
+	}
+	poll := &messagePoll{
+		Question:        payload.Question,
+		SelectableCount: payload.SelectableCount,
+		AllowAddOption:  payload.AllowAddOption,
+		EndsAt:          payload.EndsAt,
+		Quiz:            payload.Quiz,
+		Options:         []messagePollOption{},
+	}
+	if m.Poll == nil {
+		return poll
+	}
+	poll.TotalVoters = m.Poll.TotalVoters
+	for _, option := range m.Poll.Options {
+		wire := messagePollOption{Index: option.Index, Name: option.Name}
+		for _, voter := range option.Voters {
+			wire.Voters = append(wire.Voters, messagePollVoter{
+				JID:        voter.JID,
+				Name:       voter.DisplayName,
+				AvatarPath: voter.AvatarLocalPath,
+				Timestamp:  voter.VotedAtUnix,
+				FromMe:     voter.FromMe,
+			})
+			if voter.FromMe {
+				wire.SelfVoted = true
+				poll.SelfVoted = true
+			}
+		}
+		poll.Options = append(poll.Options, wire)
+	}
+	return poll
 }
 
 func messageMediaFromStore(m store.Message) *messageMedia {

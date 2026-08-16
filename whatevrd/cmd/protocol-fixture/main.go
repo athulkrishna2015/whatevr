@@ -97,6 +97,7 @@ func (fixtureCommands) StreamMessageMedia(_ context.Context, messageID string, _
 	}, nil
 }
 func (fixtureCommands) MarkMessagePlayed(context.Context, string) error { return nil }
+func (fixtureCommands) VotePoll(context.Context, string, []int) error   { return nil }
 func (fixtureCommands) FetchProfilePicture(_ context.Context, jid string) (string, error) {
 	return "/cache/avatars/" + jid + ".jpg", nil
 }

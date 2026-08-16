@@ -98,6 +98,7 @@ public:
         LocationRole,
         LiveShareRole,
         ContactsRole,
+        PollRole,
     };
     Q_ENUM(Role)
 

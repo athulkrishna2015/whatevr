@@ -128,6 +128,8 @@ set(WHATKEVR_QML_FILES
     qml/components/ContactFieldRow.qml
     qml/components/LiveLocationBanner.qml
     qml/components/LocationBubble.qml
+    qml/components/PollBubble.qml
+    qml/components/PollOptionRow.qml
     qml/components/MediaViewer.qml
     qml/components/VideoBubble.qml
     qml/components/MpvVideoSurface.qml

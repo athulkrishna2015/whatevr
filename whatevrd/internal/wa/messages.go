@@ -375,6 +375,14 @@ func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offline
 	if c.handleLiveLocationUpdate(ctx, evt) {
 		return
 	}
+	// A vote changes a poll rather than adding to the conversation, so it never
+	// becomes a row of its own.
+	if c.handlePollUpdate(ctx, evt) {
+		return
+	}
+	if c.handlePollAddOption(ctx, evt) {
+		return
+	}
 	source := sourceLive
 	if offlineSync {
 		source = sourceOfflineSync
@@ -655,6 +663,14 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 		// A live share has to be registered the moment its opening message
 		// lands, because the position updates that follow are matched to it by
 		// sender and there is nothing else tying them together.
+		// A poll's options carry the hashes its votes will name, so they have to
+		// be recorded before any vote can be matched to a choice. Doing it here
+		// also drains the votes that arrived before the poll.
+		if saved.Message.MediaKind == appstore.MediaKindPoll {
+			if poll := pollCreationFromMessage(evt.Message); poll != nil {
+				c.savePollOptions(ctx, saved.Message.ID, poll)
+			}
+		}
 		if saved.Message.MediaKind == appstore.MediaKindLiveLocation {
 			c.registerLiveShare(ctx, saved.Message, evt.Info.Timestamp, 0)
 			if opts.source == sourceLive {
@@ -733,6 +749,9 @@ func (c *Client) mediaMessageInput(ctx context.Context, evt *events.Message, opt
 		return input, true
 	}
 	if input, ok := c.contactMessageInput(ctx, evt, opts); ok {
+		return input, true
+	}
+	if input, ok := c.pollMessageInput(ctx, evt, opts); ok {
 		return input, true
 	}
 	return c.unsupportedMessageInput(ctx, evt, opts)
@@ -1154,12 +1173,6 @@ func unsupportedMessageLabel(evt *events.Message) (string, bool) {
 		return label
 	}
 	switch {
-	case msg.GetPollCreationMessage() != nil:
-		return labelWithDetail("Poll", msg.GetPollCreationMessage().GetName()), true
-	case msg.GetPollCreationMessageV2() != nil:
-		return labelWithDetail("Poll", msg.GetPollCreationMessageV2().GetName()), true
-	case msg.GetPollCreationMessageV3() != nil:
-		return labelWithDetail("Poll", msg.GetPollCreationMessageV3().GetName()), true
 	case msg.GetEventMessage() != nil:
 		return labelWithDetail("Event", msg.GetEventMessage().GetName()), true
 	case msg.GetGroupInviteMessage() != nil:
@@ -1360,6 +1373,9 @@ func contextInfoFromMessage(message *waE2E.Message) *waE2E.ContextInfo {
 	if contacts := message.GetContactsArrayMessage(); contacts != nil {
 		return contacts.GetContextInfo()
 	}
+	if poll := pollCreationFromMessage(message); poll != nil {
+		return poll.GetContextInfo()
+	}
 	return nil
 }
 
@@ -1490,6 +1506,9 @@ func quotedReplyPreview(message *waE2E.Message) (string, string, string) {
 	}
 	if contacts := message.GetContactsArrayMessage(); contacts != nil {
 		return strings.TrimSpace(contacts.GetDisplayName()), appstore.MediaKindContacts, ""
+	}
+	if poll := pollCreationFromMessage(message); poll != nil {
+		return strings.TrimSpace(poll.GetName()), appstore.MediaKindPoll, ""
 	}
 	return "", "", ""
 }

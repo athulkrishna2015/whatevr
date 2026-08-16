@@ -251,6 +251,8 @@ func (f *fakeCommandActions) CancelMessageMediaDownload(_ context.Context, messa
 	f.cancelledMessage = messageID
 	return f.err
 }
+func (f *fakeCommandActions) VotePoll(context.Context, string, []int) error { return nil }
+
 func (f *fakeCommandActions) MarkMessagePlayed(_ context.Context, messageID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

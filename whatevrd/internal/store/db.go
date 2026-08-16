@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/mattn/go-sqlite3"
@@ -33,6 +34,10 @@ type DB struct {
 	// operations that exceed slowOpThreshold (pool wait + exec time), so
 	// writer-connection contention is visible in the daemon log.
 	slowOp func(op string, d time.Duration)
+	// selfJID caches the account's own jid so a poll tally can mark our own
+	// vote without a daemon_config read on every page of messages. It changes
+	// once per login.
+	selfJID atomic.Pointer[string]
 }
 
 const slowOpThreshold = 100 * time.Millisecond
@@ -137,6 +142,7 @@ func Open(ctx context.Context, path string) (*DB, error) {
 		return nil, err
 	}
 	db.readConn = readConn
+	db.loadSelfJID(ctx)
 
 	return db, nil
 }

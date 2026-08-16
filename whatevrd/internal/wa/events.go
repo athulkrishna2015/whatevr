@@ -54,6 +54,10 @@ func (c *Client) handleEvent(eventGen uint64, raw any) {
 		c.signalHistorySyncWorker()
 		c.startAppStateReconcile(ctx)
 		c.startUnresolvedGroupNameBackfill(ctx)
+		// The store needs to know who we are to mark our own vote in a poll
+		// tally. It changes once a login, so record it here rather than asking
+		// the network layer on every page of messages.
+		c.recordSelfJID(ctx)
 		go c.migrateLIDChats(ctx)
 		go c.backfillAnimatedWebPFlags(c.backgroundContext())
 	case *events.AppStateSyncComplete:

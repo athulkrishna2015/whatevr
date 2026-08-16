@@ -21,6 +21,22 @@ type MessagePayload struct {
 	Location  *LocationPayload  `json:"location,omitempty"`
 	LiveShare *LiveSharePayload `json:"live,omitempty"`
 	Contacts  *ContactsPayload  `json:"contacts,omitempty"`
+	Poll      *PollPayload      `json:"poll,omitempty"`
+}
+
+// PollPayload is a poll's fixed settings. The tally is not here: it changes on
+// every vote and is joined from poll_options/poll_votes at read time, so a
+// snapshot can never go stale.
+type PollPayload struct {
+	Question string `json:"question,omitempty"`
+	// SelectableCount is how many options a voter may choose. 1 is the usual
+	// radio-button poll; 0 means WhatsApp did not say, which in practice also
+	// means one.
+	SelectableCount int  `json:"selectable_count,omitempty"`
+	AllowAddOption  bool `json:"allow_add_option,omitempty"`
+	// EndsAt is when the poll closes, 0 for a poll that never does.
+	EndsAt int64 `json:"ends_at,omitempty"`
+	Quiz   bool  `json:"quiz,omitempty"`
 }
 
 // ContactsPayload is one or more shared contact cards. WhatsApp sends a single
@@ -133,5 +149,5 @@ func DecodePayload(raw string) MessagePayload {
 // compared with == so adding a pointer field here never silently changes what
 // counts as empty.
 func (p MessagePayload) isZero() bool {
-	return p.Location == nil && p.LiveShare == nil && p.Contacts == nil
+	return p.Location == nil && p.LiveShare == nil && p.Contacts == nil && p.Poll == nil
 }

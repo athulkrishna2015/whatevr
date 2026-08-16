@@ -290,3 +290,27 @@ func (h commandHandlers) messageMarkPlayed(ctx context.Context, _ *conn, req req
 	}
 	return nil, mapCommandError(h.actions.MarkMessagePlayed(ctx, strings.TrimSpace(p.MessageID)))
 }
+
+// pollVoteParams is a whole selection, not a delta: a voter takes a choice back
+// by sending the selection without it, which is what the wire format means.
+type pollVoteParams struct {
+	MessageID string `json:"message_id"`
+	OptionIDs []int  `json:"option_ids"`
+}
+
+// pollVote casts our own vote. The visible effect is the poll row upserting
+// with the new tally; the command itself acks with nothing, as every command
+// does.
+func (h commandHandlers) pollVote(ctx context.Context, _ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p pollVoteParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(p.MessageID) == "" {
+		return nil, errorf(CodeInvalidParams, "message_id is required")
+	}
+	return nil, mapCommandError(h.actions.VotePoll(ctx, strings.TrimSpace(p.MessageID), p.OptionIDs))
+}

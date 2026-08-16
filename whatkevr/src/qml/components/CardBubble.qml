@@ -43,6 +43,8 @@ Item {
             case "contact":
             case "contacts":
                 return contactCard
+            case "poll":
+                return pollCard
             default:
                 return null
             }
@@ -61,6 +63,14 @@ Item {
         id: contactCard
 
         ContactCardBubble {
+            row: root.row
+        }
+    }
+
+    Component {
+        id: pollCard
+
+        PollBubble {
             row: root.row
         }
     }
