@@ -164,6 +164,9 @@ Item {
     // Open the poll's result breakdown. optionIndex focuses one answer; -1 opens
     // on the whole poll.
     signal pollVotersRequested(int optionIndex)
+    // Open an event's full list of answers. `response` narrows it to one of
+    // them; empty opens on all three.
+    signal eventResponsesRequested(string response)
     signal replyPreviewActivated(string messageId)
     signal readMoreRequested(string messageId)
     // A downloaded message photo was clicked: open it full screen.

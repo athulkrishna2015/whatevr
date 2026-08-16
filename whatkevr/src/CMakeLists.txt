@@ -129,6 +129,7 @@ set(WHATKEVR_QML_FILES
     qml/components/ContactCardEntry.qml
     qml/components/ContactFieldRow.qml
     qml/components/EventBubble.qml
+    qml/components/EventResponsesDialog.qml
     qml/components/EventRSVPChip.qml
     qml/components/GroupInviteBubble.qml
     qml/components/LiveLocationBanner.qml

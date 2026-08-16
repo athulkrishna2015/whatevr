@@ -124,6 +124,26 @@ Item {
         return Math.max(0, total)
     }
 
+    /// How many answers there are at all, our own in-flight one included.
+    readonly property int answeredCount:
+        chipCount("going") + chipCount("maybe") + chipCount("not_going")
+
+    /// How many people are coming, guests included, corrected for an answer of
+    /// ours the daemon has not echoed yet. The correction is the chips' one: an
+    /// answer we just gave counts, and the one it replaced stops counting, along
+    /// with the guests it was bringing.
+    readonly property int goingHeads: {
+        let heads = goingCount
+        const confirmed = String(plan.self_response ?? "")
+        if (selfResponse !== confirmed) {
+            if (selfResponse === "going")
+                heads += 1
+            if (confirmed === "going")
+                heads -= 1 + (plan.self_guests ?? 0)
+        }
+        return Math.max(0, heads)
+    }
+
     function facesFor(response) {
         const faces = []
         for (let i = 0; i < responders.length; ++i) {
@@ -406,7 +426,7 @@ Item {
                     {"value": "going", "label": Whatevr.I18n.i18nc("@action rsvp", "Going"),
                      "icon": "checkmark-symbolic"},
                     {"value": "maybe", "label": Whatevr.I18n.i18nc("@action rsvp", "Maybe"),
-                     "icon": "help-symbolic"},
+                     "icon": "question-symbolic"},
                     {"value": "not_going", "label": Whatevr.I18n.i18nc("@action rsvp", "Can't go"),
                      "icon": "dialog-close"},
                 ]
@@ -434,19 +454,60 @@ Item {
                     // used to send "maybe", which silently changed your answer
                     // to something you had not picked.
                     interactive: root.answerable && !chosen
+                    detailAvailable: !root.row.selectionModeActive
                     onPicked: Whatevr.ProtocolController.respondToEvent(
                         root.row.messageId, modelData.value, 0)
+                    // A chip with no answer left to give still holds three
+                    // faces and a count, and that is a question: which three.
+                    onDetailRequested: root.row.eventResponsesRequested(modelData.value)
                 }
             }
         }
 
-        Controls.Label {
-            Layout.fillWidth: true
-            visible: root.goingCount > 0
-            text: Whatevr.I18n.i18ncp("@label how many people are coming, guests included",
-                                      "%1 person going", "%1 people going", root.goingCount)
-            color: Kirigami.Theme.disabledTextColor
-            font.pointSize: Kirigami.Theme.smallFont.pointSize
+        // The way to the rest of the answers. Three faces per chip is enough to
+        // recognise a plan and not enough to plan around it, so the line that
+        // counts them opens the list that names them.
+        RowLayout {
+            objectName: "rsvpSummary"
+
+            visible: root.answeredCount > 0
+            spacing: Kirigami.Units.smallSpacing / 2
+
+            Controls.Label {
+                Layout.alignment: Qt.AlignVCenter
+                text: root.goingHeads > 0
+                    ? Whatevr.I18n.i18ncp("@label how many people are coming, guests included",
+                                          "%1 person going", "%1 people going", root.goingHeads)
+                    // Nobody coming is still an answered event, and the list is
+                    // worth opening to find out who said no.
+                    : Whatevr.I18n.i18ncp("@label how many people answered an event",
+                                          "%1 answered", "%1 answered", root.answeredCount)
+                color: summaryHover.hovered ? Kirigami.Theme.textColor : Kirigami.Theme.disabledTextColor
+                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                font.underline: summaryHover.hovered
+            }
+
+            Kirigami.Icon {
+                Layout.alignment: Qt.AlignVCenter
+                implicitWidth: Kirigami.Units.iconSizes.small
+                implicitHeight: implicitWidth
+                source: "go-next-symbolic"
+                fallback: "arrow-right"
+                color: summaryHover.hovered ? Kirigami.Theme.textColor : Kirigami.Theme.disabledTextColor
+            }
+
+            TapHandler {
+                enabled: !root.row.selectionModeActive
+                exclusiveSignals: TapHandler.SingleTap | TapHandler.DoubleTap
+                onSingleTapped: root.row.eventResponsesRequested("")
+            }
+
+            HoverHandler {
+                id: summaryHover
+
+                enabled: !root.row.selectionModeActive
+                cursorShape: Qt.PointingHandCursor
+            }
         }
 
         RowLayout {

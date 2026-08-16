@@ -34,7 +34,19 @@ Item {
     /// How many faces fit before the cluster is more crowding than information.
     readonly property int maxFaces: 3
 
+    /// Whether reading the answers is on offer at all. Off while the row is
+    /// being selected, where every tap belongs to the selection.
+    property bool detailAvailable: true
+
+    /// Whether the whole chip is a way into the full list. A chip that can still
+    /// be answered belongs to the answer; one that cannot (ours already, or an
+    /// event that has been and gone) has nothing else to do with a tap, and the
+    /// faces on it are the obvious thing to have asked about.
+    readonly property bool showsDetail: detailAvailable && !interactive && count > 0
+
     signal picked()
+    /// Somebody asked who gave this answer.
+    signal detailRequested()
 
     implicitHeight: layout.implicitHeight + Kirigami.Units.smallSpacing * 2
     implicitWidth: layout.implicitWidth + Kirigami.Units.smallSpacing * 2
@@ -45,9 +57,11 @@ Item {
         // Our own answer is filled; the others are outlined. A chip that
         // changed only its border on being chosen was impossible to find at a
         // glance in a row of three.
+        // Both states answer the pointer, because both take a tap: one gives the
+        // answer, the other says who else did.
         color: root.chosen
-            ? Qt.alpha(Whatevr.Palette.highlight, 0.22)
-            : Qt.alpha(Kirigami.Theme.textColor, chipHover.hovered && root.interactive ? 0.10 : 0.04)
+            ? Qt.alpha(Whatevr.Palette.highlight, chipHover.hovered ? 0.30 : 0.22)
+            : Qt.alpha(Kirigami.Theme.textColor, chipHover.hovered ? 0.10 : 0.04)
         border.width: 1
         border.color: root.chosen
             ? Whatevr.Palette.highlight
@@ -136,15 +150,21 @@ Item {
     }
 
     TapHandler {
-        enabled: root.interactive
+        enabled: root.interactive || root.showsDetail
         exclusiveSignals: TapHandler.SingleTap | TapHandler.DoubleTap
-        onSingleTapped: root.picked()
+        onSingleTapped: {
+            if (root.interactive) {
+                root.picked()
+            } else {
+                root.detailRequested()
+            }
+        }
     }
 
     HoverHandler {
         id: chipHover
 
-        enabled: root.interactive
+        enabled: root.interactive || root.showsDetail
         cursorShape: Qt.PointingHandCursor
     }
 }

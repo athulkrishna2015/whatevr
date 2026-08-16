@@ -214,6 +214,7 @@ private Q_SLOTS:
     void groupInviteCardAnswersWhereYouAlreadyStand();
     void eventCardShowsWhoIsComingAndAnswersOnTheTap();
     void albumMosaicTilesTheWholeWidthWithoutOverlapping();
+    void eventResponsesDialogNamesEveryoneWhoAnswered();
     void aShrinkingPaneDoesNotDragTheTranscriptWithIt();
 
 private:
@@ -1116,6 +1117,26 @@ void ChatBubblePerf::eventCardShowsWhoIsComingAndAnswersOnTheTap()
     QVERIFY2(!chosen->property("interactive").toBool(),
              "the answer already given still offered to be tapped");
 
+    // It still has three faces and a count on it, though, and that is a
+    // question. A chip with no answer left to give answers that one instead.
+    QVERIFY2(chosen->property("showsDetail").toBool(),
+             "the answered chip went dead rather than offering its own list");
+    QSignalSpy detail(bubble.get(), SIGNAL(eventResponsesRequested(QString)));
+    QVERIFY(QMetaObject::invokeMethod(chosen, "detailRequested"));
+    QCOMPARE(detail.count(), 1);
+    QCOMPARE(detail.at(0).at(0).toString(), QStringLiteral("going"));
+
+    // And the count under the chips opens the whole list, which is the one way
+    // in that does not depend on having already answered.
+    QQuickItem *summary = findVisualChild(card, QStringLiteral("rsvpSummary"));
+    QVERIFY2(summary, "the card counts the answers but offers no way to read them");
+    QTRY_VERIFY(summary->isVisible() && summary->width() > 0);
+    QTest::mouseClick(m_window, Qt::LeftButton, {},
+                      summary->mapToScene(QPointF(summary->width() / 2, summary->height() / 2))
+                          .toPoint());
+    QTRY_COMPARE(detail.count(), 2);
+    QCOMPARE(detail.at(1).at(0).toString(), QString());
+
     // Only the answered chip carries faces, so it is the tallest thing in the
     // row. All three have to match it, or the row reads as three unrelated
     // buttons of three different sizes.
@@ -1132,6 +1153,15 @@ void ChatBubblePerf::eventCardShowsWhoIsComingAndAnswersOnTheTap()
                  qPrintable(QStringLiteral("chip heights differ: %1 vs %2")
                                 .arg(chip->height())
                                 .arg(chipItems.at(0)->height())));
+        // And tall enough for what is inside it. A chip one line high with a
+        // row of faces under it draws the faces over its own bottom edge.
+        QVERIFY2(chip->height() >= chip->implicitHeight() - 0.5,
+                 qPrintable(QStringLiteral("a chip is %1 tall for %2 of content")
+                                .arg(chip->height())
+                                .arg(chip->implicitHeight())));
+        QVERIFY2(deepestBottom(chip, chip) <= chip->height() + 0.5,
+                 qPrintable(QStringLiteral("a chip draws %1 past its own bottom")
+                                .arg(deepestBottom(chip, chip) - chip->height())));
     }
 
     // The card must be tall enough for what it drew, like every other card.
@@ -1260,6 +1290,115 @@ void ChatBubblePerf::albumMosaicTilesTheWholeWidthWithoutOverlapping()
         m_window->hide();
         bubbleItem->setParentItem(nullptr);
     }
+}
+
+// The card holds three faces per answer, which is enough to recognise a plan
+// and not enough to plan around it. The dialog is the rest: every answer with
+// everyone who gave it, the guests they are bringing, and the head count those
+// guests make different from the number of answers.
+void ChatBubblePerf::eventResponsesDialogNamesEveryoneWhoAnswered()
+{
+    const QVariantMap ana{{QStringLiteral("jid"), QStringLiteral("ana@s")},
+                          {QStringLiteral("name"), QStringLiteral("Ana")},
+                          {QStringLiteral("response"), QStringLiteral("going")},
+                          {QStringLiteral("timestamp"), 1'700'000'100}};
+    const QVariantMap bo{{QStringLiteral("jid"), QStringLiteral("bo@s")},
+                         {QStringLiteral("name"), QStringLiteral("Bo")},
+                         {QStringLiteral("response"), QStringLiteral("going")},
+                         {QStringLiteral("extra_guests"), 2},
+                         {QStringLiteral("timestamp"), 1'700'000'200}};
+    const QVariantMap cy{{QStringLiteral("jid"), QStringLiteral("cy@s")},
+                         {QStringLiteral("name"), QStringLiteral("Cy")},
+                         {QStringLiteral("response"), QStringLiteral("not_going")},
+                         {QStringLiteral("timestamp"), 1'700'000'300}};
+    const QVariantMap me{{QStringLiteral("jid"), QStringLiteral("me")},
+                         {QStringLiteral("from_me"), true},
+                         {QStringLiteral("response"), QStringLiteral("going")},
+                         {QStringLiteral("extra_guests"), 1},
+                         {QStringLiteral("timestamp"), 1'700'000'400}};
+
+    const QVariantMap plan{
+        {QStringLiteral("name"), QStringLiteral("Team dinner")},
+        {QStringLiteral("responders"), QVariantList{ana, bo, cy, me}},
+        {QStringLiteral("self_response"), QStringLiteral("going")},
+        {QStringLiteral("self_guests"), 1},
+        {QStringLiteral("going_count"), 6},
+    };
+
+    QQmlComponent component(
+        m_engine,
+        QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/EventResponsesDialog.qml")));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> dialog(component.create());
+    QVERIFY2(dialog, qPrintable(component.errorString()));
+
+    dialog->setProperty("messageId", QStringLiteral("ev-2"));
+    dialog->setProperty("plan", plan);
+
+    // The dialog is meant to be read, so it can be looked at: point this at a
+    // file to get the real thing out, the way the invite card does.
+    const QString shot = qEnvironmentVariable("WHATKEVR_RSVP_SCREENSHOT");
+    if (!shot.isEmpty()) {
+        m_window->show();
+        QVERIFY(QTest::qWaitForWindowExposed(m_window));
+        dialog->setProperty("parent", QVariant::fromValue(m_window->contentItem()));
+        QVERIFY(QMetaObject::invokeMethod(dialog.get(), "open"));
+        QTest::qWait(400);
+        QVERIFY(m_window->grabWindow().save(shot));
+        QVERIFY(QMetaObject::invokeMethod(dialog.get(), "close"));
+        QTest::qWait(200);
+        m_window->hide();
+    }
+
+    const auto people = [&](const QString &response) {
+        QVariant out;
+        QMetaObject::invokeMethod(dialog.get(), "peopleWhoAnswered", Q_RETURN_ARG(QVariant, out),
+                                  Q_ARG(QVariant, response));
+        return out.toList();
+    };
+    const auto heads = [&](const QString &response) {
+        QVariant out;
+        QMetaObject::invokeMethod(dialog.get(), "headsFor", Q_RETURN_ARG(QVariant, out),
+                                  Q_ARG(QVariant, response));
+        return out.toInt();
+    };
+
+    // Grouped by answer, and inside a group still in the daemon's order: it
+    // holds them oldest answer first, and nothing here re-sorts them.
+    const QVariantList going = people(QStringLiteral("going"));
+    QCOMPARE(going.size(), 3);
+    QCOMPARE(going.at(0).toMap().value(QStringLiteral("jid")).toString(), QStringLiteral("ana@s"));
+    QCOMPARE(going.at(1).toMap().value(QStringLiteral("jid")).toString(), QStringLiteral("bo@s"));
+    QCOMPARE(people(QStringLiteral("not_going")).size(), 1);
+    QCOMPARE(people(QStringLiteral("maybe")).size(), 0);
+    QCOMPARE(dialog->property("answeredCount").toInt(), 4);
+
+    // Three said yes and two of them are bringing somebody, so six people are
+    // at the door. Answers and heads are different questions.
+    QCOMPARE(heads(QStringLiteral("going")), 6);
+
+    // An answer nobody gave is still an answer, so all three groups are kept
+    // until a chip narrows the dialog to one of them.
+    QCOMPARE(dialog->property("visibleAnswers").toList().size(), 3);
+    dialog->setProperty("filterResponse", QStringLiteral("not_going"));
+    const QVariantList narrowed = dialog->property("visibleAnswers").toList();
+    QCOMPARE(narrowed.size(), 1);
+    QCOMPARE(narrowed.at(0).toMap().value(QStringLiteral("value")).toString(),
+             QStringLiteral("not_going"));
+    dialog->setProperty("filterResponse", QString());
+
+    // Answering and opening the list straight after shows the answer just
+    // given, not the one the daemon has not echoed yet: our old row leaves the
+    // group it was in and a fresh one appears in the new group, guests and all.
+    m_controller->respondToEvent(QStringLiteral("ev-2"), QStringLiteral("maybe"), 0);
+    QTRY_COMPARE(dialog->property("selfResponse").toString(), QStringLiteral("maybe"));
+    QCOMPARE(people(QStringLiteral("going")).size(), 2);
+    const QVariantList maybe = people(QStringLiteral("maybe"));
+    QCOMPARE(maybe.size(), 1);
+    QVERIFY(maybe.at(0).toMap().value(QStringLiteral("from_me")).toBool());
+    // Our two heads left the door with us.
+    QCOMPARE(heads(QStringLiteral("going")), 4);
+    QCOMPARE(dialog->property("answeredCount").toInt(), 4);
 }
 
 // The timeline is bottom-anchored and only as tall as its content, so the pane
