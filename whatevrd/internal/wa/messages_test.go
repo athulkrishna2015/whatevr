@@ -648,6 +648,17 @@ func TestUnsupportedMessageLabel(t *testing.T) {
 			wantOK: false,
 		},
 		{
+			// Same reason as the location above: a group invite has a card of
+			// its own now, and a kind on both lists ingests as an invite while
+			// being labelled unsupported.
+			name: "group invite is no longer a tombstone",
+			evt: &events.Message{Message: &waE2E.Message{
+				GroupInviteMessage: &waE2E.GroupInviteMessage{GroupName: proto.String("Wow3")},
+			}},
+			want:   "",
+			wantOK: false,
+		},
+		{
 			name: "poll update stays invisible",
 			evt: &events.Message{Message: &waE2E.Message{
 				PollUpdateMessage: &waE2E.PollUpdateMessage{},

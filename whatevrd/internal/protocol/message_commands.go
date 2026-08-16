@@ -314,3 +314,24 @@ func (h commandHandlers) pollVote(ctx context.Context, _ *conn, req request) (an
 	}
 	return nil, mapCommandError(h.actions.VotePoll(ctx, strings.TrimSpace(p.MessageID), p.OptionIDs))
 }
+
+// groupJoinInvite accepts an invitation. It answers with the chat to open,
+// which is also the answer for a group we were already in: there the command
+// joins nothing and simply says where to go.
+func (h commandHandlers) groupJoinInvite(ctx context.Context, _ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p messageIDParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if err := p.valid(); err != nil {
+		return nil, err
+	}
+	chatID, err := h.actions.JoinGroupInvite(ctx, strings.TrimSpace(p.MessageID))
+	if perr := mapCommandError(err); perr != nil {
+		return nil, perr
+	}
+	return map[string]any{"chat_id": chatID}, nil
+}

@@ -1920,6 +1920,35 @@ QVariant ProtocolController::pendingPollSelection(const QString &messageId) cons
     return m_pendingPollVotes.value(messageId);
 }
 
+void ProtocolController::joinGroupInvite(const QString &messageId)
+{
+    if (messageId.trimmed().isEmpty()) {
+        return;
+    }
+    m_client->request(QStringLiteral("group.join_invite"), {{QStringLiteral("message_id"), messageId}},
+                      [this](const QJsonObject &result, const ProtocolError &error) {
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(error.message.isEmpty()
+                                                             ? i18nc("@info", "Unable to join the group")
+                                                             : error.message);
+                              return;
+                          }
+                          const QString chatId = result.value(QStringLiteral("chat_id")).toString();
+                          if (chatId.isEmpty()) {
+                              Q_EMIT messageActionFailed(i18nc("@info", "Unable to join the group"));
+                              return;
+                          }
+                          // Joining and then leaving the reader in the chat they
+                          // were already in is half the action. The row itself
+                          // arrives through the `chats` view; this only selects
+                          // it and drives the column navigation, exactly as
+                          // opening a contact's chat does.
+                          clearSearch();
+                          selectChat(chatId);
+                          Q_EMIT openChatRequested(chatId);
+                      });
+}
+
 bool ProtocolController::openLocalFile(const QString &localPath)
 {
     if (localPath.isEmpty() || !QFileInfo::exists(localPath)) {

@@ -57,6 +57,7 @@ var rawMessageBuilders = map[string]rawMessageBuilder{
 	"contact":       buildRawContact,
 	"contacts":      buildRawContacts,
 	"poll":          buildRawPoll,
+	"group_invite":  buildRawGroupInvite,
 }
 
 // RawSendKinds lists what the driver can produce, for the tool's help output.
@@ -351,6 +352,47 @@ func buildRawPoll(client *whatsmeow.Client, params json.RawMessage) (*waE2E.Mess
 		poll.AllowAddOption = &p.AllowAdd
 	}
 	return message, nil
+}
+
+// buildRawGroupInvite offers a group. The code is not required to be real: a
+// bogus one exercises the failed-resolution path, which is the state a revoked
+// invite lands in and the one worth looking at.
+func buildRawGroupInvite(client *whatsmeow.Client, params json.RawMessage) (*waE2E.Message, error) {
+	var p struct {
+		GroupJID string `json:"group_jid"`
+		Code     string `json:"code"`
+		Name     string `json:"name"`
+		Caption  string `json:"caption"`
+		// ExpiresIn is seconds from now; negative injects an invite that has
+		// already lapsed.
+		ExpiresIn int64 `json:"expires_in"`
+	}
+	if err := decodeRawParams(params, &p); err != nil {
+		return nil, err
+	}
+	if p.GroupJID == "" {
+		return nil, fmt.Errorf("group_jid is required")
+	}
+	if _, err := types.ParseJID(p.GroupJID); err != nil {
+		return nil, fmt.Errorf("invalid group_jid: %w", err)
+	}
+	if p.Code == "" {
+		p.Code = "TESTINVITECODE"
+	}
+	if p.Name == "" {
+		p.Name = "Test group"
+	}
+	if p.ExpiresIn == 0 {
+		p.ExpiresIn = int64(3 * 24 * time.Hour / time.Second)
+	}
+	expiration := time.Now().Add(time.Duration(p.ExpiresIn) * time.Second).Unix()
+	return &waE2E.Message{GroupInviteMessage: &waE2E.GroupInviteMessage{
+		GroupJID:         &p.GroupJID,
+		InviteCode:       &p.Code,
+		InviteExpiration: &expiration,
+		GroupName:        &p.Name,
+		Caption:          &p.Caption,
+	}}, nil
 }
 
 func decodeRawParams(params json.RawMessage, out any) error {

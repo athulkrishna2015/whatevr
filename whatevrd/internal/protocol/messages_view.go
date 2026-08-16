@@ -559,6 +559,10 @@ type messageItem struct {
 	// Poll carries the question and its live tally. The tally is joined from
 	// real tables at read time rather than snapshotted, so it is never stale.
 	Poll *messagePoll `json:"poll,omitempty"`
+	// Invite is an offer to join a group, carrying both the sender's own
+	// snapshot of it and whatever the daemon resolved from the invite code,
+	// including whether we are already a member.
+	Invite *store.GroupInvitePayload `json:"invite,omitempty"`
 }
 
 // messagePoll is a poll and where its votes currently stand.
@@ -728,6 +732,8 @@ func attachMessagePayload(item *messageItem, m store.Message) {
 		item.Contacts = payload.Contacts
 	case store.MediaKindPoll:
 		item.Poll = messagePollFromStore(m, payload.Poll)
+	case store.MediaKindGroupInvite:
+		item.Invite = payload.GroupInvite
 	}
 }
 

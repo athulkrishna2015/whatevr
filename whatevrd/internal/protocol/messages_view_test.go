@@ -235,6 +235,79 @@ func TestMessagesViewImageItemShape(t *testing.T) {
 	c.expectReady(sub, true)
 }
 
+// A group invite crosses as its own nested object carrying both readings of
+// the group: what the sender's client claimed and what the daemon resolved.
+// The card renders from whichever it has, so both have to survive the wire, and
+// `fallback` has to name the group for a frontend that renders neither.
+func TestMessagesViewGroupInviteItemShape(t *testing.T) {
+	socketPath, _, db := startChatsTestServer(t)
+	chat := "c@s.whatsapp.net"
+	id := "inv-1"
+	payload, err := store.EncodePayload(store.MessagePayload{GroupInvite: &store.GroupInvitePayload{
+		GroupJID:    "120363000000000001@g.us",
+		Code:        "CODE123",
+		ExpiresAt:   1_700_100_000,
+		Name:        "sender's copy",
+		Subject:     "Wow3",
+		MemberCount: 12,
+		ResolvedAt:  1_700_000_100,
+		PhotoPath:   "/cache/invite.jpg",
+	}})
+	if err != nil {
+		t.Fatalf("encode invite: %v", err)
+	}
+	if _, err := db.SaveMediaMessage(context.Background(), store.MediaMessageInput{
+		TextMessageInput: store.TextMessageInput{
+			ID:        id,
+			ChatID:    chat,
+			Timestamp: time.Unix(1_700_000_000, 0),
+			Direction: store.DirectionIncoming,
+		},
+		MediaKind:      store.MediaKindGroupInvite,
+		PayloadJSON:    payload,
+		PayloadSummary: "Wow3",
+	}); err != nil {
+		t.Fatalf("seed invite: %v", err)
+	}
+
+	c := dialTest(t, socketPath)
+	c.hello()
+	sub := c.subscribe(2, fmt.Sprintf(`{"view":"messages","chat_id":%q}`, chat))
+	item := c.expectUpsert(sub, id)["item"].(map[string]any)
+	if item["kind"] != "group_invite" {
+		t.Fatalf("kind = %v, want group_invite", item["kind"])
+	}
+	if item["fallback"] != "👥 Group invite: Wow3" {
+		t.Fatalf("fallback = %v", item["fallback"])
+	}
+	// An invite has nothing to fetch. A `media` object here would make every
+	// part of the frontend that asks "is there anything to download" say yes.
+	if _, ok := item["media"]; ok {
+		t.Fatalf("group invite carried a media object: %v", item)
+	}
+	invite, ok := item["invite"].(map[string]any)
+	if !ok {
+		t.Fatalf("group invite item missing its payload: %v", item)
+	}
+	if invite["group_jid"] != "120363000000000001@g.us" || invite["code"] != "CODE123" {
+		t.Fatalf("invite identity wrong: %v", invite)
+	}
+	if invite["subject"] != "Wow3" || invite["name"] != "sender's copy" {
+		t.Fatalf("both readings of the name must survive: %v", invite)
+	}
+	if invite["member_count"] != float64(12) || invite["expires_at"] != float64(1_700_100_000) {
+		t.Fatalf("resolved facts wrong: %v", invite)
+	}
+	if invite["photo_path"] != "/cache/invite.jpg" {
+		t.Fatalf("photo path wrong: %v", invite)
+	}
+	// Nothing resolved membership, so the card must not be told we are in.
+	if _, ok := invite["joined"]; ok {
+		t.Fatalf("an unresolved invite claimed membership: %v", invite)
+	}
+	c.expectReady(sub, true)
+}
+
 // Whether a fetch is in flight rides the message row, so a renderer never has
 // to join it against `transfers` and never sees the two disagree: the terminal
 // update both clears `downloading` and delivers the path.

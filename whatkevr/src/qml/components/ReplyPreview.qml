@@ -53,6 +53,8 @@ Control {
             return Whatevr.I18n.i18nc("@label quoted message preview", "Audio")
         case "document":
             return Whatevr.I18n.i18nc("@label quoted message preview", "Document")
+        case "group_invite":
+            return Whatevr.I18n.i18nc("@label quoted message preview", "Group invite")
         }
         if (mediaMimeType.startsWith("image/")) {
             return Whatevr.I18n.i18nc("@label quoted message preview", "Photo")
@@ -82,6 +84,8 @@ Control {
             return "audio-x-generic-symbolic"
         case "document":
             return "text-x-generic-symbolic"
+        case "group_invite":
+            return "group-symbolic"
         }
         return ""
     }

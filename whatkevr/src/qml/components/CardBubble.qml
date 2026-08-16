@@ -61,6 +61,8 @@ Item {
                 return contactCard
             case "poll":
                 return pollCard
+            case "group_invite":
+                return groupInviteCard
             default:
                 return null
             }
@@ -87,6 +89,14 @@ Item {
         id: pollCard
 
         PollBubble {
+            row: root.row
+        }
+    }
+
+    Component {
+        id: groupInviteCard
+
+        GroupInviteBubble {
             row: root.row
         }
     }

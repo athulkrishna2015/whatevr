@@ -414,6 +414,8 @@ QVariant ProtocolMessageModel::data(const QModelIndex &index, int role) const
         return item.value(QStringLiteral("contacts")).toMap();
     case PollRole:
         return item.value(QStringLiteral("poll")).toMap();
+    case GroupInviteRole:
+        return item.value(QStringLiteral("invite")).toMap();
     case ShowSenderHeaderRole:
         return groupChat && !outgoing && startsSenderGroup(index.row());
     case ShowSenderAvatarRole:
@@ -560,6 +562,7 @@ QHash<int, QByteArray> ProtocolMessageModel::roleNames() const
         {LiveShareRole, "liveShare"},
         {ContactsRole, "contacts"},
         {PollRole, "poll"},
+        {GroupInviteRole, "invite"},
     };
 }
 

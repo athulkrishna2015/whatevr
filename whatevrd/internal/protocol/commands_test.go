@@ -64,6 +64,8 @@ type fakeCommandActions struct {
 	playedMessage     string
 	fetchJID          string
 
+	joinedInviteMessage string
+
 	privacyCategory    string
 	privacyAudience    string
 	privacyRead        bool
@@ -252,6 +254,13 @@ func (f *fakeCommandActions) CancelMessageMediaDownload(_ context.Context, messa
 	return f.err
 }
 func (f *fakeCommandActions) VotePoll(context.Context, string, []int) error { return nil }
+
+func (f *fakeCommandActions) JoinGroupInvite(_ context.Context, messageID string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.joinedInviteMessage = messageID
+	return "120363000000000000@g.us", f.err
+}
 
 func (f *fakeCommandActions) MarkMessagePlayed(_ context.Context, messageID string) error {
 	f.mu.Lock()
@@ -538,6 +547,15 @@ func TestC2MessageAndMediaCommands(t *testing.T) {
 	result = c.recv()["result"].(map[string]any)
 	if result["path"] != "/cache/avatar.jpg" || actions.fetchJID != "user@s.whatsapp.net" {
 		t.Fatalf("fetch profile result/action = %v/%q", result, actions.fetchJID)
+	}
+
+	// Joining an invite answers with the chat to open. The frontend has no
+	// other way to get there: the group's jid lives inside the message payload,
+	// and a card that joined a group and could not open it is half a feature.
+	c.sendLine(`{"id":11,"method":"group.join_invite","params":{"message_id":" chat@s.whatsapp.net:m1 "}}`)
+	result = c.recv()["result"].(map[string]any)
+	if result["chat_id"] != "120363000000000000@g.us" || actions.joinedInviteMessage != "chat@s.whatsapp.net:m1" {
+		t.Fatalf("join invite result/action = %v/%q", result, actions.joinedInviteMessage)
 	}
 }
 

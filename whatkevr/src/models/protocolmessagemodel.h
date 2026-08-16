@@ -99,6 +99,7 @@ public:
         LiveShareRole,
         ContactsRole,
         PollRole,
+        GroupInviteRole,
     };
     Q_ENUM(Role)
 

@@ -101,6 +101,7 @@ type CommandActions interface {
 	CancelMessageMediaDownload(context.Context, string) error
 	MarkMessagePlayed(context.Context, string) error
 	VotePoll(context.Context, string, []int) error
+	JoinGroupInvite(context.Context, string) (string, error)
 	FetchProfilePicture(context.Context, string) (string, error)
 
 	SetPrivacySetting(context.Context, string, string, bool) (app.PrivacySettings, error)
@@ -148,6 +149,7 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("message.forward", cmd.messageForward)
 	s.RegisterCommand("message.mark_played", backgroundNet(cmd.messageMarkPlayed, false))
 	s.RegisterCommand("poll.vote", backgroundNet(cmd.pollVote, false))
+	s.RegisterCommand("group.join_invite", backgroundNet(cmd.groupJoinInvite, false))
 	s.RegisterCommand("media.download", cmd.mediaDownload)
 	s.RegisterCommand("media.stream", cmd.mediaStreamCommand)
 	s.RegisterCommand("media.cancel_download", backgroundNet(cmd.mediaCancelDownload, false))

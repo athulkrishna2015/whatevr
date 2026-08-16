@@ -671,6 +671,11 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 				c.savePollOptions(ctx, saved.Message.ID, poll)
 			}
 		}
+		// An invite's card is worth more than the sender's snapshot of it, so
+		// the code is resolved in the background as soon as the row exists.
+		if saved.Message.MediaKind == appstore.MediaKindGroupInvite {
+			c.maybeResolveGroupInvite(ctx, saved.Message)
+		}
 		if saved.Message.MediaKind == appstore.MediaKindLiveLocation {
 			c.registerLiveShare(ctx, saved.Message, evt.Info.Timestamp, 0)
 			if opts.source == sourceLive {
@@ -754,6 +759,9 @@ func (c *Client) mediaMessageInput(ctx context.Context, evt *events.Message, opt
 	if input, ok := c.pollMessageInput(ctx, evt, opts); ok {
 		return input, true
 	}
+	if input, ok := c.groupInviteMessageInput(ctx, evt, opts); ok {
+		return input, true
+	}
 	return c.unsupportedMessageInput(ctx, evt, opts)
 }
 
@@ -781,9 +789,9 @@ func (c *Client) mediaInputBase(ctx context.Context, evt *events.Message, opts i
 		Timestamp:      messageTimestamp(info, opts, evt.SourceWebMsg),
 		Direction:      direction,
 		Status:         status,
-		IsGroup:     info.IsGroup,
-		CountUnread: shouldCountUnread(evt, opts),
-		ReplyTo:     c.replyFromContextInfo(ctx, chatID, contextInfo),
+		IsGroup:        info.IsGroup,
+		CountUnread:    shouldCountUnread(evt, opts),
+		ReplyTo:        c.replyFromContextInfo(ctx, chatID, contextInfo),
 		// Mentions come from the context info the caller already picked out for
 		// this kind, not from re-deriving it: a captioned photo or video can
 		// @-mention people, and until now the media path dropped every one.
@@ -1175,8 +1183,6 @@ func unsupportedMessageLabel(evt *events.Message) (string, bool) {
 	switch {
 	case msg.GetEventMessage() != nil:
 		return labelWithDetail("Event", msg.GetEventMessage().GetName()), true
-	case msg.GetGroupInviteMessage() != nil:
-		return labelWithDetail("Group invite", msg.GetGroupInviteMessage().GetGroupName()), true
 	case msg.GetListMessage() != nil, msg.GetButtonsMessage() != nil,
 		msg.GetTemplateMessage() != nil, msg.GetInteractiveMessage() != nil:
 		return "Message", true
@@ -1376,6 +1382,9 @@ func contextInfoFromMessage(message *waE2E.Message) *waE2E.ContextInfo {
 	if poll := pollCreationFromMessage(message); poll != nil {
 		return poll.GetContextInfo()
 	}
+	if invite := message.GetGroupInviteMessage(); invite != nil {
+		return invite.GetContextInfo()
+	}
 	return nil
 }
 
@@ -1509,6 +1518,9 @@ func quotedReplyPreview(message *waE2E.Message) (string, string, string) {
 	}
 	if poll := pollCreationFromMessage(message); poll != nil {
 		return strings.TrimSpace(poll.GetName()), appstore.MediaKindPoll, ""
+	}
+	if invite := message.GetGroupInviteMessage(); invite != nil {
+		return groupInviteSummary(invite), appstore.MediaKindGroupInvite, ""
 	}
 	return "", "", ""
 }

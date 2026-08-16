@@ -13,6 +13,7 @@
 // is built Debug (-O0) like the field-test build it exists to protect.
 
 #include <QApplication>
+#include <QDateTime>
 #include <QElapsedTimer>
 #include <QImage>
 #include <QQmlComponent>
@@ -100,6 +101,7 @@ QVariantMap baseProps()
         {QStringLiteral("liveShare"), QVariantMap()},
         {QStringLiteral("contacts"), QVariantMap()},
         {QStringLiteral("poll"), QVariantMap()},
+        {QStringLiteral("invite"), QVariantMap()},
         {QStringLiteral("isRevoked"), false},
         {QStringLiteral("isEdited"), false},
         {QStringLiteral("isStarred"), false},
@@ -202,6 +204,7 @@ private Q_SLOTS:
     void tappingAPollOptionReachesTheController();
     void cardButtonsReceiveHover();
     void pollVotersDialogReadsTheVotesBothWays();
+    void groupInviteCardAnswersWhereYouAlreadyStand();
 
 private:
     QQuickWindow *m_window = nullptr;
@@ -898,6 +901,117 @@ void ChatBubblePerf::pollVotersDialogReadsTheVotesBothWays()
     const QVariantList narrowed = dialog->property("visibleOptions").toList();
     QCOMPARE(narrowed.size(), 1);
     QCOMPARE(narrowed.at(0).toMap().value(QStringLiteral("name")).toString(), QStringLiteral("Tue"));
+}
+
+// A group invite's card has one button and three different jobs for it: join a
+// group, open one you are already in, or nothing at all once the code has
+// lapsed. Getting that wrong offers an action that cannot work, which is the
+// one failure mode a card like this has.
+void ChatBubblePerf::groupInviteCardAnswersWhereYouAlreadyStand()
+{
+    const qint64 now = QDateTime::currentSecsSinceEpoch();
+    const QVariantMap open{{QStringLiteral("group_jid"), QStringLiteral("1203630001@g.us")},
+                           {QStringLiteral("code"), QStringLiteral("CODE123")},
+                           {QStringLiteral("name"), QStringLiteral("sender's copy")},
+                           {QStringLiteral("subject"), QStringLiteral("Wow3")},
+                           {QStringLiteral("member_count"), 12},
+                           {QStringLiteral("resolved_at"), now},
+                           {QStringLiteral("expires_at"), now + 3600 * 30}};
+
+    const QVariantMap props = withProps(baseProps(),
+                                        {{QStringLiteral("messageId"), QStringLiteral("inv-1")},
+                                         {QStringLiteral("mediaKind"), QStringLiteral("group_invite")},
+                                         {QStringLiteral("invite"), open}});
+
+    QQmlComponent component(
+        m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/ChatBubble.qml")));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> bubble(component.createWithInitialProperties(props));
+    QVERIFY2(bubble, qPrintable(component.errorString()));
+    auto *bubbleItem = qobject_cast<QQuickItem *>(bubble.get());
+    bubbleItem->setParentItem(m_window->contentItem());
+    m_window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_window));
+
+    QQuickItem *card = findVisualChild(bubbleItem, QStringLiteral("groupInviteBubble"));
+    QVERIFY2(card, "a group invite row built no invite card");
+    QTRY_VERIFY(card->width() > 0 && card->height() > 0);
+
+    // The resolved subject beats the name the sender's client happened to hold.
+    QCOMPARE(card->property("displayName").toString(), QStringLiteral("Wow3"));
+    QVERIFY(!card->property("expired").toBool());
+    QVERIFY(!card->property("joined").toBool());
+    // 30 hours out reads in days, not in 1800 minutes.
+    QVERIFY2(card->property("remainingText").toString().contains(QStringLiteral("1")),
+             qPrintable(card->property("remainingText").toString()));
+
+    QQuickItem *button = findVisualChild(card, QStringLiteral("cardActionButton"));
+    QVERIFY2(button, "an invite that can still be accepted offered no way to accept it");
+    QVERIFY(button->isVisible());
+    const QString joinText = button->property("text").toString();
+    QVERIFY2(!joinText.isEmpty(), "the invite's action has no label");
+
+    // The card is meant to be looked at, and the three states differ in more
+    // than a word. Point this at a directory prefix to get all three out.
+    const QString shotPrefix = qEnvironmentVariable("WHATKEVR_INVITE_SCREENSHOT");
+    const auto shoot = [&](const QString &state) {
+        if (shotPrefix.isEmpty()) {
+            return;
+        }
+        QTest::qWait(120);
+        QVERIFY(m_window->grabWindow().save(shotPrefix + state + QStringLiteral(".png")));
+    };
+    shoot(QStringLiteral("open"));
+
+    // The card must be tall enough for what it drew, like every other card.
+    const qreal padding = card->property("contentMargin").toReal();
+    QVERIFY(padding > 0);
+    QQuickItem *content = findVisualChild(card, QStringLiteral("cardContent"));
+    QVERIFY(content);
+    const qreal bottom = content->mapToItem(card, QPointF(0, content->height())).y();
+    QVERIFY2(card->height() - bottom >= padding - 0.5,
+             qPrintable(QStringLiteral("content ends %1 from the card's bottom, want %2 of padding")
+                            .arg(card->height() - bottom)
+                            .arg(padding)));
+
+    // Already a member: there is nothing to join, so the button changes what it
+    // says rather than doing nothing when pressed.
+    QVariantMap joined = open;
+    joined[QStringLiteral("joined")] = true;
+    bubbleItem->setProperty("invite", joined);
+    QTRY_VERIFY(card->property("joined").toBool());
+    QTRY_VERIFY2(button->property("text").toString() != joinText,
+                 "a group already joined still offered to join it");
+    shoot(QStringLiteral("joined"));
+
+    // Lapsed: the door is closed and the card stops offering to walk through it.
+    QVariantMap expired = open;
+    expired[QStringLiteral("expires_at")] = now - 1;
+    bubbleItem->setProperty("invite", expired);
+    QTRY_VERIFY(card->property("expired").toBool());
+    QTRY_VERIFY2(!button->isVisible(), "an expired invite still offered its Join button");
+
+    // With the action row gone the header is the card's last line, and the row
+    // draws the time and ticks over exactly that corner. The text has to give
+    // way, or the timestamp lands on top of "This invite has expired".
+    QQuickItem *subtitle = findVisualChild(card, QStringLiteral("inviteSubtitle"));
+    QVERIFY(subtitle);
+    const qreal reserve = bubbleItem->property("tntReserveWidth").toReal();
+    QVERIFY2(reserve > 0, "the row reserved no room for its own footer");
+    // Waited on rather than read once: the visibility flip and the relayout it
+    // causes are two different passes of the event loop.
+    const auto rightGap = [&] {
+        return card->width() - subtitle->mapToItem(card, QPointF(subtitle->width(), 0)).x();
+    };
+    QTRY_VERIFY2(rightGap() >= reserve - 0.5,
+                 qPrintable(QStringLiteral("the last line ends %1 from the card's right edge, and "
+                                           "the footer needs %2")
+                                .arg(rightGap())
+                                .arg(reserve)));
+    shoot(QStringLiteral("expired"));
+
+    m_window->hide();
+    bubbleItem->setParentItem(nullptr);
 }
 
 int main(int argc, char *argv[])

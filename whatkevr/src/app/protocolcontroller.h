@@ -515,6 +515,10 @@ public:
     /// that is what a vote means on the wire: passing an empty list is how a
     /// voter takes their answer back.
     Q_INVOKABLE void votePoll(const QString &messageId, const QVariantList &optionIndexes);
+    /// Accepts a group invitation and goes to the chat. It is also the "open"
+    /// path for a group already joined: the daemon joins nothing there and
+    /// simply answers with where to go, so the card has one action either way.
+    Q_INVOKABLE void joinGroupInvite(const QString &messageId);
     /// One entry of pendingPollVotes: the selection a tap asked for while its
     /// command is still in flight, or an invalid variant when nothing is
     /// pending. A poll row prefers this over the daemon's tally so it answers

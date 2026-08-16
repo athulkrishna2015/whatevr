@@ -18,10 +18,66 @@ import (
 // MessagePayload is the envelope stored in payload_json. Exactly one field is
 // set, chosen by the row's media_kind, so decoding never has to guess.
 type MessagePayload struct {
-	Location  *LocationPayload  `json:"location,omitempty"`
-	LiveShare *LiveSharePayload `json:"live,omitempty"`
-	Contacts  *ContactsPayload  `json:"contacts,omitempty"`
-	Poll      *PollPayload      `json:"poll,omitempty"`
+	Location    *LocationPayload    `json:"location,omitempty"`
+	LiveShare   *LiveSharePayload   `json:"live,omitempty"`
+	Contacts    *ContactsPayload    `json:"contacts,omitempty"`
+	Poll        *PollPayload        `json:"poll,omitempty"`
+	GroupInvite *GroupInvitePayload `json:"invite,omitempty"`
+}
+
+// GroupInvitePayload is an invitation to a group.
+//
+// The first block is what the sender's client put in the message and is all we
+// are guaranteed. The second is what the daemon resolved by asking WhatsApp
+// about the code, which is a strictly better description of the group: a name
+// the sender's copy may have been stale about, how many people are in it, and
+// whether we are one of them. A card renders from whichever it has, so an
+// invite that never resolved still shows the sender's version rather than
+// nothing.
+type GroupInvitePayload struct {
+	GroupJID string `json:"group_jid,omitempty"`
+	Code     string `json:"code,omitempty"`
+	// ExpiresAt is a unix second, and it is the invite that expires, not the
+	// group: past it the code is dead and the card is a record of a door that
+	// closed.
+	ExpiresAt int64 `json:"expires_at,omitempty"`
+	// Name is the subject as the sender's client wrote it into the message.
+	Name    string `json:"name,omitempty"`
+	Caption string `json:"caption,omitempty"`
+	// PhotoPath is the group picture the invite carried, written into the media
+	// cache. It crosses as a path like every other image (rule 4), but not as
+	// the row's `media` object: there is nothing to download here, and a kind
+	// with a media object looks fetchable to every part of the frontend that
+	// asks "is there anything to get".
+	PhotoPath string `json:"photo_path,omitempty"`
+
+	// Subject, Topic and MemberCount come from resolving the invite code.
+	Subject     string `json:"subject,omitempty"`
+	Topic       string `json:"topic,omitempty"`
+	MemberCount int    `json:"member_count,omitempty"`
+	// Joined says we are already in this group, which turns the card's action
+	// from Join into Open. It is the one fact a phone's invite card never
+	// tells you, and the one that decides what the button should do.
+	Joined bool `json:"joined,omitempty"`
+	// ResolvedAt is when the lookup last succeeded, 0 for never. A card with
+	// nothing here is showing the sender's copy and should not claim otherwise.
+	ResolvedAt int64 `json:"resolved_at,omitempty"`
+	// ResolveError explains a lookup that failed, which is usually the invite
+	// having been revoked. It is worth saying out loud: an invite that cannot
+	// be resolved cannot be joined either.
+	ResolveError string `json:"resolve_error,omitempty"`
+}
+
+// DisplayName is the best name the invite has for its group: what the lookup
+// said, falling back to what the sender's client claimed.
+func (p *GroupInvitePayload) DisplayName() string {
+	if p == nil {
+		return ""
+	}
+	if subject := strings.TrimSpace(p.Subject); subject != "" {
+		return subject
+	}
+	return strings.TrimSpace(p.Name)
 }
 
 // PollPayload is a poll's fixed settings. The tally is not here: it changes on
@@ -149,5 +205,6 @@ func DecodePayload(raw string) MessagePayload {
 // compared with == so adding a pointer field here never silently changes what
 // counts as empty.
 func (p MessagePayload) isZero() bool {
-	return p.Location == nil && p.LiveShare == nil && p.Contacts == nil && p.Poll == nil
+	return p.Location == nil && p.LiveShare == nil && p.Contacts == nil &&
+		p.Poll == nil && p.GroupInvite == nil
 }

@@ -198,6 +198,7 @@ public:
     void setSearchStickers(const QJsonArray &stickers) { m_searchStickers = stickers; }
     void setCheckPhone(const QJsonObject &result) { m_checkPhone = result; }
     void setEnsureDirectChatId(const QString &chatId) { m_ensureDirectChatId = chatId; }
+    void setJoinInviteChatId(const QString &chatId) { m_joinInviteChatId = chatId; }
     void setProfilePicturePath(const QString &path) { m_profilePicturePath = path; }
 
     int reconnectCount = 0;
@@ -479,6 +480,11 @@ private:
             lastCommandParams = params;
             reply(id, QJsonObject{{QStringLiteral("chat_id"), m_ensureDirectChatId}});
             Q_EMIT commandReceived();
+        } else if (method == QLatin1String("group.join_invite")) {
+            lastCommandMethod = method;
+            lastCommandParams = params;
+            reply(id, QJsonObject{{QStringLiteral("chat_id"), m_joinInviteChatId}});
+            Q_EMIT commandReceived();
         } else if (method == QLatin1String("daemon.reconnect")) {
             ++reconnectCount;
             reply(id, QJsonObject{});
@@ -566,6 +572,7 @@ private:
     QJsonArray m_searchStickers;
     QJsonObject m_checkPhone;
     QString m_ensureDirectChatId;
+    QString m_joinInviteChatId;
     QString m_profilePicturePath;
 };
 
@@ -2417,6 +2424,31 @@ private Q_SLOTS:
         QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("jid")).toString(), QStringLiteral("911@s"));
         // Opening a result dismisses the search.
         QVERIFY(!ctrl.searchActive());
+    }
+
+    // Accepting a group invite has to land you in the group. The chat id is not
+    // something the frontend can work out: the group's jid lives inside the
+    // message payload and the daemon is what answers with it, so the ack is the
+    // only route from the button to the chat.
+    void joinGroupInviteGoesToTheGroup()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats({chatRow(QStringLiteral("120@g.us"), QStringLiteral("Wow3"), QStringLiteral("1-000"))});
+        daemon.setJoinInviteChatId(QStringLiteral("120@g.us"));
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_VERIFY(!ctrl.chatsLoading());
+
+        QSignalSpy openSpy(&ctrl, &ProtocolController::openChatRequested);
+        ctrl.joinGroupInvite(QStringLiteral("chat@s:m1"));
+        QVERIFY(openSpy.wait());
+        QCOMPARE(openSpy.first().first().toString(), QStringLiteral("120@g.us"));
+        QCOMPARE(ctrl.selectedChatId(), QStringLiteral("120@g.us"));
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("group.join_invite"));
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("message_id")).toString(),
+                 QStringLiteral("chat@s:m1"));
     }
 
     // D6: session-long self/preferences rows and page-scoped privacy/blocklist
