@@ -732,6 +732,9 @@ func (c *Client) mediaMessageInput(ctx context.Context, evt *events.Message, opt
 	if input, ok := c.locationMessageInput(ctx, evt, opts); ok {
 		return input, true
 	}
+	if input, ok := c.contactMessageInput(ctx, evt, opts); ok {
+		return input, true
+	}
 	return c.unsupportedMessageInput(ctx, evt, opts)
 }
 
@@ -1151,10 +1154,6 @@ func unsupportedMessageLabel(evt *events.Message) (string, bool) {
 		return label
 	}
 	switch {
-	case msg.GetContactMessage() != nil:
-		return labelWithDetail("Contact", msg.GetContactMessage().GetDisplayName()), true
-	case msg.GetContactsArrayMessage() != nil:
-		return "Contacts", true
 	case msg.GetPollCreationMessage() != nil:
 		return labelWithDetail("Poll", msg.GetPollCreationMessage().GetName()), true
 	case msg.GetPollCreationMessageV2() != nil:
@@ -1175,12 +1174,7 @@ func unsupportedMessageLabel(evt *events.Message) (string, bool) {
 // unsupportedContextInfo pulls reply context out of the payload types the
 // tombstone path covers, so quoted replies still show their preview.
 func unsupportedContextInfo(msg *waE2E.Message) *waE2E.ContextInfo {
-	switch {
-	case msg.GetContactMessage() != nil:
-		return msg.GetContactMessage().GetContextInfo()
-	default:
-		return contextInfoFromMessage(msg)
-	}
+	return contextInfoFromMessage(msg)
 }
 
 func stickerMediaCacheKey(sticker *waE2E.StickerMessage) string {
@@ -1360,6 +1354,12 @@ func contextInfoFromMessage(message *waE2E.Message) *waE2E.ContextInfo {
 	if live := message.GetLiveLocationMessage(); live != nil {
 		return live.GetContextInfo()
 	}
+	if contact := message.GetContactMessage(); contact != nil {
+		return contact.GetContextInfo()
+	}
+	if contacts := message.GetContactsArrayMessage(); contacts != nil {
+		return contacts.GetContextInfo()
+	}
 	return nil
 }
 
@@ -1484,6 +1484,12 @@ func quotedReplyPreview(message *waE2E.Message) (string, string, string) {
 	if live := message.GetLiveLocationMessage(); live != nil {
 		return formatCoordinates(live.GetDegreesLatitude(), live.GetDegreesLongitude()),
 			appstore.MediaKindLiveLocation, "image/png"
+	}
+	if contact := message.GetContactMessage(); contact != nil {
+		return cardFromContactMessage(contact).DisplayName, appstore.MediaKindContact, ""
+	}
+	if contacts := message.GetContactsArrayMessage(); contacts != nil {
+		return strings.TrimSpace(contacts.GetDisplayName()), appstore.MediaKindContacts, ""
 	}
 	return "", "", ""
 }

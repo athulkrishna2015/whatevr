@@ -15,6 +15,7 @@
 #include <QPointer>
 #include <QProcess>
 #include <QQmlEngine>
+#include <QRegularExpression>
 #include <QSet>
 #include <QSettings>
 #include <QStandardPaths>
@@ -3313,6 +3314,58 @@ void ProtocolController::copyFileToClipboard(const QString &localPath)
     mime->setUrls({url});
     mime->setText(localPath);
     clipboard->setMimeData(mime);
+}
+
+bool ProtocolController::saveContactCard(const QString &displayName, const QString &vcard)
+{
+    if (vcard.isEmpty()) {
+        return false;
+    }
+
+    const QString directory =
+        QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QStringLiteral("/contacts");
+    if (!QDir().mkpath(directory)) {
+        Q_EMIT messageActionFailed(i18nc("@info", "Unable to write the contact card"));
+        return false;
+    }
+
+    // Anything that is not plainly a filename character becomes an underscore:
+    // a contact's name is attacker-controlled text arriving over the network,
+    // and it must never be able to steer where this writes.
+    QString base = displayName.simplified();
+    base.replace(QRegularExpression(QStringLiteral("[^\\w .-]"), QRegularExpression::UseUnicodePropertiesOption),
+                 QStringLiteral("_"));
+    base = base.trimmed();
+    if (base.isEmpty()) {
+        base = QStringLiteral("contact");
+    }
+    base.truncate(64);
+
+    const QString path = directory + QLatin1Char('/') + base + QStringLiteral(".vcf");
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        Q_EMIT messageActionFailed(i18nc("@info", "Unable to write the contact card"));
+        return false;
+    }
+    // vCard is a CRLF format, and some contact managers are strict about it.
+    QString normalized = vcard;
+    normalized.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    normalized.replace(QLatin1Char('\n'), QStringLiteral("\r\n"));
+    if (!normalized.endsWith(QStringLiteral("\r\n"))) {
+        normalized += QStringLiteral("\r\n");
+    }
+    if (file.write(normalized.toUtf8()) < 0) {
+        file.close();
+        Q_EMIT messageActionFailed(i18nc("@info", "Unable to write the contact card"));
+        return false;
+    }
+    file.close();
+
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(path))) {
+        Q_EMIT messageActionFailed(i18nc("@info", "No application is set up to open contact cards"));
+        return false;
+    }
+    return true;
 }
 
 bool ProtocolController::saveMediaAs(const QString &localPath, const QUrl &destUrl)

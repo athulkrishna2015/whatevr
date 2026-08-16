@@ -97,6 +97,7 @@ public:
         // one bubble ever reads.
         LocationRole,
         LiveShareRole,
+        ContactsRole,
     };
     Q_ENUM(Role)
 
@@ -148,6 +149,7 @@ private:
     // is downloading it.
     [[nodiscard]] QVariantMap transfer(const QVariantMap &item) const;
     [[nodiscard]] static QString displayText(const QVariantMap &item);
+    [[nodiscard]] static bool rendersItsOwnPayload(const QVariantMap &item);
     [[nodiscard]] static QVariantMap sender(const QVariantMap &item);
     [[nodiscard]] static QVariantMap media(const QVariantMap &item);
     [[nodiscard]] static QVariantMap reply(const QVariantMap &item);

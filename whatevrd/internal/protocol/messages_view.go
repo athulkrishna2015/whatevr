@@ -553,6 +553,9 @@ type messageItem struct {
 	// rides the row's own payload rather than a join, so listing a thousand
 	// messages costs no extra queries.
 	Live *store.LiveSharePayload `json:"live,omitempty"`
+	// Contacts holds one or more shared contact cards, parsed out of their
+	// vCards so a frontend never has to.
+	Contacts *store.ContactsPayload `json:"contacts,omitempty"`
 }
 
 type messageSender struct {
@@ -683,6 +686,8 @@ func attachMessagePayload(item *messageItem, m store.Message) {
 	case store.MediaKindLiveLocation:
 		item.Location = payload.Location
 		item.Live = payload.LiveShare
+	case store.MediaKindContact, store.MediaKindContacts:
+		item.Contacts = payload.Contacts
 	}
 }
 

@@ -579,6 +579,10 @@ public:
     /// manager or another application.
     Q_INVOKABLE void copyFileToClipboard(const QString &localPath);
     Q_INVOKABLE bool saveMediaAs(const QString &localPath, const QUrl &destUrl);
+    /// Writes a shared contact's vCard out and hands it to the desktop, which
+    /// opens it in whatever manages contacts. That is "add this person" on a
+    /// Linux desktop; a Save As dialog would only put a .vcf somewhere.
+    Q_INVOKABLE bool saveContactCard(const QString &displayName, const QString &vcard);
     /// Subscribes the per-chat media gallery; unsubscribing releases the window.
     Q_INVOKABLE void openChatMedia(const QString &chatId);
     Q_INVOKABLE void closeChatMedia();

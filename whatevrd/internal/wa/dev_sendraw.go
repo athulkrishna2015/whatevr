@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.mau.fi/whatsmeow"
@@ -50,6 +51,8 @@ var rawMessageBuilders = map[string]rawMessageBuilder{
 	"location":      buildRawLocation,
 	"live_location": buildRawLiveLocation,
 	"live_update":   buildRawLiveLocationUpdate,
+	"contact":       buildRawContact,
+	"contacts":      buildRawContacts,
 }
 
 // RawSendKinds lists what the driver can produce, for the tool's help output.
@@ -214,6 +217,97 @@ func buildRawLiveLocationUpdate(params json.RawMessage) (*waE2E.Message, error) 
 		SpeedInMps:                        &p.Speed,
 		DegreesClockwiseFromMagneticNorth: &p.Heading,
 		SequenceNumber:                    &p.Sequence,
+	}}, nil
+}
+
+// rawContactParams builds a vCard the way WhatsApp does, `waid=` and all, so
+// the parser is exercised on the shape it will really meet.
+type rawContactParams struct {
+	Name  string `json:"name"`
+	Phone string `json:"phone"`
+	// WaID marks the number as being on WhatsApp, which is what makes the
+	// card's Message action live.
+	WaID  string `json:"waid"`
+	Email string `json:"email"`
+	Org   string `json:"org"`
+	Title string `json:"title"`
+	// Count repeats the card, for testing the multi-card array shape.
+	Count int `json:"count"`
+}
+
+func (p rawContactParams) vcard(index int) string {
+	name := p.Name
+	if name == "" {
+		name = "Test Contact"
+	}
+	if index > 0 {
+		name = fmt.Sprintf("%s %d", name, index+1)
+	}
+	phone := p.Phone
+	if phone == "" {
+		phone = "+91 70600 29183"
+	}
+	waid := p.WaID
+	if waid == "" {
+		waid = strings.NewReplacer("+", "", " ", "", "-", "").Replace(phone)
+	}
+
+	var b strings.Builder
+	b.WriteString("BEGIN:VCARD\nVERSION:3.0\n")
+	fmt.Fprintf(&b, "N:;%s;;;\nFN:%s\n", name, name)
+	if p.Org != "" {
+		fmt.Fprintf(&b, "ORG:%s;\n", p.Org)
+	}
+	if p.Title != "" {
+		fmt.Fprintf(&b, "TITLE:%s\n", p.Title)
+	}
+	fmt.Fprintf(&b, "item1.TEL;waid=%s:%s\nitem1.X-ABLabel:Mobile\n", waid, phone)
+	if p.Email != "" {
+		fmt.Fprintf(&b, "item2.EMAIL;type=INTERNET:%s\nitem2.X-ABLabel:Work\n", p.Email)
+	}
+	b.WriteString("END:VCARD")
+	return b.String()
+}
+
+func buildRawContact(params json.RawMessage) (*waE2E.Message, error) {
+	var p rawContactParams
+	if err := decodeRawParams(params, &p); err != nil {
+		return nil, err
+	}
+	name := p.Name
+	if name == "" {
+		name = "Test Contact"
+	}
+	vcard := p.vcard(0)
+	return &waE2E.Message{ContactMessage: &waE2E.ContactMessage{
+		DisplayName: &name,
+		Vcard:       &vcard,
+	}}, nil
+}
+
+func buildRawContacts(params json.RawMessage) (*waE2E.Message, error) {
+	var p rawContactParams
+	if err := decodeRawParams(params, &p); err != nil {
+		return nil, err
+	}
+	count := p.Count
+	if count <= 0 {
+		count = 3
+	}
+	contacts := make([]*waE2E.ContactMessage, 0, count)
+	for i := range count {
+		name := p.Name
+		if name == "" {
+			name = "Test Contact"
+		}
+		name = fmt.Sprintf("%s %d", name, i+1)
+		vcard := p.vcard(i)
+		contacts = append(contacts, &waE2E.ContactMessage{DisplayName: &name, Vcard: &vcard})
+	}
+	label := "Shared contacts"
+	return &waE2E.Message{ContactsArrayMessage: &waE2E.ContactsArrayMessage{
+		DisplayName: &label,
+		Contacts:    contacts,
 	}}, nil
 }
 

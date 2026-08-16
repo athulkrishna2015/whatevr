@@ -410,6 +410,8 @@ QVariant ProtocolMessageModel::data(const QModelIndex &index, int role) const
         return cachedLocation(cache);
     case LiveShareRole:
         return item.value(QStringLiteral("live")).toMap();
+    case ContactsRole:
+        return item.value(QStringLiteral("contacts")).toMap();
     case ShowSenderHeaderRole:
         return groupChat && !outgoing && startsSenderGroup(index.row());
     case ShowSenderAvatarRole:
@@ -554,6 +556,7 @@ QHash<int, QByteArray> ProtocolMessageModel::roleNames() const
         {IsKeptRole, "isKept"},
         {LocationRole, "location"},
         {LiveShareRole, "liveShare"},
+        {ContactsRole, "contacts"},
     };
 }
 
@@ -564,15 +567,35 @@ QString ProtocolMessageModel::displayText(const QVariantMap &item)
     if (item.value(QStringLiteral("revoked")).toBool()) {
         return item.value(QStringLiteral("fallback")).toString();
     }
-    // The daemon's fallback ("🎥 Video (0:11)") is a one-line summary for the
-    // chat list, reply previews and notifications. A bubble that renders the
-    // media itself must not also print it as a caption, so anything with a
-    // media object shows only the real caption, which is usually empty.
-    if (kind == QLatin1String("text") || !media(item).isEmpty()) {
+    // The daemon's fallback ("🎥 Video (0:11)", "👤 Contact: Aditi Rao") is a
+    // one-line summary for the chat list, reply previews and notifications. It
+    // is also what PROTOCOL.md rule 5 hands a frontend for a kind it cannot
+    // draw. A bubble that draws the kind itself must therefore not also print
+    // it, or every contact card grows a caption repeating its own name.
+    if (kind == QLatin1String("text") || rendersItsOwnPayload(item)) {
         return text;
     }
-    // No media to draw: unsupported kinds still need their tombstone label.
     return item.value(QStringLiteral("fallback")).toString();
+}
+
+// rendersItsOwnPayload reports whether this build has a bubble for the item's
+// content. It asks by looking for the payload objects whatkevr knows how to
+// draw rather than by listing kinds, so a kind arriving from a newer daemon
+// with a payload this build has never heard of correctly falls back to the
+// daemon's one-line rendering (rule 5) instead of drawing nothing.
+bool ProtocolMessageModel::rendersItsOwnPayload(const QVariantMap &item)
+{
+    static const QStringList known{
+        QStringLiteral("media"),
+        QStringLiteral("location"),
+        QStringLiteral("contacts"),
+    };
+    for (const QString &key : known) {
+        if (!item.value(key).toMap().isEmpty()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 QVariantMap ProtocolMessageModel::sender(const QVariantMap &item)

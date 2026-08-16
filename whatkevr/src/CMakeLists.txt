@@ -123,6 +123,9 @@ set(WHATKEVR_QML_FILES
     qml/components/ChatMediaGalleryPage.qml
     qml/components/DocumentBubble.qml
     qml/components/CardBubble.qml
+    qml/components/ContactCardBubble.qml
+    qml/components/ContactCardEntry.qml
+    qml/components/ContactFieldRow.qml
     qml/components/LiveLocationBanner.qml
     qml/components/LocationBubble.qml
     qml/components/MediaViewer.qml

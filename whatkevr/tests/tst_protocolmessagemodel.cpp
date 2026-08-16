@@ -384,6 +384,68 @@ private Q_SLOTS:
                  QStringLiteral("📊 Poll: dinner?"));
     }
 
+    // A kind that draws itself must not also print the daemon's one-line
+    // summary: a contact card that did grew a caption repeating its own name.
+    // The fallback is for kinds this build cannot draw, and nothing else.
+    void kindsThatDrawThemselvesDoNotPrintTheirFallback()
+    {
+        CollectionViewModel source;
+        ProtocolMessageModel model(&source);
+
+        QJsonObject contact = message(QStringLiteral("m1"), 1'700'000'000);
+        contact.insert(QStringLiteral("kind"), QStringLiteral("contact"));
+        contact.insert(QStringLiteral("fallback"), QStringLiteral("👤 Contact: Aditi Rao"));
+        contact.remove(QStringLiteral("text"));
+        contact.insert(QStringLiteral("contacts"), QJsonObject{
+            {QStringLiteral("cards"), QJsonArray{QJsonObject{
+                {QStringLiteral("display_name"), QStringLiteral("Aditi Rao")},
+            }}},
+        });
+
+        QJsonObject location = message(QStringLiteral("m2"), 1'700'000'001);
+        location.insert(QStringLiteral("kind"), QStringLiteral("location"));
+        location.insert(QStringLiteral("fallback"), QStringLiteral("📍 Location: Cafe Noir"));
+        location.remove(QStringLiteral("text"));
+        location.insert(QStringLiteral("location"), QJsonObject{
+            {QStringLiteral("lat"), 12.9716}, {QStringLiteral("lng"), 77.5946},
+        });
+
+        // A kind from a newer daemon, whose payload this build has never heard
+        // of, must still say something: that is what fallback is for.
+        QJsonObject future = message(QStringLiteral("m3"), 1'700'000'002);
+        future.insert(QStringLiteral("kind"), QStringLiteral("hologram"));
+        future.insert(QStringLiteral("fallback"), QStringLiteral("🪩 Hologram"));
+        future.remove(QStringLiteral("text"));
+        future.insert(QStringLiteral("hologram"), QJsonObject{{QStringLiteral("shimmer"), 11}});
+
+        source.onUpsert(QStringLiteral("0001"), contact);
+        source.onUpsert(QStringLiteral("0002"), location);
+        source.onUpsert(QStringLiteral("0003"), future);
+
+        QCOMPARE(role(model, 0, ProtocolMessageModel::TextRole).toString(), QString());
+        QCOMPARE(role(model, 1, ProtocolMessageModel::TextRole).toString(), QString());
+        QCOMPARE(role(model, 2, ProtocolMessageModel::TextRole).toString(),
+                 QStringLiteral("🪩 Hologram"));
+    }
+
+    // A caption on a kind that draws itself still belongs to the bubble.
+    void aCaptionOnACardStillReachesTheBubble()
+    {
+        CollectionViewModel source;
+        ProtocolMessageModel model(&source);
+        QJsonObject item = message(QStringLiteral("m1"), 1'700'000'000);
+        item.insert(QStringLiteral("kind"), QStringLiteral("location"));
+        item.insert(QStringLiteral("fallback"), QStringLiteral("meet me here"));
+        item.insert(QStringLiteral("text"), QStringLiteral("meet me here"));
+        item.insert(QStringLiteral("location"), QJsonObject{
+            {QStringLiteral("lat"), 12.9716}, {QStringLiteral("lng"), 77.5946},
+        });
+        source.onUpsert(QStringLiteral("0001"), item);
+
+        QCOMPARE(role(model, 0, ProtocolMessageModel::TextRole).toString(),
+                 QStringLiteral("meet me here"));
+    }
+
     void keptRidesTheItem()
     {
         CollectionViewModel source;

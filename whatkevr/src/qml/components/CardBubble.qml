@@ -40,6 +40,9 @@ Item {
             case "location":
             case "live_location":
                 return locationCard
+            case "contact":
+            case "contacts":
+                return contactCard
             default:
                 return null
             }
@@ -50,6 +53,14 @@ Item {
         id: locationCard
 
         LocationBubble {
+            row: root.row
+        }
+    }
+
+    Component {
+        id: contactCard
+
+        ContactCardBubble {
             row: root.row
         }
     }

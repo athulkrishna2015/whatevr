@@ -20,6 +20,42 @@ import (
 type MessagePayload struct {
 	Location  *LocationPayload  `json:"location,omitempty"`
 	LiveShare *LiveSharePayload `json:"live,omitempty"`
+	Contacts  *ContactsPayload  `json:"contacts,omitempty"`
+}
+
+// ContactsPayload is one or more shared contact cards. WhatsApp sends a single
+// ContactMessage and a multi-card ContactsArrayMessage; both land here, so a
+// renderer has one shape to deal with and the count tells it which it is.
+type ContactsPayload struct {
+	// DisplayName is the array's own label, set only by ContactsArrayMessage.
+	DisplayName string        `json:"display_name,omitempty"`
+	Cards       []ContactCard `json:"cards"`
+}
+
+// ContactCard is one person, parsed out of their vCard.
+type ContactCard struct {
+	DisplayName string         `json:"display_name,omitempty"`
+	Org         string         `json:"org,omitempty"`
+	Title       string         `json:"title,omitempty"`
+	Birthday    string         `json:"birthday,omitempty"`
+	Phones      []ContactField `json:"phones,omitempty"`
+	Emails      []ContactField `json:"emails,omitempty"`
+	URLs        []ContactField `json:"urls,omitempty"`
+	Addresses   []ContactField `json:"addresses,omitempty"`
+	// VCard is the sender's original text, kept verbatim so exporting the card
+	// hands on exactly what arrived rather than a lossy re-serialization.
+	VCard string `json:"vcard,omitempty"`
+}
+
+// ContactField is one labelled value on a card.
+type ContactField struct {
+	Label string `json:"label,omitempty"`
+	Value string `json:"value"`
+	// JID is set when the vCard carried a `waid=` parameter, which is WhatsApp
+	// stating that this number is on WhatsApp and what its jid is. It means a
+	// "Message" action needs no lookup, and in particular no usync round trip
+	// telling the server which contacts somebody forwarded us.
+	JID string `json:"jid,omitempty"`
 }
 
 // LiveSharePayload is the state of a live-location share, kept on the message
@@ -97,5 +133,5 @@ func DecodePayload(raw string) MessagePayload {
 // compared with == so adding a pointer field here never silently changes what
 // counts as empty.
 func (p MessagePayload) isZero() bool {
-	return p.Location == nil && p.LiveShare == nil
+	return p.Location == nil && p.LiveShare == nil && p.Contacts == nil
 }

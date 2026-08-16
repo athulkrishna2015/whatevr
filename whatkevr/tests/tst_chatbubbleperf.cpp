@@ -92,6 +92,7 @@ QVariantMap baseProps()
         {QStringLiteral("isKept"), false},
         {QStringLiteral("location"), QVariantMap()},
         {QStringLiteral("liveShare"), QVariantMap()},
+        {QStringLiteral("contacts"), QVariantMap()},
         {QStringLiteral("isRevoked"), false},
         {QStringLiteral("isEdited"), false},
         {QStringLiteral("isStarred"), false},
