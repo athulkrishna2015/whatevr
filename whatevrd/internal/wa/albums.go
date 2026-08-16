@@ -48,10 +48,11 @@ func (c *Client) albumMessageInput(ctx context.Context, evt *events.Message, opt
 		return appstore.MediaMessageInput{}, false
 	}
 
+	base.PayloadJSON = encoded
+
 	return appstore.MediaMessageInput{
 		TextMessageInput: base,
 		MediaKind:        appstore.MediaKindAlbum,
-		PayloadJSON:      encoded,
 		PayloadSummary:   albumSummary(payload),
 	}, true
 }

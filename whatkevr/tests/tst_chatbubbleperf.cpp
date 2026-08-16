@@ -26,6 +26,7 @@
 #include <QSignalSpy>
 #include <QDir>
 #include <QStandardPaths>
+#include <QTemporaryDir>
 #include <QTest>
 
 #include "collectionviewmodel.h"
@@ -109,6 +110,7 @@ QVariantMap baseProps()
         {QStringLiteral("invite"), QVariantMap()},
         {QStringLiteral("eventInfo"), QVariantMap()},
         {QStringLiteral("album"), QVariantMap()},
+        {QStringLiteral("linkPreview"), QVariantMap()},
         {QStringLiteral("isRevoked"), false},
         {QStringLiteral("isEdited"), false},
         {QStringLiteral("isStarred"), false},
@@ -215,6 +217,7 @@ private Q_SLOTS:
     void eventCardShowsWhoIsComingAndAnswersOnTheTap();
     void albumMosaicTilesTheWholeWidthWithoutOverlapping();
     void eventResponsesDialogNamesEveryoneWhoAnswered();
+    void linkPreviewSitsAboveTheWordsAndFitsTheBubble();
     void aShrinkingPaneDoesNotDragTheTranscriptWithIt();
 
 private:
@@ -1399,6 +1402,173 @@ void ChatBubblePerf::eventResponsesDialogNamesEveryoneWhoAnswered()
     // Our two heads left the door with us.
     QCOMPARE(heads(QStringLiteral("going")), 4);
     QCOMPARE(dialog->property("answeredCount").toInt(), 4);
+}
+
+// A link preview is the one card that shares its bubble with body text, so it
+// is the only one that can get the two wrong relative to each other: drawn
+// under the words it describes, or drawn narrower than them. Both layouts are
+// asked, because which one a link gets is the sender's word and neither is the
+// safe default.
+void ChatBubblePerf::linkPreviewSitsAboveTheWordsAndFitsTheBubble()
+{
+    QTemporaryDir cache;
+    QVERIFY(cache.isValid());
+    const QString thumbPath = cache.filePath(QStringLiteral("preview.png"));
+    QImage thumb(320, 180, QImage::Format_RGB32);
+    thumb.fill(QColor(60, 110, 170));
+    QVERIFY(thumb.save(thumbPath));
+
+    const QString body = QStringLiteral("worth a read https://example.com/road");
+
+    struct Case {
+        const char *name;
+        QString type;
+        QString thumbnail;
+        bool large;
+    };
+    const QList<Case> cases{
+        // A still from something to watch: the picture is the content, so it
+        // gets the card's width and a play glyph over it.
+        {"video", QStringLiteral("video"), thumbPath, true},
+        {"image", QStringLiteral("image"), thumbPath, true},
+        // A page whose thumbnail is a logo. Blown up to card width a logo is a
+        // worse card than none, so it stays a square beside the words.
+        {"page with a logo", QString(), thumbPath, false},
+        // And a page that carried no picture at all.
+        {"page with nothing", QString(), QString(), false},
+    };
+
+    for (const Case &sample : cases) {
+        const QVariantMap preview{
+            {QStringLiteral("url"), QStringLiteral("https://example.com/road")},
+            {QStringLiteral("host"), QStringLiteral("example.com")},
+            {QStringLiteral("title"), QStringLiteral("The road to nowhere")},
+            {QStringLiteral("description"),
+             QStringLiteral("A page about a road, and where it does not go.")},
+            {QStringLiteral("type"), sample.type},
+            {QStringLiteral("thumbnail_path"), sample.thumbnail},
+            {QStringLiteral("thumb_width"), 320},
+            {QStringLiteral("thumb_height"), 180},
+        };
+        const QVariantMap props =
+            withProps(baseProps(), {{QStringLiteral("messageId"), QStringLiteral("lp-1")},
+                                    {QStringLiteral("text"), body},
+                                    {QStringLiteral("layoutText"), body},
+                                    {QStringLiteral("linkPreview"), preview}});
+
+        QQmlComponent component(
+            m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/ChatBubble.qml")));
+        QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+        std::unique_ptr<QObject> bubble(component.createWithInitialProperties(props));
+        QVERIFY2(bubble, qPrintable(component.errorString()));
+        auto *bubbleItem = qobject_cast<QQuickItem *>(bubble.get());
+        bubbleItem->setParentItem(m_window->contentItem());
+        m_window->show();
+        QVERIFY(QTest::qWaitForWindowExposed(m_window));
+
+        const QString what = QString::fromLatin1(sample.name);
+
+        // The row is still a text row. Nothing about its kind changed, which is
+        // what keeps the chat list, reply quotes and search working.
+        QVERIFY2(bubbleItem->property("isLinkPreview").toBool(),
+                 qPrintable(what + QStringLiteral(": the row did not recognise its preview")));
+        QVERIFY(bubbleItem->property("mediaKind").toString().isEmpty());
+        QVERIFY2(bubbleItem->property("hasBody").toBool(),
+                 qPrintable(what + QStringLiteral(": the message lost its own text")));
+
+        QQuickItem *card = findVisualChild(bubbleItem, QStringLiteral("linkPreviewCard"));
+        QVERIFY2(card, qPrintable(what + QStringLiteral(": no card was drawn")));
+        QTRY_VERIFY(card->width() > 0 && card->height() > 0);
+        QCOMPARE(card->property("largeLayout").toBool(), sample.large);
+
+        // Above the words, not under them: the card describes where the text
+        // points, and a caption reads as belonging to what is above it.
+        QQuickItem *bodyText = nullptr;
+        const auto descendants = bubbleItem->findChildren<QQuickItem *>();
+        for (QQuickItem *child : descendants) {
+            if (child->property("text").toString() == body) {
+                bodyText = child;
+                break;
+            }
+        }
+        QVERIFY2(bodyText, qPrintable(what + QStringLiteral(": the body text is not on screen")));
+        const qreal cardBottom = card->mapToItem(bubbleItem, QPointF(0, card->height())).y();
+        const qreal bodyTop = bodyText->mapToItem(bubbleItem, QPointF(0, 0)).y();
+        QVERIFY2(cardBottom <= bodyTop + 0.5,
+                 qPrintable(what + QStringLiteral(": the card ends at %1, below the text at %2")
+                                       .arg(cardBottom)
+                                       .arg(bodyTop)));
+
+        // As wide as the words got. A card narrower than the paragraph under it
+        // reads as a mistake, and this is the one card that can be.
+        const qreal contentWidth = bubbleItem->property("contentBlockWidth").toReal();
+        QVERIFY2(qAbs(card->width() - contentWidth) < 0.5,
+                 qPrintable(what + QStringLiteral(": card is %1 wide in a %2 bubble")
+                                       .arg(card->width())
+                                       .arg(contentWidth)));
+
+        // And it reports what it drew, like every other card.
+        QVERIFY2(deepestBottom(card, card) <= card->height() + 0.5,
+                 qPrintable(what + QStringLiteral(": the card draws %1 past its own bottom")
+                                       .arg(deepestBottom(card, card) - card->height())));
+
+        // The host chip is fully rounded, so its sides are padded to its own
+        // height rather than to a flat unit: half-height ends crowding text
+        // that was inset by a fixed few pixels is what a pill looks like when
+        // it is padded wrong.
+        QQuickItem *chip = nullptr;
+        for (QQuickItem *child : descendants) {
+            if (child->property("radius").toReal() > 0
+                && qAbs(child->property("radius").toReal() - child->height() / 2) < 0.5
+                && child->height() > 0 && child->height() < 100
+                && child->parentItem() != nullptr) {
+                const auto labels = child->childItems();
+                for (QQuickItem *label : labels) {
+                    if (label->property("text").toString() == QStringLiteral("example.com")) {
+                        chip = child;
+                    }
+                }
+            }
+            if (chip) {
+                break;
+            }
+        }
+        QVERIFY2(chip, qPrintable(what + QStringLiteral(": the host is not named")));
+        const qreal sidePadding = (chip->width() - chip->childItems().first()->width()) / 2;
+        QVERIFY2(sidePadding >= chip->height() * 0.3,
+                 qPrintable(what + QStringLiteral(": a %1-tall pill pads its sides by %2")
+                                       .arg(chip->height())
+                                       .arg(sidePadding)));
+
+        if (sample.large) {
+            // A hero keeps the picture's own shape rather than being squeezed
+            // into a band: a 16:9 still arrived, so a 16:9 slot is drawn.
+            const qreal hero = card->property("heroHeight").toReal();
+            QVERIFY(hero > 0);
+            QVERIFY2(qAbs(hero - card->width() * 180.0 / 320.0) < 1.0,
+                     qPrintable(what + QStringLiteral(": hero is %1 tall for a %2-wide card")
+                                           .arg(hero)
+                                           .arg(card->width())));
+            QCOMPARE(card->property("showsPlayBadge").toBool(),
+                     sample.type == QStringLiteral("video"));
+        } else {
+            // The compact card asks for its content rather than the ceiling: a
+            // short title stretched across the whole bubble is mostly nothing.
+            QVERIFY2(card->property("preferredWidth").toReal() > 0,
+                     qPrintable(what + QStringLiteral(": the compact card asked to fill")));
+        }
+
+        const QString shot = qEnvironmentVariable("WHATKEVR_LINKPREVIEW_SCREENSHOT");
+        if (!shot.isEmpty()) {
+            QTest::qWait(300);
+            QVERIFY(m_window->grabWindow().save(
+                QStringLiteral("%1-%2.png").arg(shot, QString::fromLatin1(sample.name).replace(
+                                                          QLatin1Char(' '), QLatin1Char('-')))));
+        }
+
+        m_window->hide();
+        bubbleItem->setParentItem(nullptr);
+    }
 }
 
 // The timeline is bottom-anchored and only as tall as its content, so the pane

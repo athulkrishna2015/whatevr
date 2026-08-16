@@ -65,6 +65,10 @@ Item {
     required property var invite
     required property var eventInfo
     required property var album
+    // The card for a link in the text. The only payload that arrives on a row
+    // of another kind: this row is a text row, and the card sits above the
+    // words rather than replacing them.
+    required property var linkPreview
     required property bool isRevoked
     required property bool isEdited
     required property bool isStarred
@@ -286,7 +290,17 @@ Item {
     // width and reads back a height. It is not an image block, because the row
     // has no picture of its own to be sized by; its pictures are its children.
     readonly property bool isAlbum: mediaKind === "album"
-    readonly property bool isCardBlock: isLocation || isLiveLocation || isContactCard || isPoll || isGroupInvite || isEvent || isAlbum
+    // A link preview is a card by the same contract as the rest, and the only
+    // one that shares its bubble with body text. It is keyed on the payload
+    // rather than on the kind because the kind is `text`: the words are still
+    // the message, so nothing about the row changes except that a card now
+    // sits above them.
+    readonly property bool isLinkPreview: mediaKind.length === 0
+                                          && !isRevoked
+                                          && linkPreview !== undefined
+                                          && linkPreview !== null
+                                          && String(linkPreview.url ?? "").length > 0
+    readonly property bool isCardBlock: isLocation || isLiveLocation || isContactCard || isPoll || isGroupInvite || isEvent || isAlbum || isLinkPreview
     readonly property bool isAttachmentBlock: isVoice || isAudioFile || isDocument || isCardBlock
     // Real message whose payload the app can't render yet (document, voice
     // note, poll, ...). The daemon puts a short label in the body text; the
@@ -1119,7 +1133,14 @@ Item {
                 visible: (root.hasInlineMedia || root.isAttachmentBlock) && !root.isSticker
                 x: root.isAttachmentBlock ? root.innerPadding : 0
                 y: root.contentOffsetBeforeMedia() + (root.isAttachmentBlock ? root.innerPadding : 0)
-                width: root.isAttachmentBlock ? root.attachmentBlockWidth : root.imageDisplayWidth
+                // A link preview is the one card that shares its bubble with
+                // body text, and a card narrower than the paragraph under it
+                // reads as a mistake. It takes the bubble's content width,
+                // which is what the text got. Every other card has its bubble
+                // to itself, where the two are the same number anyway.
+                width: root.isLinkPreview
+                    ? root.contentBlockWidth
+                    : (root.isAttachmentBlock ? root.attachmentBlockWidth : root.imageDisplayWidth)
                 height: visible ? (root.isAttachmentBlock ? root.attachmentBlockHeight : root.imageDisplayHeight) : 0
                 clip: !root.isAttachmentBlock
 

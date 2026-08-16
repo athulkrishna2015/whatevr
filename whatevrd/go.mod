@@ -6,7 +6,9 @@ require (
 	github.com/godbus/dbus/v5 v5.2.2
 	github.com/mattn/go-sqlite3 v1.14.49
 	github.com/nyaruka/phonenumbers v1.8.1
-	go.mau.fi/whatsmeow v0.0.0-20260814123134-0dcf1f50f4b1
+	go.mau.fi/util v0.10.0
+	go.mau.fi/whatsmeow v0.0.0-20260816113502-fb386f152837
+	golang.org/x/crypto v0.55.0
 	google.golang.org/protobuf v1.36.12
 )
 
@@ -18,14 +20,12 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
-	github.com/petermattis/goid v0.0.0-20260725062400-500c67a39b75 // indirect
+	github.com/petermattis/goid v0.0.0-20260816044145-ed329add6b1b // indirect
 	github.com/rs/zerolog v1.35.1 // indirect
 	github.com/vektah/gqlparser/v2 v2.5.36 // indirect
 	go.mau.fi/libsignal v0.2.2 // indirect
-	go.mau.fi/util v0.9.12-0.20260717235539-f9ffa7eca58d // indirect
-	golang.org/x/crypto v0.55.0 // indirect
-	golang.org/x/exp v0.0.0-20260811152304-ee035b5b010f // indirect
-	golang.org/x/net v0.57.0 // indirect
+	golang.org/x/exp v0.0.0-20260813180055-c1d0aacb2297 // indirect
+	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.41.0 // indirect

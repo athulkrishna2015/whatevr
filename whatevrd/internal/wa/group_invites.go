@@ -69,10 +69,11 @@ func (c *Client) groupInviteMessageInput(ctx context.Context, evt *events.Messag
 		return appstore.MediaMessageInput{}, false
 	}
 
+	base.PayloadJSON = encoded
+
 	return appstore.MediaMessageInput{
 		TextMessageInput: base,
 		MediaKind:        appstore.MediaKindGroupInvite,
-		PayloadJSON:      encoded,
 		PayloadSummary:   payload.DisplayName(),
 	}, true
 }

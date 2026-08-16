@@ -19,9 +19,9 @@ func seedAlbumHeader(t *testing.T, db *DB, messageID, chatID string, expectedIma
 			SenderID:    "ana@s.whatsapp.net",
 			Timestamp:   time.Unix(1_700_000_000, 0),
 			CountUnread: true,
+			PayloadJSON: payload,
 		},
 		MediaKind:      MediaKindAlbum,
-		PayloadJSON:    payload,
 		PayloadSummary: "3 photos",
 	}); err != nil {
 		t.Fatalf("seed album: %v", err)

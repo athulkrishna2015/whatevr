@@ -420,6 +420,8 @@ QVariant ProtocolMessageModel::data(const QModelIndex &index, int role) const
         return item.value(QStringLiteral("event")).toMap();
     case AlbumRole:
         return item.value(QStringLiteral("album")).toMap();
+    case LinkPreviewRole:
+        return item.value(QStringLiteral("link_preview")).toMap();
     case ShowSenderHeaderRole:
         return groupChat && !outgoing && startsSenderGroup(index.row());
     case ShowSenderAvatarRole:
@@ -562,6 +564,7 @@ QHash<int, QByteArray> ProtocolMessageModel::roleNames() const
         {GroupInviteRole, "invite"},
         {EventRole, "eventInfo"},
         {AlbumRole, "album"},
+        {LinkPreviewRole, "linkPreview"},
     };
 }
 

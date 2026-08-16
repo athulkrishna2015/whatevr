@@ -1292,7 +1292,7 @@ func (c *Client) textMessageInput(ctx context.Context, evt *events.Message, opts
 
 	direction, status := messageDirectionAndStatus(info, opts)
 
-	return appstore.TextMessageInput{
+	input := appstore.TextMessageInput{
 		ID:             internalMessageIDForChat(chatID, info.ID),
 		ChatID:         chatID,
 		ChatName:       c.chatName(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
@@ -1307,7 +1307,20 @@ func (c *Client) textMessageInput(ctx context.Context, evt *events.Message, opts
 		CountUnread:    shouldCountUnread(evt, opts),
 		ReplyTo:        c.replyFromContextInfo(ctx, chatID, contextInfoFromMessage(evt.Message)),
 		Mentions:       c.mentionsFromMessage(ctx, evt.Message),
-	}, true
+	}
+
+	// A link preview attaches to the row rather than replacing it: the message
+	// is still its text, and only the card beside it is new.
+	if preview := c.linkPreviewFromMessage(chatID, input.ID, evt.Message); preview != nil {
+		encoded, err := appstore.EncodePayload(appstore.MessagePayload{LinkPreview: preview})
+		if err != nil {
+			c.log.Warnf("Failed to encode link preview for %s: %v", input.ID, err)
+		} else {
+			input.PayloadJSON = encoded
+		}
+	}
+
+	return input, true
 }
 
 // mentionedJIDsFromMessage pulls the @-mention JID list out of a message's

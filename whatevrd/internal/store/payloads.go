@@ -25,6 +25,56 @@ type MessagePayload struct {
 	GroupInvite *GroupInvitePayload `json:"invite,omitempty"`
 	Event       *EventPayload       `json:"event,omitempty"`
 	Album       *AlbumPayload       `json:"album,omitempty"`
+	LinkPreview *LinkPreviewPayload `json:"link_preview,omitempty"`
+}
+
+// LinkPreviewPayload is the card a sender's client built for a link in their
+// message. It is the one payload that does not stand for the message: the text
+// is still the message, and this describes something the text points at, so it
+// rides a row whose kind stays `text`.
+//
+// Every field arrived inside the message. Nothing here is fetched, and the
+// hi-res thumbnail WhatsApp offers alongside it is deliberately left alone:
+// resolving a link to draw a preview of it would tell a stranger's server that
+// this account read this message, which is precisely the leak that having the
+// sender build the preview avoids.
+type LinkPreviewPayload struct {
+	// URL is what the preview points at, normalized to carry a scheme so it can
+	// be handed to the desktop as-is. The message text keeps the sender's own
+	// spelling of it.
+	URL string `json:"url"`
+	// Host is the site, lowercased and stripped of a leading "www.". It is the
+	// one part of a URL worth showing at a glance, and the part that says
+	// whether a link goes where its title implies.
+	Host  string `json:"host,omitempty"`
+	Title string `json:"title,omitempty"`
+	// Description is the page's own summary. Senders' clients truncate it
+	// already; a card elides whatever is left.
+	Description string `json:"description,omitempty"`
+	// Type is what the sender's client thought it was previewing: "video",
+	// "image", "profile", "payment_links", "placeholder" or empty for a plain
+	// page. It decides the layout, which is why it crosses as the sender's
+	// word rather than being guessed from the URL.
+	Type string `json:"type,omitempty"`
+	// ThumbnailPath is the inline JPEG, written into the media cache. It is not
+	// the row's `media` object: there is nothing to fetch here, and a kind
+	// carrying a media object looks downloadable to everything that asks.
+	ThumbnailPath string `json:"thumbnail_path,omitempty"`
+	// ThumbnailWidth and ThumbnailHeight are the picture's real pixel size,
+	// read back from the JPEG rather than believed from the message, so a card
+	// can reserve the right shape before the image decodes and never jumps.
+	ThumbnailWidth  int `json:"thumb_width,omitempty"`
+	ThumbnailHeight int `json:"thumb_height,omitempty"`
+}
+
+// HasCard reports a preview worth drawing. A link with nothing but its own URL
+// is not one: the text already contains it and already renders as a link, so a
+// card would be an empty box repeating what is above it.
+func (p *LinkPreviewPayload) HasCard() bool {
+	if p == nil || p.URL == "" {
+		return false
+	}
+	return p.Title != "" || p.Description != "" || p.ThumbnailPath != ""
 }
 
 // AlbumPayload is everything an AlbumMessage carries on the wire, which is only
@@ -261,5 +311,6 @@ func DecodePayload(raw string) MessagePayload {
 // counts as empty.
 func (p MessagePayload) isZero() bool {
 	return p.Location == nil && p.LiveShare == nil && p.Contacts == nil &&
-		p.Poll == nil && p.GroupInvite == nil && p.Event == nil && p.Album == nil
+		p.Poll == nil && p.GroupInvite == nil && p.Event == nil && p.Album == nil &&
+		p.LinkPreview == nil
 }

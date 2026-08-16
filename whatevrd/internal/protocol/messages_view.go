@@ -594,6 +594,11 @@ type messageItem struct {
 	// has for a photo. The grouping is the daemon's: a frontend never sees the
 	// children as separate rows and never has to merge them (rule 3).
 	Album *messageAlbum `json:"album,omitempty"`
+	// LinkPreview is the card the sender's client built for a link in the text.
+	// It is the one payload that arrives on a row of another kind: `kind` stays
+	// `text`, because the text is still the message and the preview only
+	// describes what it points at.
+	LinkPreview *store.LinkPreviewPayload `json:"link_preview,omitempty"`
 }
 
 // messageAlbum is a group of pictures sent together.
@@ -800,6 +805,10 @@ func attachMessagePayload(item *messageItem, m store.Message) {
 	}
 	payload := store.DecodePayload(m.PayloadJSON)
 	switch m.MediaKind {
+	case "":
+		// A row with no media kind is a text message, and the only payload one
+		// carries is the card for a link inside it.
+		item.LinkPreview = payload.LinkPreview
 	case store.MediaKindLocation:
 		item.Location = payload.Location
 	case store.MediaKindLiveLocation:

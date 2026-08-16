@@ -76,10 +76,11 @@ func (c *Client) pollMessageInput(ctx context.Context, evt *events.Message, opts
 		return appstore.MediaMessageInput{}, false
 	}
 
+	base.PayloadJSON = encoded
+
 	return appstore.MediaMessageInput{
 		TextMessageInput: base,
 		MediaKind:        appstore.MediaKindPoll,
-		PayloadJSON:      encoded,
 		PayloadSummary:   payload.Question,
 	}, true
 }

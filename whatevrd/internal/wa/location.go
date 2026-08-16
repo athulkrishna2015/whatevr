@@ -42,6 +42,8 @@ func (c *Client) locationMessageInput(ctx context.Context, evt *events.Message, 
 		c.log.Warnf("Failed to encode location payload for %s: %v", base.ID, err)
 	}
 
+	base.PayloadJSON = encoded
+
 	kind := appstore.MediaKindLocation
 	if payload.Live {
 		kind = appstore.MediaKindLiveLocation
@@ -56,7 +58,6 @@ func (c *Client) locationMessageInput(ctx context.Context, evt *events.Message, 
 		MediaThumbnailLocalPath: c.saveMessageThumbnail(chatID, base.ID, location.GetJPEGThumbnail()),
 		MediaWidth:              mapOutputWidth,
 		MediaHeight:             mapOutputHeight,
-		PayloadJSON:             encoded,
 		PayloadSummary:          locationSummary(payload),
 	}, true
 }

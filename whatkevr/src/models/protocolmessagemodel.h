@@ -107,6 +107,11 @@ public:
         // An album's pictures, as whole message items. The daemon grouped
         // them; this model does not merge, sort or dedupe anything (rule 3).
         AlbumRole,
+        // The card the sender's client built for a link in the text. Unlike
+        // every other payload here it arrives on a row whose kind is `text`,
+        // because the text is still the message: the card renders above it,
+        // not instead of it.
+        LinkPreviewRole,
     };
     Q_ENUM(Role)
 

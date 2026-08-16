@@ -12,13 +12,13 @@ func seedPoll(t *testing.T, db *DB, messageID, chatID string, optionNames ...str
 	ctx := context.Background()
 	if _, err := db.SaveMediaMessage(ctx, MediaMessageInput{
 		TextMessageInput: TextMessageInput{
-			ID:        messageID,
-			ChatID:    chatID,
-			SenderID:  "ana@s.whatsapp.net",
-			Timestamp: time.Unix(1_700_000_000, 0),
+			ID:          messageID,
+			ChatID:      chatID,
+			SenderID:    "ana@s.whatsapp.net",
+			Timestamp:   time.Unix(1_700_000_000, 0),
+			PayloadJSON: `{"poll":{"question":"dinner?"}}`,
 		},
 		MediaKind:      MediaKindPoll,
-		PayloadJSON:    `{"poll":{"question":"dinner?"}}`,
 		PayloadSummary: "dinner?",
 	}); err != nil {
 		t.Fatalf("seed poll: %v", err)

@@ -62,6 +62,12 @@ Item {
 
         width: root.width
         sourceComponent: {
+            // Keyed on the payload rather than the kind, because a link
+            // preview's kind is `text`: the words are still the message and
+            // only the card beside them is new.
+            if (root.row.isLinkPreview) {
+                return linkPreviewCard
+            }
             switch (root.row.mediaKind) {
             case "location":
             case "live_location":
@@ -127,6 +133,14 @@ Item {
         id: albumCard
 
         AlbumBubble {
+            row: root.row
+        }
+    }
+
+    Component {
+        id: linkPreviewCard
+
+        LinkPreviewCard {
             row: root.row
         }
     }

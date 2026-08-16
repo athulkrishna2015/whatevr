@@ -62,10 +62,11 @@ func (c *Client) contactMessageInput(ctx context.Context, evt *events.Message, o
 		return appstore.MediaMessageInput{}, false
 	}
 
+	base.PayloadJSON = encoded
+
 	return appstore.MediaMessageInput{
 		TextMessageInput: base,
 		MediaKind:        kind,
-		PayloadJSON:      encoded,
 		PayloadSummary:   contactsSummary(payload),
 	}, true
 }

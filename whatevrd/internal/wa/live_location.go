@@ -110,6 +110,8 @@ func (c *Client) openShareFromUpdate(ctx context.Context, evt *events.Message, c
 		return true
 	}
 
+	base.PayloadJSON = encoded
+
 	saved, err := c.store.SaveMediaMessage(ctx, appstore.MediaMessageInput{
 		TextMessageInput:        base,
 		MediaKind:               appstore.MediaKindLiveLocation,
@@ -117,7 +119,6 @@ func (c *Client) openShareFromUpdate(ctx context.Context, evt *events.Message, c
 		MediaThumbnailLocalPath: c.saveMessageThumbnail(chatID, base.ID, update.GetJPEGThumbnail()),
 		MediaWidth:              mapOutputWidth,
 		MediaHeight:             mapOutputHeight,
-		PayloadJSON:             encoded,
 		PayloadSummary:          locationSummary(payload),
 	})
 	if err != nil {

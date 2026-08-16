@@ -240,7 +240,6 @@ type MediaMessageInput struct {
 	MediaFileName           string
 	MediaPageCount          int32
 	MediaWaveform           []byte
-	PayloadJSON             string
 	PayloadSummary          string
 	AlbumParentID           string
 	AlbumIndex              int32
@@ -271,6 +270,11 @@ type TextMessageInput struct {
 	IsForwarded    bool
 	ReplyTo        MessageReply
 	Mentions       []MessageMention
+	// PayloadJSON is the row's structured payload. It sits here rather than on
+	// MediaMessageInput because a payload belongs to the message, not to its
+	// media: a link preview rides an ordinary text row, whose kind stays
+	// `text` because the text is still the message.
+	PayloadJSON string
 }
 
 type SavedTextMessage struct {
@@ -343,10 +347,10 @@ func saveTextMessageTx(ctx context.Context, tx *sql.Tx, input TextMessageInput) 
 	}
 
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO messages (id, chat_id, sender_id, text, timestamp, direction, is_read, status, is_forwarded, mentioned_jids, reply_to_message_id, reply_to_sender_id, reply_to_sender_name, reply_to_text, reply_to_media_kind, reply_to_media_mime_type, reply_to_direction)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO messages (id, chat_id, sender_id, text, timestamp, direction, is_read, status, is_forwarded, mentioned_jids, payload_json, reply_to_message_id, reply_to_sender_id, reply_to_sender_name, reply_to_text, reply_to_media_kind, reply_to_media_mime_type, reply_to_direction)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO NOTHING
-	`, input.ID, input.ChatID, input.SenderID, input.Text, input.Timestamp.Unix(), input.Direction, boolToInt(!input.CountUnread), input.Status, boolToInt(input.IsForwarded), encodeMentions(input.Mentions),
+	`, input.ID, input.ChatID, input.SenderID, input.Text, input.Timestamp.Unix(), input.Direction, boolToInt(!input.CountUnread), input.Status, boolToInt(input.IsForwarded), encodeMentions(input.Mentions), input.PayloadJSON,
 		input.ReplyTo.MessageID, input.ReplyTo.SenderID, input.ReplyTo.SenderName, input.ReplyTo.Text, input.ReplyTo.MediaKind, input.ReplyTo.MediaMimeType, input.ReplyTo.Direction)
 	if err != nil {
 		return SavedTextMessage{}, err
@@ -1280,6 +1284,8 @@ func (db *DB) MarkMessageRevoked(ctx context.Context, id string) (Message, Chat,
 			media_page_count = 0,
 			media_waveform = x'',
 			media_played = 0,
+			payload_json = '',
+			payload_summary = '',
 			reply_to_message_id = '',
 			reply_to_sender_id = '',
 			reply_to_sender_name = '',

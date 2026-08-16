@@ -72,6 +72,7 @@ var rawMessageBuilders = map[string]rawMessageBuilder{
 	"group_invite":  buildRawGroupInvite,
 	"event":         buildRawEvent,
 	"event_rsvp":    buildRawEventRSVP,
+	"link_preview":  buildRawLinkPreview,
 }
 
 // rawSequenceBuilder produces a kind that is not one message. An album is a
@@ -239,6 +240,74 @@ func buildRawText(ctx context.Context, c *Client, params json.RawMessage) (*waE2
 		p.Text = "raw send"
 	}
 	return &waE2E.Message{Conversation: &p.Text}, nil
+}
+
+// buildRawLinkPreview produces the ExtendedTextMessage a client sends when it
+// found a link in what somebody typed and fetched a card for it. The card is
+// entirely the sender's: everything the receiving side will render arrives
+// inline, which is what makes the preview cost the reader no request.
+func buildRawLinkPreview(ctx context.Context, c *Client, params json.RawMessage) (*waE2E.Message, error) {
+	var p struct {
+		Text        string `json:"text"`
+		URL         string `json:"url"`
+		Title       string `json:"title"`
+		Description string `json:"description"`
+		// Type is "video", "image" or empty, matching the wire vocabulary. The
+		// first two are what a large card is for.
+		Type string `json:"type"`
+		// NoThumb produces the case that has no picture at all, which is the
+		// layout a plain article link actually gets.
+		NoThumb bool `json:"no_thumb"`
+	}
+	if err := decodeRawParams(params, &p); err != nil {
+		return nil, err
+	}
+
+	if p.URL == "" {
+		p.URL = "https://en.wikipedia.org/wiki/Bengaluru"
+		if p.Title == "" {
+			p.Title = "Bengaluru"
+		}
+		if p.Description == "" {
+			p.Description = "Capital of the Indian state of Karnataka, and the centre of its technology industry."
+		}
+	}
+	if p.Text == "" {
+		p.Text = p.URL
+	}
+
+	preview := waE2E.ExtendedTextMessage_NONE
+	switch p.Type {
+	case "video":
+		preview = waE2E.ExtendedTextMessage_VIDEO
+	case "image":
+		preview = waE2E.ExtendedTextMessage_IMAGE
+	}
+
+	extended := &waE2E.ExtendedTextMessage{
+		Text:        &p.Text,
+		MatchedText: &p.URL,
+		Title:       &p.Title,
+		Description: &p.Description,
+		PreviewType: &preview,
+	}
+
+	if !p.NoThumb {
+		// A landscape still for the layouts that show one big, a square for the
+		// compact row, so each params combination produces the shape its layout
+		// is actually for.
+		shape := 2
+		if preview != waE2E.ExtendedTextMessage_NONE {
+			shape = 0
+		}
+		picture, err := generateTestPicture(shape, 4)
+		if err != nil {
+			return nil, err
+		}
+		extended.JPEGThumbnail = outgoingImageThumbnail(picture)
+	}
+
+	return &waE2E.Message{ExtendedTextMessage: extended}, nil
 }
 
 // rawLocationParams covers all three location shapes; a builder ignores the

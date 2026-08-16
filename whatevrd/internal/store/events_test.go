@@ -18,13 +18,13 @@ func seedEvent(t *testing.T, db *DB, messageID, chatID string) {
 	}
 	if _, err := db.SaveMediaMessage(context.Background(), MediaMessageInput{
 		TextMessageInput: TextMessageInput{
-			ID:        messageID,
-			ChatID:    chatID,
-			SenderID:  "ana@s.whatsapp.net",
-			Timestamp: time.Unix(1_700_000_000, 0),
+			ID:          messageID,
+			ChatID:      chatID,
+			SenderID:    "ana@s.whatsapp.net",
+			Timestamp:   time.Unix(1_700_000_000, 0),
+			PayloadJSON: payload,
 		},
 		MediaKind:      MediaKindEvent,
-		PayloadJSON:    payload,
 		PayloadSummary: "Team dinner",
 	}); err != nil {
 		t.Fatalf("seed event: %v", err)

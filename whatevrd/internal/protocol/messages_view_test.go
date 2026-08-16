@@ -258,13 +258,13 @@ func TestMessagesViewGroupInviteItemShape(t *testing.T) {
 	}
 	if _, err := db.SaveMediaMessage(context.Background(), store.MediaMessageInput{
 		TextMessageInput: store.TextMessageInput{
-			ID:        id,
-			ChatID:    chat,
-			Timestamp: time.Unix(1_700_000_000, 0),
-			Direction: store.DirectionIncoming,
+			ID:          id,
+			ChatID:      chat,
+			Timestamp:   time.Unix(1_700_000_000, 0),
+			Direction:   store.DirectionIncoming,
+			PayloadJSON: payload,
 		},
 		MediaKind:      store.MediaKindGroupInvite,
-		PayloadJSON:    payload,
 		PayloadSummary: "Wow3",
 	}); err != nil {
 		t.Fatalf("seed invite: %v", err)
@@ -308,6 +308,76 @@ func TestMessagesViewGroupInviteItemShape(t *testing.T) {
 	c.expectReady(sub, true)
 }
 
+// A link preview is the one payload that does not stand for its message. The
+// row's kind stays `text` and its fallback stays the words somebody typed, so
+// everything that reads a message by its kind carries on working and a
+// frontend that has never heard of a preview renders the message unchanged.
+func TestMessagesViewLinkPreviewRidesATextRow(t *testing.T) {
+	socketPath, _, db := startChatsTestServer(t)
+	chat := "c@s.whatsapp.net"
+	id := "lp-1"
+	payload, err := store.EncodePayload(store.MessagePayload{LinkPreview: &store.LinkPreviewPayload{
+		URL:             "https://example.com/road",
+		Host:            "example.com",
+		Title:           "The road",
+		Description:     "A page about a road.",
+		Type:            "image",
+		ThumbnailPath:   "/cache/lp-1.link.jpg",
+		ThumbnailWidth:  200,
+		ThumbnailHeight: 112,
+	}})
+	if err != nil {
+		t.Fatalf("encode preview: %v", err)
+	}
+	if _, err := db.SaveTextMessage(context.Background(), store.TextMessageInput{
+		ID:          id,
+		ChatID:      chat,
+		Text:        "look at this https://example.com/road",
+		Timestamp:   time.Unix(1_700_000_000, 0),
+		Direction:   store.DirectionIncoming,
+		PayloadJSON: payload,
+	}); err != nil {
+		t.Fatalf("seed preview: %v", err)
+	}
+
+	c := dialTest(t, socketPath)
+	c.hello()
+	sub := c.subscribe(2, fmt.Sprintf(`{"view":"messages","chat_id":%q}`, chat))
+	item := c.expectUpsert(sub, id)["item"].(map[string]any)
+	if item["kind"] != "text" {
+		t.Fatalf("kind = %v, a message with a preview is still a text message", item["kind"])
+	}
+	if item["text"] != "look at this https://example.com/road" {
+		t.Fatalf("text = %v", item["text"])
+	}
+	if item["fallback"] != "look at this https://example.com/road" {
+		t.Fatalf("fallback = %v, the preview must not have taken over the one-line rendering", item["fallback"])
+	}
+	// The thumbnail is a file the daemon already wrote. A `media` object would
+	// make every part of a frontend that asks "is there anything to fetch"
+	// say yes about a card that is already complete.
+	if _, ok := item["media"]; ok {
+		t.Fatalf("link preview carried a media object: %v", item)
+	}
+	preview, ok := item["link_preview"].(map[string]any)
+	if !ok {
+		t.Fatalf("text row missing its link preview: %v", item)
+	}
+	if preview["url"] != "https://example.com/road" || preview["host"] != "example.com" {
+		t.Fatalf("link identity wrong: %v", preview)
+	}
+	if preview["title"] != "The road" || preview["type"] != "image" {
+		t.Fatalf("card contents wrong: %v", preview)
+	}
+	if preview["thumbnail_path"] != "/cache/lp-1.link.jpg" {
+		t.Fatalf("thumbnail path wrong: %v", preview)
+	}
+	if preview["thumb_width"] != float64(200) || preview["thumb_height"] != float64(112) {
+		t.Fatalf("thumbnail shape wrong: %v", preview)
+	}
+	c.expectReady(sub, true)
+}
+
 // An album is one row on the wire carrying whole message items for its
 // pictures. A frontend never sees the children as rows of their own and never
 // merges anything (rule 3), and a tile is a message item in every respect, so
@@ -322,13 +392,13 @@ func TestMessagesViewAlbumCarriesItsPicturesAsItems(t *testing.T) {
 	}
 	if _, err := db.SaveMediaMessage(ctx, store.MediaMessageInput{
 		TextMessageInput: store.TextMessageInput{
-			ID:        "al-1",
-			ChatID:    chat,
-			Timestamp: time.Unix(1_700_000_000, 0),
-			Direction: store.DirectionIncoming,
+			ID:          "al-1",
+			ChatID:      chat,
+			Timestamp:   time.Unix(1_700_000_000, 0),
+			Direction:   store.DirectionIncoming,
+			PayloadJSON: payload,
 		},
 		MediaKind:      store.MediaKindAlbum,
-		PayloadJSON:    payload,
 		PayloadSummary: "3 photos",
 	}); err != nil {
 		t.Fatalf("seed album: %v", err)
