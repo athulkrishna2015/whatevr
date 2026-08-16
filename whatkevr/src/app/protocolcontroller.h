@@ -531,6 +531,10 @@ public:
     /// is the thing a phone cannot do: the event lands in whatever calendar the
     /// user actually keeps rather than staying trapped in a chat.
     Q_INVOKABLE bool saveEventToCalendar(const QString &messageId, const QVariantMap &event);
+    /// The .ics text for one event, split out from writing it so the escaping
+    /// and line folding are testable without spawning a calendar application.
+    /// Empty for an event with no start time, which is not an event.
+    [[nodiscard]] static QString eventCalendarEntry(const QString &messageId, const QVariantMap &event);
     /// One entry of pendingPollVotes: the selection a tap asked for while its
     /// command is still in flight, or an invalid variant when nothing is
     /// pending. A poll row prefers this over the daemon's tally so it answers

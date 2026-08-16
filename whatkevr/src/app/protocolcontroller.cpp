@@ -1987,8 +1987,13 @@ QString icsFold(const QString &line)
     int consumed = 0;
     while (consumed < utf8.size()) {
         int take = qMin(consumed == 0 ? 75 : 74, utf8.size() - consumed);
-        // Never split a UTF-8 sequence: back off to the last lead byte.
-        while (take > 1 && (utf8.at(consumed + take) & 0xC0) == 0x80) {
+        // Never split a UTF-8 sequence: if the next byte is a continuation, the
+        // cut lands mid-character, so back off to the lead byte before it. The
+        // bounds check is the whole point of the first condition: on the last
+        // chunk there is no next byte to look at, and reading it anyway is an
+        // out-of-bounds access that aborts the app rather than folding badly.
+        while (consumed + take < utf8.size() && take > 1
+               && (utf8.at(consumed + take) & 0xC0) == 0x80) {
             --take;
         }
         if (!folded.isEmpty()) {
@@ -2007,12 +2012,11 @@ QString icsStamp(qint64 unixSeconds)
 }
 } // namespace
 
-bool ProtocolController::saveEventToCalendar(const QString &messageId, const QVariantMap &event)
+QString ProtocolController::eventCalendarEntry(const QString &messageId, const QVariantMap &event)
 {
     const qint64 startsAt = event.value(QStringLiteral("starts_at")).toLongLong();
     if (startsAt <= 0) {
-        Q_EMIT messageActionFailed(i18nc("@info", "This event has no start time"));
-        return false;
+        return {};
     }
 
     QString name = event.value(QStringLiteral("name")).toString().simplified();
@@ -2072,6 +2076,16 @@ bool ProtocolController::saveEventToCalendar(const QString &messageId, const QVa
     QString body;
     for (const QString &line : std::as_const(lines)) {
         body += icsFold(line) + QStringLiteral("\r\n");
+    }
+    return body;
+}
+
+bool ProtocolController::saveEventToCalendar(const QString &messageId, const QVariantMap &event)
+{
+    const QString body = eventCalendarEntry(messageId, event);
+    if (body.isEmpty()) {
+        Q_EMIT messageActionFailed(i18nc("@info", "This event has no start time"));
+        return false;
     }
 
     const QString directory =

@@ -2717,6 +2717,80 @@ private Q_SLOTS:
         QStandardPaths::setTestModeEnabled(false);
     }
 
+    // Handing an event to the desktop's own calendar is the thing a phone
+    // cannot do, and it only works if the file is actually valid. iCalendar
+    // gives comma, semicolon and backslash meaning inside a text value and ends
+    // a property at a newline, so an unescaped event name or description is a
+    // file a calendar rejects outright.
+    void eventCalendarEntryEscapesWhatICalendarReserves()
+    {
+        const QVariantMap event{
+            {QStringLiteral("name"), QStringLiteral("Dinner; drinks, later")},
+            {QStringLiteral("description"), QStringLiteral("line one\nline two")},
+            {QStringLiteral("starts_at"), 1'700'000'000},
+            {QStringLiteral("ends_at"), 1'700'007'200},
+            {QStringLiteral("join_link"), QStringLiteral("https://call.whatsapp.com/abc")},
+            {QStringLiteral("location"),
+             QVariantMap{{QStringLiteral("name"), QStringLiteral("Cafe Noir")},
+                         {QStringLiteral("address"), QStringLiteral("12 MG Road, Bengaluru")}}},
+        };
+
+        const QString ics = ProtocolController::eventCalendarEntry(QStringLiteral("chat@s:m1"), event);
+        QVERIFY(ics.startsWith(QStringLiteral("BEGIN:VCALENDAR\r\n")));
+        QVERIFY(ics.endsWith(QStringLiteral("END:VCALENDAR\r\n")));
+        // CRLF throughout, not the platform's newline: §3.1 says so and some
+        // calendars enforce it.
+        QVERIFY(!ics.contains(QRegularExpression(QStringLiteral("[^\r]\n"))));
+
+        QVERIFY2(ics.contains(QStringLiteral("SUMMARY:Dinner\\; drinks\\, later")),
+                 qPrintable(ics));
+        QVERIFY2(ics.contains(QStringLiteral("DESCRIPTION:line one\\nline two")), qPrintable(ics));
+        // Times are UTC with a Z, so an event does not land an hour out for
+        // anyone whose calendar reads them as floating local times.
+        QVERIFY2(ics.contains(QStringLiteral("DTSTART:20231114T221320Z")), qPrintable(ics));
+        QVERIFY2(ics.contains(QStringLiteral("DTEND:20231115T001320Z")), qPrintable(ics));
+        // The UID is the message id, so importing the same event twice updates
+        // the entry instead of leaving two copies in the user's week.
+        QVERIFY2(ics.contains(QStringLiteral("UID:chat@s:m1@whatevr")), qPrintable(ics));
+        QVERIFY2(ics.contains(QStringLiteral("LOCATION:Cafe Noir\\, 12 MG Road\\, Bengaluru")),
+                 qPrintable(ics));
+
+        // No start time is not an event, and must not produce a file at all.
+        QVERIFY(ProtocolController::eventCalendarEntry(QStringLiteral("m2"), {}).isEmpty());
+    }
+
+    // A long description has to fold to 75 octets per line, and folding must
+    // never split a multi-byte character in half.
+    void eventCalendarEntryFoldsLongLinesWithoutBreakingUtf8()
+    {
+        const QString long8 = QString::fromUtf8("भोजन ").repeated(30);
+        const QVariantMap event{
+            {QStringLiteral("name"), long8},
+            {QStringLiteral("starts_at"), 1'700'000'000},
+        };
+        const QString ics = ProtocolController::eventCalendarEntry(QStringLiteral("m3"), event);
+
+        const QStringList lines = ics.split(QStringLiteral("\r\n"));
+        bool sawContinuation = false;
+        for (const QString &line : lines) {
+            QVERIFY2(line.toUtf8().size() <= 75, qPrintable(line));
+            if (line.startsWith(QLatin1Char(' '))) {
+                sawContinuation = true;
+            }
+        }
+        QVERIFY2(sawContinuation, "a long summary was never folded");
+        // Unfolding puts it back exactly, which is only true if no character
+        // was cut in half on the way out.
+        QString unfolded = ics;
+        unfolded.replace(QStringLiteral("\r\n "), QString());
+        // Against the simplified name, because that is what the entry carries:
+        // an event name is squeezed of stray whitespace before it is written.
+        const QString wanted = QStringLiteral("SUMMARY:") + long8.simplified();
+        QVERIFY2(unfolded.contains(wanted),
+                 qPrintable(QStringLiteral("folding corrupted the text\nunfolded=[%1]\nwanted=[%2]")
+                                .arg(unfolded, wanted)));
+    }
+
     // The Backspace helper deletes whole grapheme clusters, so an emoji with a
     // skin-tone modifier goes in one keystroke rather than leaving half of it.
     void graphemeBoundaryWalksClusters()
