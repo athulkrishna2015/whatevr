@@ -175,7 +175,7 @@ func (c *Client) DownloadMessageMedia(ctx context.Context, messageID string) (ap
 	// holding, so it takes a different route to the same place: the same
 	// started/progress/error bookkeeping above, the same media_local_path at
 	// the end, and therefore the same bubble with no special case in it.
-	if isLocationKind(message.MediaKind) {
+	if isLocationKind(message) {
 		started = true
 		totalBytes = mapTilesX * mapTilesY
 		c.daemon.PublishMediaDownloadChanged(message.ID, message.ChatID, true, "", 0, totalBytes)

@@ -23,6 +23,37 @@ type MessagePayload struct {
 	Contacts    *ContactsPayload    `json:"contacts,omitempty"`
 	Poll        *PollPayload        `json:"poll,omitempty"`
 	GroupInvite *GroupInvitePayload `json:"invite,omitempty"`
+	Event       *EventPayload       `json:"event,omitempty"`
+}
+
+// EventPayload is a scheduled event's fixed description. The RSVPs are not
+// here: they change after the message lands and are joined from event_responses
+// at read time, so a snapshot can never go stale.
+type EventPayload struct {
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	// StartsAt and EndsAt are unix seconds. An event with no stated end is a
+	// point in time rather than a range, which is how WhatsApp's own composer
+	// leaves it.
+	StartsAt int64 `json:"starts_at,omitempty"`
+	EndsAt   int64 `json:"ends_at,omitempty"`
+	// Canceled events keep their row: "this was called off" is information, and
+	// deleting the message would leave people wondering whether it is still on.
+	Canceled bool `json:"canceled,omitempty"`
+	// JoinLink is a call link for a remote event, empty for one with a place.
+	JoinLink string `json:"join_link,omitempty"`
+	// Location is where it is, when the author attached one. It is the same
+	// shape a shared place uses, so an event's venue gets the map treatment
+	// without a second code path.
+	Location *LocationPayload `json:"location,omitempty"`
+	// ExtraGuestsAllowed lets a responder say they are bringing people.
+	ExtraGuestsAllowed bool `json:"extra_guests_allowed,omitempty"`
+	// ScheduleCall marks an event that is really a planned call rather than a
+	// gathering, which is a different thing to say and a different glyph.
+	ScheduleCall bool `json:"schedule_call,omitempty"`
+	// ReminderOffsetSecs is how long before the start the author's clients will
+	// remind, 0 for no reminder.
+	ReminderOffsetSecs int64 `json:"reminder_offset_secs,omitempty"`
 }
 
 // GroupInvitePayload is an invitation to a group.
@@ -206,5 +237,5 @@ func DecodePayload(raw string) MessagePayload {
 // counts as empty.
 func (p MessagePayload) isZero() bool {
 	return p.Location == nil && p.LiveShare == nil && p.Contacts == nil &&
-		p.Poll == nil && p.GroupInvite == nil
+		p.Poll == nil && p.GroupInvite == nil && p.Event == nil
 }

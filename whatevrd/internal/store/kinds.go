@@ -62,6 +62,9 @@ var kindDescriptors = map[string]KindDescriptor{
 	MediaKindContacts:    {Kind: MediaKindContacts, Emoji: "👥", Label: "Contacts", CaptionWins: true},
 	MediaKindPoll:        {Kind: MediaKindPoll, Emoji: "📊", Label: "Poll", CaptionWins: true},
 	MediaKindGroupInvite: {Kind: MediaKindGroupInvite, Emoji: "👥", Label: "Group invite", CaptionWins: true},
+	// Not marked media-bearing: only an event with a venue has a map to draw,
+	// and the kind alone cannot tell those from an event that is a call link or
+	// a bare time. MessageCarriesMedia answers that per row.
 	MediaKindEvent:       {Kind: MediaKindEvent, Emoji: "📅", Label: "Event", CaptionWins: true},
 	MediaKindAlbum:       {Kind: MediaKindAlbum, Emoji: "🖼️", Label: "Album", CaptionWins: true},
 	MediaKindInteractive: {Kind: MediaKindInteractive, Emoji: "💬", Label: "Message", CaptionWins: true},
@@ -96,6 +99,26 @@ func DescribeKind(kind string) (KindDescriptor, bool) {
 func IsMediaBearingKind(kind string) bool {
 	d, ok := kindDescriptors[kind]
 	return ok && d.MediaBearing
+}
+
+// MessageCarriesMedia is the same question asked of one row rather than of a
+// kind, and it is the one every caller actually wants.
+//
+// The kind table answers for kinds whose every row has something to fetch. An
+// event is the exception: it has a map only when its author attached a venue,
+// and an event that is a call link or a bare time has nothing. Answering from
+// the kind alone would hang a download button on the ones that do not.
+func MessageCarriesMedia(m Message) bool {
+	if IsMediaBearingKind(m.MediaKind) {
+		return true
+	}
+	return m.MediaKind == MediaKindEvent && DecodePayload(m.PayloadJSON).Event.HasVenue()
+}
+
+// HasVenue reports whether an event names a place, which is what decides
+// whether it has a map at all.
+func (p *EventPayload) HasVenue() bool {
+	return p != nil && p.Location != nil && (p.Location.Latitude != 0 || p.Location.Longitude != 0)
 }
 
 // PreviewFacts is everything the one-line renderings need from a message. It

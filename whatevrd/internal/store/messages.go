@@ -205,6 +205,9 @@ type Message struct {
 	// joined rather than denormalized because a snapshot rewritten on every
 	// vote is a snapshot that can be stale.
 	Poll *PollState
+	// Event is the RSVPs, attached at read time for event rows only, and joined
+	// for the same reason a poll's tally is.
+	Event *EventState
 }
 
 type MessageReply struct {

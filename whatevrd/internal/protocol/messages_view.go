@@ -563,6 +563,47 @@ type messageItem struct {
 	// snapshot of it and whatever the daemon resolved from the invite code,
 	// including whether we are already a member.
 	Invite *store.GroupInvitePayload `json:"invite,omitempty"`
+	// Event is a scheduled event with where its RSVPs currently stand. The
+	// answers are joined from a real table at read time rather than
+	// snapshotted, so they are never stale.
+	Event *messageEvent `json:"event,omitempty"`
+}
+
+// messageEvent is a scheduled event and who has said they are coming.
+type messageEvent struct {
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	StartsAt    int64  `json:"starts_at,omitempty"`
+	EndsAt      int64  `json:"ends_at,omitempty"`
+	Canceled    bool   `json:"canceled,omitempty"`
+	JoinLink    string `json:"join_link,omitempty"`
+	// Location is the venue, in the same shape a shared place uses, so a
+	// frontend draws an event's map with the code it already has. The map
+	// itself arrives through the row's `media` object like any other.
+	Location           *store.LocationPayload `json:"location,omitempty"`
+	ExtraGuestsAllowed bool                   `json:"extra_guests_allowed,omitempty"`
+	ScheduleCall       bool                   `json:"schedule_call,omitempty"`
+	ReminderOffsetSecs int64                  `json:"reminder_offset_secs,omitempty"`
+
+	Responders []messageEventResponder `json:"responders"`
+	// GoingCount counts heads rather than answers: somebody bringing two guests
+	// is three people at the door, and that is the number worth showing.
+	GoingCount int `json:"going_count,omitempty"`
+	// SelfResponse is our own answer ("going", "not_going", "maybe"), empty
+	// when we have not answered, so a bubble knows which chip is lit without
+	// searching the list for itself.
+	SelfResponse string `json:"self_response,omitempty"`
+	SelfGuests   int    `json:"self_guests,omitempty"`
+}
+
+type messageEventResponder struct {
+	JID         string `json:"jid"`
+	Name        string `json:"name,omitempty"`
+	AvatarPath  string `json:"avatar_path,omitempty"`
+	Response    string `json:"response"`
+	ExtraGuests int    `json:"extra_guests,omitempty"`
+	Timestamp   int64  `json:"timestamp,omitempty"`
+	FromMe      bool   `json:"from_me,omitempty"`
 }
 
 // messagePoll is a poll and where its votes currently stand.
@@ -734,6 +775,8 @@ func attachMessagePayload(item *messageItem, m store.Message) {
 		item.Poll = messagePollFromStore(m, payload.Poll)
 	case store.MediaKindGroupInvite:
 		item.Invite = payload.GroupInvite
+	case store.MediaKindEvent:
+		item.Event = messageEventFromStore(m, payload.Event)
 	}
 }
 
@@ -775,11 +818,50 @@ func messagePollFromStore(m store.Message, payload *store.PollPayload) *messageP
 	return poll
 }
 
+// messageEventFromStore joins an event's fixed description with the answers
+// the store holds for it.
+func messageEventFromStore(m store.Message, payload *store.EventPayload) *messageEvent {
+	if payload == nil {
+		return nil
+	}
+	event := &messageEvent{
+		Name:               payload.Name,
+		Description:        payload.Description,
+		StartsAt:           payload.StartsAt,
+		EndsAt:             payload.EndsAt,
+		Canceled:           payload.Canceled,
+		JoinLink:           payload.JoinLink,
+		Location:           payload.Location,
+		ExtraGuestsAllowed: payload.ExtraGuestsAllowed,
+		ScheduleCall:       payload.ScheduleCall,
+		ReminderOffsetSecs: payload.ReminderOffsetSecs,
+		Responders:         []messageEventResponder{},
+	}
+	if m.Event == nil {
+		return event
+	}
+	event.GoingCount = m.Event.Going()
+	event.SelfResponse = m.Event.SelfResponse
+	event.SelfGuests = m.Event.SelfGuests
+	for _, responder := range m.Event.Responders {
+		event.Responders = append(event.Responders, messageEventResponder{
+			JID:         responder.JID,
+			Name:        responder.DisplayName,
+			AvatarPath:  responder.AvatarLocalPath,
+			Response:    responder.Response,
+			ExtraGuests: responder.ExtraGuests,
+			Timestamp:   responder.RespondedAtUnix,
+			FromMe:      responder.FromMe,
+		})
+	}
+	return event
+}
+
 func messageMediaFromStore(m store.Message) *messageMedia {
 	// Text rows, unsupported tombstones and every structured kind that has
 	// nothing to fetch (a poll, a contact card, a system event) carry no media
 	// object at all, so nothing downstream mistakes them for a pending download.
-	if !store.IsMediaBearingKind(m.MediaKind) {
+	if !store.MessageCarriesMedia(m) {
 		return nil
 	}
 	return &messageMedia{

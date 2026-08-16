@@ -65,6 +65,9 @@ type fakeCommandActions struct {
 	fetchJID          string
 
 	joinedInviteMessage string
+	rsvpMessage         string
+	rsvpResponse        string
+	rsvpGuests          int
 
 	privacyCategory    string
 	privacyAudience    string
@@ -254,6 +257,15 @@ func (f *fakeCommandActions) CancelMessageMediaDownload(_ context.Context, messa
 	return f.err
 }
 func (f *fakeCommandActions) VotePoll(context.Context, string, []int) error { return nil }
+
+func (f *fakeCommandActions) RespondToEvent(_ context.Context, messageID, response string, guests int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rsvpMessage = messageID
+	f.rsvpResponse = response
+	f.rsvpGuests = guests
+	return f.err
+}
 
 func (f *fakeCommandActions) JoinGroupInvite(_ context.Context, messageID string) (string, error) {
 	f.mu.Lock()

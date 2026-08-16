@@ -73,6 +73,8 @@ Item {
                 return pollCard
             case "group_invite":
                 return groupInviteCard
+            case "event":
+                return eventCard
             default:
                 return null
             }
@@ -107,6 +109,14 @@ Item {
         id: groupInviteCard
 
         GroupInviteBubble {
+            row: root.row
+        }
+    }
+
+    Component {
+        id: eventCard
+
+        EventBubble {
             row: root.row
         }
     }

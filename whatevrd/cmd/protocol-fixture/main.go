@@ -101,6 +101,7 @@ func (fixtureCommands) VotePoll(context.Context, string, []int) error   { return
 func (fixtureCommands) JoinGroupInvite(context.Context, string) (string, error) {
 	return "120363000000000000@g.us", nil
 }
+func (fixtureCommands) RespondToEvent(context.Context, string, string, int) error { return nil }
 func (fixtureCommands) FetchProfilePicture(_ context.Context, jid string) (string, error) {
 	return "/cache/avatars/" + jid + ".jpg", nil
 }

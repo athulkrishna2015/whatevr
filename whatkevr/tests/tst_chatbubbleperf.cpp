@@ -102,6 +102,7 @@ QVariantMap baseProps()
         {QStringLiteral("contacts"), QVariantMap()},
         {QStringLiteral("poll"), QVariantMap()},
         {QStringLiteral("invite"), QVariantMap()},
+        {QStringLiteral("eventInfo"), QVariantMap()},
         {QStringLiteral("isRevoked"), false},
         {QStringLiteral("isEdited"), false},
         {QStringLiteral("isStarred"), false},
@@ -205,6 +206,7 @@ private Q_SLOTS:
     void cardButtonsReceiveHover();
     void pollVotersDialogReadsTheVotesBothWays();
     void groupInviteCardAnswersWhereYouAlreadyStand();
+    void eventCardShowsWhoIsComingAndAnswersOnTheTap();
 
 private:
     QQuickWindow *m_window = nullptr;
@@ -1009,6 +1011,131 @@ void ChatBubblePerf::groupInviteCardAnswersWhereYouAlreadyStand()
                                 .arg(rightGap())
                                 .arg(reserve)));
     shoot(QStringLiteral("expired"));
+
+    m_window->hide();
+    bubbleItem->setParentItem(nullptr);
+}
+
+// An event's card has to answer three things a count cannot: when it is, who is
+// coming, and which chip is ours. The chip has to light on the tap rather than
+// one round trip later, which is the part that needs the controller.
+void ChatBubblePerf::eventCardShowsWhoIsComingAndAnswersOnTheTap()
+{
+    const qint64 start = QDateTime::currentSecsSinceEpoch() + 3600 * 26;
+    const QVariantMap ana{{QStringLiteral("jid"), QStringLiteral("ana@s")},
+                          {QStringLiteral("name"), QStringLiteral("Ana")},
+                          {QStringLiteral("response"), QStringLiteral("going")}};
+    const QVariantMap bo{{QStringLiteral("jid"), QStringLiteral("bo@s")},
+                         {QStringLiteral("name"), QStringLiteral("Bo")},
+                         {QStringLiteral("response"), QStringLiteral("going")},
+                         {QStringLiteral("extra_guests"), 2}};
+    const QVariantMap cy{{QStringLiteral("jid"), QStringLiteral("cy@s")},
+                         {QStringLiteral("name"), QStringLiteral("Cy")},
+                         {QStringLiteral("response"), QStringLiteral("not_going")}};
+
+    const QVariantMap plan{
+        {QStringLiteral("name"), QStringLiteral("Team dinner")},
+        {QStringLiteral("starts_at"), start},
+        {QStringLiteral("ends_at"), start + 7200},
+        {QStringLiteral("responders"), QVariantList{ana, bo, cy}},
+        // Heads, not answers: Bo brings two, so four people are at the door.
+        {QStringLiteral("going_count"), 4},
+    };
+
+    const QVariantMap props = withProps(baseProps(),
+                                        {{QStringLiteral("messageId"), QStringLiteral("ev-1")},
+                                         {QStringLiteral("mediaKind"), QStringLiteral("event")},
+                                         {QStringLiteral("eventInfo"), plan}});
+
+    QQmlComponent component(
+        m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/ChatBubble.qml")));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> bubble(component.createWithInitialProperties(props));
+    QVERIFY2(bubble, qPrintable(component.errorString()));
+    auto *bubbleItem = qobject_cast<QQuickItem *>(bubble.get());
+    bubbleItem->setParentItem(m_window->contentItem());
+    m_window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_window));
+
+    QQuickItem *card = findVisualChild(bubbleItem, QStringLiteral("eventBubble"));
+    QVERIFY2(card, "an event row built no event card");
+    QTRY_VERIFY(card->width() > 0 && card->height() > 0);
+
+    // The calendar leaf is what a reader finds without reading.
+    QVERIFY2(findVisualChild(card, QStringLiteral("calendarLeaf")), "the event card drew no date");
+    QVERIFY(!card->property("past").toBool());
+    QVERIFY(card->property("answerable").toBool());
+    QVERIFY2(!card->property("whenText").toString().isEmpty(), "the event card said nothing about when");
+
+    // Three chips, and the counts split by answer rather than by head count.
+    QQuickItem *chips = findVisualChild(card, QStringLiteral("rsvpChips"));
+    QVERIFY(chips);
+    QCOMPARE(card->property("selfResponse").toString(), QString());
+
+    const auto chipCount = [&](const QString &response) {
+        QVariant out;
+        QMetaObject::invokeMethod(card, "chipCount", Q_RETURN_ARG(QVariant, out),
+                                  Q_ARG(QVariant, response));
+        return out.toInt();
+    };
+    // Two people said yes and one said no. The chips count answers; the line
+    // under them counts heads, and the two are deliberately different numbers.
+    QCOMPARE(chipCount(QStringLiteral("going")), 2);
+    QCOMPARE(chipCount(QStringLiteral("not_going")), 1);
+    QCOMPARE(chipCount(QStringLiteral("maybe")), 0);
+    QCOMPARE(card->property("goingCount").toInt(), 4);
+
+    // Answering paints now, not when the daemon echoes: the chip reads its own
+    // answer out of the controller's in-flight map.
+    m_controller->respondToEvent(QStringLiteral("ev-1"), QStringLiteral("going"), 0);
+    QTRY_COMPARE(card->property("selfResponse").toString(), QStringLiteral("going"));
+    // And our own pending answer is counted, so the chip does not read one
+    // short until the echo arrives.
+    QCOMPARE(chipCount(QStringLiteral("going")), 3);
+
+    // The answer we have given stops taking taps. There is no way to withdraw
+    // an RSVP on the wire, and the chip that tried to offer one did it by
+    // quietly answering "maybe" instead.
+    QQuickItem *chosen = nullptr;
+    for (QQuickItem *child : chips->childItems()) {
+        if (child->objectName() == QLatin1String("eventRSVPChip")
+            && child->property("chosen").toBool()) {
+            chosen = child;
+        }
+    }
+    QVERIFY2(chosen, "no chip showed our own answer");
+    QCOMPARE(chosen->property("response").toString(), QStringLiteral("going"));
+    QVERIFY2(!chosen->property("interactive").toBool(),
+             "the answer already given still offered to be tapped");
+
+    // Only the answered chip carries faces, so it is the tallest thing in the
+    // row. All three have to match it, or the row reads as three unrelated
+    // buttons of three different sizes.
+    QList<QQuickItem *> chipItems;
+    for (QQuickItem *child : chips->childItems()) {
+        if (child->objectName() == QLatin1String("eventRSVPChip")) {
+            chipItems.append(child);
+        }
+    }
+    QCOMPARE(chipItems.size(), 3);
+    QTRY_VERIFY(chipItems.at(0)->height() > 0);
+    for (QQuickItem *chip : std::as_const(chipItems)) {
+        QVERIFY2(qFuzzyCompare(chip->height(), chipItems.at(0)->height()),
+                 qPrintable(QStringLiteral("chip heights differ: %1 vs %2")
+                                .arg(chip->height())
+                                .arg(chipItems.at(0)->height())));
+    }
+
+    // The card must be tall enough for what it drew, like every other card.
+    const qreal padding = card->property("contentMargin").toReal();
+    QVERIFY(padding > 0);
+    QQuickItem *content = findVisualChild(card, QStringLiteral("cardContent"));
+    QVERIFY(content);
+    const qreal bottom = content->mapToItem(card, QPointF(0, content->height())).y();
+    QVERIFY2(card->height() - bottom >= padding - 0.5,
+             qPrintable(QStringLiteral("content ends %1 from the card's bottom, want %2 of padding")
+                            .arg(card->height() - bottom)
+                            .arg(padding)));
 
     m_window->hide();
     bubbleItem->setParentItem(nullptr);

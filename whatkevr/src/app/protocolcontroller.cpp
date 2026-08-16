@@ -21,6 +21,7 @@
 #include <QStandardPaths>
 #include <QStringList>
 #include <QTextBoundaryFinder>
+#include <QTimeZone>
 #include <QTimer>
 #include <QUrl>
 #include <QUuid>
@@ -1918,6 +1919,192 @@ void ProtocolController::votePoll(const QString &messageId, const QVariantList &
 QVariant ProtocolController::pendingPollSelection(const QString &messageId) const
 {
     return m_pendingPollVotes.value(messageId);
+}
+
+void ProtocolController::respondToEvent(const QString &messageId, const QString &response, int extraGuests)
+{
+    if (messageId.trimmed().isEmpty() || response.trimmed().isEmpty()) {
+        return;
+    }
+    if (extraGuests < 0) {
+        extraGuests = 0;
+    }
+
+    // Answered here rather than one round trip later, for the reason the poll
+    // rows are: the daemon's own echo lands in a few milliseconds, but the send
+    // behind it takes a couple of hundred, and a chip that does not light on
+    // the tap reads as the card not having heard it.
+    m_pendingEventRSVPs.insert(messageId,
+                               QVariantMap{{QStringLiteral("response"), response},
+                                           {QStringLiteral("extra_guests"), extraGuests}});
+    Q_EMIT eventRSVPsChanged();
+
+    m_client->request(QStringLiteral("event.rsvp"),
+                      {{QStringLiteral("message_id"), messageId},
+                       {QStringLiteral("response"), response},
+                       {QStringLiteral("extra_guests"), extraGuests}},
+                      [this, messageId](const QJsonObject &, const ProtocolError &error) {
+                          // Either way the daemon's copy is now the truth: on
+                          // success it carries this answer, and on failure it
+                          // has put the previous one back.
+                          m_pendingEventRSVPs.remove(messageId);
+                          Q_EMIT eventRSVPsChanged();
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(error.message.isEmpty()
+                                                             ? i18nc("@info", "Unable to answer the event")
+                                                             : error.message);
+                          }
+                      });
+}
+
+namespace
+{
+/// Escapes one iCalendar text value: RFC 5545 §3.3.11 gives backslash,
+/// semicolon and comma special meaning inside one, and a literal newline ends
+/// the property outright.
+QString icsText(const QString &value)
+{
+    QString out = value;
+    out.replace(QLatin1Char('\\'), QStringLiteral("\\\\"));
+    out.replace(QLatin1Char(';'), QStringLiteral("\\;"));
+    out.replace(QLatin1Char(','), QStringLiteral("\\,"));
+    out.replace(QStringLiteral("\r\n"), QStringLiteral("\\n"));
+    out.replace(QLatin1Char('\n'), QStringLiteral("\\n"));
+    out.replace(QLatin1Char('\r'), QStringLiteral("\\n"));
+    return out;
+}
+
+/// Folds a content line to 75 octets, continuing with a leading space, as
+/// §3.1 requires. Long descriptions are exactly the case where a calendar that
+/// enforces this rejects the whole file.
+QString icsFold(const QString &line)
+{
+    const QByteArray utf8 = line.toUtf8();
+    if (utf8.size() <= 75) {
+        return line;
+    }
+    QString folded;
+    int consumed = 0;
+    while (consumed < utf8.size()) {
+        int take = qMin(consumed == 0 ? 75 : 74, utf8.size() - consumed);
+        // Never split a UTF-8 sequence: back off to the last lead byte.
+        while (take > 1 && (utf8.at(consumed + take) & 0xC0) == 0x80) {
+            --take;
+        }
+        if (!folded.isEmpty()) {
+            folded += QStringLiteral("\r\n ");
+        }
+        folded += QString::fromUtf8(utf8.mid(consumed, take));
+        consumed += take;
+    }
+    return folded;
+}
+
+QString icsStamp(qint64 unixSeconds)
+{
+    return QDateTime::fromSecsSinceEpoch(unixSeconds, QTimeZone::UTC)
+        .toString(QStringLiteral("yyyyMMdd'T'HHmmss'Z'"));
+}
+} // namespace
+
+bool ProtocolController::saveEventToCalendar(const QString &messageId, const QVariantMap &event)
+{
+    const qint64 startsAt = event.value(QStringLiteral("starts_at")).toLongLong();
+    if (startsAt <= 0) {
+        Q_EMIT messageActionFailed(i18nc("@info", "This event has no start time"));
+        return false;
+    }
+
+    QString name = event.value(QStringLiteral("name")).toString().simplified();
+    if (name.isEmpty()) {
+        name = i18nc("@title fallback name for an event with none", "Event");
+    }
+
+    // The venue as one line: the place's name and its address say different
+    // things and a calendar has one field for both.
+    const QVariantMap location = event.value(QStringLiteral("location")).toMap();
+    QStringList placeParts;
+    for (const auto &key : {QStringLiteral("name"), QStringLiteral("address")}) {
+        const QString part = location.value(key).toString().simplified();
+        if (!part.isEmpty() && !placeParts.contains(part)) {
+            placeParts.append(part);
+        }
+    }
+
+    QStringList lines{
+        QStringLiteral("BEGIN:VCALENDAR"),
+        QStringLiteral("VERSION:2.0"),
+        QStringLiteral("PRODID:-//whatevr//whatkevr//EN"),
+        QStringLiteral("CALSCALE:GREGORIAN"),
+        QStringLiteral("BEGIN:VEVENT"),
+        // The message id is already unique and stable, so re-importing the same
+        // event updates the entry the user already has instead of adding a
+        // second copy of it.
+        QStringLiteral("UID:") + icsText(messageId) + QStringLiteral("@whatevr"),
+        QStringLiteral("DTSTAMP:") + icsStamp(QDateTime::currentSecsSinceEpoch()),
+        QStringLiteral("DTSTART:") + icsStamp(startsAt),
+        QStringLiteral("SUMMARY:") + icsText(name),
+    };
+
+    const qint64 endsAt = event.value(QStringLiteral("ends_at")).toLongLong();
+    if (endsAt > startsAt) {
+        lines.append(QStringLiteral("DTEND:") + icsStamp(endsAt));
+    }
+    const QString description = event.value(QStringLiteral("description")).toString();
+    if (!description.isEmpty()) {
+        lines.append(QStringLiteral("DESCRIPTION:") + icsText(description));
+    }
+    if (!placeParts.isEmpty()) {
+        lines.append(QStringLiteral("LOCATION:") + icsText(placeParts.join(QStringLiteral(", "))));
+    }
+    const QString joinLink = event.value(QStringLiteral("join_link")).toString();
+    if (!joinLink.isEmpty()) {
+        lines.append(QStringLiteral("URL:") + icsText(joinLink));
+    }
+    // A cancelled event is still worth importing: it updates the entry the user
+    // already accepted rather than leaving it sitting in their week.
+    if (event.value(QStringLiteral("canceled")).toBool()) {
+        lines.append(QStringLiteral("STATUS:CANCELLED"));
+    }
+    lines.append(QStringLiteral("END:VEVENT"));
+    lines.append(QStringLiteral("END:VCALENDAR"));
+
+    QString body;
+    for (const QString &line : std::as_const(lines)) {
+        body += icsFold(line) + QStringLiteral("\r\n");
+    }
+
+    const QString directory =
+        QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + QStringLiteral("/events");
+    if (!QDir().mkpath(directory)) {
+        Q_EMIT messageActionFailed(i18nc("@info", "Unable to write the calendar entry"));
+        return false;
+    }
+
+    // The filename comes from the message id rather than the event's name: the
+    // name is attacker-controlled text arriving over the network and must never
+    // be able to steer where this writes.
+    QString base = messageId;
+    base.replace(QRegularExpression(QStringLiteral("[^\\w.-]")), QStringLiteral("_"));
+    base.truncate(96);
+    if (base.isEmpty()) {
+        base = QStringLiteral("event");
+    }
+
+    const QString path = directory + QLatin1Char('/') + base + QStringLiteral(".ics");
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)
+        || file.write(body.toUtf8()) < 0) {
+        Q_EMIT messageActionFailed(i18nc("@info", "Unable to write the calendar entry"));
+        return false;
+    }
+    file.close();
+
+    if (!QDesktopServices::openUrl(QUrl::fromLocalFile(path))) {
+        Q_EMIT messageActionFailed(i18nc("@info", "No application is set up to open calendar entries"));
+        return false;
+    }
+    return true;
 }
 
 void ProtocolController::joinGroupInvite(const QString &messageId)

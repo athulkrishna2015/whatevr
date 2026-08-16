@@ -100,6 +100,10 @@ public:
         ContactsRole,
         PollRole,
         GroupInviteRole,
+        // Named eventInfo rather than event on the QML side: ChatBubble takes
+        // `event` as the parameter of its key handlers, and a role by that
+        // name would be silently shadowed inside them.
+        EventRole,
     };
     Q_ENUM(Role)
 

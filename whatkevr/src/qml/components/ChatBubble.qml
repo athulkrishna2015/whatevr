@@ -63,6 +63,7 @@ Item {
     required property var contacts
     required property var poll
     required property var invite
+    required property var eventInfo
     required property bool isRevoked
     required property bool isEdited
     required property bool isStarred
@@ -271,7 +272,8 @@ Item {
     readonly property bool isContactCard: mediaKind === "contact" || mediaKind === "contacts"
     readonly property bool isPoll: mediaKind === "poll"
     readonly property bool isGroupInvite: mediaKind === "group_invite"
-    readonly property bool isCardBlock: isLocation || isLiveLocation || isContactCard || isPoll || isGroupInvite
+    readonly property bool isEvent: mediaKind === "event"
+    readonly property bool isCardBlock: isLocation || isLiveLocation || isContactCard || isPoll || isGroupInvite || isEvent
     readonly property bool isAttachmentBlock: isVoice || isAudioFile || isDocument || isCardBlock
     // Real message whose payload the app can't render yet (document, voice
     // note, poll, ...). The daemon puts a short label in the body text; the

@@ -231,6 +231,9 @@ class ProtocolController final : public QObject
     // flight. A poll row indexes this by its own id, so its in-flight state is
     // a plain binding rather than imperative state a recycled delegate loses.
     Q_PROPERTY(QVariantMap pendingPollVotes READ pendingPollVotes NOTIFY pollVotesChanged FINAL)
+    /// The RSVPs a tap asked for while their commands are still in flight,
+    /// keyed by message id. Same shape and same reason as pendingPollVotes.
+    Q_PROPERTY(QVariantMap pendingEventRSVPs READ pendingEventRSVPs NOTIFY eventRSVPsChanged FINAL)
 
     // Settings/profile (D6). The object properties expose daemon rows verbatim;
     // commands are ack-only and their effects return through these views.
@@ -432,6 +435,7 @@ public:
     [[nodiscard]] Q_INVOKABLE QVariantList groupMembers(const QString &query) const;
     [[nodiscard]] int chatMembersRevision() const { return m_chatMembersRevision; }
     [[nodiscard]] QVariantMap pendingPollVotes() const { return m_pendingPollVotes; }
+    [[nodiscard]] QVariantMap pendingEventRSVPs() const { return m_pendingEventRSVPs; }
     // The same filtering over the conversation's roster, for the mention picker.
     [[nodiscard]] Q_INVOKABLE QVariantList chatMembers(const QString &query) const;
     // Subscribes the conversation's roster if it is not already live. The
@@ -519,6 +523,14 @@ public:
     /// path for a group already joined: the daemon joins nothing there and
     /// simply answers with where to go, so the card has one action either way.
     Q_INVOKABLE void joinGroupInvite(const QString &messageId);
+    /// Answers a scheduled event. The answer is whole rather than incremental:
+    /// answering again replaces what you said before, which is what the wire
+    /// format means. extraGuests is ignored for an event that did not allow it.
+    Q_INVOKABLE void respondToEvent(const QString &messageId, const QString &response, int extraGuests);
+    /// Writes an event out as an .ics file and hands it to the desktop, which
+    /// is the thing a phone cannot do: the event lands in whatever calendar the
+    /// user actually keeps rather than staying trapped in a chat.
+    Q_INVOKABLE bool saveEventToCalendar(const QString &messageId, const QVariantMap &event);
     /// One entry of pendingPollVotes: the selection a tap asked for while its
     /// command is still in flight, or an invalid variant when nothing is
     /// pending. A poll row prefers this over the daemon's tally so it answers
@@ -662,6 +674,7 @@ Q_SIGNALS:
     void groupMembersChanged();
     void chatMembersChanged();
     void pollVotesChanged();
+    void eventRSVPsChanged();
     void privacySettingsChanged();
     void appPreferencesChanged();
     void blocklistChanged();
@@ -957,6 +970,7 @@ private:
     // message id -> the selection a tap asked for, held only until `poll.vote`
     // answers. Never persisted, never merged with the daemon's tally.
     QVariantMap m_pendingPollVotes;
+    QVariantMap m_pendingEventRSVPs;
 
     QTimer *m_startupGraceTimer = nullptr;
     QTimer *m_qrTimer = nullptr;

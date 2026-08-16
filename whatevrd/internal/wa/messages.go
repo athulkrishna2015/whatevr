@@ -383,6 +383,10 @@ func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offline
 	if c.handlePollAddOption(ctx, evt) {
 		return
 	}
+	// An RSVP changes an event the same way, and for the same reason.
+	if c.handleEventResponse(ctx, evt) {
+		return
+	}
 	source := sourceLive
 	if offlineSync {
 		source = sourceOfflineSync
@@ -760,6 +764,9 @@ func (c *Client) mediaMessageInput(ctx context.Context, evt *events.Message, opt
 		return input, true
 	}
 	if input, ok := c.groupInviteMessageInput(ctx, evt, opts); ok {
+		return input, true
+	}
+	if input, ok := c.eventMessageInput(ctx, evt, opts); ok {
 		return input, true
 	}
 	return c.unsupportedMessageInput(ctx, evt, opts)
@@ -1174,15 +1181,7 @@ func unsupportedMessageLabel(evt *events.Message) (string, bool) {
 			return "View once voice message", true
 		}
 	}
-	labelWithDetail := func(label, detail string) string {
-		if detail = strings.TrimSpace(detail); detail != "" {
-			return label + ": " + detail
-		}
-		return label
-	}
 	switch {
-	case msg.GetEventMessage() != nil:
-		return labelWithDetail("Event", msg.GetEventMessage().GetName()), true
 	case msg.GetListMessage() != nil, msg.GetButtonsMessage() != nil,
 		msg.GetTemplateMessage() != nil, msg.GetInteractiveMessage() != nil:
 		return "Message", true
@@ -1385,6 +1384,9 @@ func contextInfoFromMessage(message *waE2E.Message) *waE2E.ContextInfo {
 	if invite := message.GetGroupInviteMessage(); invite != nil {
 		return invite.GetContextInfo()
 	}
+	if event := message.GetEventMessage(); event != nil {
+		return event.GetContextInfo()
+	}
 	return nil
 }
 
@@ -1521,6 +1523,9 @@ func quotedReplyPreview(message *waE2E.Message) (string, string, string) {
 	}
 	if invite := message.GetGroupInviteMessage(); invite != nil {
 		return groupInviteSummary(invite), appstore.MediaKindGroupInvite, ""
+	}
+	if event := message.GetEventMessage(); event != nil {
+		return eventSummary(event), appstore.MediaKindEvent, ""
 	}
 	return "", "", ""
 }

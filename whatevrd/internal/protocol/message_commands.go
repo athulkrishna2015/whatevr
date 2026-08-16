@@ -335,3 +335,35 @@ func (h commandHandlers) groupJoinInvite(ctx context.Context, _ *conn, req reque
 	}
 	return map[string]any{"chat_id": chatID}, nil
 }
+
+// eventRSVPParams is a whole answer, not a delta: answering again replaces what
+// you said before, which is what the wire format means.
+type eventRSVPParams struct {
+	MessageID string `json:"message_id"`
+	// Response is "going", "not_going" or "maybe".
+	Response string `json:"response"`
+	// ExtraGuests is how many people you are bringing, for an event whose
+	// author allowed it. Ignored for one that did not.
+	ExtraGuests int `json:"extra_guests"`
+}
+
+// eventRSVP answers a scheduled event. The visible effect is the event row
+// upserting with the new attendee list; the command acks with nothing, as
+// every command does.
+func (h commandHandlers) eventRSVP(ctx context.Context, _ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p eventRSVPParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(p.MessageID) == "" {
+		return nil, errorf(CodeInvalidParams, "message_id is required")
+	}
+	if strings.TrimSpace(p.Response) == "" {
+		return nil, errorf(CodeInvalidParams, "response is required")
+	}
+	return nil, mapCommandError(h.actions.RespondToEvent(ctx,
+		strings.TrimSpace(p.MessageID), strings.TrimSpace(p.Response), p.ExtraGuests))
+}

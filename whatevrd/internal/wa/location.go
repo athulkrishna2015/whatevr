@@ -125,9 +125,31 @@ func (c *Client) locationMapPath(message appstore.Message) string {
 }
 
 // isLocationKind reports whether a row's media is a map we draw rather than a
-// blob WhatsApp holds.
-func isLocationKind(kind string) bool {
-	return kind == appstore.MediaKindLocation || kind == appstore.MediaKindLiveLocation
+// blob WhatsApp holds. An event counts when it named a venue: its map is the
+// same map, drawn the same way, and giving events their own lesser one would
+// be the only reason an event's place ever looked different from a shared one.
+func isLocationKind(message appstore.Message) bool {
+	switch message.MediaKind {
+	case appstore.MediaKindLocation, appstore.MediaKindLiveLocation:
+		return true
+	case appstore.MediaKindEvent:
+		return appstore.DecodePayload(message.PayloadJSON).Event.HasVenue()
+	default:
+		return false
+	}
+}
+
+// mapLocationFor picks the place a row's map should be drawn around, whichever
+// kind of row it is.
+func mapLocationFor(message appstore.Message) *appstore.LocationPayload {
+	payload := appstore.DecodePayload(message.PayloadJSON)
+	if payload.Location != nil {
+		return payload.Location
+	}
+	if payload.Event != nil {
+		return payload.Event.Location
+	}
+	return nil
 }
 
 // fetchLocationMap draws the map for a location row and persists it as the
@@ -137,7 +159,7 @@ func (c *Client) fetchLocationMap(ctx context.Context, message appstore.Message,
 	if !c.appPreferences().AutoFetchMaps {
 		return appstore.Message{}, ErrMapsDisabled
 	}
-	payload := appstore.DecodePayload(message.PayloadJSON).Location
+	payload := mapLocationFor(message)
 	if payload == nil {
 		return appstore.Message{}, fmt.Errorf("location row %s has no coordinates", message.ID)
 	}
