@@ -126,6 +126,52 @@ QQC2.Popup {
         open()
     }
 
+    /// The set this picture belongs to, when it came from one: an album's
+    /// pictures, as {id, kind, path, fileName, timestampUnix, width, height,
+    /// durationSecs} entries. Empty for a lone photo, which is every other
+    /// caller and behaves exactly as it always did.
+    property var gallery: []
+    property int galleryIndex: -1
+    readonly property bool hasGallery: gallery.length > 1
+
+    /// Opens the set at one of its entries. Pictures sent together are looked
+    /// at together: opening one of them and offering no way to reach the rest
+    /// makes the reader close the viewer and tap the next tile.
+    function showGallery(items, index) {
+        gallery = items ?? []
+        showGalleryEntry(index)
+    }
+
+    function stepGallery(delta) {
+        if (gallery.length <= 1) {
+            return
+        }
+        showGalleryEntry((galleryIndex + delta + gallery.length) % gallery.length)
+    }
+
+    function showGalleryEntry(index) {
+        const entry = gallery[index]
+        if (!entry) {
+            return
+        }
+        // Leaving a clip stops it first. The surface is one decoder handed
+        // between items, and switching its source while it is still running
+        // plays the next entry's audio under the previous one's last frame.
+        if (isVideo) {
+            surface.playbackWanted = false
+        }
+        galleryIndex = index
+        const kind = String(entry.kind ?? "image")
+        if (kind === "video" || kind === "gif" || kind === "video_note") {
+            showVideo(String(entry.id ?? ""), String(entry.path ?? ""), "", "", kind,
+                      entry.durationSecs ?? 0, 0, String(entry.fileName ?? ""),
+                      entry.timestampUnix ?? 0, entry.width ?? 0, entry.height ?? 0)
+        } else {
+            showImage(String(entry.path ?? ""), String(entry.id ?? ""),
+                      String(entry.fileName ?? ""), entry.timestampUnix ?? 0)
+        }
+    }
+
     function formatTime(seconds) {
         return MediaFormat.clockTime(seconds)
     }
@@ -214,6 +260,8 @@ QQC2.Popup {
         timestampUnix = 0
         startAt = 0
         stillRevision = 0
+        gallery = []
+        galleryIndex = -1
         surface.speed = 1.0
         surface.volume = 100
         surface.muted = false
@@ -629,6 +677,68 @@ QQC2.Popup {
             }
         }
 
+        // Walking a set of pictures sent together. Present only when there is
+        // a set: a lone photo gets no arrows to wonder about.
+        MediaOverlayButton {
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.left: parent.left
+            anchors.margins: Kirigami.Units.largeSpacing
+            opacity: root.chromeVisible ? 1 : 0
+            visible: root.hasGallery && opacity > 0
+            Behavior on opacity {
+                NumberAnimation { duration: Kirigami.Units.longDuration }
+            }
+            focusPolicy: Qt.NoFocus
+            diameter: Kirigami.Units.gridUnit * 2.4
+            iconName: "go-previous-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button", "Previous")
+            onClicked: {
+                root.wakeChrome()
+                root.stepGallery(-1)
+            }
+        }
+
+        MediaOverlayButton {
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.right: parent.right
+            anchors.margins: Kirigami.Units.largeSpacing
+            opacity: root.chromeVisible ? 1 : 0
+            visible: root.hasGallery && opacity > 0
+            Behavior on opacity {
+                NumberAnimation { duration: Kirigami.Units.longDuration }
+            }
+            focusPolicy: Qt.NoFocus
+            diameter: Kirigami.Units.gridUnit * 2.4
+            iconName: "go-next-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button", "Next")
+            onClicked: {
+                root.wakeChrome()
+                root.stepGallery(1)
+            }
+        }
+
+        // Where you are in the set. A counter rather than dots: an album can be
+        // thirty pictures, and thirty dots say less than "7 of 30".
+        QQC2.Label {
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            anchors.topMargin: Kirigami.Units.largeSpacing
+            opacity: root.chromeVisible ? 1 : 0
+            visible: root.hasGallery && opacity > 0
+            Behavior on opacity {
+                NumberAnimation { duration: Kirigami.Units.longDuration }
+            }
+            color: "white"
+            text: Whatevr.I18n.i18nc("@info position in an album, e.g. 2 of 5",
+                                     "%1 of %2", root.galleryIndex + 1, root.gallery.length)
+            padding: Kirigami.Units.smallSpacing
+
+            background: Rectangle {
+                radius: height / 2
+                color: Qt.rgba(0, 0, 0, 0.6)
+            }
+        }
+
         // Close, always reachable in the corner rather than only in the
         // transport bar an image never shows.
         QQC2.ToolButton {
@@ -967,12 +1077,32 @@ QQC2.Popup {
                 root.togglePlayback()
                 event.accepted = true
                 break
+            // In a set of pictures the arrows walk the set. On a clip they
+            // stay the timeline, because that is what they are for and a
+            // player that would not scrub with them is a worse player; the
+            // on-screen arrows and PageUp/PageDown still step the set.
             case Qt.Key_Left:
-                root.skip(event.modifiers & Qt.ShiftModifier ? -30 : -5)
+                if (root.hasGallery && !root.isVideo) {
+                    root.stepGallery(-1)
+                } else {
+                    root.skip(event.modifiers & Qt.ShiftModifier ? -30 : -5)
+                }
                 event.accepted = true
                 break
             case Qt.Key_Right:
-                root.skip(event.modifiers & Qt.ShiftModifier ? 30 : 5)
+                if (root.hasGallery && !root.isVideo) {
+                    root.stepGallery(1)
+                } else {
+                    root.skip(event.modifiers & Qt.ShiftModifier ? 30 : 5)
+                }
+                event.accepted = true
+                break
+            case Qt.Key_PageUp:
+                root.stepGallery(-1)
+                event.accepted = true
+                break
+            case Qt.Key_PageDown:
+                root.stepGallery(1)
                 event.accepted = true
                 break
             case Qt.Key_Up:

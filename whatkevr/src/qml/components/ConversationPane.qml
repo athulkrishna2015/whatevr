@@ -785,6 +785,37 @@ Kirigami.Page {
                                                  snapshot ? String(snapshot.mediaFileName || "") : "",
                                                  snapshot ? Number(snapshot.timestampUnix || 0) : 0)
                 }
+                onAlbumViewRequested: (albumMessageId, index) => {
+                    // The gallery is only the pictures that are actually on
+                    // disk. Stepping onto one that has not been fetched would
+                    // be a full-screen nothing; the mosaic behind is where an
+                    // undownloaded picture is asked for, and it is one tap
+                    // away.
+                    const snapshot = messageView.messageSnapshot(albumMessageId)
+                    const tiles = snapshot && snapshot.album ? (snapshot.album.items ?? []) : []
+                    const entries = []
+                    let start = 0
+                    for (let i = 0; i < tiles.length; ++i) {
+                        const media = tiles[i].media ?? {}
+                        const path = String(media.path ?? "")
+                        if (path.length === 0)
+                            continue
+                        if (i <= index)
+                            start = entries.length
+                        entries.push({
+                            id: String(tiles[i].id ?? ""),
+                            kind: String(tiles[i].kind ?? "image"),
+                            path: path,
+                            fileName: String(media.filename ?? ""),
+                            timestampUnix: Number(tiles[i].timestamp ?? 0),
+                            width: Number(media.width ?? 0),
+                            height: Number(media.height ?? 0),
+                            durationSecs: Number(media.duration_secs ?? 0),
+                        })
+                    }
+                    if (entries.length > 0)
+                        messageImageViewer.showGallery(entries, start)
+                }
                 onVideoViewRequested: (messageId, localPath, streamUrl, streamId, kind, durationSecs, startAt) => {
                     const snapshot = messageView.messageSnapshot(messageId)
                     messageImageViewer.showVideo(messageId, localPath, streamUrl, streamId, kind, durationSecs, startAt,

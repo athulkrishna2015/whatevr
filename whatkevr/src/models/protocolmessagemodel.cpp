@@ -418,6 +418,8 @@ QVariant ProtocolMessageModel::data(const QModelIndex &index, int role) const
         return item.value(QStringLiteral("invite")).toMap();
     case EventRole:
         return item.value(QStringLiteral("event")).toMap();
+    case AlbumRole:
+        return item.value(QStringLiteral("album")).toMap();
     case ShowSenderHeaderRole:
         return groupChat && !outgoing && startsSenderGroup(index.row());
     case ShowSenderAvatarRole:
@@ -477,18 +479,11 @@ QVariant ProtocolMessageModel::data(const QModelIndex &index, int role) const
         return item.value(QStringLiteral("pinned_until")).toLongLong();
     case ReactionsRole:
         return reactions(item);
-    case MediaDownloadProgressRole: {
+    case MediaDownloadProgressRole:
         // -1 means "downloading, size unknown" to the bubble (it shows an
         // indeterminate spinner instead of the progress ring), which is also
         // what a message with no active transfer reports.
-        const QVariantMap active = transfer(item);
-        const qulonglong total = active.value(QStringLiteral("total_bytes")).toULongLong();
-        if (active.isEmpty() || total == 0) {
-            return -1.0;
-        }
-        const qulonglong received = active.value(QStringLiteral("received_bytes")).toULongLong();
-        return std::min(1.0, static_cast<double>(received) / static_cast<double>(total));
-    }
+        return downloadProgress(item);
     default:
         return {};
     }
@@ -566,6 +561,7 @@ QHash<int, QByteArray> ProtocolMessageModel::roleNames() const
         {PollRole, "poll"},
         {GroupInviteRole, "invite"},
         {EventRole, "eventInfo"},
+        {AlbumRole, "album"},
     };
 }
 
@@ -601,6 +597,7 @@ bool ProtocolMessageModel::rendersItsOwnPayload(const QVariantMap &item)
         QStringLiteral("poll"),
         QStringLiteral("invite"),
         QStringLiteral("event"),
+        QStringLiteral("album"),
     };
     for (const QString &key : known) {
         if (!item.value(key).toMap().isEmpty()) {
@@ -937,10 +934,32 @@ QString ProtocolMessageModel::copyTextForMessages(const QStringList &messageIds)
 QVariantMap ProtocolMessageModel::messageSnapshot(const QString &messageId) const
 {
     const int row = indexOf(messageId);
-    if (row < 0) {
-        return {};
+    if (row >= 0) {
+        return snapshotOfItem(wireItem(row), messageId);
     }
-    const QVariantMap item = wireItem(row);
+    // A picture inside an album is a real message with a real id, and it is
+    // the only kind of message that is not a row: the album is the row. Every
+    // path that takes a message id (the full-screen viewer, Save As, Forward,
+    // the context menu) still has to be able to find it, so the miss falls
+    // through to the albums in the window rather than returning nothing.
+    for (int i = 0; i < rowCount(); ++i) {
+        const QVariantList tiles = wireItem(i)
+                                       .value(QStringLiteral("album"))
+                                       .toMap()
+                                       .value(QStringLiteral("items"))
+                                       .toList();
+        for (const QVariant &tile : tiles) {
+            const QVariantMap map = tile.toMap();
+            if (map.value(QStringLiteral("id")).toString() == messageId) {
+                return snapshotOfItem(map, messageId);
+            }
+        }
+    }
+    return {};
+}
+
+QVariantMap ProtocolMessageModel::snapshotOfItem(const QVariantMap &item, const QString &messageId) const
+{
     TextPresentation &presentation = ensureTextPresentation(item);
     ensureFullTextPresentation(presentation, item);
     const QVariantMap mediaData = media(item);
@@ -968,8 +987,10 @@ QVariantMap ProtocolMessageModel::messageSnapshot(const QString &messageId) cons
         {QStringLiteral("mediaCacheKey"), QString()},
         // Download state, so the context menu can offer Download, Cancel and
         // Retry rather than being blind to anything that is not on disk yet.
-        {QStringLiteral("mediaDownloading"), data(index(row, 0), MediaDownloadingRole)},
-        {QStringLiteral("mediaDownloadProgress"), data(index(row, 0), MediaDownloadProgressRole)},
+        // Both are derived from the item rather than from the row, because an
+        // album's pictures have no row and still download like anything else.
+        {QStringLiteral("mediaDownloading"), mediaData.value(QStringLiteral("downloading")).toBool()},
+        {QStringLiteral("mediaDownloadProgress"), downloadProgress(item)},
         {QStringLiteral("mediaDownloadError"), mediaData.value(QStringLiteral("download_error"))},
         {QStringLiteral("mediaPageCount"), mediaData.value(QStringLiteral("page_count"))},
         {QStringLiteral("mediaPlayed"), mediaData.value(QStringLiteral("played"))},
@@ -978,7 +999,25 @@ QVariantMap ProtocolMessageModel::messageSnapshot(const QString &messageId) cons
         {QStringLiteral("isStarred"), item.value(QStringLiteral("starred"))},
         {QStringLiteral("isPinned"), pinnedUntil > QDateTime::currentSecsSinceEpoch()},
         {QStringLiteral("reactions"), reactions(item)},
+        // An album's pictures, so opening one can open the set it belongs to
+        // rather than a lone photo with no way back to its siblings.
+        {QStringLiteral("album"), item.value(QStringLiteral("album"))},
     };
+}
+
+// downloadProgress is the transfer's completion 0..1, or -1 for "no active
+// transfer, or one whose total size is unknown", which is the same thing to a
+// spinner. It reads the item rather than a row so an album's pictures, which
+// have no row of their own, still report their own progress.
+double ProtocolMessageModel::downloadProgress(const QVariantMap &item) const
+{
+    const QVariantMap active = transfer(item);
+    const qulonglong total = active.value(QStringLiteral("total_bytes")).toULongLong();
+    if (active.isEmpty() || total == 0) {
+        return -1.0;
+    }
+    const qulonglong received = active.value(QStringLiteral("received_bytes")).toULongLong();
+    return std::min(1.0, static_cast<double>(received) / static_cast<double>(total));
 }
 
 QStringList ProtocolMessageModel::allMessageIds() const

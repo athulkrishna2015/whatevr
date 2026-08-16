@@ -308,6 +308,95 @@ func TestMessagesViewGroupInviteItemShape(t *testing.T) {
 	c.expectReady(sub, true)
 }
 
+// An album is one row on the wire carrying whole message items for its
+// pictures. A frontend never sees the children as rows of their own and never
+// merges anything (rule 3), and a tile is a message item in every respect, so
+// it renders with the code a lone photo already has.
+func TestMessagesViewAlbumCarriesItsPicturesAsItems(t *testing.T) {
+	socketPath, daemon, db := startChatsTestServer(t)
+	chat := "c@s.whatsapp.net"
+	ctx := context.Background()
+	payload, err := store.EncodePayload(store.MessagePayload{Album: &store.AlbumPayload{ExpectedImages: 3}})
+	if err != nil {
+		t.Fatalf("encode album: %v", err)
+	}
+	if _, err := db.SaveMediaMessage(ctx, store.MediaMessageInput{
+		TextMessageInput: store.TextMessageInput{
+			ID:        "al-1",
+			ChatID:    chat,
+			Timestamp: time.Unix(1_700_000_000, 0),
+			Direction: store.DirectionIncoming,
+		},
+		MediaKind:      store.MediaKindAlbum,
+		PayloadJSON:    payload,
+		PayloadSummary: "3 photos",
+	}); err != nil {
+		t.Fatalf("seed album: %v", err)
+	}
+	for i, id := range []string{"al-1-p1", "al-1-p2"} {
+		if _, err := db.SaveMediaMessage(ctx, store.MediaMessageInput{
+			TextMessageInput: store.TextMessageInput{
+				ID:        id,
+				ChatID:    chat,
+				Timestamp: time.Unix(1_700_000_001, 0),
+				Direction: store.DirectionIncoming,
+			},
+			MediaKind:               store.MediaKindImage,
+			MediaMimeType:           "image/jpeg",
+			MediaThumbnailLocalPath: "/cache/" + id + ".thumb.jpg",
+			AlbumParentID:           "al-1",
+			AlbumIndex:              int32(i),
+		}); err != nil {
+			t.Fatalf("seed picture %s: %v", id, err)
+		}
+	}
+
+	c := dialTest(t, socketPath)
+	c.hello()
+	sub := c.subscribe(2, fmt.Sprintf(`{"view":"messages","chat_id":%q}`, chat))
+	item := c.expectUpsert(sub, "al-1")["item"].(map[string]any)
+	c.expectReady(sub, true)
+
+	if item["kind"] != "album" {
+		t.Fatalf("kind = %v, want album", item["kind"])
+	}
+	// The header has nothing to fetch; its pictures do.
+	if _, ok := item["media"]; ok {
+		t.Fatalf("album header carried a media object: %v", item)
+	}
+	album, ok := item["album"].(map[string]any)
+	if !ok {
+		t.Fatalf("album item missing its payload: %v", item)
+	}
+	items, ok := album["items"].([]any)
+	if !ok || len(items) != 2 {
+		t.Fatalf("album items = %v", album["items"])
+	}
+	// One picture is still missing, and an album that is still filling says so.
+	if album["expected"] != float64(3) {
+		t.Fatalf("expected = %v, want 3 while the album is short", album["expected"])
+	}
+	first := items[0].(map[string]any)
+	if first["id"] != "al-1-p1" || first["kind"] != "image" {
+		t.Fatalf("first tile is not a whole image item: %v", first)
+	}
+	if first["media"].(map[string]any)["thumbnail_path"] != "/cache/al-1-p1.thumb.jpg" {
+		t.Fatalf("a tile lost its media object: %v", first)
+	}
+
+	// A tile is a message with a fetch of its own, so its progress ring is its
+	// own: one tile downloading must not light up the rest.
+	daemon.PublishMediaDownloadChanged("al-1-p2", chat, true, "", 0, 1024)
+	album = c.expectUpsert(sub, "al-1")["item"].(map[string]any)["album"].(map[string]any)
+	items = album["items"].([]any)
+	if items[0].(map[string]any)["media"].(map[string]any)["downloading"] != nil {
+		t.Fatalf("an idle tile reports downloading: %v", items[0])
+	}
+	if items[1].(map[string]any)["media"].(map[string]any)["downloading"] != true {
+		t.Fatalf("the downloading tile does not say so: %v", items[1])
+	}
+}
+
 // Whether a fetch is in flight rides the message row, so a renderer never has
 // to join it against `transfers` and never sees the two disagree: the terminal
 // update both clears `downloading` and delivers the path.

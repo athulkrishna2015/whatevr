@@ -208,6 +208,10 @@ type Message struct {
 	// Event is the RSVPs, attached at read time for event rows only, and joined
 	// for the same reason a poll's tally is.
 	Event *EventState
+	// Album is the pictures this row groups, attached at read time for album
+	// rows only. Each one is a whole message: the tiles are the children, not a
+	// copy of them.
+	Album []Message
 }
 
 type MessageReply struct {
@@ -492,6 +496,15 @@ func (db *DB) SaveMediaMessage(ctx context.Context, input MediaMessageInput) (Sa
 func saveMediaMessageTx(ctx context.Context, tx *sql.Tx, input MediaMessageInput) (SavedTextMessage, error) {
 	lastMessage := mediaInputSummary(input)
 
+	// A picture the album above it will draw is not a new message in its own
+	// right. It reads as already read, and further down it skips the chat bump
+	// entirely, so five photos sent at once are one line in the chat list and
+	// one number on the badge rather than five of each.
+	hiddenInAlbum := albumChildIsHidden(ctx, tx, input.AlbumParentID)
+	if hiddenInAlbum {
+		input.CountUnread = false
+	}
+
 	if err := upsertChat(ctx, tx, input.TextMessageInput); err != nil {
 		return SavedTextMessage{}, err
 	}
@@ -518,7 +531,7 @@ func saveMediaMessageTx(ctx context.Context, tx *sql.Tx, input MediaMessageInput
 	}
 	inserted := rowsAffected > 0
 
-	if inserted {
+	if inserted && !hiddenInAlbum {
 		if err := bumpChatForInsertedMessage(ctx, tx, input.TextMessageInput, previewSummary(input.TextMessageInput, lastMessage)); err != nil {
 			return SavedTextMessage{}, err
 		}
@@ -831,7 +844,7 @@ func (db *DB) ListMessages(ctx context.Context, chatID string, limit int, before
 
 	query := messageSelectPrefix + `
 		WHERE m.chat_id = ?
-	`
+	` + albumChildExclusion
 	args := []any{chatID}
 
 	if beforeMessageID != "" {
@@ -951,6 +964,15 @@ func (db *DB) ListMessagesAround(ctx context.Context, chatID string, limit int, 
 	if target.ChatID != chatID {
 		return nil, sql.ErrNoRows
 	}
+	// Jumping to a picture inside an album lands on the album. A search hit or
+	// a starred row can name a child directly, and the child is not in the
+	// transcript: anchoring on it would pin the window to a row that never
+	// appears in it and leave the jump looking like it did nothing.
+	if parentID := db.albumParentOf(ctx, target); parentID != "" {
+		if target, err = db.GetMessage(ctx, parentID); err != nil {
+			return nil, err
+		}
+	}
 	if limit == 1 {
 		return []Message{target}, nil
 	}
@@ -990,14 +1012,20 @@ func (db *DB) ListMessagesAroundUnread(ctx context.Context, chatID string, limit
 		return nil, "", sql.ErrNoRows
 	}
 
+	// The album exclusion is here for the same reason it is on the transcript:
+	// this walks back unreadCount rows to find the oldest unread one, and a
+	// picture inside an album is neither a row it can land on nor one that
+	// added to the count. Counting them here would push the anchor forward by
+	// the size of every album in the way.
 	var anchorID string
 	err := db.reader().QueryRowContext(ctx, `
-        SELECT id
-        FROM messages
-        WHERE chat_id = ?
-          AND direction = ?
-          AND is_revoked = 0
-        ORDER BY timestamp DESC, rowid DESC
+        SELECT m.id
+        FROM messages m
+        WHERE m.chat_id = ?
+          AND m.direction = ?
+          AND m.is_revoked = 0
+    `+albumChildExclusion+`
+        ORDER BY m.timestamp DESC, m.rowid DESC
         LIMIT 1 OFFSET ?
     `, chatID, DirectionIncoming, unreadCount-1).Scan(&anchorID)
 	if err != nil {
@@ -1025,7 +1053,7 @@ func (db *DB) listMessagesAroundSide(ctx context.Context, chatID string, timesta
 
 	query := messageSelectPrefix + `
 		WHERE m.chat_id = ?
-	` + comparison + `
+	` + albumChildExclusion + comparison + `
 		` + order + `
 		LIMIT ?
 	`

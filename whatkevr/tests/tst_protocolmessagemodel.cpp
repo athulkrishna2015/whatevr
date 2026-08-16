@@ -422,6 +422,17 @@ private Q_SLOTS:
             {QStringLiteral("subject"), QStringLiteral("Wow3")},
         });
 
+        QJsonObject album = message(QStringLiteral("m5"), 1'700'000'004);
+        album.insert(QStringLiteral("kind"), QStringLiteral("album"));
+        album.insert(QStringLiteral("fallback"), QStringLiteral("🖼️ Album: 3 photos"));
+        album.remove(QStringLiteral("text"));
+        album.insert(QStringLiteral("album"), QJsonObject{
+            {QStringLiteral("items"), QJsonArray{QJsonObject{
+                {QStringLiteral("id"), QStringLiteral("m5-p1")},
+                {QStringLiteral("kind"), QStringLiteral("image")},
+            }}},
+        });
+
         // A kind from a newer daemon, whose payload this build has never heard
         // of, must still say something: that is what fallback is for.
         QJsonObject future = message(QStringLiteral("m3"), 1'700'000'002);
@@ -434,12 +445,58 @@ private Q_SLOTS:
         source.onUpsert(QStringLiteral("0002"), location);
         source.onUpsert(QStringLiteral("0003"), future);
         source.onUpsert(QStringLiteral("0004"), invite);
+        source.onUpsert(QStringLiteral("0005"), album);
 
         QCOMPARE(role(model, 0, ProtocolMessageModel::TextRole).toString(), QString());
         QCOMPARE(role(model, 1, ProtocolMessageModel::TextRole).toString(), QString());
         QCOMPARE(role(model, 2, ProtocolMessageModel::TextRole).toString(),
                  QStringLiteral("🪩 Hologram"));
         QCOMPARE(role(model, 3, ProtocolMessageModel::TextRole).toString(), QString());
+        QCOMPARE(role(model, 4, ProtocolMessageModel::TextRole).toString(), QString());
+    }
+
+    // An album's pictures are messages with real ids that occupy no row of
+    // their own, and everything that acts on a message takes an id: the viewer,
+    // Save As, Forward, the context menu. A lookup that only knew about rows
+    // would find nothing for any of them.
+    void aPictureInsideAnAlbumIsStillFoundByItsId()
+    {
+        CollectionViewModel source;
+        ProtocolMessageModel model(&source);
+
+        QJsonObject album = message(QStringLiteral("al-1"), 1'700'000'000);
+        album.insert(QStringLiteral("kind"), QStringLiteral("album"));
+        album.remove(QStringLiteral("text"));
+        album.insert(QStringLiteral("album"), QJsonObject{
+            {QStringLiteral("items"), QJsonArray{QJsonObject{
+                {QStringLiteral("id"), QStringLiteral("al-1-p1")},
+                {QStringLiteral("kind"), QStringLiteral("image")},
+                {QStringLiteral("timestamp"), 1'700'000'001},
+                {QStringLiteral("media"), QJsonObject{
+                    {QStringLiteral("path"), QStringLiteral("/cache/p1.jpg")},
+                    {QStringLiteral("filename"), QStringLiteral("p1.jpg")},
+                    {QStringLiteral("width"), 1200},
+                    {QStringLiteral("height"), 900},
+                }},
+            }}},
+        });
+        source.onUpsert(QStringLiteral("0001"), album);
+
+        const QVariantMap tile = model.messageSnapshot(QStringLiteral("al-1-p1"));
+        QCOMPARE(tile.value(QStringLiteral("messageId")).toString(), QStringLiteral("al-1-p1"));
+        QCOMPARE(tile.value(QStringLiteral("mediaKind")).toString(), QStringLiteral("image"));
+        QCOMPARE(tile.value(QStringLiteral("mediaLocalPath")).toString(),
+                 QStringLiteral("/cache/p1.jpg"));
+        QCOMPARE(tile.value(QStringLiteral("mediaFileName")).toString(), QStringLiteral("p1.jpg"));
+        QCOMPARE(tile.value(QStringLiteral("timestampUnix")).toLongLong(), 1'700'000'001LL);
+
+        // And the album still carries its pictures, which is what lets opening
+        // one of them open the set rather than a lone photo.
+        const QVariantMap set = model.messageSnapshot(QStringLiteral("al-1"));
+        QCOMPARE(set.value(QStringLiteral("album")).toMap()
+                     .value(QStringLiteral("items")).toList().size(), 1);
+
+        QVERIFY(model.messageSnapshot(QStringLiteral("nobody")).isEmpty());
     }
 
     // A caption on a kind that draws itself still belongs to the bubble.

@@ -24,6 +24,30 @@ type MessagePayload struct {
 	Poll        *PollPayload        `json:"poll,omitempty"`
 	GroupInvite *GroupInvitePayload `json:"invite,omitempty"`
 	Event       *EventPayload       `json:"event,omitempty"`
+	Album       *AlbumPayload       `json:"album,omitempty"`
+}
+
+// AlbumPayload is everything an AlbumMessage carries on the wire, which is only
+// how many pictures to expect. The pictures themselves are separate messages
+// pointing back at this one; they are joined from the messages table at read
+// time rather than listed here, because each one keeps its own id, download
+// state and receipts and none of that could survive being snapshotted.
+//
+// The counts are still worth keeping: they are what the sender promised, so a
+// half-arrived album can say it is still filling instead of quietly rendering
+// three of five.
+type AlbumPayload struct {
+	ExpectedImages int `json:"expected_images,omitempty"`
+	ExpectedVideos int `json:"expected_videos,omitempty"`
+}
+
+// Expected is how many pictures the album header promised in total, 0 when it
+// promised nothing.
+func (p *AlbumPayload) Expected() int {
+	if p == nil {
+		return 0
+	}
+	return p.ExpectedImages + p.ExpectedVideos
 }
 
 // EventPayload is a scheduled event's fixed description. The RSVPs are not
@@ -237,5 +261,5 @@ func DecodePayload(raw string) MessagePayload {
 // counts as empty.
 func (p MessagePayload) isZero() bool {
 	return p.Location == nil && p.LiveShare == nil && p.Contacts == nil &&
-		p.Poll == nil && p.GroupInvite == nil && p.Event == nil
+		p.Poll == nil && p.GroupInvite == nil && p.Event == nil && p.Album == nil
 }

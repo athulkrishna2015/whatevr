@@ -1,14 +1,24 @@
 package wa
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/draw"
+	"image/jpeg"
+	_ "image/png"
+	"math"
+	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"go.mau.fi/util/random"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -64,31 +74,39 @@ var rawMessageBuilders = map[string]rawMessageBuilder{
 	"event_rsvp":    buildRawEventRSVP,
 }
 
+// rawSequenceBuilder produces a kind that is not one message. An album is a
+// header plus a message per picture, and the pictures only mean anything
+// alongside it, so the driver has to be able to produce the whole thing: a
+// header sent on its own is exactly the degenerate case, not the feature.
+//
+// It gets the chat because a picture has to be uploaded before it can be sent,
+// and the whole request because a local injection must not touch the network.
+type rawSequenceBuilder func(ctx context.Context, c *Client, chatJID types.JID, req RawSendRequest) ([]*waE2E.Message, error)
+
+var rawSequenceBuilders = map[string]rawSequenceBuilder{
+	"album": buildRawAlbum,
+}
+
 // RawSendKinds lists what the driver can produce, for the tool's help output.
 func RawSendKinds() []string {
-	kinds := make([]string, 0, len(rawMessageBuilders))
+	kinds := make([]string, 0, len(rawMessageBuilders)+len(rawSequenceBuilders))
 	for kind := range rawMessageBuilders {
+		kinds = append(kinds, kind)
+	}
+	for kind := range rawSequenceBuilders {
 		kinds = append(kinds, kind)
 	}
 	return kinds
 }
 
-// SendRawMessage builds one message of the named kind and either injects it
-// locally or really sends it. It returns the internal message id of the row
-// that resulted, so a caller can watch for that exact upsert.
+// SendRawMessage builds the named kind and either injects it locally or really
+// sends it. It returns the internal message id of the row that resulted (the
+// header's, for a kind that is several messages), so a caller can watch for
+// that exact upsert.
 func (c *Client) SendRawMessage(ctx context.Context, req RawSendRequest) (string, error) {
-	build, ok := rawMessageBuilders[req.Kind]
-	if !ok {
-		return "", app.NewCommandError(app.CommandErrorInvalidArgument, "no raw builder for kind %q", req.Kind)
-	}
-
 	client := c.currentClient()
 	if client == nil || !client.IsLoggedIn() {
 		return "", app.NewCommandError(app.CommandErrorNotLoggedIn, "not logged in")
-	}
-	message, err := build(ctx, c, req.Params)
-	if err != nil {
-		return "", app.NewCommandError(app.CommandErrorInvalidArgument, "build %s: %v", req.Kind, err)
 	}
 	chatJID, err := types.ParseJID(req.ChatID)
 	if err != nil {
@@ -96,9 +114,49 @@ func (c *Client) SendRawMessage(ctx context.Context, req RawSendRequest) (string
 	}
 	chatJID = c.normalizeJIDForChat(ctx, chatJID)
 
+	var messages []*waE2E.Message
+	switch {
+	case rawMessageBuilders[req.Kind] != nil:
+		message, err := rawMessageBuilders[req.Kind](ctx, c, req.Params)
+		if err != nil {
+			return "", app.NewCommandError(app.CommandErrorInvalidArgument, "build %s: %v", req.Kind, err)
+		}
+		messages = []*waE2E.Message{message}
+	case rawSequenceBuilders[req.Kind] != nil:
+		messages, err = rawSequenceBuilders[req.Kind](ctx, c, chatJID, req)
+		if err != nil {
+			return "", app.NewCommandError(app.CommandErrorInvalidArgument, "build %s: %v", req.Kind, err)
+		}
+	default:
+		return "", app.NewCommandError(app.CommandErrorInvalidArgument, "no raw builder for kind %q", req.Kind)
+	}
+
+	fromMe := !req.Local && !req.Incoming
+	headerID := ""
+	for i, message := range messages {
+		// Every message after the first is part of the first: an album's
+		// pictures name their header, and the header's id only exists once it
+		// has been generated. Filling the association in here rather than in
+		// the builder is what lets the builder stay a pure description.
+		if i > 0 {
+			linkToRawParent(message, chatJID, messages[0], headerID, fromMe, i-1)
+		}
+		id, err := c.deliverRawMessage(ctx, client, chatJID, message, req, fromMe)
+		if err != nil {
+			return "", err
+		}
+		if i == 0 {
+			headerID = id
+		}
+	}
+	return internalMessageIDForChat(chatJID.String(), types.MessageID(headerID)), nil
+}
+
+// deliverRawMessage sends one built message (or skips the network in local
+// mode) and runs it through the real inbound handler, returning its id.
+func (c *Client) deliverRawMessage(ctx context.Context, client *whatsmeow.Client, chatJID types.JID, message *waE2E.Message, req RawSendRequest, fromMe bool) (string, error) {
 	messageID := client.GenerateMessageID()
 	sentAt := time.Now()
-	fromMe := !req.Local && !req.Incoming
 
 	if !req.Local {
 		resp, err := client.SendMessage(ctx, chatJID, message, whatsmeow.SendRequestExtra{ID: messageID})
@@ -133,7 +191,27 @@ func (c *Client) SendRawMessage(ctx context.Context, req RawSendRequest) (string
 	c.storeBackfilledMessageSecret(ctx, evt)
 
 	c.handleMessage(ctx, evt, false)
-	return internalMessageIDForChat(chatJID.String(), messageID), nil
+	return string(messageID), nil
+}
+
+// linkToRawParent points a follower at the message it belongs to, which for an
+// album is the header its pictures hang off.
+func linkToRawParent(message *waE2E.Message, chatJID types.JID, parent *waE2E.Message, parentID string, fromMe bool, index int) {
+	if parent.GetAlbumMessage() == nil || parentID == "" {
+		return
+	}
+	if message.MessageContextInfo == nil {
+		message.MessageContextInfo = &waE2E.MessageContextInfo{}
+	}
+	message.MessageContextInfo.MessageAssociation = &waE2E.MessageAssociation{
+		AssociationType: waE2E.MessageAssociation_MEDIA_ALBUM.Enum(),
+		ParentMessageKey: &waCommon.MessageKey{
+			RemoteJID: ptrTo(chatJID.String()),
+			FromMe:    &fromMe,
+			ID:        &parentID,
+		},
+		MessageIndex: ptrTo(int32(index)),
+	}
 }
 
 // rawSendSender picks a plausible sender for the injected event: ourselves for
@@ -524,6 +602,157 @@ func buildRawEventRSVP(ctx context.Context, c *Client, params json.RawMessage) (
 		TimestampMS:     ptrTo(time.Now().UnixMilli()),
 		ExtraGuestCount: &p.ExtraGuests,
 	})
+}
+
+// buildRawAlbum produces a whole album: the header, then one picture per tile
+// naming it.
+//
+// Pictures are generated rather than required, because the thing being tested
+// is the mosaic and a mosaic needs tiles of different shapes to be worth
+// looking at. Give it `images` to send real files instead.
+func buildRawAlbum(ctx context.Context, c *Client, chatJID types.JID, req RawSendRequest) ([]*waE2E.Message, error) {
+	var p struct {
+		// Count is how many pictures to generate when none are given.
+		Count int `json:"count"`
+		// Images are local file paths to send as the tiles.
+		Images []string `json:"images"`
+		// Captions run alongside the tiles; a short list leaves the rest bare.
+		Captions []string `json:"captions"`
+		// Short claims more pictures than are sent, so a half-arrived album can
+		// be looked at without racing the network to catch one.
+		Short int `json:"short"`
+	}
+	if err := decodeRawParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if p.Count <= 0 {
+		p.Count = len(p.Images)
+	}
+	if p.Count <= 0 {
+		p.Count = 4
+	}
+
+	pictures := make([][]byte, 0, p.Count)
+	for i := range p.Count {
+		if i < len(p.Images) {
+			data, err := os.ReadFile(p.Images[i])
+			if err != nil {
+				return nil, fmt.Errorf("read %s: %w", p.Images[i], err)
+			}
+			pictures = append(pictures, data)
+			continue
+		}
+		data, err := generateTestPicture(i, p.Count)
+		if err != nil {
+			return nil, err
+		}
+		pictures = append(pictures, data)
+	}
+
+	messages := make([]*waE2E.Message, 0, len(pictures)+1)
+	messages = append(messages, &waE2E.Message{AlbumMessage: &waE2E.AlbumMessage{
+		ExpectedImageCount: ptrTo(uint32(len(pictures) + p.Short)),
+	}})
+	for i, data := range pictures {
+		caption := ""
+		if i < len(p.Captions) {
+			caption = p.Captions[i]
+		}
+		image, err := c.buildRawImage(ctx, data, caption, req.Local)
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, image)
+	}
+	return messages, nil
+}
+
+// buildRawImage wraps picture bytes as an ImageMessage. A local injection
+// cannot upload, so it carries the picture as its inline thumbnail and nothing
+// to download, which is enough to look at a layout offline; a real send uploads
+// and produces a genuine image the other handset can open.
+func (c *Client) buildRawImage(ctx context.Context, data []byte, caption string, local bool) (*waE2E.Message, error) {
+	config, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("decode picture: %w", err)
+	}
+	picture := &waE2E.ImageMessage{
+		Caption:       ptrTo(caption),
+		Mimetype:      ptrTo(http.DetectContentType(data)),
+		Width:         ptrTo(uint32(config.Width)),
+		Height:        ptrTo(uint32(config.Height)),
+		JPEGThumbnail: outgoingImageThumbnail(data),
+	}
+	if local {
+		return &waE2E.Message{ImageMessage: picture}, nil
+	}
+
+	client := c.currentClient()
+	if client == nil {
+		return nil, fmt.Errorf("not connected")
+	}
+	resp, err := client.Upload(ctx, data, whatsmeow.MediaImage)
+	if err != nil {
+		return nil, fmt.Errorf("upload picture: %w", err)
+	}
+	picture.URL = &resp.URL
+	picture.DirectPath = &resp.DirectPath
+	picture.MediaKey = resp.MediaKey
+	picture.FileEncSHA256 = resp.FileEncSHA256
+	picture.FileSHA256 = resp.FileSHA256
+	picture.FileLength = &resp.FileLength
+	return &waE2E.Message{ImageMessage: picture}, nil
+}
+
+// generateTestPicture draws tile n of a set: a flat block of colour with a
+// circle centred in it, in a shape that differs from its neighbours.
+//
+// Flat and geometric on purpose. The first version shaded each picture from top
+// to bottom, and in a mosaic that read as a vignette the app was drawing on
+// every tile, which is exactly the kind of thing a test picture must never
+// invent. A circle answers the same question honestly: it is only round when
+// the tile's aspect ratio survived, and an oval says the crop is wrong.
+func generateTestPicture(n, total int) ([]byte, error) {
+	shapes := [][2]int{{1200, 900}, {900, 1200}, {1000, 1000}, {1400, 700}}
+	shape := shapes[n%len(shapes)]
+	width, height := shape[0], shape[1]
+	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
+
+	// A hue per tile, spread over the circle so no two adjacent tiles are close.
+	hue := float64(n) / float64(max(total, 1))
+	base := color.RGBA{
+		R: uint8(127 + 127*math.Sin(2*math.Pi*hue)),
+		G: uint8(127 + 127*math.Sin(2*math.Pi*(hue+1.0/3))),
+		B: uint8(127 + 127*math.Sin(2*math.Pi*(hue+2.0/3))),
+		A: 255,
+	}
+	draw.Draw(canvas, canvas.Bounds(), &image.Uniform{base}, image.Point{}, draw.Src)
+
+	centerX, centerY := float64(width)/2, float64(height)/2
+	radius := math.Min(centerX, centerY) * 0.6
+	ring := color.RGBA{R: 20, G: 20, B: 24, A: 255}
+	for y := range height {
+		for x := range width {
+			dx, dy := float64(x)-centerX, float64(y)-centerY
+			distance := math.Hypot(dx, dy)
+			// A ring rather than a disc, so the colour stays legible through it.
+			if distance > radius*0.86 && distance < radius {
+				canvas.Set(x, y, ring)
+			}
+		}
+	}
+	// A bar under the ring whose length counts the tile: enough to tell tile 3
+	// from tile 4 without rendering text.
+	barWidth := int(radius * 0.28 * float64(n+1))
+	bar := image.Rect(width/2-barWidth/2, int(centerY+radius*1.25),
+		width/2+barWidth/2, int(centerY+radius*1.25)+int(radius*0.12))
+	draw.Draw(canvas, bar, &image.Uniform{ring}, image.Point{}, draw.Src)
+
+	var out bytes.Buffer
+	if err := jpeg.Encode(&out, canvas, &jpeg.Options{Quality: 85}); err != nil {
+		return nil, fmt.Errorf("encode picture: %w", err)
+	}
+	return out.Bytes(), nil
 }
 
 func decodeRawParams(params json.RawMessage, out any) error {

@@ -104,6 +104,9 @@ public:
         // `event` as the parameter of its key handlers, and a role by that
         // name would be silently shadowed inside them.
         EventRole,
+        // An album's pictures, as whole message items. The daemon grouped
+        // them; this model does not merge, sort or dedupe anything (rule 3).
+        AlbumRole,
     };
     Q_ENUM(Role)
 
@@ -185,6 +188,10 @@ private:
     void emitNeighbourRolesChanged(int first, int last);
     void invalidateTransferRoles();
     void invalidateRowCache() const;
+    // Both take a wire item rather than a row, because an album's pictures are
+    // real messages with real ids that occupy no row of their own.
+    [[nodiscard]] QVariantMap snapshotOfItem(const QVariantMap &item, const QString &messageId) const;
+    [[nodiscard]] double downloadProgress(const QVariantMap &item) const;
 
     // Decoded view of one row. QML reads a row's ~45 roles back to back, and
     // each read used to re-decode the item map plus its nested sender, media

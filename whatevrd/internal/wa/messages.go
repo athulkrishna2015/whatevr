@@ -696,11 +696,18 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 		if opts.source == sourceLive {
 			message := toDaemonMessage(saved.Message)
 			chat := toDaemonChat(saved.Chat)
-			c.daemon.PublishNewMessage(message, chat)
-			c.clearComposingAfterLiveIncomingMessage(message)
-			if c.notifier != nil && c.shouldNotifyLiveMessage(message, chat, mediaInput.CountUnread) {
-				if opts, enabled := c.notificationOptions(); enabled {
-					c.notifyWithAvatar(ctx, message, chat, opts)
+			// A picture that landed inside an album is not a new message on
+			// screen: the album is, and it grew. Announcing the child would
+			// name a row no window holds, and notifying for it would ring five
+			// times for one thing somebody sent. A child whose header never
+			// arrived is not grouped by anything and takes the ordinary path.
+			if !c.publishAlbumChild(ctx, saved.Message) {
+				c.daemon.PublishNewMessage(message, chat)
+				c.clearComposingAfterLiveIncomingMessage(message)
+				if c.notifier != nil && c.shouldNotifyLiveMessage(message, chat, mediaInput.CountUnread) {
+					if opts, enabled := c.notificationOptions(); enabled {
+						c.notifyWithAvatar(ctx, message, chat, opts)
+					}
 				}
 			}
 			// Media is no longer downloaded eagerly on receipt. The frontend
@@ -738,7 +745,20 @@ func notificationTimestampFresh(timestampUnix int64, now time.Time) bool {
 	return now.Sub(time.Unix(timestampUnix, 0)) <= liveNotificationMaxAge
 }
 
+// mediaMessageInput picks the row shape for whatever this message turns out to
+// be, then tags it with the album that owns it. History sync calls this
+// directly, so anything that belongs to every media kind belongs here rather
+// than in the ingest path above it.
 func (c *Client) mediaMessageInput(ctx context.Context, evt *events.Message, opts ingestOptions) (appstore.MediaMessageInput, bool) {
+	input, ok := c.mediaMessageInputForKind(ctx, evt, opts)
+	if !ok {
+		return input, false
+	}
+	applyAlbumAssociation(&input, evt.Message)
+	return input, true
+}
+
+func (c *Client) mediaMessageInputForKind(ctx context.Context, evt *events.Message, opts ingestOptions) (appstore.MediaMessageInput, bool) {
 	if input, ok := c.imageMessageInput(ctx, evt, opts); ok {
 		return input, true
 	}
@@ -767,6 +787,9 @@ func (c *Client) mediaMessageInput(ctx context.Context, evt *events.Message, opt
 		return input, true
 	}
 	if input, ok := c.eventMessageInput(ctx, evt, opts); ok {
+		return input, true
+	}
+	if input, ok := c.albumMessageInput(ctx, evt, opts); ok {
 		return input, true
 	}
 	return c.unsupportedMessageInput(ctx, evt, opts)
@@ -1387,6 +1410,9 @@ func contextInfoFromMessage(message *waE2E.Message) *waE2E.ContextInfo {
 	if event := message.GetEventMessage(); event != nil {
 		return event.GetContextInfo()
 	}
+	if album := message.GetAlbumMessage(); album != nil {
+		return album.GetContextInfo()
+	}
 	return nil
 }
 
@@ -1526,6 +1552,12 @@ func quotedReplyPreview(message *waE2E.Message) (string, string, string) {
 	}
 	if event := message.GetEventMessage(); event != nil {
 		return eventSummary(event), appstore.MediaKindEvent, ""
+	}
+	if album := message.GetAlbumMessage(); album != nil {
+		return albumSummary(&appstore.AlbumPayload{
+			ExpectedImages: int(album.GetExpectedImageCount()),
+			ExpectedVideos: int(album.GetExpectedVideoCount()),
+		}), appstore.MediaKindAlbum, ""
 	}
 	return "", "", ""
 }

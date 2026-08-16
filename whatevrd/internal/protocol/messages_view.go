@@ -155,14 +155,23 @@ func (v messagesView) resolveAnchor(ctx context.Context, p messagesParams) (stri
 	default:
 		// Any other value is a message-id anchor. Validate it belongs to this
 		// chat by fetching the smallest possible window around it.
-		if _, err := v.lister.ListMessagesAround(ctx, p.ChatID, 1, p.Anchor); err != nil {
+		window, err := v.lister.ListMessagesAround(ctx, p.ChatID, 1, p.Anchor)
+		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return "", nil, errorf(CodeNotFound, "no message %q in chat %q", p.Anchor, p.ChatID)
 			}
 			log.Printf("protocol: messages anchor %q: %v", p.Anchor, err)
 			return "", nil, errorf(CodeInternal, "resolve message anchor")
 		}
-		return p.Anchor, map[string]any{"anchor_id": p.Anchor}, nil
+		// The anchor comes back from that window rather than from the request,
+		// because the store redirects an id the transcript does not show to the
+		// row that does show it: asking for a picture inside an album anchors
+		// the album. `anchor_id` then says where the jump actually landed.
+		anchorID := p.Anchor
+		if len(window) > 0 && window[0].ID != "" {
+			anchorID = window[0].ID
+		}
+		return anchorID, map[string]any{"anchor_id": anchorID}, nil
 	}
 }
 
@@ -348,7 +357,7 @@ func (s *latestMessagesSession) Items(max int) []Item {
 	s.noteAvatarSubjects(msgs)
 	items := make([]Item, 0, len(msgs))
 	for _, m := range msgs {
-		items = append(items, messageWireItem(m, s.isDownloading(m.ID)))
+		items = append(items, messageWireItem(m, s.isDownloading))
 	}
 	return items
 }
@@ -476,7 +485,7 @@ func (s *anchoredMessagesSession) Items(int) []Item {
 
 	items := make([]Item, 0, len(window))
 	for _, m := range window {
-		items = append(items, messageWireItem(m, s.isDownloading(m.ID)))
+		items = append(items, messageWireItem(m, s.isDownloading))
 	}
 	return items
 }
@@ -485,10 +494,22 @@ func (s *anchoredMessagesSession) Items(int) []Item {
 // ascending timestamp sort key (render order), and the wire shape. `downloading`
 // is the one field that is not store state: it is live daemon memory, folded in
 // here so a row's fetch state and its path can never disagree.
-func messageWireItem(m store.Message, downloading bool) Item {
+//
+// It is asked per id rather than passed as one bool because an album's tiles
+// are messages too, each with a fetch of its own: one tile's progress ring must
+// not be another's.
+func messageWireItem(m store.Message, downloading func(id string) bool) Item {
 	item := messageItemFromStore(m)
-	if downloading && item.Media != nil {
+	if item.Media != nil && downloading(m.ID) {
 		item.Media.Downloading = true
+	}
+	if item.Album != nil {
+		for i := range item.Album.Items {
+			tile := &item.Album.Items[i]
+			if tile.Media != nil && downloading(tile.ID) {
+				tile.Media.Downloading = true
+			}
+		}
 	}
 	return Item{ID: m.ID, Sort: messageSort(m), Data: item}
 }
@@ -567,6 +588,21 @@ type messageItem struct {
 	// answers are joined from a real table at read time rather than
 	// snapshotted, so they are never stale.
 	Event *messageEvent `json:"event,omitempty"`
+	// Album is several pictures sent as one thing. Its items are whole message
+	// items, so a tile keeps its own id, its own media object and its own
+	// download state, and a frontend renders a tile with the code it already
+	// has for a photo. The grouping is the daemon's: a frontend never sees the
+	// children as separate rows and never has to merge them (rule 3).
+	Album *messageAlbum `json:"album,omitempty"`
+}
+
+// messageAlbum is a group of pictures sent together.
+type messageAlbum struct {
+	// Expected is how many pictures the sender said were coming. It can exceed
+	// len(items) while an album is still arriving, or forever if one never did,
+	// and that difference is worth showing rather than hiding.
+	Expected int           `json:"expected,omitempty"`
+	Items    []messageItem `json:"items"`
 }
 
 // messageEvent is a scheduled event and who has said they are coming.
@@ -777,7 +813,26 @@ func attachMessagePayload(item *messageItem, m store.Message) {
 		item.Invite = payload.GroupInvite
 	case store.MediaKindEvent:
 		item.Event = messageEventFromStore(m, payload.Event)
+	case store.MediaKindAlbum:
+		item.Album = messageAlbumFromStore(m, payload.Album)
 	}
+}
+
+// messageAlbumFromStore projects an album's children into the wire item that
+// carries them. Each child goes through the same builder the transcript uses,
+// so a tile is a message item in every respect and nothing about a photo has to
+// be reimplemented for the version of it that lives inside an album.
+func messageAlbumFromStore(m store.Message, payload *store.AlbumPayload) *messageAlbum {
+	album := &messageAlbum{Expected: payload.Expected(), Items: []messageItem{}}
+	for _, child := range m.Album {
+		album.Items = append(album.Items, messageItemFromStore(child))
+	}
+	// An album whose children all arrived describes itself by what it holds. The
+	// promise only stays interesting while it is unkept.
+	if album.Expected <= len(album.Items) {
+		album.Expected = 0
+	}
+	return album
 }
 
 // messagePollFromStore joins a poll's fixed settings with the tally the store

@@ -75,6 +75,8 @@ Item {
                 return groupInviteCard
             case "event":
                 return eventCard
+            case "album":
+                return albumCard
             default:
                 return null
             }
@@ -117,6 +119,14 @@ Item {
         id: eventCard
 
         EventBubble {
+            row: root.row
+        }
+    }
+
+    Component {
+        id: albumCard
+
+        AlbumBubble {
             row: root.row
         }
     }

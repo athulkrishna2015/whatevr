@@ -103,6 +103,7 @@ QVariantMap baseProps()
         {QStringLiteral("poll"), QVariantMap()},
         {QStringLiteral("invite"), QVariantMap()},
         {QStringLiteral("eventInfo"), QVariantMap()},
+        {QStringLiteral("album"), QVariantMap()},
         {QStringLiteral("isRevoked"), false},
         {QStringLiteral("isEdited"), false},
         {QStringLiteral("isStarred"), false},
@@ -207,6 +208,7 @@ private Q_SLOTS:
     void pollVotersDialogReadsTheVotesBothWays();
     void groupInviteCardAnswersWhereYouAlreadyStand();
     void eventCardShowsWhoIsComingAndAnswersOnTheTap();
+    void albumMosaicTilesTheWholeWidthWithoutOverlapping();
 
 private:
     QQuickWindow *m_window = nullptr;
@@ -1139,6 +1141,119 @@ void ChatBubblePerf::eventCardShowsWhoIsComingAndAnswersOnTheTap()
 
     m_window->hide();
     bubbleItem->setParentItem(nullptr);
+}
+
+// A mosaic has one job the eye checks instantly: no gaps, no overlaps, and
+// nothing sticking out past the bubble. The layout is arithmetic over rounded
+// pixels, which is exactly the kind of thing that is a pixel off in one of the
+// five shapes and nowhere else, so all five are asked.
+void ChatBubblePerf::albumMosaicTilesTheWholeWidthWithoutOverlapping()
+{
+    for (int count : {2, 3, 4, 5, 9}) {
+        QVariantList tiles;
+        for (int i = 0; i < count; ++i) {
+            tiles.append(QVariantMap{
+                {QStringLiteral("id"), QStringLiteral("al-1-p%1").arg(i)},
+                {QStringLiteral("kind"), QStringLiteral("image")},
+                {QStringLiteral("media"),
+                 QVariantMap{{QStringLiteral("thumbnail_path"), QString()},
+                             {QStringLiteral("width"), 1200},
+                             {QStringLiteral("height"), 900}}},
+            });
+        }
+        const QVariantMap album{{QStringLiteral("items"), tiles}};
+        const QVariantMap props =
+            withProps(baseProps(), {{QStringLiteral("messageId"), QStringLiteral("al-1")},
+                                    {QStringLiteral("mediaKind"), QStringLiteral("album")},
+                                    {QStringLiteral("album"), album}});
+
+        QQmlComponent component(
+            m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/ChatBubble.qml")));
+        QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+        std::unique_ptr<QObject> bubble(component.createWithInitialProperties(props));
+        QVERIFY2(bubble, qPrintable(component.errorString()));
+        auto *bubbleItem = qobject_cast<QQuickItem *>(bubble.get());
+        bubbleItem->setParentItem(m_window->contentItem());
+        m_window->show();
+        QVERIFY(QTest::qWaitForWindowExposed(m_window));
+
+        QQuickItem *mosaic = findVisualChild(bubbleItem, QStringLiteral("albumBubble"));
+        QVERIFY2(mosaic, "an album row drew no mosaic");
+        QTRY_VERIFY(mosaic->width() > 0 && mosaic->height() > 0);
+
+        // Past six pictures the mosaic stops at six and the last cell counts
+        // the rest, so a forty-picture album is not forty rows tall.
+        const int cells = mosaic->property("cellCount").toInt();
+        QCOMPARE(cells, std::min(count, 6));
+        if (count > 6) {
+            QCOMPARE(mosaic->property("overflow").toInt(), count - 6);
+        }
+
+        QList<QRectF> rects;
+        const QVariantList raw = mosaic->property("rects").toList();
+        QCOMPARE(raw.size(), cells);
+        for (const QVariant &entry : raw) {
+            const QVariantMap cell = entry.toMap();
+            rects.append(QRectF(cell.value(QStringLiteral("x")).toReal(),
+                                cell.value(QStringLiteral("y")).toReal(),
+                                cell.value(QStringLiteral("w")).toReal(),
+                                cell.value(QStringLiteral("h")).toReal()));
+        }
+
+        const QString shape = QStringLiteral("%1 pictures").arg(count);
+        qreal widest = 0;
+        for (int i = 0; i < rects.size(); ++i) {
+            QVERIFY2(rects.at(i).width() > 0 && rects.at(i).height() > 0,
+                     qPrintable(shape + QStringLiteral(": a cell has no area")));
+            QVERIFY2(rects.at(i).right() <= mosaic->width() + 0.5,
+                     qPrintable(shape + QStringLiteral(": a cell runs past the mosaic")));
+            widest = std::max(widest, rects.at(i).right());
+            for (int j = i + 1; j < rects.size(); ++j) {
+                QVERIFY2(!rects.at(i).intersects(rects.at(j)),
+                         qPrintable(shape + QStringLiteral(": cells %1 and %2 overlap")
+                                                .arg(i)
+                                                .arg(j)));
+            }
+        }
+        // The mosaic fills the width it was given: a shape that stops short
+        // leaves a stripe of wallpaper down one side of the bubble.
+        QVERIFY2(widest >= mosaic->width() - 0.5,
+                 qPrintable(shape + QStringLiteral(": the mosaic is %1 wide but only fills %2")
+                                        .arg(mosaic->width())
+                                        .arg(widest)));
+        // And the card reports exactly what it drew, which is the height half
+        // of the contract with the row.
+        qreal bottom = 0;
+        for (const QRectF &rect : std::as_const(rects)) {
+            bottom = std::max(bottom, rect.bottom());
+        }
+        QVERIFY2(qAbs(mosaic->height() - bottom) < 0.5,
+                 qPrintable(shape + QStringLiteral(": mosaic is %1 tall for %2 of tiles")
+                                        .arg(mosaic->height())
+                                        .arg(bottom)));
+
+        // The time and ticks sit on the mosaic, so they get what they get on a
+        // photo: one scrim across the bottom of the whole thing and the same
+        // inset from its corner. Flush in the corner with no scrim was a grey
+        // timestamp on whatever the last picture happened to be.
+        QVERIFY2(bubbleItem->property("footerOverPicture").toBool(),
+                 "an album's footer does not know it is sitting on a picture");
+        QQuickItem *footer = findVisualChild(bubbleItem, QStringLiteral("chatBubble.footerSlot"));
+        QVERIFY(footer);
+        const qreal inset = bubbleItem->property("footerInset").toReal();
+        QVERIFY(inset > 0);
+        const QPointF footerEnd =
+            footer->mapToItem(mosaic, QPointF(footer->width(), footer->height()));
+        QVERIFY2(qAbs(mosaic->width() - footerEnd.x() - inset) < 0.5,
+                 qPrintable(shape + QStringLiteral(": footer ends %1 from the mosaic's right edge")
+                                        .arg(mosaic->width() - footerEnd.x())));
+        QVERIFY2(qAbs(mosaic->height() - footerEnd.y() - inset) < 0.5,
+                 qPrintable(shape + QStringLiteral(": footer ends %1 from the mosaic's bottom")
+                                        .arg(mosaic->height() - footerEnd.y())));
+
+        m_window->hide();
+        bubbleItem->setParentItem(nullptr);
+    }
 }
 
 int main(int argc, char *argv[])

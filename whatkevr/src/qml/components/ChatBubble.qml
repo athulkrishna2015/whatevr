@@ -64,6 +64,7 @@ Item {
     required property var poll
     required property var invite
     required property var eventInfo
+    required property var album
     required property bool isRevoked
     required property bool isEdited
     required property bool isStarred
@@ -172,6 +173,11 @@ Item {
     // the second the inline copy had reached, so opening full screen continues
     // a clip instead of restarting it.
     signal videoActivated(string messageId, string localPath, string streamUrl, string streamId, string kind, int durationSecs, real startAt)
+    // A tile in an album was clicked. It carries the album rather than the
+    // picture, because opening one picture out of a set that was sent together
+    // and giving no way to reach the rest is the wrong thing: the viewer takes
+    // the whole album and starts at this index.
+    signal albumItemActivated(string albumMessageId, int index)
     // An @-mention link was clicked: open contact info for the JID, or the
     // group info dialog for an @all / @everyone mention.
     signal mentionClicked(string jid)
@@ -273,7 +279,11 @@ Item {
     readonly property bool isPoll: mediaKind === "poll"
     readonly property bool isGroupInvite: mediaKind === "group_invite"
     readonly property bool isEvent: mediaKind === "event"
-    readonly property bool isCardBlock: isLocation || isLiveLocation || isContactCard || isPoll || isGroupInvite || isEvent
+    // An album is a card by the same contract as the rest: the row hands it a
+    // width and reads back a height. It is not an image block, because the row
+    // has no picture of its own to be sized by; its pictures are its children.
+    readonly property bool isAlbum: mediaKind === "album"
+    readonly property bool isCardBlock: isLocation || isLiveLocation || isContactCard || isPoll || isGroupInvite || isEvent || isAlbum
     readonly property bool isAttachmentBlock: isVoice || isAudioFile || isDocument || isCardBlock
     // Real message whose payload the app can't render yet (document, voice
     // note, poll, ...). The daemon puts a short label in the body text; the
@@ -743,8 +753,15 @@ Item {
     // undownloaded photo is an empty plate with a "Load image" button on it, and
     // white-on-nothing under a scrim is neither readable nor honest about what
     // is there.
-    readonly property bool footerOverArtwork: imageOnly && mediaArtworkShown
+    readonly property bool footerOverArtwork: footerOverPicture && mediaArtworkShown
 
+    // Rows whose time and ticks land on a picture rather than on a plate. An
+    // album is one of them without being `imageOnly`: that flag means media
+    // that drives the bubble's width and runs edge to edge, which a mosaic
+    // does not, but the footer still sits on artwork and still needs the scrim
+    // under it and the light tones on it. One vignette across the bottom of the
+    // whole mosaic, not one per tile: the tiles are one picture cut up.
+    readonly property bool footerOverPicture: imageOnly || isAlbum
     // Footer (time + ticks) colours. Over the image-only vignette they switch to
     // light tones for contrast; otherwise the muted theme colours are used.
     //
@@ -1374,7 +1391,7 @@ Item {
                 // transparent part of the gradient.
                 Loader {
                     anchors.fill: parent
-                    active: mediaSlot.visible && root.imageOnly
+                    active: mediaSlot.visible && root.footerOverPicture
 
                     sourceComponent: Rectangle {
                         anchors.left: parent.left
@@ -1387,7 +1404,12 @@ Item {
                         // visible grey a third of the way up the picture, where
                         // there is nothing to make legible.
                         height: Math.min(parent.height, root.tntHeight + root.footerInset * 2)
-                        radius: Math.max(root.mediaBottomLeftRadius, root.mediaBottomRightRadius)
+                        // A mosaic keeps its own corners: the bubble's media
+                        // radii are the edge-to-edge ones and are zero for a
+                        // card, which would square off the bottom of an album.
+                        radius: root.isAlbum
+                            ? root.bubbleCornerRadius
+                            : Math.max(root.mediaBottomLeftRadius, root.mediaBottomRightRadius)
                         // Faded rather than unloaded: `active` above stays keyed
                         // on the kind, so a decode (or a re-decode after a fling
                         // settles) never tears this down and builds it again.
@@ -1695,7 +1717,7 @@ Item {
                 // vignette). Otherwise sit at the right inner edge, inline with
                 // the last text line or on its own row.
                 x: {
-                    if (root.imageOnly) {
+                    if (root.footerOverPicture) {
                         return mediaSlot.x + mediaSlot.width - width - root.footerInset
                     }
                     // Flush with the block's own right edge rather than the
@@ -1706,7 +1728,7 @@ Item {
                     return Math.max(0, parent.width - root.footerInset - width)
                 }
                 y: {
-                    if (root.imageOnly) {
+                    if (root.footerOverPicture) {
                         return mediaSlot.y + mediaSlot.height - height - root.footerInset
                     }
                     if (root.tntFitsInAttachment) {

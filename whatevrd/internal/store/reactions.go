@@ -35,7 +35,10 @@ func (db *DB) attachMessageExtras(ctx context.Context, q reactionQueryer, messag
 	if err := attachPolls(ctx, q, messages, selfJID); err != nil {
 		return err
 	}
-	return attachEvents(ctx, q, messages, selfJID)
+	if err := attachEvents(ctx, q, messages, selfJID); err != nil {
+		return err
+	}
+	return attachAlbums(ctx, q, messages)
 }
 
 // attachMessageExtrasOne is the same for a single message.
@@ -47,6 +50,7 @@ func (db *DB) attachMessageExtrasOne(ctx context.Context, q reactionQueryer, mes
 	message.Reactions = batch[0].Reactions
 	message.Poll = batch[0].Poll
 	message.Event = batch[0].Event
+	message.Album = batch[0].Album
 	return nil
 }
 

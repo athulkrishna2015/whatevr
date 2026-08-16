@@ -122,6 +122,7 @@ set(WHATKEVR_QML_FILES
         qml/components/ChatBubble.qml
     qml/components/ChatMediaGalleryPage.qml
     qml/components/DocumentBubble.qml
+    qml/components/AlbumBubble.qml
     qml/components/CardBubble.qml
     qml/components/ContactCardBubble.qml
     qml/components/CardActionButton.qml

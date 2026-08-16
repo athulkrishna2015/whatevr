@@ -132,6 +132,9 @@ Item {
     signal imageViewRequested(string messageId, string localPath)
     /// A video, GIF or video note asked to open full screen.
     signal videoViewRequested(string messageId, string localPath, string streamUrl, string streamId, string kind, int durationSecs, real startAt)
+    /// A picture in an album asked to open full screen, with the album behind
+    /// it so the viewer can walk the rest of the set.
+    signal albumViewRequested(string albumMessageId, int index)
 
     onLoadingOlderMessagesChanged: {
         if (loadingOlderMessages) {
@@ -1670,6 +1673,7 @@ Item {
             onReadMoreRequested: messageId => root.openMessageContent(messageId)
             onImageActivated: (messageId, localPath) => root.imageViewRequested(messageId, localPath)
             onVideoActivated: (messageId, localPath, streamUrl, streamId, kind, durationSecs, startAt) => root.videoViewRequested(messageId, localPath, streamUrl, streamId, kind, durationSecs, startAt)
+            onAlbumItemActivated: (albumMessageId, index) => root.albumViewRequested(albumMessageId, index)
             onMentionClicked: jid => root.mentionClicked(jid)
             onMentionAllClicked: root.mentionAllClicked()
             onContextMenuRequested: (posX, posY) => root.openContextMenu(messageDelegate, posX, posY)
