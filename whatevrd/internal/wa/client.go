@@ -150,6 +150,11 @@ type Client struct {
 	// concurrent update.
 	appPrefsMu sync.Mutex
 	appPrefs   atomic.Pointer[app.AppPreferences]
+
+	// maps draws the map behind a shared location. Its tile cache is shared by
+	// every location anywhere near another one, which in practice is most of
+	// them.
+	maps *mapFetcher
 }
 
 type frontendSession struct {
@@ -217,6 +222,7 @@ func New(ctx context.Context, paths app.Paths, daemon *app.Daemon, store *appsto
 	}
 	c.stickerDownloadSem = make(chan struct{}, stickerDownloadConcurrency)
 	c.loadAppPreferences(ctx)
+	c.maps = newMapFetcher(paths.MediaCacheDir, MapUserAgent, mapTileURLTemplate(ctx, store))
 
 	storeLog := log.Sub("Store")
 	store.SetSlowOpLogger(func(op string, d time.Duration) {
@@ -240,6 +246,7 @@ func (c *Client) Start(ctx context.Context) {
 	c.startRunGoroutine(func() { c.runSendQueue(runCtx) })
 	c.startRunGoroutine(func() { c.runVideoPosterWorker(runCtx) })
 	c.startRunGoroutine(c.repairCachedWebPAlphaFlags)
+	c.startRunGoroutine(func() { c.runLiveLocationSweeper(runCtx) })
 	c.startAvatarWorker(runCtx)
 }
 

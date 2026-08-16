@@ -55,6 +55,11 @@ Item {
     // bytes behind them.
     required property bool hasMedia
     required property bool isKept
+    // Kind-specific payloads, empty maps on rows of another kind. One `var` per
+    // family rather than a role per field: the bubble that renders a kind is the
+    // only thing that reads its payload.
+    required property var location
+    required property var liveShare
     required property bool isRevoked
     required property bool isEdited
     required property bool isStarred
@@ -241,13 +246,24 @@ Item {
     // still say image/gif, and deriving this from mime alone built the image
     // stack and the video stack on top of each other, two download buttons
     // included.
-    readonly property bool isImage: !isPlayableVideo && !isSticker && mediaMimeType.startsWith("image/")
+    // Card kinds are excluded for the same reason GIFs are: a location's media
+    // is a PNG map, so mime alone built the photo stack underneath the card,
+    // download button and all.
+    readonly property bool isImage: !isPlayableVideo && !isSticker && !isCardBlock
+                                    && mediaMimeType.startsWith("image/")
     // Kinds that render as a fixed-height row inside the padded content, more
     // like a line of text than a picture.
     readonly property bool isVoice: mediaKind === "voice"
     readonly property bool isAudioFile: mediaKind === "audio"
     readonly property bool isDocument: mediaKind === "document"
-    readonly property bool isAttachmentBlock: isVoice || isAudioFile || isDocument
+    // Kinds that render as a card: a block of their own inside the bubble whose
+    // height its own content decides, rather than the fixed row a voice note or
+    // a document gets. Width flows down from the bubble, height flows up from
+    // the card, which is the same contract FramelessBubble already uses.
+    readonly property bool isLocation: mediaKind === "location"
+    readonly property bool isLiveLocation: mediaKind === "live_location"
+    readonly property bool isCardBlock: isLocation || isLiveLocation
+    readonly property bool isAttachmentBlock: isVoice || isAudioFile || isDocument || isCardBlock
     // Real message whose payload the app can't render yet (document, voice
     // note, poll, ...). The daemon puts a short label in the body text; the
     // row renders like a revoked tombstone and never offers a download.
@@ -301,6 +317,12 @@ Item {
         // decision, not a scroll's.
         if (autoDownloadSizeCeiling > 0 && mediaSizeBytes > autoDownloadSizeCeiling)
             return false;
+        // A map is drawn by the daemon from cached tiles, not pulled from
+        // WhatsApp, so it answers to its own preference rather than the photo
+        // one, and it defaults on: a location bubble without a map is a pair of
+        // numbers.
+        if (isCardBlock)
+            return isLocation || isLiveLocation ? (prefs.auto_fetch_maps ?? true) : false;
         if (isSticker)
             return prefs.auto_download_stickers ?? false;
         if (isImage)
@@ -413,16 +435,26 @@ Item {
     readonly property real videoNoteDiameter: Math.min(maxBubbleWidth, Kirigami.Units.gridUnit * 11)
     // Voice notes, audio files and documents are rows, not pictures: a fixed
     // height and a comfortable width that does not depend on decode.
-    readonly property real attachmentBlockWidth: Math.min(maxContentWidth, Kirigami.Units.gridUnit * 17)
+    // A card wants the whole content width: it is showing a picture of
+    // somewhere, not a line of metadata.
+    readonly property real attachmentBlockWidth: isCardBlock
+        ? maxContentWidth
+        : Math.min(maxContentWidth, Kirigami.Units.gridUnit * 17)
+    // A card publishes its own height, so the row asks it rather than guessing.
+    // The fallback is what the slot reserves before the card has laid out, and
+    // it is deliberately close to the real thing so nothing jumps.
+    property real cardBlockHeight: Kirigami.Units.gridUnit * 12
     // Two lines for a voice note: the waveform and the line under it that now
     // carries the timestamp too, so the block no longer reserves a third. An
     // audio file needs three, since its name will not share a line with its
     // seek track the way a nameless recording's waveform does.
-    readonly property real attachmentBlockHeight: isAudioFile
-        ? Kirigami.Units.gridUnit * 3.4
-        : isDocument
-            ? Kirigami.Units.gridUnit * 2.9
-            : Kirigami.Units.gridUnit * 2.6
+    readonly property real attachmentBlockHeight: isCardBlock
+        ? cardBlockHeight
+        : isAudioFile
+            ? Kirigami.Units.gridUnit * 3.4
+            : isDocument
+                ? Kirigami.Units.gridUnit * 2.9
+                : Kirigami.Units.gridUnit * 2.6
 
     readonly property int imageDecodeWidth: decodeWidthForAspect(imageDecodeWidthCap, imageDecodeHeightCap, reservedImageAspectRatio)
     readonly property int imageDecodeHeight: decodeHeightForAspect(imageDecodeWidthCap, imageDecodeHeightCap, reservedImageAspectRatio)
@@ -1365,6 +1397,27 @@ Item {
                     sourceComponent: DocumentBubble {
                         row: root
                     }
+                }
+
+                // One Loader for the whole card family, not one per kind: an
+                // inactive Loader costs two objects on every row in the
+                // timeline, so a Loader per kind would tax every plain text
+                // message for kinds it is not. CardBubble picks which card.
+                Loader {
+                    id: cardLoader
+
+                    // A card is sized by its own content, so it is given a width
+                    // and asked for a height rather than filled. Anchoring it
+                    // would make its implicitHeight depend on the height the row
+                    // derived from it, which is a binding loop.
+                    width: mediaSlot.width
+                    active: mediaSlot.visible && root.isCardBlock
+                    sourceComponent: CardBubble {
+                        row: root
+                    }
+
+                    onItemChanged: root.cardBlockHeight = Qt.binding(() =>
+                        cardLoader.item ? cardLoader.item.implicitHeight : Kirigami.Units.gridUnit * 12)
                 }
             }
 

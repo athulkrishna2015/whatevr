@@ -71,6 +71,10 @@ func (f *fakePendingCounter) ListChatMediaMessages(context.Context, string, int,
 	return nil, nil
 }
 
+func (f *fakePendingCounter) ListLiveLocationShares(context.Context, string, int64) ([]store.LiveLocationShare, error) {
+	return nil, nil
+}
+
 func (f *fakePendingCounter) set(count int) {
 	f.mu.Lock()
 	f.count = count

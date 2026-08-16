@@ -547,6 +547,12 @@ type messageItem struct {
 	// its kind; the shapes themselves live in store/payloads.go, because the
 	// store writes them and the protocol reads them back.
 	Location *store.LocationPayload `json:"location,omitempty"`
+	// Live is the state of a running live-location share, on its opening
+	// message. It carries only what a bubble needs to describe itself; the
+	// moving positions themselves are the `live_locations` view's job. It
+	// rides the row's own payload rather than a join, so listing a thousand
+	// messages costs no extra queries.
+	Live *store.LiveSharePayload `json:"live,omitempty"`
 }
 
 type messageSender struct {
@@ -672,8 +678,11 @@ func attachMessagePayload(item *messageItem, m store.Message) {
 	}
 	payload := store.DecodePayload(m.PayloadJSON)
 	switch m.MediaKind {
-	case store.MediaKindLocation, store.MediaKindLiveLocation:
+	case store.MediaKindLocation:
 		item.Location = payload.Location
+	case store.MediaKindLiveLocation:
+		item.Location = payload.Location
+		item.Live = payload.LiveShare
 	}
 }
 

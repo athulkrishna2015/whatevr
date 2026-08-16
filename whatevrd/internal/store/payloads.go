@@ -18,7 +18,31 @@ import (
 // MessagePayload is the envelope stored in payload_json. Exactly one field is
 // set, chosen by the row's media_kind, so decoding never has to guess.
 type MessagePayload struct {
-	Location *LocationPayload `json:"location,omitempty"`
+	Location  *LocationPayload  `json:"location,omitempty"`
+	LiveShare *LiveSharePayload `json:"live,omitempty"`
+}
+
+// LiveSharePayload is the state of a live-location share, kept on the message
+// that opened it. It lives in the row's payload rather than being joined from
+// live_location_shares so that listing a conversation stays one query: the
+// state only changes on the same writes that rewrite the payload anyway.
+type LiveSharePayload struct {
+	// Active is false once the share has ended, whether by expiry, by the
+	// sender stopping it, or by going quiet with no stop message. The bubble
+	// settles from a live pin into a summary of where the share went.
+	Active    bool  `json:"active"`
+	StartedAt int64 `json:"started_at,omitempty"`
+	ExpiresAt int64 `json:"expires_at,omitempty"`
+	// UpdatedAt is when the last position landed, so a bubble can say "updated
+	// 8s ago" instead of implying a pin is current when it is minutes old.
+	UpdatedAt int64 `json:"updated_at,omitempty"`
+	// SpeedMPS and HeadingDegrees come from the newest position, when the
+	// sender reported them at all.
+	SpeedMPS       float64 `json:"speed_mps,omitempty"`
+	HeadingDegrees int32   `json:"heading_deg,omitempty"`
+	// PointCount is how long the trail is, which is what makes a finished share
+	// worth looking at rather than just a stale pin.
+	PointCount int `json:"point_count,omitempty"`
 }
 
 // LocationPayload is a shared place: a plain LocationMessage, the opening
@@ -42,7 +66,7 @@ type LocationPayload struct {
 // payload encodes as the empty string rather than "{}", so the common case (a
 // message with no structured payload at all) costs nothing on disk.
 func EncodePayload(payload MessagePayload) (string, error) {
-	if payload == (MessagePayload{}) {
+	if payload.isZero() {
 		return "", nil
 	}
 	encoded, err := json.Marshal(payload)
@@ -67,4 +91,11 @@ func DecodePayload(raw string) MessagePayload {
 		return MessagePayload{}
 	}
 	return payload
+}
+
+// isZero reports an envelope with nothing in it. Written out rather than
+// compared with == so adding a pointer field here never silently changes what
+// counts as empty.
+func (p MessagePayload) isZero() bool {
+	return p.Location == nil && p.LiveShare == nil
 }

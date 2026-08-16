@@ -370,6 +370,11 @@ func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offline
 	if c.handlePinInChat(ctx, evt, offlineSync) {
 		return
 	}
+	// A live-location update moves an existing share rather than becoming a row
+	// of its own, so it never reaches the ingest below.
+	if c.handleLiveLocationUpdate(ctx, evt) {
+		return
+	}
 	source := sourceLive
 	if offlineSync {
 		source = sourceOfflineSync
@@ -647,6 +652,15 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 		} else if ok {
 			saved.Message = updated
 		}
+		// A live share has to be registered the moment its opening message
+		// lands, because the position updates that follow are matched to it by
+		// sender and there is nothing else tying them together.
+		if saved.Message.MediaKind == appstore.MediaKindLiveLocation {
+			c.registerLiveShare(ctx, saved.Message, evt.Info.Timestamp, 0)
+			if opts.source == sourceLive {
+				c.daemon.PublishLiveLocationsChanged(saved.Message.ChatID)
+			}
+		}
 		if opts.source == sourceLive {
 			c.log.Infof("Stored media message %s from %s", saved.Message.ID, saved.Message.SenderID)
 		} else if opts.source == sourceOfflineSync {
@@ -713,6 +727,9 @@ func (c *Client) mediaMessageInput(ctx context.Context, evt *events.Message, opt
 		return input, true
 	}
 	if input, ok := c.documentMessageInput(ctx, evt, opts); ok {
+		return input, true
+	}
+	if input, ok := c.locationMessageInput(ctx, evt, opts); ok {
 		return input, true
 	}
 	return c.unsupportedMessageInput(ctx, evt, opts)
@@ -1134,10 +1151,6 @@ func unsupportedMessageLabel(evt *events.Message) (string, bool) {
 		return label
 	}
 	switch {
-	case msg.GetLocationMessage() != nil:
-		return labelWithDetail("Location", msg.GetLocationMessage().GetName()), true
-	case msg.GetLiveLocationMessage() != nil:
-		return "Live location", true
 	case msg.GetContactMessage() != nil:
 		return labelWithDetail("Contact", msg.GetContactMessage().GetDisplayName()), true
 	case msg.GetContactsArrayMessage() != nil:
@@ -1163,8 +1176,6 @@ func unsupportedMessageLabel(evt *events.Message) (string, bool) {
 // tombstone path covers, so quoted replies still show their preview.
 func unsupportedContextInfo(msg *waE2E.Message) *waE2E.ContextInfo {
 	switch {
-	case msg.GetLocationMessage() != nil:
-		return msg.GetLocationMessage().GetContextInfo()
 	case msg.GetContactMessage() != nil:
 		return msg.GetContactMessage().GetContextInfo()
 	default:
@@ -1343,6 +1354,12 @@ func contextInfoFromMessage(message *waE2E.Message) *waE2E.ContextInfo {
 	if document := message.GetDocumentMessage(); document != nil {
 		return document.GetContextInfo()
 	}
+	if location := message.GetLocationMessage(); location != nil {
+		return location.GetContextInfo()
+	}
+	if live := message.GetLiveLocationMessage(); live != nil {
+		return live.GetContextInfo()
+	}
 	return nil
 }
 
@@ -1453,6 +1470,20 @@ func quotedReplyPreview(message *waE2E.Message) (string, string, string) {
 			text = document.GetFileName()
 		}
 		return text, appstore.MediaKindDocument, defaultMime(document.GetMimetype(), "application/octet-stream")
+	}
+	if location := message.GetLocationMessage(); location != nil {
+		payload := locationPayloadFromMessage(location)
+		kind := appstore.MediaKindLocation
+		if payload.Live {
+			kind = appstore.MediaKindLiveLocation
+		}
+		// A quoted location shows where it is, not the word "Location": that is
+		// the whole content of the message.
+		return locationSummary(payload), kind, "image/png"
+	}
+	if live := message.GetLiveLocationMessage(); live != nil {
+		return formatCoordinates(live.GetDegreesLatitude(), live.GetDegreesLongitude()),
+			appstore.MediaKindLiveLocation, "image/png"
 	}
 	return "", "", ""
 }

@@ -164,6 +164,10 @@ class ProtocolController final : public QObject
     // initial fill so the conversation can reserve the banner's height.
     Q_PROPERTY(bool pinnedMessagesReady READ pinnedMessagesReady NOTIFY pinnedMessagesChanged FINAL)
     Q_PROPERTY(int pinnedMessagesCount READ pinnedMessagesCount NOTIFY pinnedMessagesChanged FINAL)
+    /// Live-location shares still running in the open chat. Its own view
+    /// because a position that moves every few seconds has no business
+    /// re-rendering the transcript (PROTOCOL.md, Granularity).
+    Q_PROPERTY(int liveLocationsCount READ liveLocationsCount NOTIFY liveLocationsChanged FINAL)
 
     // Forward picker (D4b): a `chats` subscription that lives exactly as long as
     // the picker dialog is open. The dialog's search box filters the rows it
@@ -356,6 +360,8 @@ public:
     // Display fields of one pinned row (`messageId`, `senderName`, `preview`),
     // or an empty map when the index is out of range.
     [[nodiscard]] Q_INVOKABLE QVariantMap pinnedMessageAt(int index) const;
+    [[nodiscard]] int liveLocationsCount() const;
+    [[nodiscard]] Q_INVOKABLE QVariantMap liveLocationAt(int index) const;
 
     [[nodiscard]] int forwardTargetsRevision() const { return m_forwardTargetsRevision; }
     // Every candidate forward target whose name matches `query` (empty matches
@@ -504,6 +510,11 @@ public:
     /// A local path as a properly encoded file URL. QML used to concatenate
     /// "file://" + path, which breaks on any path containing '#', '?' or '%'.
     Q_INVOKABLE QUrl localFileUrl(const QString &localPath) const;
+    /// Hands a shared position to the desktop as a `geo:` URI, which is what
+    /// GNOME Maps, Marble and KDE's own handler register for. Falls back to
+    /// OpenStreetMap in the browser when nothing claims the scheme, so this
+    /// always goes somewhere.
+    Q_INVOKABLE bool openLocation(double latitude, double longitude, const QString &label);
 
     Q_INVOKABLE void sendReaction(const QString &messageId, const QString &emoji);
     Q_INVOKABLE void editMessage(const QString &messageId, const QString &newText);
@@ -604,6 +615,7 @@ Q_SIGNALS:
     void messageReceiptsChanged();
     void composerChanged();
     void pinnedMessagesChanged();
+    void liveLocationsChanged();
     void forwardTargetsChanged();
     void searchChanged();
     void chatSearchChanged();
@@ -718,6 +730,7 @@ private:
     // Same, for the `pinned` banner view: it follows what the conversation is
     // showing, so a hidden conversation holds no pinned subscription.
     void updatePinnedSubscription();
+    void updateLiveLocationsSubscription();
 
     // Same again, for the composer's mention roster: a `group_members`
     // subscription on the displayed conversation, and only when it is a group
@@ -754,6 +767,9 @@ private:
     whatevr::proto::CollectionViewModel *m_presenceModel = nullptr;
     whatevr::proto::CollectionViewModel *m_receiptsModel = nullptr;
     whatevr::proto::CollectionViewModel *m_pinnedModel = nullptr;
+    whatevr::proto::CollectionViewModel *m_liveLocationsModel = nullptr;
+    whatevr::proto::Subscription *m_liveLocationsSub = nullptr;
+    QString m_liveLocationsChatId;
     whatevr::proto::CollectionViewModel *m_forwardTargetsModel = nullptr;
     whatevr::proto::CollectionViewModel *m_transfersModel = nullptr;
     whatevr::proto::CollectionViewModel *m_starredModel = nullptr;

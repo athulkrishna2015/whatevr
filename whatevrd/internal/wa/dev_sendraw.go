@@ -46,7 +46,10 @@ type RawSendRequest struct {
 type rawMessageBuilder func(params json.RawMessage) (*waE2E.Message, error)
 
 var rawMessageBuilders = map[string]rawMessageBuilder{
-	"text": buildRawText,
+	"text":          buildRawText,
+	"location":      buildRawLocation,
+	"live_location": buildRawLiveLocation,
+	"live_update":   buildRawLiveLocationUpdate,
 }
 
 // RawSendKinds lists what the driver can produce, for the tool's help output.
@@ -139,6 +142,79 @@ func buildRawText(params json.RawMessage) (*waE2E.Message, error) {
 		p.Text = "raw send"
 	}
 	return &waE2E.Message{Conversation: &p.Text}, nil
+}
+
+// rawLocationParams covers all three location shapes; a builder ignores the
+// fields its shape has no room for.
+type rawLocationParams struct {
+	Lat      float64 `json:"lat"`
+	Lng      float64 `json:"lng"`
+	Name     string  `json:"name"`
+	Address  string  `json:"address"`
+	URL      string  `json:"url"`
+	Comment  string  `json:"comment"`
+	Accuracy uint32  `json:"accuracy_m"`
+	Speed    float32 `json:"speed_mps"`
+	Heading  uint32  `json:"heading_deg"`
+	Sequence int64   `json:"seq"`
+}
+
+// defaulted fills in a recognisable place when the caller gave no coordinates,
+// so `wa-testsend -chat ... location` with no params still does something.
+func (p rawLocationParams) defaulted() rawLocationParams {
+	if p.Lat == 0 && p.Lng == 0 {
+		p.Lat, p.Lng = 12.9716, 77.5946
+		if p.Name == "" {
+			p.Name = "Bengaluru"
+		}
+	}
+	return p
+}
+
+func buildRawLocation(params json.RawMessage) (*waE2E.Message, error) {
+	var p rawLocationParams
+	if err := decodeRawParams(params, &p); err != nil {
+		return nil, err
+	}
+	p = p.defaulted()
+	return &waE2E.Message{LocationMessage: &waE2E.LocationMessage{
+		DegreesLatitude:  &p.Lat,
+		DegreesLongitude: &p.Lng,
+		Name:             &p.Name,
+		Address:          &p.Address,
+		URL:              &p.URL,
+		Comment:          &p.Comment,
+		AccuracyInMeters: &p.Accuracy,
+	}}, nil
+}
+
+func buildRawLiveLocation(params json.RawMessage) (*waE2E.Message, error) {
+	message, err := buildRawLocation(params)
+	if err != nil {
+		return nil, err
+	}
+	live := true
+	message.LocationMessage.IsLive = &live
+	return message, nil
+}
+
+// buildRawLiveLocationUpdate is a position update for a share already open,
+// which is the only way to exercise the correlation whatsmeow gives us nothing
+// for.
+func buildRawLiveLocationUpdate(params json.RawMessage) (*waE2E.Message, error) {
+	var p rawLocationParams
+	if err := decodeRawParams(params, &p); err != nil {
+		return nil, err
+	}
+	p = p.defaulted()
+	return &waE2E.Message{LiveLocationMessage: &waE2E.LiveLocationMessage{
+		DegreesLatitude:                   &p.Lat,
+		DegreesLongitude:                  &p.Lng,
+		AccuracyInMeters:                  &p.Accuracy,
+		SpeedInMps:                        &p.Speed,
+		DegreesClockwiseFromMagneticNorth: &p.Heading,
+		SequenceNumber:                    &p.Sequence,
+	}}, nil
 }
 
 func decodeRawParams(params json.RawMessage, out any) error {

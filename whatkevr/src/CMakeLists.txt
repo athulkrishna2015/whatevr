@@ -122,6 +122,9 @@ set(WHATKEVR_QML_FILES
         qml/components/ChatBubble.qml
     qml/components/ChatMediaGalleryPage.qml
     qml/components/DocumentBubble.qml
+    qml/components/CardBubble.qml
+    qml/components/LiveLocationBanner.qml
+    qml/components/LocationBubble.qml
     qml/components/MediaViewer.qml
     qml/components/VideoBubble.qml
     qml/components/MpvVideoSurface.qml

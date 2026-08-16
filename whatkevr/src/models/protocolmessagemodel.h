@@ -91,6 +91,12 @@ public:
         HasMediaRole,
         // A disappearing message somebody asked to keep in the chat.
         IsKeptRole,
+        // Kind-specific payloads, one role per family, each an empty map on a
+        // row of another kind. One role per *field* would add sixty entries
+        // here and sixty required properties to ChatBubble for payloads only
+        // one bubble ever reads.
+        LocationRole,
+        LiveShareRole,
     };
     Q_ENUM(Role)
 
@@ -183,14 +189,17 @@ private:
         QVariantMap sender;
         QVariantMap media;
         QVariantMap reply;
+        QVariantMap location;
         bool senderLoaded = false;
         bool mediaLoaded = false;
         bool replyLoaded = false;
+        bool locationLoaded = false;
     };
     [[nodiscard]] const RowCache &rowCache(int row) const;
     [[nodiscard]] const QVariantMap &cachedSender(const RowCache &cache) const;
     [[nodiscard]] const QVariantMap &cachedMedia(const RowCache &cache) const;
     [[nodiscard]] const QVariantMap &cachedReply(const RowCache &cache) const;
+    [[nodiscard]] const QVariantMap &cachedLocation(const RowCache &cache) const;
 
     whatevr::proto::CollectionViewModel *m_source;
     whatevr::proto::CollectionViewModel *m_transfers = nullptr;

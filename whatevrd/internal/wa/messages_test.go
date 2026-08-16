@@ -635,12 +635,15 @@ func TestUnsupportedMessageLabel(t *testing.T) {
 			wantOK: true,
 		},
 		{
-			name: "location with name",
+			// A location renders for real now, so it must fall off the
+			// tombstone whitelist: a kind on both lists would ingest as a
+			// location and be labelled as unsupported at the same time.
+			name: "location is no longer a tombstone",
 			evt: &events.Message{Message: &waE2E.Message{
 				LocationMessage: &waE2E.LocationMessage{Name: proto.String("Cafe")},
 			}},
-			want:   "Location: Cafe",
-			wantOK: true,
+			want:   "",
+			wantOK: false,
 		},
 		{
 			name: "poll update stays invisible",

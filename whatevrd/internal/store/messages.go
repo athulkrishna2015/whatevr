@@ -1882,6 +1882,31 @@ func (db *DB) SetMessageMediaDownloadError(ctx context.Context, id, errorText st
 	return message, nil
 }
 
+// UpdateMessagePayload replaces a row's kind-specific payload and the one-line
+// detail derived from it. Used by anything that moves after the message landed:
+// a live share's position, a poll's question being edited.
+func (db *DB) UpdateMessagePayload(ctx context.Context, id, payloadJSON, payloadSummary string) (Message, error) {
+	tx, err := db.conn.BeginTx(ctx, nil)
+	if err != nil {
+		return Message{}, err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE messages SET payload_json = ?, payload_summary = ? WHERE id = ?
+	`, payloadJSON, payloadSummary, id); err != nil {
+		return Message{}, err
+	}
+	message, err := getMessageTx(ctx, tx, id)
+	if err != nil {
+		return Message{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Message{}, err
+	}
+	return message, nil
+}
+
 func (db *DB) UpdateMessageMediaPayload(ctx context.Context, id string, payload []byte) (Message, error) {
 	tx, err := db.conn.BeginTx(ctx, nil)
 	if err != nil {

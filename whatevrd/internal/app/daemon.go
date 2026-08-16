@@ -189,6 +189,11 @@ const (
 	// preferences change (via SetAppPreferences). It carries no payload; the
 	// `preferences` view re-reads GetAppPreferences off it.
 	DaemonEventPreferencesChanged
+	// DaemonEventLiveLocationsChanged fires when a live-location share in a
+	// chat opens, moves or ends. Its own view exists because a position that
+	// changes every few seconds has no business sharing an item with a message
+	// row that does not (PROTOCOL.md, Granularity).
+	DaemonEventLiveLocationsChanged
 	// DaemonEventResync is a synthetic sentinel the broadcaster posts to a
 	// subscriber whose buffer overflowed: rather than silently dropping events
 	// (which permanently desyncs a view that folds events into local state), the
@@ -518,6 +523,12 @@ type AppPreferences struct {
 	// means no limit. It exists so a 200 MB video is a decision rather than a
 	// side effect of scrolling past it.
 	AutoDownloadMaxBytes int64
+	// AutoFetchMaps lets the daemon draw a real map for a shared location by
+	// fetching tiles. On by default, because a location bubble without a map is
+	// a pair of numbers. Turning it off means nothing tells a tile server you
+	// received a location, and the bubble falls back to the small JPEG the
+	// sender embedded.
+	AutoFetchMaps bool
 }
 
 // DefaultAppPreferences are applied the first time the daemon runs, before the
@@ -529,6 +540,7 @@ func DefaultAppPreferences() AppPreferences {
 		NotificationSound:    false,
 		NotificationPreview:  true,
 		AutoDownloadMaxBytes: 16 * 1024 * 1024,
+		AutoFetchMaps:        true,
 	}
 }
 
@@ -972,6 +984,12 @@ func (d *Daemon) PublishBlocklistChanged() {
 // changed, so an open `preferences` view re-reads them.
 func (d *Daemon) PublishPreferencesChanged() {
 	d.broadcastDaemonEvent(DaemonEvent{Kind: DaemonEventPreferencesChanged})
+}
+
+// PublishLiveLocationsChanged signals that a chat's set of running
+// live-location shares changed, so an open `live_locations` view re-reads it.
+func (d *Daemon) PublishLiveLocationsChanged(chatID string) {
+	d.broadcastDaemonEvent(DaemonEvent{Kind: DaemonEventLiveLocationsChanged, Chat: Chat{ID: chatID}})
 }
 
 // PublishIdentityChanged signals that a contact's WhatsApp identity (security

@@ -353,6 +353,11 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
 
     // Pinned banner (D4b): the displayed chat's pins. The banner reads rows by
     // index, so every shape change (fill, pin, unpin, expiry) is one signal.
+    m_liveLocationsModel = new CollectionViewModel(this);
+    connect(m_liveLocationsModel, &CollectionViewModel::countChanged, this, &ProtocolController::liveLocationsChanged);
+    connect(m_liveLocationsModel, &CollectionViewModel::dataChanged, this, &ProtocolController::liveLocationsChanged);
+    connect(m_liveLocationsModel, &CollectionViewModel::modelReset, this, &ProtocolController::liveLocationsChanged);
+
     m_pinnedModel = new CollectionViewModel(this);
     connect(m_pinnedModel, &CollectionViewModel::countChanged, this, &ProtocolController::pinnedMessagesChanged);
     connect(m_pinnedModel, &CollectionViewModel::dataChanged, this, &ProtocolController::pinnedMessagesChanged);
@@ -521,6 +526,7 @@ ProtocolController::~ProtocolController()
     delete m_presenceSub;
     delete m_receiptsSub;
     delete m_pinnedSub;
+    delete m_liveLocationsSub;
     delete m_forwardTargetsSub;
     delete m_transfersSub;
     delete m_chatMediaSub;
@@ -553,6 +559,13 @@ ProtocolController::~ProtocolController()
     m_presenceSub = nullptr;
     m_receiptsSub = nullptr;
     m_pinnedSub = nullptr;
+    // Both banner subscriptions skip re-subscribing when the target chat has
+    // not changed, so the remembered target has to be cleared here too: after a
+    // teardown the subscription is gone but the chat is still selected, and
+    // without this the banner never comes back on reconnect.
+    m_pinnedChatId.clear();
+    m_liveLocationsSub = nullptr;
+    m_liveLocationsChatId.clear();
     m_forwardTargetsSub = nullptr;
     m_transfersSub = nullptr;
     if (m_client) {
@@ -929,6 +942,7 @@ void ProtocolController::setSelectedChat(const QString &chatId, const QString &a
     sendSessionUpdate();
     updatePresenceSubscription();
     updatePinnedSubscription();
+    updateLiveLocationsSubscription();
     updateChatMembersSubscription();
 
     if (chatId.isEmpty()) {
@@ -1378,6 +1392,7 @@ void ProtocolController::setConversationVisible(bool visible)
     // The pinned banner and the composer's mention roster are part of that same
     // conversation view.
     updatePinnedSubscription();
+    updateLiveLocationsSubscription();
     updateChatMembersSubscription();
     if (!visible) {
         m_phoneHistoryRequesting = false;
@@ -1874,6 +1889,36 @@ QUrl ProtocolController::localFileUrl(const QString &localPath) const
     return localPath.isEmpty() ? QUrl() : QUrl::fromLocalFile(localPath);
 }
 
+bool ProtocolController::openLocation(double latitude, double longitude, const QString &label)
+{
+    if (latitude == 0.0 && longitude == 0.0) {
+        return false;
+    }
+
+    // RFC 5870 with the `q=` extension every map application understands: the
+    // coordinates place the view, the query drops a labelled pin on it.
+    const QString coordinates = QStringLiteral("%1,%2")
+                                    .arg(latitude, 0, 'f', 6)
+                                    .arg(longitude, 0, 'f', 6);
+    QString geo = QStringLiteral("geo:") + coordinates;
+    if (label.isEmpty()) {
+        geo += QStringLiteral("?q=") + coordinates;
+    } else {
+        geo += QStringLiteral("?q=") + coordinates + QStringLiteral("(")
+            + QString::fromUtf8(QUrl::toPercentEncoding(label)) + QStringLiteral(")");
+    }
+    if (QDesktopServices::openUrl(QUrl(geo))) {
+        return true;
+    }
+
+    // Nothing registered for geo:. OpenStreetMap in a browser is the honest
+    // fallback: it is the same data the daemon drew the map from.
+    const QUrl web(QStringLiteral("https://www.openstreetmap.org/?mlat=%1&mlon=%2#map=17/%1/%2")
+                       .arg(latitude, 0, 'f', 6)
+                       .arg(longitude, 0, 'f', 6));
+    return QDesktopServices::openUrl(web);
+}
+
 void ProtocolController::forwardMessage(const QString &messageId, const QStringList &chatIds)
 {
     if (messageId.isEmpty() || chatIds.isEmpty()) {
@@ -1936,6 +1981,48 @@ void ProtocolController::updatePinnedSubscription()
                                           {{QStringLiteral("chat_id"), target}}, m_pinnedModel);
     }
     Q_EMIT pinnedMessagesChanged();
+}
+
+// --- live-location strip ----------------------------------------------------
+
+void ProtocolController::updateLiveLocationsSubscription()
+{
+    const QString target = m_conversationVisible ? m_selectedChatId : QString();
+    if (target == m_liveLocationsChatId) {
+        return;
+    }
+    m_liveLocationsChatId = target;
+    delete m_liveLocationsSub;
+    m_liveLocationsSub = nullptr;
+    m_liveLocationsModel->onReset();
+    if (!target.isEmpty()) {
+        m_liveLocationsSub = m_client->subscribe(QStringLiteral("live_locations"),
+                                                 {{QStringLiteral("chat_id"), target}}, m_liveLocationsModel);
+    }
+    Q_EMIT liveLocationsChanged();
+}
+
+int ProtocolController::liveLocationsCount() const
+{
+    return m_liveLocationsModel->count();
+}
+
+QVariantMap ProtocolController::liveLocationAt(int index) const
+{
+    if (index < 0 || index >= m_liveLocationsModel->count()) {
+        return {};
+    }
+    const QVariantMap item =
+        m_liveLocationsModel->data(m_liveLocationsModel->index(index, 0), CollectionViewModel::ItemRole)
+            .toMap();
+    const QVariantMap sender = item.value(QStringLiteral("sender")).toMap();
+    return {
+        {QStringLiteral("messageId"), item.value(QStringLiteral("id")).toString()},
+        {QStringLiteral("senderName"), sender.value(QStringLiteral("name")).toString()},
+        {QStringLiteral("senderAvatarLocalPath"), sender.value(QStringLiteral("avatar_path")).toString()},
+        {QStringLiteral("expiresAt"), item.value(QStringLiteral("expires_at")).toLongLong()},
+        {QStringLiteral("updatedAt"), item.value(QStringLiteral("updated_at")).toLongLong()},
+    };
 }
 
 bool ProtocolController::pinnedMessagesReady() const

@@ -171,6 +171,29 @@ func (c *Client) DownloadMessageMedia(ctx context.Context, messageID string) (ap
 		}
 	}()
 
+	// A location's "media" is the map the daemon draws, not a blob WhatsApp is
+	// holding, so it takes a different route to the same place: the same
+	// started/progress/error bookkeeping above, the same media_local_path at
+	// the end, and therefore the same bubble with no special case in it.
+	if isLocationKind(message.MediaKind) {
+		started = true
+		totalBytes = mapTilesX * mapTilesY
+		c.daemon.PublishMediaDownloadChanged(message.ID, message.ChatID, true, "", 0, totalBytes)
+		updated, err := c.fetchLocationMap(ctx, message, func(received, total uint64) {
+			c.daemon.PublishMediaDownloadChanged(message.ID, message.ChatID, true, "", received, total)
+		})
+		if err != nil {
+			if errors.Is(err, ErrMapsDisabled) {
+				err = app.NewCommandError(app.CommandErrorRejected, "map fetching is turned off")
+			}
+			state.err = err
+			return appstore.Message{}, state.err
+		}
+		state.message = updated
+		c.daemon.PublishMessageUpdated(toDaemonMessage(updated))
+		return updated, nil
+	}
+
 	if len(message.MediaPayload) == 0 {
 		state.err = app.NewCommandError(app.CommandErrorRejected, "media is not available for download")
 		return appstore.Message{}, state.err

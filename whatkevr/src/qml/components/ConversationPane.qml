@@ -667,6 +667,27 @@ Kirigami.Page {
             }
         }
 
+        // A live share is the one thing in a chat that keeps happening while
+        // its bubble is scrolled away, so it gets a strip of its own. It
+        // collapses to nothing the moment the last share ends.
+        Item {
+            id: liveLocationBannerSlot
+
+            Layout.fillWidth: true
+            Layout.preferredHeight: liveLocationBanner.visible ? liveLocationBanner.implicitHeight : 0
+            clip: true
+
+            LiveLocationBanner {
+                id: liveLocationBanner
+
+                anchors.fill: parent
+                visible: Whatevr.ProtocolController.hasSelectedChat
+                         && root.messagesCurrent
+                         && count > 0
+                onMessageActivated: messageId => messageView.jumpToReplyTarget(messageId)
+            }
+        }
+
         Item {
             id: timelineArea
 

@@ -276,6 +276,15 @@ const QVariantMap &ProtocolMessageModel::cachedReply(const RowCache &cache) cons
     return m_rowCache.reply;
 }
 
+const QVariantMap &ProtocolMessageModel::cachedLocation(const RowCache &cache) const
+{
+    if (!cache.locationLoaded) {
+        m_rowCache.location = cache.item.value(QStringLiteral("location")).toMap();
+        m_rowCache.locationLoaded = true;
+    }
+    return m_rowCache.location;
+}
+
 QVariant ProtocolMessageModel::data(const QModelIndex &index, int role) const
 {
     if (!index.isValid() || index.row() < 0 || index.row() >= rowCount()) {
@@ -397,6 +406,10 @@ QVariant ProtocolMessageModel::data(const QModelIndex &index, int role) const
         return !mediaData().isEmpty();
     case IsKeptRole:
         return item.value(QStringLiteral("kept")).toBool();
+    case LocationRole:
+        return cachedLocation(cache);
+    case LiveShareRole:
+        return item.value(QStringLiteral("live")).toMap();
     case ShowSenderHeaderRole:
         return groupChat && !outgoing && startsSenderGroup(index.row());
     case ShowSenderAvatarRole:
@@ -539,6 +552,8 @@ QHash<int, QByteArray> ProtocolMessageModel::roleNames() const
         {MediaDownloadProgressRole, "mediaDownloadProgress"},
         {HasMediaRole, "hasMedia"},
         {IsKeptRole, "isKept"},
+        {LocationRole, "location"},
+        {LiveShareRole, "liveShare"},
     };
 }
 
