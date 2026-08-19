@@ -792,3 +792,143 @@ func appChatFor(t *testing.T, db *store.DB, chatID string) app.Chat {
 	}
 	return toTestAppChat(chat)
 }
+
+// A business message crosses as one card whatever wire shape it arrived in, and
+// carries no `media` object: nothing on it is downloadable, and a kind that
+// looks fetchable puts marketing broadcasts on the auto-download path.
+func TestMessagesViewInteractiveItemShape(t *testing.T) {
+	socketPath, _, db := startChatsTestServer(t)
+	chat := "c@s.whatsapp.net"
+	id := "biz-1"
+	payload, err := store.EncodePayload(store.MessagePayload{Interactive: &store.InteractivePayload{
+		Source:        "template",
+		Title:         "Your parcel is out for delivery",
+		Body:          "BLR-4471 left the hub at 08:12.",
+		Footer:        "Sent by Bluedart",
+		ThumbnailPath: "/cache/biz-1.card.jpg",
+		Buttons: []store.InteractiveButton{
+			{Kind: store.InteractiveButtonURL, Label: "Track parcel", URL: "https://example.com/t", Live: true},
+			{Kind: store.InteractiveButtonReply, Label: "Leave with a neighbour", ID: "n"},
+		},
+		Sections: []store.InteractiveSection{{
+			Title: "Options",
+			Rows:  []store.InteractiveRow{{Title: "Reschedule", Description: "Pick another day", ID: "r"}},
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("encode interactive: %v", err)
+	}
+	if _, err := db.SaveMediaMessage(context.Background(), store.MediaMessageInput{
+		TextMessageInput: store.TextMessageInput{
+			ID:          id,
+			ChatID:      chat,
+			Timestamp:   time.Unix(1_700_000_000, 0),
+			Direction:   store.DirectionIncoming,
+			PayloadJSON: payload,
+		},
+		MediaKind:      store.MediaKindInteractive,
+		PayloadSummary: "BLR-4471 left the hub at 08:12.",
+	}); err != nil {
+		t.Fatalf("seed interactive: %v", err)
+	}
+
+	c := dialTest(t, socketPath)
+	c.hello()
+	sub := c.subscribe(2, fmt.Sprintf(`{"view":"messages","chat_id":%q}`, chat))
+	item := c.expectUpsert(sub, id)["item"].(map[string]any)
+	if item["kind"] != "interactive" {
+		t.Fatalf("kind = %v", item["kind"])
+	}
+	// The one-line rendering is what the message says. "Message" with the
+	// message hidden behind it is what this used to be.
+	if item["fallback"] != "💬 BLR-4471 left the hub at 08:12." {
+		t.Fatalf("fallback = %v", item["fallback"])
+	}
+	if _, ok := item["media"]; ok {
+		t.Fatalf("a business message carried a media object: %v", item)
+	}
+	interactive, ok := item["interactive"].(map[string]any)
+	if !ok {
+		t.Fatalf("interactive row missing its card: %v", item)
+	}
+	if interactive["title"] != "Your parcel is out for delivery" || interactive["footer"] != "Sent by Bluedart" {
+		t.Fatalf("card contents wrong: %v", interactive)
+	}
+	if interactive["thumbnail_path"] != "/cache/biz-1.card.jpg" {
+		t.Fatalf("thumbnail path wrong: %v", interactive)
+	}
+
+	buttons, ok := interactive["buttons"].([]any)
+	if !ok || len(buttons) != 2 {
+		t.Fatalf("buttons = %v", interactive["buttons"])
+	}
+	live := buttons[0].(map[string]any)
+	if live["kind"] != "url" || live["live"] != true || live["url"] != "https://example.com/t" {
+		t.Fatalf("url button = %v", live)
+	}
+	// Whether a button can be pressed at all is the daemon's answer, so the
+	// card can draw a dead one as dead instead of letting somebody find out.
+	dead := buttons[1].(map[string]any)
+	if dead["kind"] != "reply" || dead["live"] != false {
+		t.Fatalf("reply button = %v", dead)
+	}
+
+	sections, ok := interactive["sections"].([]any)
+	if !ok || len(sections) != 1 {
+		t.Fatalf("sections = %v", interactive["sections"])
+	}
+	rows := sections[0].(map[string]any)["rows"].([]any)
+	if len(rows) != 1 || rows[0].(map[string]any)["title"] != "Reschedule" {
+		t.Fatalf("rows = %v", rows)
+	}
+}
+
+// A shared sticker pack is the one card in this family with something to do,
+// and whether it can do it is joined from the library at read time rather than
+// frozen into the row: installing a pack from the picker must not leave a card
+// in the transcript still offering to add it.
+func TestMessagesViewStickerPackJoinsTheLibrary(t *testing.T) {
+	socketPath, _, db := startChatsTestServer(t)
+	ctx := context.Background()
+	chat := "c@s.whatsapp.net"
+	id := "pack-msg-1"
+	payload, err := store.EncodePayload(store.MessagePayload{StickerPack: &store.StickerPackPayload{
+		PackID:    "pack-1",
+		Name:      "Cats being unhelpful",
+		Publisher: "Nobody in particular",
+		Count:     12,
+	}})
+	if err != nil {
+		t.Fatalf("encode pack: %v", err)
+	}
+	if _, err := db.SaveMediaMessage(ctx, store.MediaMessageInput{
+		TextMessageInput: store.TextMessageInput{
+			ID:          id,
+			ChatID:      chat,
+			Timestamp:   time.Unix(1_700_000_000, 0),
+			Direction:   store.DirectionIncoming,
+			PayloadJSON: payload,
+		},
+		MediaKind:      store.MediaKindStickerPack,
+		PayloadSummary: "Cats being unhelpful",
+	}); err != nil {
+		t.Fatalf("seed pack share: %v", err)
+	}
+
+	c := dialTest(t, socketPath)
+	c.hello()
+	sub := c.subscribe(2, fmt.Sprintf(`{"view":"messages","chat_id":%q}`, chat))
+	item := c.expectUpsert(sub, id)["item"].(map[string]any)
+	pack, ok := item["sticker_pack"].(map[string]any)
+	if !ok {
+		t.Fatalf("sticker pack row missing its card: %v", item)
+	}
+	if pack["name"] != "Cats being unhelpful" || pack["count"] != float64(12) {
+		t.Fatalf("pack = %v", pack)
+	}
+	// A pack the library has never heard of has nothing to install by id, and
+	// a card that offered anyway would be offering a button that fails.
+	if pack["installable"] != false || pack["installed"] != false {
+		t.Fatalf("an unknown pack must not claim to be installable: %v", pack)
+	}
+}

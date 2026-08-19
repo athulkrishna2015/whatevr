@@ -38,6 +38,9 @@ func (db *DB) attachMessageExtras(ctx context.Context, q reactionQueryer, messag
 	if err := attachEvents(ctx, q, messages, selfJID); err != nil {
 		return err
 	}
+	if err := attachStickerPacks(ctx, q, messages); err != nil {
+		return err
+	}
 	return attachAlbums(ctx, q, messages)
 }
 
@@ -51,6 +54,7 @@ func (db *DB) attachMessageExtrasOne(ctx context.Context, q reactionQueryer, mes
 	message.Poll = batch[0].Poll
 	message.Event = batch[0].Event
 	message.Album = batch[0].Album
+	message.StickerPack = batch[0].StickerPack
 	return nil
 }
 

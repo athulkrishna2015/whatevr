@@ -65,14 +65,20 @@ var kindDescriptors = map[string]KindDescriptor{
 	// Not marked media-bearing: only an event with a venue has a map to draw,
 	// and the kind alone cannot tell those from an event that is a call link or
 	// a bare time. MessageCarriesMedia answers that per row.
-	MediaKindEvent:       {Kind: MediaKindEvent, Emoji: "📅", Label: "Event", CaptionWins: true},
-	MediaKindAlbum:       {Kind: MediaKindAlbum, Emoji: "🖼️", Label: "Album", CaptionWins: true},
-	MediaKindInteractive: {Kind: MediaKindInteractive, Emoji: "💬", Label: "Message", CaptionWins: true},
+	MediaKindEvent: {Kind: MediaKindEvent, Emoji: "📅", Label: "Event", CaptionWins: true},
+	MediaKindAlbum: {Kind: MediaKindAlbum, Emoji: "🖼️", Label: "Album", CaptionWins: true},
+	// A business message and a call log carry no label of their own: what they
+	// say is the summary the ingest composed, and prefixing it with the kind
+	// would give "💬 Message: your order is on its way" and "📞 Call: missed
+	// video call", both of which say less than the summary alone. The glyph
+	// still leads the line.
+	MediaKindInteractive: {Kind: MediaKindInteractive, Emoji: "💬", CaptionWins: true},
+	MediaKindCallLog:     {Kind: MediaKindCallLog, Emoji: "📞"},
+
 	MediaKindProduct:     {Kind: MediaKindProduct, Emoji: "🛍️", Label: "Product", CaptionWins: true},
 	MediaKindOrder:       {Kind: MediaKindOrder, Emoji: "🧾", Label: "Order", CaptionWins: true},
 	MediaKindPayment:     {Kind: MediaKindPayment, Emoji: "💳", Label: "Payment", CaptionWins: true},
 	MediaKindStickerPack: {Kind: MediaKindStickerPack, Emoji: "🎨", Label: "Sticker pack", CaptionWins: true},
-	MediaKindCallLog:     {Kind: MediaKindCallLog, Emoji: "📞", Label: "Call", CaptionWins: true},
 
 	// A system row's whole line is the summary the daemon composed when it
 	// coalesced the event ("Ana, Bo and 12 others joined"), so it carries
@@ -168,17 +174,20 @@ func PreviewLine(f PreviewFacts) string {
 	if descriptor.ShowDuration {
 		label += durationSuffix(f.DurationSecs)
 	}
-	line := strings.TrimSpace(descriptor.prefix() + label)
-	if detail := oneLine(f.PayloadSummary); detail != "" {
-		if line == "" {
-			return detail
+	detail := oneLine(f.PayloadSummary)
+	if label == "" {
+		// Kinds whose whole line is the summary the ingest composed: a system
+		// event, a call log, a business message. The glyph, where there is one,
+		// still leads it. With no summary there is nothing to lead, and a bare
+		// glyph on its own line says less than an empty preview.
+		if detail == "" {
+			return ""
 		}
-		return line + ": " + detail
+		return strings.TrimSpace(descriptor.prefix() + detail)
 	}
-	if line == "" {
-		// A system row with no summary has nothing to show. Better an empty
-		// preview than a bare glyph.
-		return ""
+	line := strings.TrimSpace(descriptor.prefix() + label)
+	if detail != "" {
+		return line + ": " + detail
 	}
 	return line
 }

@@ -616,3 +616,69 @@ func (db *DB) SetAppStateValue(ctx context.Context, key, value string) error {
 	`, key, value)
 	return err
 }
+
+// attachStickerPacks answers, for every sticker-pack row in a page, what the
+// local library knows about the pack it shares.
+//
+// It is joined at read time rather than written into the row's payload because
+// the answer keeps moving after the message lands: installing a pack from the
+// picker would otherwise leave every card that shares it still offering to add
+// it, and the same message read a minute later would say something different
+// from the truth. This is the same reason a poll's tally is joined.
+func attachStickerPacks(ctx context.Context, q reactionQueryer, messages []Message) error {
+	packIDs := make([]any, 0)
+	rowsByPack := make(map[string][]int)
+	for i := range messages {
+		messages[i].StickerPack = nil
+		if messages[i].MediaKind != MediaKindStickerPack {
+			continue
+		}
+		packID := DecodePayload(messages[i].PayloadJSON).StickerPack.GetPackID()
+		if packID == "" {
+			continue
+		}
+		// The row gets its state either way: a pack the library has never heard
+		// of is a real answer, and leaving it nil would read as "not looked up
+		// yet" to everything downstream.
+		messages[i].StickerPack = &StickerPackState{}
+		if _, seen := rowsByPack[packID]; !seen {
+			packIDs = append(packIDs, packID)
+		}
+		rowsByPack[packID] = append(rowsByPack[packID], i)
+	}
+	if len(packIDs) == 0 {
+		return nil
+	}
+
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(packIDs)), ",")
+	rows, err := q.QueryContext(ctx, `
+		SELECT id, installed FROM sticker_packs WHERE id IN (`+placeholders+`)
+	`, packIDs...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			packID    string
+			installed bool
+		)
+		if err := rows.Scan(&packID, &installed); err != nil {
+			return err
+		}
+		for _, i := range rowsByPack[packID] {
+			messages[i].StickerPack = &StickerPackState{Known: true, Installed: installed}
+		}
+	}
+	return rows.Err()
+}
+
+// GetPackID reads the pack id off a payload that may not be there at all, which
+// is the common case: most rows carry no sticker pack.
+func (p *StickerPackPayload) GetPackID() string {
+	if p == nil {
+		return ""
+	}
+	return strings.TrimSpace(p.PackID)
+}

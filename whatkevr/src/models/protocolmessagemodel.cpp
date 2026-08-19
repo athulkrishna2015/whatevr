@@ -422,6 +422,14 @@ QVariant ProtocolMessageModel::data(const QModelIndex &index, int role) const
         return item.value(QStringLiteral("album")).toMap();
     case LinkPreviewRole:
         return item.value(QStringLiteral("link_preview")).toMap();
+    case InteractiveRole:
+        return item.value(QStringLiteral("interactive")).toMap();
+    case CommerceRole:
+        return item.value(QStringLiteral("commerce")).toMap();
+    case StickerPackRole:
+        return item.value(QStringLiteral("sticker_pack")).toMap();
+    case CallLogRole:
+        return item.value(QStringLiteral("call_log")).toMap();
     case ShowSenderHeaderRole:
         return groupChat && !outgoing && startsSenderGroup(index.row());
     case ShowSenderAvatarRole:
@@ -565,6 +573,10 @@ QHash<int, QByteArray> ProtocolMessageModel::roleNames() const
         {EventRole, "eventInfo"},
         {AlbumRole, "album"},
         {LinkPreviewRole, "linkPreview"},
+        {InteractiveRole, "interactive"},
+        {CommerceRole, "commerce"},
+        {StickerPackRole, "stickerPack"},
+        {CallLogRole, "callLog"},
     };
 }
 
@@ -601,6 +613,10 @@ bool ProtocolMessageModel::rendersItsOwnPayload(const QVariantMap &item)
         QStringLiteral("invite"),
         QStringLiteral("event"),
         QStringLiteral("album"),
+        QStringLiteral("interactive"),
+        QStringLiteral("commerce"),
+        QStringLiteral("sticker_pack"),
+        QStringLiteral("call_log"),
     };
     for (const QString &key : known) {
         if (!item.value(key).toMap().isEmpty()) {

@@ -111,6 +111,10 @@ QVariantMap baseProps()
         {QStringLiteral("eventInfo"), QVariantMap()},
         {QStringLiteral("album"), QVariantMap()},
         {QStringLiteral("linkPreview"), QVariantMap()},
+        {QStringLiteral("interactive"), QVariantMap()},
+        {QStringLiteral("commerce"), QVariantMap()},
+        {QStringLiteral("stickerPack"), QVariantMap()},
+        {QStringLiteral("callLog"), QVariantMap()},
         {QStringLiteral("isRevoked"), false},
         {QStringLiteral("isEdited"), false},
         {QStringLiteral("isStarred"), false},
@@ -175,6 +179,26 @@ QQuickItem *findVisualChild(QQuickItem *root, const QString &name)
     return nullptr;
 }
 
+// Every item under `root` with this objectName, in visual-tree order.
+//
+// It walks childItems() rather than findChildren(), for the same reason
+// findVisualChild does: a Repeater's delegates are parented into the visual
+// tree but not necessarily into the QObject tree, so a QObject walk misses
+// exactly the rows a Repeater built.
+void collectVisualChildren(QQuickItem *item, const QString &name, QList<QQuickItem *> &out)
+{
+    if (!item) {
+        return;
+    }
+    const auto children = item->childItems();
+    for (QQuickItem *child : children) {
+        if (child->objectName() == name) {
+            out.append(child);
+        }
+        collectVisualChildren(child, name, out);
+    }
+}
+
 // The bottom-most edge of anything the item draws, in the item's own
 // coordinates. A card reports its height to the row, and the row clips and
 // positions everything else from it, so content reaching past that height is
@@ -218,6 +242,8 @@ private Q_SLOTS:
     void albumMosaicTilesTheWholeWidthWithoutOverlapping();
     void eventResponsesDialogNamesEveryoneWhoAnswered();
     void linkPreviewSitsAboveTheWordsAndFitsTheBubble();
+    void businessCardDrawsALockedButtonAsLocked();
+    void aCallLogIsAPillInTheMiddleWithNoPlate();
     void aShrinkingPaneDoesNotDragTheTranscriptWithIt();
 
 private:
@@ -274,26 +300,34 @@ void ChatBubblePerf::delegateCost_data()
     // voice note's row and a shared audio file's, so it carries a Component for
     // each instead of one inline. Two loaders would have cost twice that on
     // every delegate in the chat, this one included.
+    //
+    // Every budget is a further 2 up for the centered-pill row mode: a Loader
+    // and the Component it holds. That is what a row which is not somebody
+    // talking costs, and it is paid once for the whole family rather than per
+    // kind: a call log is the first, and the system events in the next phase
+    // draw through the same loader. Folding it into the frameless loader would
+    // have saved one of the two and bought a null-handling branch in each of
+    // the row's geometry reads, which is a worse trade than one object.
     const QList<Sample> samples = {
         {"plain-text-incoming",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m1")},
                     {QStringLiteral("text"), shortBody},
                     {QStringLiteral("layoutText"), shortBody},
-                    {QStringLiteral("status"), 4}}), 64},
+                    {QStringLiteral("status"), 4}}), 66},
         {"plain-text-outgoing",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m2")},
                     {QStringLiteral("text"), shortBody},
                     {QStringLiteral("layoutText"), shortBody},
                     {QStringLiteral("isOutgoing"), true},
-                    {QStringLiteral("status"), 4}}), 71},
+                    {QStringLiteral("status"), 4}}), 73},
         {"multiline-text",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m3")},
                     {QStringLiteral("text"), longBody},
                     {QStringLiteral("layoutText"), longBody},
-                    {QStringLiteral("status"), 3}}), 64},
+                    {QStringLiteral("status"), 3}}), 66},
         {"text-with-reply",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m4")},
@@ -301,7 +335,7 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("layoutText"), shortBody},
                     {QStringLiteral("replyToMessageId"), QStringLiteral("m1")},
                     {QStringLiteral("replyToSenderName"), QStringLiteral("Aditi")},
-                    {QStringLiteral("replyToText"), shortBody}}), 94},
+                    {QStringLiteral("replyToText"), shortBody}}), 96},
         {"text-with-sender-header",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m5")},
@@ -309,7 +343,7 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("layoutText"), shortBody},
                     {QStringLiteral("showSenderHeader"), true},
                     {QStringLiteral("showSenderAvatar"), true},
-                    {QStringLiteral("showSenderGutter"), true}}), 96},
+                    {QStringLiteral("showSenderGutter"), true}}), 98},
         {"image",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m6")},
@@ -317,7 +351,7 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("hasMedia"), true},
                     {QStringLiteral("mediaMimeType"), QStringLiteral("image/jpeg")},
                     {QStringLiteral("mediaWidth"), 1280},
-                    {QStringLiteral("mediaHeight"), 720}}), 124},
+                    {QStringLiteral("mediaHeight"), 720}}), 126},
         {"video",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m6-video")},
@@ -331,13 +365,13 @@ void ChatBubblePerf::delegateCost_data()
                     // stops, less the pill it replaced) and the bubble gained
                     // the two grace timers that keep a handoff and a scroll
                     // from flashing a spinner or a stale poster.
-                    {QStringLiteral("mediaDurationSecs"), 12}}), 143},
+                    {QStringLiteral("mediaDurationSecs"), 12}}), 145},
         {"sticker",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m7")},
                     {QStringLiteral("mediaKind"), QStringLiteral("sticker")},
                     {QStringLiteral("hasMedia"), true},
-                    {QStringLiteral("mediaMimeType"), QStringLiteral("image/webp")}}), 154},
+                    {QStringLiteral("mediaMimeType"), QStringLiteral("image/webp")}}), 156},
         // A voice note and a video note are the two kinds whose layout is not a
         // picture: one is a fixed-height row inside the bubble, the other a
         // frameless circle with no bubble at all. Both are here so the cost of
@@ -349,7 +383,7 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("mediaKind"), QStringLiteral("voice")},
                     {QStringLiteral("hasMedia"), true},
                     {QStringLiteral("mediaMimeType"), QStringLiteral("audio/ogg")},
-                    {QStringLiteral("mediaDurationSecs"), 6}}), 137},
+                    {QStringLiteral("mediaDurationSecs"), 6}}), 139},
         // The other audio row: a shared track, which is a squared-off tile, a
         // filename and a plain seek line rather than a disc and a waveform.
         {"audio-file",
@@ -360,7 +394,7 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("mediaMimeType"), QStringLiteral("audio/mpeg")},
                     {QStringLiteral("mediaFileName"), QStringLiteral("Interstellar - Main.mp3")},
                     {QStringLiteral("mediaSizeBytes"), 4.2 * 1024 * 1024},
-                    {QStringLiteral("mediaDurationSecs"), 204}}), 143},
+                    {QStringLiteral("mediaDurationSecs"), 204}}), 145},
         {"video-note",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m9")},
@@ -369,7 +403,7 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("mediaMimeType"), QStringLiteral("video/mp4")},
                     {QStringLiteral("mediaWidth"), 480},
                     {QStringLiteral("mediaHeight"), 480},
-                    {QStringLiteral("mediaDurationSecs"), 11}}), 192},
+                    {QStringLiteral("mediaDurationSecs"), 11}}), 194},
     };
 
     for (const Sample &s : samples) {
@@ -1578,6 +1612,181 @@ void ChatBubblePerf::linkPreviewSitsAboveTheWordsAndFitsTheBubble()
 // it back, which is the flicker a reply lands with while scrolled up. At the
 // bottom it hides, because a bottom-pinned viewport moves the content by that
 // much anyway, so this asserts the scrolled-up case the eye actually catches.
+// A business message offers things to do, and only some of them can be done
+// here: a link and a phone number are a handoff, a quick reply is a message
+// back to a business, which whatevr cannot send yet. The card has to draw that
+// difference, because the alternative is somebody pressing a button and
+// learning by nothing happening.
+void ChatBubblePerf::businessCardDrawsALockedButtonAsLocked()
+{
+    const QVariantList buttons{
+        QVariantMap{{QStringLiteral("kind"), QStringLiteral("url")},
+                    {QStringLiteral("label"), QStringLiteral("Track parcel")},
+                    {QStringLiteral("url"), QStringLiteral("https://example.com/t")},
+                    {QStringLiteral("live"), true}},
+        QVariantMap{{QStringLiteral("kind"), QStringLiteral("call")},
+                    {QStringLiteral("label"), QStringLiteral("Call the driver")},
+                    {QStringLiteral("phone"), QStringLiteral("+911234567890")},
+                    {QStringLiteral("live"), true}},
+        QVariantMap{{QStringLiteral("kind"), QStringLiteral("reply")},
+                    {QStringLiteral("label"), QStringLiteral("Leave with a neighbour")},
+                    {QStringLiteral("live"), false}},
+    };
+    // With a header picture, which is the case that broke: the block of words
+    // is anchored under the hero, so it is laid out while the hero still has
+    // no decoded size, and a card that never arranged again drew every line on
+    // top of the first.
+    QTemporaryDir cache;
+    QVERIFY(cache.isValid());
+    const QString headerPath = cache.filePath(QStringLiteral("header.png"));
+    QImage header(320, 168, QImage::Format_RGB32);
+    header.fill(QColor(80, 120, 60));
+    QVERIFY(header.save(headerPath));
+
+    const QVariantMap card{
+        {QStringLiteral("source"), QStringLiteral("template")},
+        {QStringLiteral("title"), QStringLiteral("Your parcel is out for delivery")},
+        {QStringLiteral("body"), QStringLiteral("BLR-4471 left the hub at 08:12 and is the "
+                                                "fourth stop on today's route.")},
+        {QStringLiteral("footer"), QStringLiteral("Sent by Bluedart")},
+        {QStringLiteral("thumbnail_path"), headerPath},
+        {QStringLiteral("buttons"), buttons},
+    };
+    const QVariantMap props =
+        withProps(baseProps(), {{QStringLiteral("messageId"), QStringLiteral("biz-1")},
+                                {QStringLiteral("mediaKind"), QStringLiteral("interactive")},
+                                {QStringLiteral("interactive"), card}});
+
+    QQmlComponent component(
+        m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/ChatBubble.qml")));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> bubble(component.createWithInitialProperties(props));
+    QVERIFY2(bubble, qPrintable(component.errorString()));
+    auto *bubbleItem = qobject_cast<QQuickItem *>(bubble.get());
+    bubbleItem->setParentItem(m_window->contentItem());
+    m_window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_window));
+
+    QVERIFY(bubbleItem->property("isInteractive").toBool());
+    QVERIFY(bubbleItem->property("isCardBlock").toBool());
+    // Nothing on a business card is downloadable, and a kind that looks
+    // fetchable puts marketing broadcasts on the auto-download path.
+    QVERIFY(!bubbleItem->property("hasDownloadableMedia").toBool());
+
+    QQuickItem *cardItem = findVisualChild(bubbleItem, QStringLiteral("interactiveBubble"));
+    QVERIFY2(cardItem, "no business card was drawn");
+    QTRY_VERIFY(cardItem->width() > 0 && cardItem->height() > 0);
+
+    QList<QQuickItem *> rows;
+    collectVisualChildren(cardItem, QStringLiteral("interactiveActionRow"), rows);
+    QCOMPARE(rows.size(), 3);
+
+    // Two of the three can be pressed here. The third says so by being drawn
+    // disabled rather than by failing when it is.
+    QVERIFY2(rows.at(0)->isEnabled(), "the link button is a handoff and must work");
+    QVERIFY2(rows.at(1)->isEnabled(), "the call button is a handoff and must work");
+    QVERIFY2(!rows.at(2)->isEnabled(), "a quick reply cannot be sent yet and must not look like it can");
+
+    // Stacked, in order, with nothing sitting on top of anything else. A
+    // collapsed layout still passes every check above: the buttons exist, they
+    // are the right width and they report the right enabled state, all while
+    // drawn one on top of the other at the top of the card.
+    const QQuickItem *cardTitle = findVisualChild(cardItem, QStringLiteral("cardContent"));
+    QVERIFY(cardTitle);
+    for (int i = 1; i < rows.size(); ++i) {
+        const qreal previousBottom = rows.at(i - 1)->y() + rows.at(i - 1)->height();
+        QVERIFY2(rows.at(i)->y() >= previousBottom,
+                 qPrintable(QStringLiteral("button %1 starts at %2, inside the one above it ending at %3")
+                                .arg(i)
+                                .arg(rows.at(i)->y())
+                                .arg(previousBottom)));
+    }
+
+    // Every button spans the card, so three of them stack instead of wrapping
+    // into a ragged block.
+    for (QQuickItem *row : rows) {
+        QVERIFY2(qAbs(row->width() - (cardItem->width() - 2 * cardItem->property("contentMargin").toReal())) < 1.0,
+                 qPrintable(QStringLiteral("a button is %1 wide in a %2 card")
+                                .arg(row->width())
+                                .arg(cardItem->width())));
+    }
+
+    // And the card reports the height it drew, like every other card: width
+    // flows down, height flows up.
+    QVERIFY2(deepestBottom(cardItem, cardItem) <= cardItem->height() + 0.5,
+             qPrintable(QStringLiteral("the card draws %1 past its own bottom")
+                            .arg(deepestBottom(cardItem, cardItem) - cardItem->height())));
+    QCOMPARE(cardItem->width(), bubbleItem->property("attachmentBlockWidth").toReal());
+}
+
+// A call is not a message anybody wrote. It draws as a pill in the middle of
+// the row with no plate behind it and no side of the transcript claimed,
+// because putting it in a bubble would say somebody spoke.
+void ChatBubblePerf::aCallLogIsAPillInTheMiddleWithNoPlate()
+{
+    const QVariantMap log{
+        {QStringLiteral("video"), true},
+        {QStringLiteral("outcome"), QStringLiteral("missed")},
+        {QStringLiteral("duration_secs"), 0},
+    };
+    const QVariantMap props =
+        withProps(baseProps(), {{QStringLiteral("messageId"), QStringLiteral("call-1")},
+                                {QStringLiteral("mediaKind"), QStringLiteral("call_log")},
+                                {QStringLiteral("callLog"), log},
+                                // A group chat, so the sender header and avatar
+                                // would be drawn if the pill did not suppress
+                                // them.
+                                {QStringLiteral("showSenderHeader"), true},
+                                {QStringLiteral("showSenderAvatar"), true},
+                                {QStringLiteral("showSenderGutter"), true}});
+
+    QQmlComponent component(
+        m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/ChatBubble.qml")));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> bubble(component.createWithInitialProperties(props));
+    QVERIFY2(bubble, qPrintable(component.errorString()));
+    auto *bubbleItem = qobject_cast<QQuickItem *>(bubble.get());
+    bubbleItem->setParentItem(m_window->contentItem());
+    m_window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_window));
+
+    QVERIFY(bubbleItem->property("centeredPill").toBool());
+    // No sender name and no avatar gutter: both would be labelling a message
+    // nobody sent.
+    QCOMPARE(bubbleItem->property("senderHeaderHeight").toReal(), 0.0);
+    QCOMPARE(bubbleItem->property("senderGutterWidth").toReal(), 0.0);
+    // And nothing to reply to. A call is not a thing you quote.
+    QVERIFY(!bubbleItem->property("canReply").toBool());
+
+    QQuickItem *pill = findVisualChild(bubbleItem, QStringLiteral("callLogPill"));
+    QVERIFY2(pill, "no call pill was drawn");
+    QTRY_VERIFY(pill->width() > 0 && pill->height() > 0);
+
+    // Centered on the whole row rather than on either bubble column, because a
+    // call belongs to neither side of the conversation.
+    const qreal pillCentre = pill->mapToItem(bubbleItem, QPointF(pill->width() / 2, 0)).x();
+    QVERIFY2(qAbs(pillCentre - bubbleItem->width() / 2) < 1.5,
+             qPrintable(QStringLiteral("the pill is centred at %1 in a %2-wide row")
+                            .arg(pillCentre)
+                            .arg(bubbleItem->width())));
+
+    // A fully rounded pill pads its sides to its own height, not to a flat
+    // unit, or the words sit in the flat middle with the round ends crowding.
+    const qreal hPadding = pill->property("hPadding").toReal();
+    QVERIFY2(hPadding >= pill->height() * 0.3,
+             qPrintable(QStringLiteral("a %1-tall pill pads its sides by %2")
+                            .arg(pill->height())
+                            .arg(hPadding)));
+
+    // The row is the pill plus its own bottom gap and nothing else. A plate
+    // reserved behind it, or a footer under it, would show up here as a row
+    // several times the pill's height.
+    QVERIFY2(bubbleItem->height() < pill->height() * 1.6,
+             qPrintable(QStringLiteral("a %1-tall pill sits in a %2-tall row")
+                            .arg(pill->height())
+                            .arg(bubbleItem->height())));
+}
+
 void ChatBubblePerf::aShrinkingPaneDoesNotDragTheTranscriptWithIt()
 {
     CollectionViewModel source;

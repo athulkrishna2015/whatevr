@@ -73,6 +73,16 @@ var rawMessageBuilders = map[string]rawMessageBuilder{
 	"event":         buildRawEvent,
 	"event_rsvp":    buildRawEventRSVP,
 	"link_preview":  buildRawLinkPreview,
+	"buttons":       buildRawButtons,
+	"list":          buildRawList,
+	"template":      buildRawTemplate,
+	"interactive":   buildRawInteractive,
+	"button_reply":  buildRawButtonReply,
+	"product":       buildRawProduct,
+	"order":         buildRawOrder,
+	"payment":       buildRawPayment,
+	"sticker_pack":  buildRawStickerPack,
+	"call_log":      buildRawCallLog,
 }
 
 // rawSequenceBuilder produces a kind that is not one message. An album is a

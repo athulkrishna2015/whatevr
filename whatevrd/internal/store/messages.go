@@ -212,6 +212,20 @@ type Message struct {
 	// rows only. Each one is a whole message: the tiles are the children, not a
 	// copy of them.
 	Album []Message
+	// StickerPack is what the local library currently knows about the pack a
+	// sticker-pack row shares, attached at read time for the same reason a
+	// poll's tally is: installing a pack from the picker must not leave a card
+	// elsewhere in the transcript still offering to add it.
+	StickerPack *StickerPackState
+}
+
+// StickerPackState is the library's answer about a shared pack. Known is false
+// for a pack the daemon cannot find at all, which is the normal case for one
+// somebody made on their own phone: there is nothing to install by id, and a
+// card that offered anyway would be offering a button that fails.
+type StickerPackState struct {
+	Known     bool
+	Installed bool
 }
 
 type MessageReply struct {

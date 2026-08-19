@@ -85,7 +85,12 @@ Item {
     readonly property real heroHeight: largeLayout ? Math.max(1, width / heroAspect) : 0
 
     implicitWidth: row.attachmentBlockWidth
-    implicitHeight: hero.height + body.implicitHeight + contentMargin * 2
+    // See InteractiveBubble: a layout has no implicit height until it first
+    // arranges, and a row that reserves nothing and then grows is a row that
+    // shoves the transcript under it.
+    readonly property real unmeasuredBodyHeight: Kirigami.Units.gridUnit * 3
+    implicitHeight: hero.height + contentMargin * 2
+                    + (body.implicitHeight > 0 ? body.implicitHeight : unmeasuredBodyHeight)
 
     /// The width this card would rather be. The hero layout wants the bubble,
     /// so it asks for nothing and fills. The compact one asks for its text,
@@ -171,7 +176,11 @@ Item {
             fillMode: Image.PreserveAspectCrop
             asynchronous: true
             cache: true
-            sourceSize.width: Math.max(1, Math.ceil(hero.width * Screen.devicePixelRatio))
+            // No sourceSize: this is the small JPEG that arrived inside the
+            // message, and pinning the decode to the slot's width upscales a
+            // hundred-pixel picture into a megapixel one, again on every
+            // relayout. Decoding it at its own size and letting the scene graph
+            // scale it up is both cheaper and no blurrier.
         }
 
         RoundedImage {
@@ -226,10 +235,35 @@ Item {
         // previews down a chat shares one left edge instead of stepping in and
         // out by a thumbnail's width.
         Rectangle {
+            id: thumbBox
+
+            /// The picture's own shape. A square is the guess for one whose
+            /// dimensions never arrived, because that is what a site icon is.
+            readonly property real pictureAspect: root.thumbnailWidth > 0 && root.thumbnailHeight > 0
+                ? root.thumbnailWidth / root.thumbnailHeight
+                : 1
+            /// The picture drawn whole, at its own shape, as large as fits. It
+            /// is a logo or a piece of cover art: cropping one to a square cuts
+            /// the edges off the thing that identifies the site.
+            readonly property real pictureWidth: Math.min(width, height * pictureAspect)
+            readonly property real pictureHeight: Math.min(height, width / pictureAspect)
+
+            /// A square as tall as the words beside it. Both halves of that
+            /// matter: a picture that stops short of the text reads as one that
+            /// failed to load, and a picture stretched to the text's height on
+            /// a fixed width is a shape nothing on the page has.
+            ///
+            /// It is bounded rather than open: the title and the description
+            /// are each capped at two lines, so the column this follows cannot
+            /// grow past about five, and the square cannot chase it forever.
+            readonly property real side: Math.max(root.thumbSize, previewText.implicitHeight)
+
             Layout.alignment: Qt.AlignTop
+            Layout.preferredWidth: side
+            Layout.preferredHeight: side
             visible: !root.largeLayout
-            implicitWidth: root.thumbSize
-            implicitHeight: root.thumbSize
+            implicitWidth: side
+            implicitHeight: side
             radius: Math.round(root.cornerRadius * 0.75)
             color: Qt.alpha(Kirigami.Theme.textColor, 0.06)
 
@@ -250,17 +284,17 @@ Item {
                 source: !root.largeLayout && root.hasThumbnail
                     ? Whatevr.ProtocolController.localFileUrl(root.thumbnailPath)
                     : ""
-                fillMode: Image.PreserveAspectCrop
+                fillMode: Image.PreserveAspectFit
                 asynchronous: true
                 cache: true
-                sourceSize.width: Math.max(1, Math.ceil(root.thumbSize * Screen.devicePixelRatio))
             }
 
             RoundedImage {
-                anchors.fill: parent
+                anchors.centerIn: parent
+                width: thumbBox.pictureWidth
+                height: thumbBox.pictureHeight
                 visible: thumbSource.status === Image.Ready
                 source: thumbSource
-                sourceRect: coverRect(width, height, root.thumbnailWidth, root.thumbnailHeight)
                 topLeftRadius: parent.radius
                 topRightRadius: parent.radius
                 bottomLeftRadius: parent.radius
@@ -269,6 +303,8 @@ Item {
         }
 
         ColumnLayout {
+            id: previewText
+
             Layout.fillWidth: true
             Layout.alignment: Qt.AlignTop
             spacing: Kirigami.Units.smallSpacing / 2

@@ -125,7 +125,11 @@ set(WHATKEVR_QML_FILES
     qml/components/AlbumBubble.qml
     qml/components/CardBubble.qml
     qml/components/ContactCardBubble.qml
+    qml/components/CallLogPill.qml
     qml/components/CardActionButton.qml
+    qml/components/CommerceCardBubble.qml
+    qml/components/InteractiveBubble.qml
+    qml/components/StickerPackBubble.qml
     qml/components/ContactCardEntry.qml
     qml/components/ContactFieldRow.qml
     qml/components/EventBubble.qml

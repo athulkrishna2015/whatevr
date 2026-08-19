@@ -26,6 +26,226 @@ type MessagePayload struct {
 	Event       *EventPayload       `json:"event,omitempty"`
 	Album       *AlbumPayload       `json:"album,omitempty"`
 	LinkPreview *LinkPreviewPayload `json:"link_preview,omitempty"`
+	Interactive *InteractivePayload `json:"interactive,omitempty"`
+	Commerce    *CommercePayload    `json:"commerce,omitempty"`
+	StickerPack *StickerPackPayload `json:"sticker_pack,omitempty"`
+	CallLog     *CallLogPayload     `json:"call_log,omitempty"`
+}
+
+// InteractivePayload is a business message: a header, some words, a footer and
+// a set of things the reader is invited to do.
+//
+// WhatsApp has four wire shapes for that one idea (ButtonsMessage, ListMessage,
+// a hydrated TemplateMessage and InteractiveMessage, the last of which nests
+// itself for carousels), and they differ in field names rather than in what
+// they say. They are flattened here, because a frontend that had to know which
+// of the four it received would be reimplementing this decision four times over
+// and getting a different card each time.
+//
+// Nothing in here is fetched. A header that arrived as an ImageMessage or a
+// VideoMessage contributes only the JPEG thumbnail it carried inline: these are
+// promotional headers, not pictures somebody sent you to look at, and making
+// the kind downloadable would put business broadcasts on the auto-download path.
+type InteractivePayload struct {
+	// Source is which wire shape this came from ("buttons", "list", "template",
+	// "interactive", "carousel"). It exists so a bug report can say what
+	// arrived, not so a renderer can branch on it.
+	Source   string `json:"source,omitempty"`
+	Title    string `json:"title,omitempty"`
+	Subtitle string `json:"subtitle,omitempty"`
+	Body     string `json:"body,omitempty"`
+	Footer   string `json:"footer,omitempty"`
+	// ThumbnailPath is the header picture the message carried inline, written
+	// into the media cache. Like a link preview's, it is not the row's `media`
+	// object: there is nothing here to download.
+	ThumbnailPath string `json:"thumbnail_path,omitempty"`
+	// HeaderJPEG is that same picture as bytes, carried from parsing the
+	// message to writing the cache file and no further. It is tagged out of
+	// the JSON deliberately: a payload column is not where a picture goes, and
+	// a field that could put one there by accident is a field worth spelling
+	// out.
+	HeaderJPEG []byte `json:"-"`
+	// DocumentName names a header that arrived as a document. The document
+	// itself is not fetched, but a card that cannot say what it is offering is
+	// worse than one that names the file.
+	DocumentName string              `json:"document_name,omitempty"`
+	Buttons      []InteractiveButton `json:"buttons,omitempty"`
+	// Sections are a ListMessage's contents, or a native-flow single-select's.
+	// The label is the button that opens them.
+	Sections  []InteractiveSection `json:"sections,omitempty"`
+	ListLabel string               `json:"list_label,omitempty"`
+	// Cards are a carousel's slides, each a whole card in its own right. The
+	// recursion is one level deep in practice and bounded here regardless, so a
+	// hostile message cannot make the daemon walk forever.
+	Cards []InteractivePayload `json:"cards,omitempty"`
+}
+
+// Interactive button kinds. The first two are a handoff to the desktop and work
+// exactly as well here as on a phone; the rest need a message sent back, which
+// is what whatevr cannot do yet.
+const (
+	InteractiveButtonURL   = "url"
+	InteractiveButtonCall  = "call"
+	InteractiveButtonCopy  = "copy"
+	InteractiveButtonReply = "reply"
+	// InteractiveButtonOther is a native flow this build does not recognise: a
+	// booking form, a payment sheet, a Bloks widget. It has a label and nothing
+	// else honest to say.
+	InteractiveButtonOther = "other"
+)
+
+// InteractiveButton is one thing a business message offers to do.
+type InteractiveButton struct {
+	Kind  string `json:"kind"`
+	Label string `json:"label,omitempty"`
+	URL   string `json:"url,omitempty"`
+	Phone string `json:"phone,omitempty"`
+	// Copy is the code a copy button puts on the clipboard, which is the whole
+	// content of that button: a discount code, a one-time password.
+	Copy string `json:"copy,omitempty"`
+	ID   string `json:"id,omitempty"`
+	// Live says the desktop can actually carry the button out. Opening a link,
+	// dialling a number and copying a code are all local; everything else means
+	// sending a message back to a business, which is section 2. Saying so on
+	// the wire is what lets the card show a dead button as dead rather than
+	// letting somebody press it and wonder.
+	Live bool `json:"live"`
+}
+
+// InteractiveSection is one titled group of rows in a list.
+type InteractiveSection struct {
+	Title string           `json:"title,omitempty"`
+	Rows  []InteractiveRow `json:"rows,omitempty"`
+}
+
+// InteractiveRow is one choice inside a list section.
+type InteractiveRow struct {
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	ID          string `json:"id,omitempty"`
+}
+
+// HasContent reports a card worth drawing. A business message stripped of every
+// word and every button is a row with nothing on it, and its `fallback` says
+// more than an empty box would.
+func (p *InteractivePayload) HasContent() bool {
+	if p == nil {
+		return false
+	}
+	return p.Title != "" || p.Body != "" || p.Footer != "" || p.Subtitle != "" ||
+		p.ThumbnailPath != "" || len(p.HeaderJPEG) > 0 || p.DocumentName != "" ||
+		len(p.Buttons) > 0 || len(p.Sections) > 0 || len(p.Cards) > 0
+}
+
+// Commerce kinds, spelled as they cross the wire.
+const (
+	CommerceKindProduct = "product"
+	CommerceKindOrder   = "order"
+	// CommerceKindPaymentRequest is somebody asking to be paid,
+	// CommerceKindPaymentSent is somebody saying they paid, and
+	// CommerceKindPaymentInvite is an offer to set payments up at all.
+	CommerceKindPaymentRequest = "payment_request"
+	CommerceKindPaymentSent    = "payment_sent"
+	CommerceKindPaymentInvite  = "payment_invite"
+)
+
+// CommercePayload is a product, an order or a payment: three wire shapes that
+// render as one card, because they are the same card. Each is a picture, a
+// name, a sum of money and a line saying where it stands.
+//
+// The money crosses as the integer WhatsApp sends (thousandths of a currency
+// unit) plus its ISO 4217 code, not as a formatted string. Formatting a sum is
+// a question about the reader's locale, and the daemon does not have one.
+type CommercePayload struct {
+	Kind        string `json:"kind"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	Body        string `json:"body,omitempty"`
+	Footer      string `json:"footer,omitempty"`
+	// ThumbnailPath is the inline picture, written into the media cache.
+	ThumbnailPath string `json:"thumbnail_path,omitempty"`
+	// Amount1000 is thousandths of a unit: 1299000 is 1299.00 in Currency.
+	Amount1000 int64  `json:"amount_1000,omitempty"`
+	Currency   string `json:"currency,omitempty"`
+	// SalePrice1000 is a discounted price when the seller set one, so a card
+	// can strike through the original rather than quietly showing one number.
+	SalePrice1000 int64 `json:"sale_price_1000,omitempty"`
+
+	// Product.
+	ProductID  string `json:"product_id,omitempty"`
+	RetailerID string `json:"retailer_id,omitempty"`
+	URL        string `json:"url,omitempty"`
+	ImageCount int    `json:"image_count,omitempty"`
+	SellerJID  string `json:"seller_jid,omitempty"`
+
+	// Order.
+	OrderID   string `json:"order_id,omitempty"`
+	ItemCount int    `json:"item_count,omitempty"`
+	// Status is "inquiry", "accepted" or "declined", empty when unstated.
+	Status string `json:"status,omitempty"`
+
+	// Payment.
+	Note string `json:"note,omitempty"`
+	// ExpiresAt is when a request or an invite lapses, 0 for one that does not.
+	ExpiresAt int64 `json:"expires_at,omitempty"`
+	// Service is the payment rail ("upi", "pix", "fbpay", "novi"), which is
+	// worth naming: it is the difference between a card somebody can act on and
+	// one they cannot.
+	Service string `json:"service,omitempty"`
+	// RequestedFrom is who a payment request was addressed to.
+	RequestedFrom string `json:"requested_from,omitempty"`
+}
+
+// StickerPackPayload is a shared sticker pack.
+//
+// It is the one card in this family that does something rather than describing
+// something: whatevr already keeps a sticker library and already has a command
+// to install a pack into it. Installable says whether this particular pack is
+// one the daemon can find, because a pack made by hand on somebody's phone is
+// not in WhatsApp's index and cannot be added by id.
+type StickerPackPayload struct {
+	PackID      string `json:"pack_id,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Publisher   string `json:"publisher,omitempty"`
+	Description string `json:"description,omitempty"`
+	Caption     string `json:"caption,omitempty"`
+	// Count is how many stickers the pack holds, as the share claimed.
+	Count       int  `json:"count,omitempty"`
+	Installable bool `json:"installable,omitempty"`
+	Installed   bool `json:"installed,omitempty"`
+	// ResolvedAt is when the daemon last checked the two flags above against
+	// its own library, 0 for never.
+	ResolvedAt int64 `json:"resolved_at,omitempty"`
+}
+
+// Call outcomes, spelled as they cross the wire.
+const (
+	CallOutcomeConnected = "connected"
+	CallOutcomeMissed    = "missed"
+	CallOutcomeFailed    = "failed"
+	CallOutcomeRejected  = "rejected"
+	CallOutcomeElsewhere = "accepted_elsewhere"
+	CallOutcomeOngoing   = "ongoing"
+	CallOutcomeSilenced  = "silenced"
+)
+
+// CallLogPayload is a call that happened, recorded in the chat it happened in.
+//
+// It is not a message anybody wrote, which is why it renders as a centered pill
+// rather than a bubble: putting it in a plate on one side would claim somebody
+// said something, and nobody did.
+type CallLogPayload struct {
+	Video   bool   `json:"video,omitempty"`
+	Outcome string `json:"outcome,omitempty"`
+	// DurationSecs is how long it lasted, 0 for a call that never connected.
+	DurationSecs int64 `json:"duration_secs,omitempty"`
+	// Group marks a call with more than the two of you in it.
+	Group bool `json:"group,omitempty"`
+	// Scheduled marks a planned call rather than one somebody just placed.
+	Scheduled bool `json:"scheduled,omitempty"`
+	VoiceChat bool `json:"voice_chat,omitempty"`
+	// Participants is how many people the log named, 0 when it named none.
+	Participants int `json:"participants,omitempty"`
 }
 
 // LinkPreviewPayload is the card a sender's client built for a link in their
@@ -312,5 +532,6 @@ func DecodePayload(raw string) MessagePayload {
 func (p MessagePayload) isZero() bool {
 	return p.Location == nil && p.LiveShare == nil && p.Contacts == nil &&
 		p.Poll == nil && p.GroupInvite == nil && p.Event == nil && p.Album == nil &&
-		p.LinkPreview == nil
+		p.LinkPreview == nil && p.Interactive == nil && p.Commerce == nil &&
+		p.StickerPack == nil && p.CallLog == nil
 }

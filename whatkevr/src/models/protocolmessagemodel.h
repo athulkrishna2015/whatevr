@@ -112,6 +112,22 @@ public:
         // because the text is still the message: the card renders above it,
         // not instead of it.
         LinkPreviewRole,
+        // A business message: a header, some words and a set of things the
+        // reader is invited to do. WhatsApp has four wire shapes for that one
+        // idea; the daemon flattens all four into this, so there is one card
+        // here rather than four.
+        InteractiveRole,
+        // A product, an order or a payment. The money arrives as the integer
+        // WhatsApp sent plus its currency code, never pre-formatted: how a sum
+        // reads is a question about this machine's locale, which is the one
+        // thing the daemon cannot know.
+        CommerceRole,
+        // A shared sticker pack, with the library's own answer about whether it
+        // can be added and whether it already has been.
+        StickerPackRole,
+        // A call that happened. Not a message anybody wrote, which is why it
+        // draws as a centered pill rather than in somebody's bubble.
+        CallLogRole,
     };
     Q_ENUM(Role)
 

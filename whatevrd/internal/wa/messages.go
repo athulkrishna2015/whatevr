@@ -792,6 +792,18 @@ func (c *Client) mediaMessageInputForKind(ctx context.Context, evt *events.Messa
 	if input, ok := c.albumMessageInput(ctx, evt, opts); ok {
 		return input, true
 	}
+	if input, ok := c.interactiveMessageInput(ctx, evt, opts); ok {
+		return input, true
+	}
+	if input, ok := c.commerceMessageInput(ctx, evt, opts); ok {
+		return input, true
+	}
+	if input, ok := c.stickerPackMessageInput(ctx, evt, opts); ok {
+		return input, true
+	}
+	if input, ok := c.callLogMessageInput(ctx, evt, opts); ok {
+		return input, true
+	}
 	return c.unsupportedMessageInput(ctx, evt, opts)
 }
 
@@ -1204,9 +1216,11 @@ func unsupportedMessageLabel(evt *events.Message) (string, bool) {
 			return "View once voice message", true
 		}
 	}
-	switch {
-	case msg.GetListMessage() != nil, msg.GetButtonsMessage() != nil,
-		msg.GetTemplateMessage() != nil, msg.GetInteractiveMessage() != nil:
+	// The business family used to land here as a bare "Message". It now has its
+	// own card, and the only member still on this path is the non-hydrated
+	// TemplateMessage, whose contents are a template name to be looked up in a
+	// catalogue a linked device is never sent.
+	if msg.GetTemplateMessage() != nil {
 		return "Message", true
 	}
 	return "", false
@@ -1426,6 +1440,9 @@ func contextInfoFromMessage(message *waE2E.Message) *waE2E.ContextInfo {
 	if album := message.GetAlbumMessage(); album != nil {
 		return album.GetContextInfo()
 	}
+	if contextInfo := businessContextInfo(message); contextInfo != nil {
+		return contextInfo
+	}
 	return nil
 }
 
@@ -1572,6 +1589,26 @@ func quotedReplyPreview(message *waE2E.Message) (string, string, string) {
 			ExpectedVideos: int(album.GetExpectedVideoCount()),
 		}), appstore.MediaKindAlbum, ""
 	}
+	if payload, _, ok := interactivePayloadFromMessage(message); ok && payload.HasContent() {
+		return interactiveSummary(payload), appstore.MediaKindInteractive, ""
+	}
+	if payload, _, _, ok := commercePayloadFromMessage(message); ok {
+		return commerceSummary(payload), commerceMediaKind(payload.Kind), ""
+	}
+	if pack := message.GetStickerPackMessage(); pack != nil {
+		return strings.TrimSpace(pack.GetName()), appstore.MediaKindStickerPack, ""
+	}
+	if log := message.GetCallLogMesssage(); log != nil {
+		// A quote of a call log cannot know which side it was on, so it takes
+		// the incoming reading: "Missed voice call" is the one somebody would
+		// be quoting.
+		return callLogSummary(&appstore.CallLogPayload{
+			Video:        log.GetIsVideo(),
+			Outcome:      callOutcomeName(log.GetCallOutcome()),
+			DurationSecs: log.GetDurationSecs(),
+			Participants: len(log.GetParticipants()),
+		}, false), appstore.MediaKindCallLog, ""
+	}
 	return "", "", ""
 }
 
@@ -1665,6 +1702,13 @@ func textFromMessage(message *waE2E.Message) string {
 		return text
 	}
 	if text := message.GetExtendedTextMessage().GetText(); text != "" {
+		return text
+	}
+	// Pressing a button on a business message sends back a message whose whole
+	// content is the words that were on the button, which is exactly what
+	// WhatsApp shows for one. So it is text, and every path that handles text
+	// (search, quoting, copying, the chat-list preview) handles it for free.
+	if text := interactiveResponseText(message); text != "" {
 		return text
 	}
 	return ""

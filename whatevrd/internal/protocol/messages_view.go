@@ -599,6 +599,40 @@ type messageItem struct {
 	// `text`, because the text is still the message and the preview only
 	// describes what it points at.
 	LinkPreview *store.LinkPreviewPayload `json:"link_preview,omitempty"`
+	// Interactive is a business message: a header, some words and a set of
+	// things the reader is invited to do. WhatsApp has four wire shapes for
+	// that one idea and the daemon flattens all four into this, so a frontend
+	// draws one card rather than four.
+	Interactive *store.InteractivePayload `json:"interactive,omitempty"`
+	// Commerce is a product, an order or a payment. The money crosses as the
+	// integer WhatsApp sent (thousandths of a unit) plus its ISO 4217 code,
+	// never as a formatted string: how a sum reads is a question about the
+	// person reading it, and the daemon does not know them.
+	Commerce *store.CommercePayload `json:"commerce,omitempty"`
+	// StickerPack is a shared pack, with what the local library currently knows
+	// about it. Whether it can be added, and whether it already has been, are
+	// joined at read time, so a card never offers a pack that is already in the
+	// picker.
+	StickerPack *messageStickerPack `json:"sticker_pack,omitempty"`
+	// CallLog is a call that happened. It is not a message anybody wrote, which
+	// is why a frontend draws it centered rather than in somebody's bubble.
+	CallLog *store.CallLogPayload `json:"call_log,omitempty"`
+}
+
+// messageStickerPack is a shared sticker pack plus the library's answer about
+// it, which is the half that keeps moving.
+type messageStickerPack struct {
+	PackID      string `json:"pack_id,omitempty"`
+	Name        string `json:"name,omitempty"`
+	Publisher   string `json:"publisher,omitempty"`
+	Description string `json:"description,omitempty"`
+	Caption     string `json:"caption,omitempty"`
+	Count       int    `json:"count,omitempty"`
+	// Installable says the daemon can find this pack and `sticker_pack.install`
+	// would work on it. False for a pack somebody assembled themselves, which
+	// has no entry to install.
+	Installable bool `json:"installable"`
+	Installed   bool `json:"installed"`
 }
 
 // messageAlbum is a group of pictures sent together.
@@ -824,7 +858,36 @@ func attachMessagePayload(item *messageItem, m store.Message) {
 		item.Event = messageEventFromStore(m, payload.Event)
 	case store.MediaKindAlbum:
 		item.Album = messageAlbumFromStore(m, payload.Album)
+	case store.MediaKindInteractive:
+		item.Interactive = payload.Interactive
+	case store.MediaKindProduct, store.MediaKindOrder, store.MediaKindPayment:
+		item.Commerce = payload.Commerce
+	case store.MediaKindStickerPack:
+		item.StickerPack = messageStickerPackFromStore(m, payload.StickerPack)
+	case store.MediaKindCallLog:
+		item.CallLog = payload.CallLog
 	}
+}
+
+// messageStickerPackFromStore joins what the share said with what the library
+// says about it now.
+func messageStickerPackFromStore(m store.Message, payload *store.StickerPackPayload) *messageStickerPack {
+	if payload == nil {
+		return nil
+	}
+	pack := &messageStickerPack{
+		PackID:      payload.PackID,
+		Name:        payload.Name,
+		Publisher:   payload.Publisher,
+		Description: payload.Description,
+		Caption:     payload.Caption,
+		Count:       payload.Count,
+	}
+	if state := m.StickerPack; state != nil {
+		pack.Installable = state.Known
+		pack.Installed = state.Installed
+	}
+	return pack
 }
 
 // messageAlbumFromStore projects an album's children into the wire item that

@@ -69,6 +69,10 @@ Item {
     // of another kind: this row is a text row, and the card sits above the
     // words rather than replacing them.
     required property var linkPreview
+    required property var interactive
+    required property var commerce
+    required property var stickerPack
+    required property var callLog
     required property bool isRevoked
     required property bool isEdited
     required property bool isStarred
@@ -214,6 +218,7 @@ Item {
     readonly property bool hasReplyPreview: replyToMessageId.length > 0
     readonly property bool canReply: messageId.length > 0
                                      && !isRevoked
+                                     && !centeredPill
                                      && (body.length > 0
                                          || mediaKind.length > 0
                                          || mediaMimeType.length > 0
@@ -233,8 +238,11 @@ Item {
         : (Whatevr.Settings.density === 2 ? 1.3 : 1.0)
     readonly property real innerPadding: Math.round(Kirigami.Units.largeSpacing * densityScale)
     readonly property real senderAvatarSize: Kirigami.Units.gridUnit * 1.65
-    readonly property real senderGutterWidth: showSenderGutter ? senderAvatarSize + Kirigami.Units.smallSpacing : 0
-    readonly property real senderHeaderHeight: showSenderHeader
+    // A pill claims no side of the transcript, so it needs neither the avatar
+    // gutter nor the sender name above it: both would be labelling a message
+    // that nobody sent.
+    readonly property real senderGutterWidth: showSenderGutter && !centeredPill ? senderAvatarSize + Kirigami.Units.smallSpacing : 0
+    readonly property real senderHeaderHeight: showSenderHeader && !centeredPill
         ? Math.max(senderAvatarSize, senderHeaderLoader.item ? senderHeaderLoader.item.labelImplicitHeight : 0)
         : 0
     readonly property real maxBubbleWidth: Math.max(Kirigami.Units.gridUnit * 4,
@@ -300,8 +308,18 @@ Item {
                                           && linkPreview !== undefined
                                           && linkPreview !== null
                                           && String(linkPreview.url ?? "").length > 0
+    // A business message. Four wire shapes arrive as one kind, because the
+    // daemon flattened them: this build never learns which one it was.
+    readonly property bool isInteractive: mediaKind === "interactive"
+    // A product, an order or a payment. One card: they differ by a line on it.
+    readonly property bool isCommerce: mediaKind === "product" || mediaKind === "order" || mediaKind === "payment"
+    readonly property bool isStickerPack: mediaKind === "sticker_pack"
     readonly property bool isCardBlock: isLocation || isLiveLocation || isContactCard || isPoll || isGroupInvite || isEvent || isAlbum || isLinkPreview
+                                        || isInteractive || isCommerce || isStickerPack
     readonly property bool isAttachmentBlock: isVoice || isAudioFile || isDocument || isCardBlock
+    // A call that happened. Not a message anybody wrote, and the one row here
+    // that draws no plate and picks no side: see the centered-pill mode below.
+    readonly property bool isCallLog: mediaKind === "call_log"
     // Real message whose payload the app can't render yet (document, voice
     // note, poll, ...). The daemon puts a short label in the body text; the
     // row renders like a revoked tombstone and never offers a download.
@@ -313,6 +331,14 @@ Item {
     // time/ticks pill under it. A video note is one of these, the same way
     // WhatsApp draws a round instant video: a circle on the wallpaper, no box.
     readonly property bool frameless: isSticker || isJumboEmoji || isVideoNote
+    // Rows that are not somebody talking. A call happened; nobody said it, so
+    // there is no side of the transcript it belongs on and no plate to put it
+    // in. It draws as a pill in the middle, the way the day separator does,
+    // with no avatar, no sender name and no reply affordance.
+    //
+    // A sibling of `frameless` rather than a variant of it: a frameless row is
+    // still a message from somebody, drawn without its box.
+    readonly property bool centeredPill: isCallLog
     readonly property real jumboEmojiPixelSize: Kirigami.Units.gridUnit
         * (displayEmojiOnlyCount === 1 ? 2.8 : displayEmojiOnlyCount === 2 ? 2.2 : 1.8)
     readonly property bool isAnimatedSticker: isSticker && (mediaAnimated || mediaMimeType === "image/gif")
@@ -643,7 +669,13 @@ Item {
     // On the bottom line a voice note, audio file or document already draws
     // (elapsed time, file size, page count). The block keeps tntReserveWidth
     // clear at its right end for exactly this.
+    // A business card, a commerce card and a shared sticker pack all end on a
+    // line that spans the card: a button as wide as the plate, or a sentence
+    // that wraps across it. There is no corner left to tuck the time into, so
+    // it takes a line of its own under the card rather than sitting on top of
+    // the last one.
     readonly property bool tntFitsInAttachment: isAttachmentBlock && !hasBody
+                                                && !isInteractive && !isCommerce && !isStickerPack
     // Space an attachment block leaves at the end of its bottom line so the
     // footer has somewhere to sit without overlapping the block's own text.
     readonly property real tntReserveWidth: tntFitsInAttachment ? tntWidth + inlineTntGap : 0
@@ -811,18 +843,18 @@ Item {
     // the reaction band. On frameless rows these come from the frameless
     // subtree (which only exists for those rows — see framelessLoader); every
     // other row is just the bubble.
-    readonly property real replyGlowLeft: framelessBubble ? framelessBubble.contentLeft : bubble.x
-    readonly property real replyGlowTop: framelessBubble ? framelessBubble.contentTop : bubble.y
-    readonly property real replyGlowRight: framelessBubble ? framelessBubble.contentRight : bubble.x + bubble.width
-    readonly property real replyGlowBottom: framelessBubble ? framelessBubble.contentBottom : bubble.y + bubble.height
+    readonly property real replyGlowLeft: centeredPill ? pillLoader.x : (framelessBubble ? framelessBubble.contentLeft : bubble.x)
+    readonly property real replyGlowTop: centeredPill ? pillLoader.y : (framelessBubble ? framelessBubble.contentTop : bubble.y)
+    readonly property real replyGlowRight: centeredPill ? pillLoader.x + pillLoader.width : (framelessBubble ? framelessBubble.contentRight : bubble.x + bubble.width)
+    readonly property real replyGlowBottom: centeredPill ? pillLoader.y + pillLoader.height : (framelessBubble ? framelessBubble.contentBottom : bubble.y + bubble.height)
 
     // Bounds of the row's visual body — the bubble, or the sticker slot on
     // frameless rows. Shared by the selection check circle and the hover reply
     // button, which both sit in the free space beside it.
-    readonly property real visualX: framelessBubble ? framelessBubble.slotX : bubble.x
-    readonly property real visualY: framelessBubble ? framelessBubble.slotY : bubble.y
-    readonly property real visualWidth: framelessBubble ? framelessBubble.slotWidth : bubble.width
-    readonly property real visualHeight: framelessBubble ? framelessBubble.slotHeight : bubble.height
+    readonly property real visualX: centeredPill ? pillLoader.x : (framelessBubble ? framelessBubble.slotX : bubble.x)
+    readonly property real visualY: centeredPill ? pillLoader.y : (framelessBubble ? framelessBubble.slotY : bubble.y)
+    readonly property real visualWidth: centeredPill ? pillLoader.width : (framelessBubble ? framelessBubble.slotWidth : bubble.width)
+    readonly property real visualHeight: centeredPill ? pillLoader.height : (framelessBubble ? framelessBubble.slotHeight : bubble.height)
 
     readonly property bool hasReactions: reactions !== undefined && reactions !== null && reactions.length > 0
     // The reaction chip row sits in its own band below the bubble; reserve its
@@ -832,9 +864,11 @@ Item {
         : 0
 
     width: listWidth
-    height: (framelessBubble
-        ? framelessBubble.bottomEdge
-        : bubble.y + bubble.height) + reactionRowReserve + (groupEnd ? Kirigami.Units.smallSpacing : Kirigami.Units.smallSpacing / 4)
+    height: (centeredPill
+        ? pillLoader.y + pillLoader.height
+        : framelessBubble
+            ? framelessBubble.bottomEdge
+            : bubble.y + bubble.height) + reactionRowReserve + (groupEnd ? Kirigami.Units.smallSpacing : Kirigami.Units.smallSpacing / 4)
 
     HoverHandler {
         id: rowHoverHandler
@@ -1047,10 +1081,11 @@ Item {
         id: bubble
 
         // Frameless rows draw nothing here and build their content in
-        // FramelessBubble instead. This is a plain `visible`, so it takes the
-        // whole content column with it: nothing that a frameless row still
-        // needs may live inside this rectangle.
-        visible: !root.frameless
+        // FramelessBubble instead; pill rows build theirs in pillLoader. This
+        // is a plain `visible`, so it takes the whole content column with it:
+        // nothing that either of those rows still needs may live inside this
+        // rectangle.
+        visible: !root.frameless && !root.centeredPill
 
         readonly property real bubbleRadius: Kirigami.Units.cornerRadius
 
@@ -1887,6 +1922,22 @@ Item {
         anchors.fill: parent
 
         sourceComponent: FramelessBubble {
+            row: root
+        }
+    }
+
+    // The centered pill: a row that is not somebody talking. It sizes itself
+    // (no width is set here), so it is exactly as wide as what it says, and it
+    // is centered on the whole row rather than on the bubble column because it
+    // belongs to neither side.
+    Loader {
+        id: pillLoader
+
+        active: root.centeredPill
+        x: Math.round((root.width - width) / 2)
+        y: root.messageBaseY
+
+        sourceComponent: CallLogPill {
             row: root
         }
     }

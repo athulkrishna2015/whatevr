@@ -83,6 +83,14 @@ Item {
                 return eventCard
             case "album":
                 return albumCard
+            case "interactive":
+                return interactiveCard
+            case "product":
+            case "order":
+            case "payment":
+                return commerceCard
+            case "sticker_pack":
+                return stickerPackCard
             default:
                 return null
             }
@@ -141,6 +149,30 @@ Item {
         id: linkPreviewCard
 
         LinkPreviewCard {
+            row: root.row
+        }
+    }
+
+    Component {
+        id: interactiveCard
+
+        InteractiveBubble {
+            row: root.row
+        }
+    }
+
+    Component {
+        id: commerceCard
+
+        CommerceCardBubble {
+            row: root.row
+        }
+    }
+
+    Component {
+        id: stickerPackCard
+
+        StickerPackBubble {
             row: root.row
         }
     }
