@@ -367,6 +367,10 @@ Item {
                 anchors.fill: parent
                 visible: mapSource.status === Image.Ready
                 source: mapSource
+                // The strip's shape is the card's; crop the map to it rather
+                // than stretching whatever the stitcher happened to produce.
+                sourceRect: coverRect(width, height,
+                                      mapSource.implicitWidth, mapSource.implicitHeight)
                 topLeftRadius: Kirigami.Units.cornerRadius
                 topRightRadius: Kirigami.Units.cornerRadius
                 bottomLeftRadius: Kirigami.Units.cornerRadius

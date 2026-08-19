@@ -226,6 +226,12 @@ Item {
             anchors.fill: parent
             visible: heroSource.status === Image.Ready
             source: heroSource
+            // The header's shape is the card's, not the picture's, so the
+            // picture is cropped to fill it rather than squashed to fit. The
+            // source Image's own fillMode never reaches the shader: it hands
+            // over the whole decoded texture.
+            sourceRect: coverRect(width, height,
+                                  heroSource.implicitWidth, heroSource.implicitHeight)
             // Square along the bottom: the picture meets the words, and rounding
             // there would leave two slivers of card showing under its corners.
             topLeftRadius: root.cornerRadius
@@ -542,6 +548,12 @@ Item {
                         height: slideSource.height
                         visible: slideSource.status === Image.Ready
                         source: slideSource
+                        // Every card in a carousel is the same shape whatever
+                        // shape its picture is, so crop to fill rather than
+                        // squash to fit.
+                        sourceRect: coverRect(width, height,
+                                              slideSource.implicitWidth,
+                                              slideSource.implicitHeight)
                         topLeftRadius: root.cornerRadius
                         topRightRadius: root.cornerRadius
                     }

@@ -258,6 +258,12 @@ Item {
                     anchors.fill: parent
                     visible: thumbSource.status === Image.Ready
                     source: thumbSource
+                    // The thumbnail is a square by the card's design, and a
+                    // product photo is whatever shape it was taken in, so crop
+                    // to fill it rather than squash it into the square.
+                    sourceRect: coverRect(width, height,
+                                          thumbSource.implicitWidth,
+                                          thumbSource.implicitHeight)
                     topLeftRadius: parent.radius
                     topRightRadius: parent.radius
                     bottomLeftRadius: parent.radius

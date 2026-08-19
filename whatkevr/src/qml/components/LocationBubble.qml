@@ -186,6 +186,12 @@ Item {
             visible: root.hasThumbnail && !root.hasMap && thumbnailSource.status === Image.Ready
             opacity: 0.85
             source: thumbnailSource
+            // The map area's shape is the bubble's, and the sender's thumbnail
+            // is whatever shape their phone cut, so crop to fill rather than
+            // squash to fit.
+            sourceRect: coverRect(width, height,
+                                  thumbnailSource.implicitWidth,
+                                  thumbnailSource.implicitHeight)
             topLeftRadius: Kirigami.Units.cornerRadius
             topRightRadius: Kirigami.Units.cornerRadius
         }
@@ -207,6 +213,8 @@ Item {
             anchors.fill: parent
             visible: root.hasMap && mapSource.status === Image.Ready
             source: mapSource
+            sourceRect: coverRect(width, height,
+                                  mapSource.implicitWidth, mapSource.implicitHeight)
             topLeftRadius: Kirigami.Units.cornerRadius
             topRightRadius: Kirigami.Units.cornerRadius
         }
