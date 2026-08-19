@@ -291,6 +291,23 @@ func (h commandHandlers) messageMarkPlayed(ctx context.Context, _ *conn, req req
 	return nil, mapCommandError(h.actions.MarkMessagePlayed(ctx, strings.TrimSpace(p.MessageID)))
 }
 
+// messageRequestFromPhone asks our own phone for a copy of a message this
+// device could not decrypt. The visible effect is the waiting row updating with
+// the request in flight; if the phone answers, the row turns into the message.
+func (h commandHandlers) messageRequestFromPhone(ctx context.Context, _ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p messageIDParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if err := p.valid(); err != nil {
+		return nil, err
+	}
+	return nil, mapCommandError(h.actions.RequestMessageFromPhone(ctx, strings.TrimSpace(p.MessageID)))
+}
+
 // pollVoteParams is a whole selection, not a delta: a voter takes a choice back
 // by sending the selection without it, which is what the wire format means.
 type pollVoteParams struct {

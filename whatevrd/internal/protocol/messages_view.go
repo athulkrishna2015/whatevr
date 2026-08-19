@@ -621,6 +621,10 @@ type messageItem struct {
 	// setting, a security code. Like a call log it is drawn centered, and for
 	// the same reason: it has no author to put it beside.
 	System *messageSystem `json:"system,omitempty"`
+	// Waiting is a message that arrived but would not decrypt, and has been
+	// asked for again. The row turns into the real message, in place and under
+	// the same id, if the resend arrives.
+	Waiting *store.WaitingPayload `json:"waiting,omitempty"`
 }
 
 // messageSystem is one thing that happened to a chat.
@@ -906,6 +910,8 @@ func attachMessagePayload(item *messageItem, m store.Message) {
 		item.CallLog = payload.CallLog
 	case store.MediaKindSystem:
 		item.System = messageSystemFromStore(m, payload.System)
+	case store.MediaKindWaiting:
+		item.Waiting = payload.Waiting
 	}
 }
 

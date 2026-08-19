@@ -133,6 +133,9 @@ public:
         // log is, and carrying both a finished sentence and the parts it was
         // built from, so the pill can say it in the reader's language.
         SystemRole,
+        // A message that arrived but would not decrypt, and has been asked for
+        // again. The row turns into the real message, in place, if it comes.
+        WaitingRole,
     };
     Q_ENUM(Role)
 

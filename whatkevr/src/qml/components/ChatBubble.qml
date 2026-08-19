@@ -74,6 +74,7 @@ Item {
     required property var stickerPack
     required property var callLog
     required property var system
+    required property var waiting
     required property bool isRevoked
     required property bool isEdited
     required property bool isStarred
@@ -315,8 +316,12 @@ Item {
     // A product, an order or a payment. One card: they differ by a line on it.
     readonly property bool isCommerce: mediaKind === "product" || mediaKind === "order" || mediaKind === "payment"
     readonly property bool isStickerPack: mediaKind === "sticker_pack"
+    // A message that arrived and would not decrypt. A card rather than a
+    // tombstone because it is not over: something is still being asked for, and
+    // the row has a button.
+    readonly property bool isWaiting: mediaKind === "waiting"
     readonly property bool isCardBlock: isLocation || isLiveLocation || isContactCard || isPoll || isGroupInvite || isEvent || isAlbum || isLinkPreview
-                                        || isInteractive || isCommerce || isStickerPack
+                                        || isInteractive || isCommerce || isStickerPack || isWaiting
     readonly property bool isAttachmentBlock: isVoice || isAudioFile || isDocument || isCardBlock
     // A call that happened. Not a message anybody wrote, and the one row here
     // that draws no plate and picks no side: see the centered-pill mode below.
@@ -688,7 +693,7 @@ Item {
     // it takes a line of its own under the card rather than sitting on top of
     // the last one.
     readonly property bool tntFitsInAttachment: isAttachmentBlock && !hasBody
-                                                && !isInteractive && !isCommerce && !isStickerPack
+                                                && !isInteractive && !isCommerce && !isStickerPack && !isWaiting
     // Space an attachment block leaves at the end of its bottom line so the
     // footer has somewhere to sit without overlapping the block's own text.
     readonly property real tntReserveWidth: tntFitsInAttachment ? tntWidth + inlineTntGap : 0

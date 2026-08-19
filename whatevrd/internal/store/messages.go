@@ -303,6 +303,54 @@ type MessageTimestampCorrection struct {
 	Changed bool
 }
 
+// waitingPlaceholderUpgrade opens the one conflict clause that is not DO
+// NOTHING.
+//
+// Every other repeat of a message id is a duplicate and is dropped, which is
+// what keeps a resend, a history-sync backfill and a live delivery of the same
+// message from becoming three rows. A `waiting` placeholder is the exception:
+// it is not another copy of the message, it is the hole the message left, and
+// when the message finally arrives it has the *same id*. Dropping it would
+// leave the placeholder standing forever with the real message thrown away.
+//
+// It updates rather than deleting and reinserting so the row keeps its rowid,
+// which is the transcript's sort key: a placeholder that vanished and came back
+// would jump past everything that arrived while it waited.
+//
+// The fields common to every kind live here; each save path appends its own and
+// closes with the WHERE that limits all of it to a placeholder.
+const waitingPlaceholderUpgrade = `
+		ON CONFLICT(id) DO UPDATE SET
+			sender_id = excluded.sender_id,
+			direction = excluded.direction,
+			status = excluded.status,
+			media_kind = excluded.media_kind,
+			payload_summary = excluded.payload_summary,
+			-- The original send time, which the placeholder already carries and
+			-- a resend does not: a message must not move to where it was
+			-- re-delivered.
+			timestamp = MIN(messages.timestamp, excluded.timestamp),
+			-- Somebody who already looked at the placeholder has read this
+			-- message; the chat's unread count was settled when the placeholder
+			-- landed and is not touched again.
+			is_read = CASE WHEN messages.is_read = 1 THEN 1 ELSE excluded.is_read END,`
+
+// waitingPlaceholderExists reports whether the id already holds a placeholder
+// for a message that had not arrived yet. It is asked before the insert,
+// because afterwards the row has been overwritten and there is no way to tell
+// an upgrade from an ordinary insert.
+func waitingPlaceholderExists(ctx context.Context, tx *sql.Tx, id string) (bool, error) {
+	var kind string
+	err := tx.QueryRowContext(ctx, `SELECT media_kind FROM messages WHERE id = ?`, id).Scan(&kind)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return kind == MediaKindWaiting, nil
+}
+
 func normalizeTextMessageInput(input TextMessageInput) (TextMessageInput, error) {
 	if input.ID == "" {
 		return TextMessageInput{}, errors.New("message id is required")
@@ -360,10 +408,27 @@ func saveTextMessageTx(ctx context.Context, tx *sql.Tx, input TextMessageInput) 
 		return SavedTextMessage{}, err
 	}
 
+	upgrading, err := waitingPlaceholderExists(ctx, tx, input.ID)
+	if err != nil {
+		return SavedTextMessage{}, err
+	}
+
 	result, err := tx.ExecContext(ctx, `
 		INSERT INTO messages (id, chat_id, sender_id, text, timestamp, direction, is_read, status, is_forwarded, mentioned_jids, payload_json, reply_to_message_id, reply_to_sender_id, reply_to_sender_name, reply_to_text, reply_to_media_kind, reply_to_media_mime_type, reply_to_direction)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO NOTHING
+		`+waitingPlaceholderUpgrade+`
+			text = excluded.text,
+			is_forwarded = excluded.is_forwarded,
+			mentioned_jids = excluded.mentioned_jids,
+			payload_json = excluded.payload_json,
+			reply_to_message_id = excluded.reply_to_message_id,
+			reply_to_sender_id = excluded.reply_to_sender_id,
+			reply_to_sender_name = excluded.reply_to_sender_name,
+			reply_to_text = excluded.reply_to_text,
+			reply_to_media_kind = excluded.reply_to_media_kind,
+			reply_to_media_mime_type = excluded.reply_to_media_mime_type,
+			reply_to_direction = excluded.reply_to_direction
+		WHERE messages.media_kind = '`+MediaKindWaiting+`'
 	`, input.ID, input.ChatID, input.SenderID, input.Text, input.Timestamp.Unix(), input.Direction, boolToInt(!input.CountUnread), input.Status, boolToInt(input.IsForwarded), encodeMentions(input.Mentions), input.PayloadJSON,
 		input.ReplyTo.MessageID, input.ReplyTo.SenderID, input.ReplyTo.SenderName, input.ReplyTo.Text, input.ReplyTo.MediaKind, input.ReplyTo.MediaMimeType, input.ReplyTo.Direction)
 	if err != nil {
@@ -377,7 +442,14 @@ func saveTextMessageTx(ctx context.Context, tx *sql.Tx, input TextMessageInput) 
 	inserted := rowsAffected > 0
 
 	if inserted {
-		if err := bumpChatForInsertedMessage(ctx, tx, input, previewSummary(input, input.Text)); err != nil {
+		bump := input
+		if upgrading {
+			// The placeholder already counted this message. The chat's preview
+			// still has to change, because it currently reads "Waiting for this
+			// message" and the message is right here.
+			bump.CountUnread = false
+		}
+		if err := bumpChatForInsertedMessage(ctx, tx, bump, previewSummary(input, input.Text)); err != nil {
 			return SavedTextMessage{}, err
 		}
 	}
@@ -530,10 +602,42 @@ func saveMediaMessageTx(ctx context.Context, tx *sql.Tx, input MediaMessageInput
 		return SavedTextMessage{}, err
 	}
 
+	upgrading, err := waitingPlaceholderExists(ctx, tx, input.ID)
+	if err != nil {
+		return SavedTextMessage{}, err
+	}
+
 	result, err := tx.ExecContext(ctx, `
 		INSERT INTO messages (id, chat_id, sender_id, text, timestamp, direction, is_read, status, is_forwarded, mentioned_jids, media_kind, media_mime_type, media_local_path, media_thumbnail_local_path, media_width, media_height, media_animated, media_payload, media_cache_key, media_duration_secs, media_size_bytes, media_file_name, media_page_count, media_waveform, payload_json, payload_summary, album_parent_id, album_index, reply_to_message_id, reply_to_sender_id, reply_to_sender_name, reply_to_text, reply_to_media_kind, reply_to_media_mime_type, reply_to_direction)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(id) DO NOTHING
+		`+waitingPlaceholderUpgrade+`
+			text = excluded.text,
+			is_forwarded = excluded.is_forwarded,
+			mentioned_jids = excluded.mentioned_jids,
+			media_mime_type = excluded.media_mime_type,
+			media_local_path = excluded.media_local_path,
+			media_thumbnail_local_path = excluded.media_thumbnail_local_path,
+			media_width = excluded.media_width,
+			media_height = excluded.media_height,
+			media_animated = excluded.media_animated,
+			media_payload = excluded.media_payload,
+			media_cache_key = excluded.media_cache_key,
+			media_duration_secs = excluded.media_duration_secs,
+			media_size_bytes = excluded.media_size_bytes,
+			media_file_name = excluded.media_file_name,
+			media_page_count = excluded.media_page_count,
+			media_waveform = excluded.media_waveform,
+			payload_json = excluded.payload_json,
+			album_parent_id = excluded.album_parent_id,
+			album_index = excluded.album_index,
+			reply_to_message_id = excluded.reply_to_message_id,
+			reply_to_sender_id = excluded.reply_to_sender_id,
+			reply_to_sender_name = excluded.reply_to_sender_name,
+			reply_to_text = excluded.reply_to_text,
+			reply_to_media_kind = excluded.reply_to_media_kind,
+			reply_to_media_mime_type = excluded.reply_to_media_mime_type,
+			reply_to_direction = excluded.reply_to_direction
+		WHERE messages.media_kind = '`+MediaKindWaiting+`'
 	`, input.ID, input.ChatID, input.SenderID, input.Text, input.Timestamp.Unix(), input.Direction,
 		boolToInt(!input.CountUnread), input.Status, boolToInt(input.IsForwarded), encodeMentions(input.Mentions), input.MediaKind, input.MediaMimeType, input.MediaLocalPath, input.MediaThumbnailLocalPath, input.MediaWidth, input.MediaHeight, boolToInt(input.MediaAnimated), input.MediaPayload, input.MediaCacheKey,
 		input.MediaDurationSecs, input.MediaSizeBytes, input.MediaFileName, input.MediaPageCount, input.MediaWaveform,
@@ -550,7 +654,13 @@ func saveMediaMessageTx(ctx context.Context, tx *sql.Tx, input MediaMessageInput
 	inserted := rowsAffected > 0
 
 	if inserted && !hiddenInAlbum {
-		if err := bumpChatForInsertedMessage(ctx, tx, input.TextMessageInput, previewSummary(input.TextMessageInput, lastMessage)); err != nil {
+		bump := input.TextMessageInput
+		if upgrading {
+			// The placeholder already counted it; only the preview still needs
+			// to change. See waitingPlaceholderUpgrade.
+			bump.CountUnread = false
+		}
+		if err := bumpChatForInsertedMessage(ctx, tx, bump, previewSummary(input.TextMessageInput, lastMessage)); err != nil {
 			return SavedTextMessage{}, err
 		}
 	}

@@ -50,6 +50,11 @@ type RawSendRequest struct {
 	// Incoming decides the direction a real send is ingested under. It has no
 	// effect in Local mode, where the message is always incoming.
 	Incoming bool `json:"incoming"`
+	// MessageID forces the id the injected message arrives under, instead of
+	// generating one. It exists for the one case where the id is the thing
+	// being tested: a resend fills the hole a message left, and it does so by
+	// carrying the same id as the placeholder standing in for it.
+	MessageID string `json:"message_id"`
 }
 
 // rawMessageBuilder turns the command's free-form params into the proto
@@ -107,7 +112,8 @@ var rawSequenceBuilders = map[string]rawSequenceBuilder{
 type rawEventInjector func(ctx context.Context, c *Client, chatJID types.JID, params json.RawMessage) error
 
 var rawEventInjectors = map[string]rawEventInjector{
-	"system": injectRawSystemEvent,
+	"system":        injectRawSystemEvent,
+	"undecryptable": injectRawUndecryptable,
 }
 
 // RawSendKinds lists what the driver can produce, for the tool's help output.
@@ -189,7 +195,10 @@ func (c *Client) SendRawMessage(ctx context.Context, req RawSendRequest) (string
 // deliverRawMessage sends one built message (or skips the network in local
 // mode) and runs it through the real inbound handler, returning its id.
 func (c *Client) deliverRawMessage(ctx context.Context, client *whatsmeow.Client, chatJID types.JID, message *waE2E.Message, req RawSendRequest, fromMe bool) (string, error) {
-	messageID := client.GenerateMessageID()
+	messageID := types.MessageID(strings.TrimSpace(req.MessageID))
+	if messageID == "" {
+		messageID = client.GenerateMessageID()
+	}
 	sentAt := time.Now()
 
 	if !req.Local {
@@ -380,6 +389,49 @@ func injectRawSystemEvent(ctx context.Context, c *Client, chatJID types.JID, par
 		return fmt.Errorf("no system event of type %q", p.Type)
 	}
 	c.recordGroupInfoEvents(ctx, chatJID, evt)
+	return nil
+}
+
+// injectRawUndecryptable produces the hole a message leaves when it arrives and
+// will not decrypt. There is no way to ask for one on purpose: it takes a stale
+// session, which is exactly the state a development loop cannot arrange.
+func injectRawUndecryptable(ctx context.Context, c *Client, chatJID types.JID, params json.RawMessage) error {
+	var p struct {
+		// MessageID is the external id the hole stands for. A new one every
+		// time by default, which is what a real failure looks like.
+		MessageID string `json:"message_id"`
+		// Repeat injects the same failure again, which is what whatsmeow emits
+		// when a resend fails to decrypt too.
+		Repeat bool `json:"repeat"`
+	}
+	if err := decodeRawParams(params, &p); err != nil {
+		return err
+	}
+	if p.MessageID == "" {
+		client := c.currentClient()
+		if client == nil {
+			return fmt.Errorf("not logged in, so there is no id to make one from")
+		}
+		p.MessageID = client.GenerateMessageID()
+	}
+
+	evt := &events.UndecryptableMessage{
+		Info: types.MessageInfo{
+			MessageSource: types.MessageSource{
+				Chat:    chatJID,
+				Sender:  chatJID,
+				IsGroup: chatJID.Server == types.GroupServer,
+			},
+			ID:        types.MessageID(p.MessageID),
+			Timestamp: time.Now(),
+			PushName:  "Raw send",
+		},
+		IsUnavailable: true,
+	}
+	c.handleUndecryptableMessage(ctx, evt)
+	if p.Repeat {
+		c.handleUndecryptableMessage(ctx, evt)
+	}
 	return nil
 }
 

@@ -131,6 +131,7 @@ set(WHATKEVR_QML_FILES
     qml/components/CommerceCardBubble.qml
     qml/components/InteractiveBubble.qml
     qml/components/StickerPackBubble.qml
+    qml/components/WaitingBubble.qml
     qml/components/ContactCardEntry.qml
     qml/components/ContactFieldRow.qml
     qml/components/EventBubble.qml

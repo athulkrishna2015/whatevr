@@ -52,6 +52,7 @@ func main() {
 	socketPath := flag.String("socket", defaultSocket(), "daemon socket path")
 	local := flag.Bool("local", false, "inject as an inbound message without touching the network")
 	incoming := flag.Bool("incoming", false, "ingest a real send as inbound rather than outbound")
+	messageID := flag.String("message-id", "", "force the id the message arrives under, for filling the hole a placeholder left")
 	flag.Usage = usage
 	flag.Parse()
 
@@ -107,11 +108,12 @@ func main() {
 	}
 
 	resp := send(request{ID: 2, Method: "dev.send_raw", Params: map[string]any{
-		"chat_id":  *chat,
-		"kind":     kind,
-		"params":   params,
-		"local":    *local,
-		"incoming": *incoming,
+		"chat_id":    *chat,
+		"kind":       kind,
+		"params":     params,
+		"local":      *local,
+		"incoming":   *incoming,
+		"message_id": *messageID,
 	}})
 	if resp.Error != nil {
 		if resp.Error.Code == "unknown_method" {

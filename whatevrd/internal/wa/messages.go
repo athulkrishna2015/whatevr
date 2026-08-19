@@ -589,6 +589,10 @@ func (c *Client) handleUndecryptableMessage(ctx context.Context, evt *events.Und
 		c.daemon.PublishMessageUpdated(toDaemonMessage(correction.Message))
 		c.daemon.PublishChatUpdated(toDaemonChat(correction.Chat))
 	}
+	// The table above is retry bookkeeping and always was: it exists so a
+	// resend lands at the message's original time. The transcript needs a row
+	// of its own, or the hole is indistinguishable from silence.
+	c.writeWaitingRow(ctx, evt)
 }
 
 func (c *Client) originalRetryTimestamp(ctx context.Context, evt *events.Message) (time.Time, bool) {

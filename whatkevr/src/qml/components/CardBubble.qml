@@ -91,6 +91,8 @@ Item {
                 return commerceCard
             case "sticker_pack":
                 return stickerPackCard
+            case "waiting":
+                return waitingCard
             default:
                 return null
             }
@@ -173,6 +175,14 @@ Item {
         id: stickerPackCard
 
         StickerPackBubble {
+            row: root.row
+        }
+    }
+
+    Component {
+        id: waitingCard
+
+        WaitingBubble {
             row: root.row
         }
     }

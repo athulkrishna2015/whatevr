@@ -116,6 +116,7 @@ QVariantMap baseProps()
         {QStringLiteral("stickerPack"), QVariantMap()},
         {QStringLiteral("callLog"), QVariantMap()},
         {QStringLiteral("system"), QVariantMap()},
+        {QStringLiteral("waiting"), QVariantMap()},
         {QStringLiteral("isRevoked"), false},
         {QStringLiteral("isEdited"), false},
         {QStringLiteral("isStarred"), false},
@@ -247,6 +248,7 @@ private Q_SLOTS:
     void aCallLogIsAPillInTheMiddleWithNoPlate();
     void aSystemEventIsAPillThatSaysWhatHappened();
     void anUnknownSystemEventFallsBackToTheDaemonsWords();
+    void aWaitingRowSaysWhetherItIsStillTrying();
     void aShrinkingPaneDoesNotDragTheTranscriptWithIt();
 
 private:
@@ -1887,6 +1889,71 @@ void ChatBubblePerf::anUnknownSystemEventFallsBackToTheDaemonsWords()
     QQuickItem *pill = findVisualChild(bubbleItem, QStringLiteral("systemPill"));
     QVERIFY2(pill, "no system pill was drawn");
     QCOMPARE(pill->property("summary").toString(), QStringLiteral("Cy did something new"));
+}
+
+// A message that would not decrypt says two different things depending on
+// whether anything is still expected to happen. While the daemon is still
+// asking it counts down and offers nothing; once that has come and gone it says
+// so and offers the button.
+void ChatBubblePerf::aWaitingRowSaysWhetherItIsStillTrying()
+{
+    const auto buildWaiting = [this](qint64 retryAt, bool asked) {
+        const QVariantMap wait{
+            {QStringLiteral("first_seen"), 1'700'000'000},
+            {QStringLiteral("retry_at"), retryAt},
+            {QStringLiteral("requests"), 1},
+            {QStringLiteral("asked"), asked},
+        };
+        const QVariantMap props =
+            withProps(baseProps(), {{QStringLiteral("messageId"), QStringLiteral("wait-1")},
+                                    {QStringLiteral("mediaKind"), QStringLiteral("waiting")},
+                                    {QStringLiteral("waiting"), wait}});
+        QQmlComponent component(
+            m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/ChatBubble.qml")));
+        return std::pair{component.createWithInitialProperties(props), component.errorString()};
+    };
+
+    // Still trying: a countdown, and no button to press over the top of it.
+    {
+        const qint64 soon = QDateTime::currentSecsSinceEpoch() + 5;
+        auto [object, error] = buildWaiting(soon, false);
+        std::unique_ptr<QObject> bubble(object);
+        QVERIFY2(bubble, qPrintable(error));
+        auto *bubbleItem = qobject_cast<QQuickItem *>(bubble.get());
+        bubbleItem->setParentItem(m_window->contentItem());
+        m_window->show();
+        QVERIFY(QTest::qWaitForWindowExposed(m_window));
+
+        QQuickItem *card = findVisualChild(bubbleItem, QStringLiteral("waitingBubble"));
+        QVERIFY2(card, "no waiting card was drawn");
+        QVERIFY(card->property("stillTrying").toBool());
+        QVERIFY2(card->property("statusText").toString().contains(QStringLiteral("Asking again")),
+                 qPrintable(card->property("statusText").toString()));
+
+        QQuickItem *button = findVisualChild(card, QStringLiteral("waitingAskAgainButton"));
+        QVERIFY2(!button || !button->isVisible(),
+                 "the ask-again button was offered while the daemon was already asking");
+    }
+
+    // Spent: the honest terminal state, and the button.
+    {
+        auto [object, error] = buildWaiting(1'700'000'005, true);
+        std::unique_ptr<QObject> bubble(object);
+        QVERIFY2(bubble, qPrintable(error));
+        auto *bubbleItem = qobject_cast<QQuickItem *>(bubble.get());
+        bubbleItem->setParentItem(m_window->contentItem());
+        m_window->show();
+        QVERIFY(QTest::qWaitForWindowExposed(m_window));
+
+        QQuickItem *card = findVisualChild(bubbleItem, QStringLiteral("waitingBubble"));
+        QVERIFY2(card, "no waiting card was drawn");
+        QVERIFY(!card->property("stillTrying").toBool());
+        QVERIFY2(card->property("statusText").toString().contains(QStringLiteral("phone")),
+                 qPrintable(card->property("statusText").toString()));
+
+        QQuickItem *button = findVisualChild(card, QStringLiteral("waitingAskAgainButton"));
+        QVERIFY2(button && button->isVisible(), "no way left to ask again");
+    }
 }
 
 void ChatBubblePerf::aShrinkingPaneDoesNotDragTheTranscriptWithIt()

@@ -31,6 +31,30 @@ type MessagePayload struct {
 	StickerPack *StickerPackPayload `json:"sticker_pack,omitempty"`
 	CallLog     *CallLogPayload     `json:"call_log,omitempty"`
 	System      *SystemPayload      `json:"system,omitempty"`
+	Waiting     *WaitingPayload     `json:"waiting,omitempty"`
+}
+
+// WaitingPayload is the hole a message left: it arrived, it could not be
+// decrypted, and it has been asked for again.
+//
+// The row exists so the transcript says so. Before this the message simply was
+// not there, which is indistinguishable from nobody having sent one, and a
+// reader had no way to know they were missing something or that anything was
+// being done about it.
+type WaitingPayload struct {
+	// FirstSeen is when the hole appeared, which is also the message's real
+	// place in the transcript.
+	FirstSeen int64 `json:"first_seen,omitempty"`
+	// RetryAt is when the next attempt happens by itself: whatsmeow asks the
+	// sender immediately and our own phone a few seconds later. Once it passes
+	// with nothing to show, the only thing left is to ask again by hand.
+	RetryAt int64 `json:"retry_at,omitempty"`
+	// Requests counts how many times the message has been asked for, including
+	// the automatic ones.
+	Requests int `json:"requests,omitempty"`
+	// Asked marks a request we made on purpose, so the wait can say whether it
+	// is still the automatic one or a person's.
+	Asked bool `json:"asked,omitempty"`
 }
 
 // InteractivePayload is a business message: a header, some words, a footer and
@@ -612,5 +636,5 @@ func (p MessagePayload) isZero() bool {
 	return p.Location == nil && p.LiveShare == nil && p.Contacts == nil &&
 		p.Poll == nil && p.GroupInvite == nil && p.Event == nil && p.Album == nil &&
 		p.LinkPreview == nil && p.Interactive == nil && p.Commerce == nil &&
-		p.StickerPack == nil && p.CallLog == nil && p.System == nil
+		p.StickerPack == nil && p.CallLog == nil && p.System == nil && p.Waiting == nil
 }

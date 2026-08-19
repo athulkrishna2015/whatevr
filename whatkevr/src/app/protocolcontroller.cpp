@@ -1878,6 +1878,20 @@ void ProtocolController::markMessagePlayed(const QString &messageId)
                       [](const QJsonObject &, const ProtocolError &) {});
 }
 
+void ProtocolController::requestMessageFromPhone(const QString &messageId)
+{
+    if (messageId.isEmpty()) {
+        return;
+    }
+    // The daemon answers by upserting the waiting row with the request on it,
+    // so the button's effect arrives through the view like everything else. A
+    // refusal is worth saying out loud: this is a button somebody pressed on
+    // purpose, having already waited.
+    sendMessageCommand(QStringLiteral("message.request_from_phone"),
+                       {{QStringLiteral("message_id"), messageId}},
+                       i18nc("@info:status", "Could not ask your phone for this message"));
+}
+
 void ProtocolController::votePoll(const QString &messageId, const QVariantList &optionIndexes)
 {
     if (messageId.isEmpty()) {

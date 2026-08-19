@@ -352,6 +352,11 @@ func (c *Client) resetClient(ctx context.Context) error {
 	}
 	client.SetForceActiveDeliveryReceipts(true)
 	client.UseRetryMessageStore = true
+	// A message we could not decrypt is asked for again from the sender, and if
+	// they do not answer within whatsmeow.RequestFromPhoneDelay, from our own
+	// phone. Without this the hole in the transcript is permanent and the only
+	// way out is to open WhatsApp on the phone and hope.
+	client.AutomaticMessageRerequestFromPhone = true
 	eventGen := c.eventGen.Add(1)
 	client.AddEventHandler(func(raw any) {
 		c.handleEvent(eventGen, raw)

@@ -100,6 +100,7 @@ type CommandActions interface {
 	StreamMessageMedia(context.Context, string, func(app.MediaStreamUpdate)) (app.MediaStream, error)
 	CancelMessageMediaDownload(context.Context, string) error
 	MarkMessagePlayed(context.Context, string) error
+	RequestMessageFromPhone(context.Context, string) error
 	VotePoll(context.Context, string, []int) error
 	JoinGroupInvite(context.Context, string) (string, error)
 	RespondToEvent(context.Context, string, string, int) error
@@ -149,6 +150,7 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("message.pin", backgroundNet(cmd.messagePin, false))
 	s.RegisterCommand("message.forward", cmd.messageForward)
 	s.RegisterCommand("message.mark_played", backgroundNet(cmd.messageMarkPlayed, false))
+	s.RegisterCommand("message.request_from_phone", backgroundNet(cmd.messageRequestFromPhone, false))
 	s.RegisterCommand("poll.vote", backgroundNet(cmd.pollVote, false))
 	s.RegisterCommand("group.join_invite", backgroundNet(cmd.groupJoinInvite, false))
 	s.RegisterCommand("event.rsvp", backgroundNet(cmd.eventRSVP, false))

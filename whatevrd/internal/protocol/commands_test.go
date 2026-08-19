@@ -32,37 +32,38 @@ type fakeCommandActions struct {
 	requested    bool
 	ensuredJID   string
 
-	sendTextChat      string
-	sendTextText      string
-	sendTextReply     string
-	sendTextMentions  []string
-	sendMediaChat     string
-	sendMediaPath     string
-	sendMediaCaption  string
-	sendMediaReply    string
-	sendMediaMentions []string
-	sendStickerChat   string
-	sendStickerKey    string
-	sendStickerReply  string
-	reactMessage      string
-	reactEmoji        string
-	editMessage       string
-	editText          string
-	revokeMessage     string
-	deleteMessage     string
-	starMessage       string
-	starred           bool
-	pinMessage        string
-	messagePinned     bool
-	pinDuration       uint32
-	forwardMessage    string
-	forwardChats      []string
-	downloadMessage   string
-	streamMessage     string
-	streamUpdate      func(app.MediaStreamUpdate)
-	cancelledMessage  string
-	playedMessage     string
-	fetchJID          string
+	sendTextChat       string
+	sendTextText       string
+	sendTextReply      string
+	sendTextMentions   []string
+	sendMediaChat      string
+	sendMediaPath      string
+	sendMediaCaption   string
+	sendMediaReply     string
+	sendMediaMentions  []string
+	sendStickerChat    string
+	sendStickerKey     string
+	sendStickerReply   string
+	reactMessage       string
+	reactEmoji         string
+	editMessage        string
+	editText           string
+	revokeMessage      string
+	deleteMessage      string
+	starMessage        string
+	starred            bool
+	pinMessage         string
+	messagePinned      bool
+	pinDuration        uint32
+	forwardMessage     string
+	forwardChats       []string
+	downloadMessage    string
+	streamMessage      string
+	streamUpdate       func(app.MediaStreamUpdate)
+	cancelledMessage   string
+	playedMessage      string
+	rerequestedMessage string
+	fetchJID           string
 
 	joinedInviteMessage string
 	rsvpMessage         string
@@ -278,6 +279,13 @@ func (f *fakeCommandActions) MarkMessagePlayed(_ context.Context, messageID stri
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.playedMessage = messageID
+	return f.err
+}
+
+func (f *fakeCommandActions) RequestMessageFromPhone(_ context.Context, messageID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rerequestedMessage = messageID
 	return f.err
 }
 

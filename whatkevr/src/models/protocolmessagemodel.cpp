@@ -432,6 +432,8 @@ QVariant ProtocolMessageModel::data(const QModelIndex &index, int role) const
         return item.value(QStringLiteral("call_log")).toMap();
     case SystemRole:
         return item.value(QStringLiteral("system")).toMap();
+    case WaitingRole:
+        return item.value(QStringLiteral("waiting")).toMap();
     case ShowSenderHeaderRole:
         return groupChat && !outgoing && startsSenderGroup(index.row());
     case ShowSenderAvatarRole:
@@ -580,6 +582,7 @@ QHash<int, QByteArray> ProtocolMessageModel::roleNames() const
         {StickerPackRole, "stickerPack"},
         {CallLogRole, "callLog"},
         {SystemRole, "system"},
+        {WaitingRole, "waiting"},
     };
 }
 
@@ -620,6 +623,8 @@ bool ProtocolMessageModel::rendersItsOwnPayload(const QVariantMap &item)
         QStringLiteral("commerce"),
         QStringLiteral("sticker_pack"),
         QStringLiteral("call_log"),
+        QStringLiteral("system"),
+        QStringLiteral("waiting"),
     };
     for (const QString &key : known) {
         if (!item.value(key).toMap().isEmpty()) {

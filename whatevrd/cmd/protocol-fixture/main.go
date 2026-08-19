@@ -96,8 +96,9 @@ func (fixtureCommands) StreamMessageMedia(_ context.Context, messageID string, _
 		SizeBytes: 1 << 20,
 	}, nil
 }
-func (fixtureCommands) MarkMessagePlayed(context.Context, string) error { return nil }
-func (fixtureCommands) VotePoll(context.Context, string, []int) error   { return nil }
+func (fixtureCommands) MarkMessagePlayed(context.Context, string) error       { return nil }
+func (fixtureCommands) RequestMessageFromPhone(context.Context, string) error { return nil }
+func (fixtureCommands) VotePoll(context.Context, string, []int) error         { return nil }
 func (fixtureCommands) JoinGroupInvite(context.Context, string) (string, error) {
 	return "120363000000000000@g.us", nil
 }

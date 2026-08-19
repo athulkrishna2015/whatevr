@@ -515,6 +515,10 @@ public:
     /// Reports that the user listened to a voice note, which sends a played
     /// receipt. Repeat calls are no-ops daemon-side.
     Q_INVOKABLE void markMessagePlayed(const QString &messageId);
+    /// Ask our own phone for a copy of a message this device could not decrypt.
+    /// The daemon already asked once by itself; this is the button for when
+    /// that came and went.
+    Q_INVOKABLE void requestMessageFromPhone(const QString &messageId);
     /// Casts a vote. The selection is whole rather than incremental, because
     /// that is what a vote means on the wire: passing an empty list is how a
     /// voter takes their answer back.
