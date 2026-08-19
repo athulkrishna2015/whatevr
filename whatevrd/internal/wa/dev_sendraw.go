@@ -24,6 +24,7 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 
 	"whatevrd/internal/app"
+	appstore "whatevrd/internal/store"
 )
 
 // Development-only message injection, reachable through the daemon's
@@ -83,6 +84,7 @@ var rawMessageBuilders = map[string]rawMessageBuilder{
 	"payment":       buildRawPayment,
 	"sticker_pack":  buildRawStickerPack,
 	"call_log":      buildRawCallLog,
+	"keep":          buildRawKeep,
 }
 
 // rawSequenceBuilder produces a kind that is not one message. An album is a
@@ -250,6 +252,45 @@ func buildRawText(ctx context.Context, c *Client, params json.RawMessage) (*waE2
 		p.Text = "raw send"
 	}
 	return &waE2E.Message{Conversation: &p.Text}, nil
+}
+
+// buildRawKeep produces the control message somebody's phone sends when they
+// ask for a disappearing message to stay, or take that back.
+func buildRawKeep(ctx context.Context, c *Client, params json.RawMessage) (*waE2E.Message, error) {
+	var p struct {
+		// MessageID is the internal id of the message to keep, as every other
+		// builder returns one.
+		MessageID string `json:"message_id"`
+		// Undo sends the take-back instead.
+		Undo bool `json:"undo"`
+	}
+	if err := decodeRawParams(params, &p); err != nil {
+		return nil, err
+	}
+	if p.MessageID == "" {
+		return nil, fmt.Errorf("message_id of the message to keep is required")
+	}
+	message, err := c.store.GetMessage(ctx, p.MessageID)
+	if err != nil {
+		return nil, fmt.Errorf("no message %s: %w", p.MessageID, err)
+	}
+
+	keepType := waE2E.KeepType_KEEP_FOR_ALL
+	if p.Undo {
+		keepType = waE2E.KeepType_UNDO_KEEP_FOR_ALL
+	}
+	fromMe := message.Direction == "out"
+	return &waE2E.Message{
+		KeepInChatMessage: &waE2E.KeepInChatMessage{
+			Key: &waCommon.MessageKey{
+				RemoteJID: ptrTo(message.ChatID),
+				FromMe:    &fromMe,
+				ID:        ptrTo(appstore.ExternalMessageID(message.ChatID, message.ID)),
+			},
+			KeepType:    keepType.Enum(),
+			TimestampMS: ptrTo(time.Now().UnixMilli()),
+		},
+	}, nil
 }
 
 // buildRawLinkPreview produces the ExtendedTextMessage a client sends when it

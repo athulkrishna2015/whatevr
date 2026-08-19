@@ -168,6 +168,11 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 			historyStatus string
 			isMedia       bool
 			reactions     []*waWeb.Reaction
+			// keptKnown separates "this message says nothing about keeping" from
+			// "this message says it is not kept", because only the second should
+			// clear a flag a live keep already set.
+			keptKnown bool
+			kept      bool
 		}
 		pending := make([]historySaveItem, 0, len(conv.GetMessages()))
 		for _, msg := range conv.GetMessages() {
@@ -198,6 +203,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 				historyStatus:    mapWebMessageStatus(webMsg),
 				forceRead:        forceRead,
 			}
+			kept, keptKnown := historyKeepState(webMsg)
 			if textInput, ok := c.textMessageInput(ctx, parsedEvt, opts); ok {
 				input := textInput
 				pending = append(pending, historySaveItem{
@@ -205,6 +211,8 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 					id:            input.ID,
 					historyStatus: opts.historyStatus,
 					reactions:     webMsg.GetReactions(),
+					keptKnown:     keptKnown,
+					kept:          kept,
 				})
 			} else if mediaInput, ok := c.mediaMessageInput(ctx, parsedEvt, opts); ok {
 				input := mediaInput
@@ -214,6 +222,8 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 					historyStatus: opts.historyStatus,
 					isMedia:       true,
 					reactions:     webMsg.GetReactions(),
+					keptKnown:     keptKnown,
+					kept:          kept,
 				})
 			}
 			publishProcessingProgress(false)
@@ -245,6 +255,12 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 			entry := pending[i]
 			if len(entry.reactions) > 0 {
 				c.saveHistoryReactions(ctx, entry.id, chatID, chatJID.Server == types.GroupServer, entry.reactions)
+			}
+			// Backfill is the authority on keeps, so this runs before the
+			// already-here shortcut below: a message we synced yesterday and the
+			// phone kept today arrives as an unchanged row carrying a new flag.
+			if entry.keptKnown {
+				c.applyKeepInChat(ctx, entry.id, entry.kept, false)
 			}
 			if !saved.Inserted {
 				if entry.historyStatus != "" {
@@ -368,6 +384,11 @@ func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offline
 		return
 	}
 	if c.handlePinInChat(ctx, evt, offlineSync) {
+		return
+	}
+	// Keeping a disappearing message marks the message it names, the same way a
+	// pin does, so it never becomes a row either.
+	if c.handleKeepInChat(ctx, evt, offlineSync) {
 		return
 	}
 	// A live-location update moves an existing share rather than becoming a row

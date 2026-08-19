@@ -625,15 +625,22 @@ Item {
     readonly property bool showPinMark: isPinned && !isRevoked
     readonly property real pinMarkSize: Math.max(1, Math.round(footerMetrics.height * 0.92))
     readonly property real pinMarkReserve: showPinMark ? pinMarkSize + tntSpacing : 0
+    // A bookmark, leftmost of the marks, when somebody asked for a disappearing
+    // message to stay. A revoked row keeps nothing, so it shows nothing.
+    readonly property bool showKeepMark: isKept && !isRevoked
+    readonly property real keepMarkSize: Math.max(1, Math.round(footerMetrics.height * 0.92))
+    readonly property real keepMarkReserve: showKeepMark ? keepMarkSize + tntSpacing : 0
     readonly property real tntWidth: Math.ceil(footerMetrics.advanceWidth
                                                + editMarkReserve
                                                + starMarkReserve
                                                + pinMarkReserve
+                                               + keepMarkReserve
                                                + (showStatusIcon ? statusAreaWidth + tntSpacing : 0))
     readonly property real tntHeight: Math.ceil(Math.max(footerMetrics.height, showStatusIcon ? statusIconSize : 0,
                                                          showEditMark ? editMarkSize : 0,
                                                          showStarMark ? starMarkSize : 0,
-                                                         showPinMark ? pinMarkSize : 0))
+                                                         showPinMark ? pinMarkSize : 0,
+                                                         showKeepMark ? keepMarkSize : 0))
     readonly property bool hasBody: body.length > 0
     readonly property bool showReadMore: textTruncated && !textExpanded && hasBody
     readonly property string readMoreLabelText: Whatevr.I18n.i18nc("@action:button expand long message", "Read more")
@@ -1862,18 +1869,27 @@ Item {
                     font.pointSize: root.footerTimePointSize
                 }
 
-                // Pin / star / edit marks. Most messages carry none, so the
-                // three icons (and the anchor chain that used to thread them
+                // Keep / pin / star / edit marks. Most messages carry none, so
+                // the icons (and the anchor chain that used to thread them
                 // together) are built only when at least one applies; the Row
                 // drops the ones that do not, so ordering stays automatic.
                 Loader {
-                    active: root.showPinMark || root.showStarMark || root.showEditMark
+                    active: root.showKeepMark || root.showPinMark || root.showStarMark || root.showEditMark
                     anchors.right: timeLabel.left
                     anchors.rightMargin: root.tntSpacing
                     anchors.verticalCenter: parent.verticalCenter
 
                     sourceComponent: Row {
                         spacing: root.tntSpacing
+
+                        Kirigami.Icon {
+                            visible: root.showKeepMark
+                            source: "bookmarks-bookmarked-symbolic"
+                            width: root.keepMarkSize
+                            height: root.keepMarkSize
+                            color: root.footerTextColor
+                            isMask: true
+                        }
 
                         Kirigami.Icon {
                             visible: root.showPinMark

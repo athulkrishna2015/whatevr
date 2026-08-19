@@ -1505,6 +1505,45 @@ func (db *DB) SetMessagePinned(ctx context.Context, id string, pinnedAt, pinnedU
 	return updated, true, nil
 }
 
+// SetMessageKept flips a message's kept flag: somebody asked for a
+// disappearing message to stay. Returns the refreshed message and whether the
+// flag actually changed, so a re-applied keep publishes nothing.
+func (db *DB) SetMessageKept(ctx context.Context, id string, kept bool) (Message, bool, error) {
+	tx, err := db.conn.BeginTx(ctx, nil)
+	if err != nil {
+		return Message{}, false, err
+	}
+	defer tx.Rollback()
+
+	message, err := getMessageTx(ctx, tx, id)
+	if err != nil {
+		return Message{}, false, err
+	}
+	if message.IsKept == kept {
+		return message, false, nil
+	}
+
+	flag := 0
+	if kept {
+		flag = 1
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE messages SET is_kept = ? WHERE id = ?`, flag, id); err != nil {
+		return Message{}, false, err
+	}
+
+	updated, err := getMessageTx(ctx, tx, id)
+	if err != nil {
+		return Message{}, false, err
+	}
+	if err := db.attachMessageExtrasOne(ctx, tx, &updated); err != nil {
+		return Message{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Message{}, false, err
+	}
+	return updated, true, nil
+}
+
 // CountActivePins returns how many messages in a chat are currently pinned
 // (and unexpired), so callers can enforce the per-chat pin limit.
 func (db *DB) CountActivePins(ctx context.Context, chatID string) (int, error) {
