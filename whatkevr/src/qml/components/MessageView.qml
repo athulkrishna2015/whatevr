@@ -667,6 +667,7 @@ Item {
             floatingDateActive = false
             floatingDateIdleTimer.stop()
             bottomSettleTimer.restart()
+            refreshBottomPin()
             Qt.callLater(() => { root.programmaticScroll = false })
         }
         pendingNewestMessageCount = 0
@@ -687,12 +688,29 @@ Item {
         Qt.callLater(applyBottomRepin)
     }
 
+    property int bottomRepinRetries: 0
     function applyBottomRepin() {
         bottomRepinQueued = false
-        if (!followNewest || programmaticScroll || pendingJumpMessageId.length > 0
-                || list.count === 0) {
+        if (!followNewest || pendingJumpMessageId.length > 0 || list.count === 0) {
+            bottomRepinRetries = 0
             return
         }
+        if (programmaticScroll) {
+            // Something else is placing the viewport this turn. Its own reset
+            // of the flag is already queued ahead of us, so ask again behind it
+            // rather than dropping the request: the row that settles its height
+            // and moves the bottom of the transcript regularly does so in the
+            // very turn a jump-to-bottom is still holding this flag, and a
+            // dropped request is a reader left short of the newest message with
+            // nothing to tell them why.
+            if (bottomRepinRetries < 3) {
+                bottomRepinRetries += 1
+                bottomRepinQueued = true
+                Qt.callLater(applyBottomRepin)
+            }
+            return
+        }
+        bottomRepinRetries = 0
         // positionViewAtEnd() forces a synchronous layout of the whole
         // materialised band, and the settle window fires on every content-height
         // revision, several per send while the new row settles. Skip it when
@@ -704,13 +722,87 @@ Item {
         traceViewport("applyBottomRepin")
         programmaticScroll = true
         list.positionViewAtEnd()
+        refreshBottomPin()
         Qt.callLater(() => { root.programmaticScroll = false })
     }
 
     // Gap between the bottom of the content and the bottom of the viewport.
     // Zero (or negative, mid-overshoot) means parked at the newest message.
+    //
+    // The bottom bound is originY + contentHeight - height, not
+    // contentHeight - height: a ListView lays its materialised rows out from
+    // wherever the band happens to sit and estimates everything above from the
+    // running average row height, so originY is neither zero nor stable. In a
+    // transcript whose rows run from a one-line reply to a 600px card it swings
+    // by thousands of pixels as the band slides, and dropping it answered five
+    // figures for a view sitting exactly on the bottom. Every geometric bottom
+    // test in here was reading that number. The wheel scroller has always had
+    // the bound right, so ask it rather than keeping a second opinion.
     function distanceFromBottom() {
-        return list.contentHeight - list.height - list.contentY
+        return kineticWheelScroller.maximumY() - list.contentY
+    }
+
+    // True while the viewport is sitting on the bottom of the content.
+    //
+    // Distinct from followNewest, which is a two-row band and deliberately
+    // survives a small scroll away. This is the stick-to-the-bottom invariant,
+    // and it is what decides whether content settling underneath the reader
+    // takes the view down with it: a card measuring itself a moment after the
+    // view was placed used to move the bottom of the transcript and leave the
+    // viewport where it was, which is a jump-to-bottom that lands short.
+    property bool pinnedToBottom: true
+    function refreshBottomPin() {
+        pinnedToBottom = list.count > 0 && distanceFromBottom() <= 1
+    }
+
+    // Scroll anchoring: hold the reader still when a row above them changes
+    // height after the view has already placed it.
+    //
+    // A recycled delegate is handed its new message's data one property at a
+    // time, and the card bubbles measure themselves through a Layout, whose
+    // implicit height lands on the next polish rather than in the turn the data
+    // arrived. The list positions the row from whatever height it is publishing
+    // at that instant, which for a recycled delegate is still the height of the
+    // message it held before, and then lays every row below it out from there.
+    // A 300px card taking over a delegate that was holding a 460px one
+    // therefore drags the whole transcript 160px under the reader's cursor, and
+    // it happens most in the chats with the most cards.
+    //
+    // Correcting the viewport by the same amount the content above it moved is
+    // what a browser does for this (scroll anchoring, `overflow-anchor`), and
+    // it is the only fix that does not depend on every bubble being able to
+    // state its height before it has measured its own text.
+    function noteRowResized(rowY, delta) {
+        if (Math.abs(delta) < 0.5 || list.count === 0 || programmaticScroll
+                || pendingJumpMessageId.length > 0) {
+            return
+        }
+        // Parked on the newest message the bottom pin already answers this, and
+        // answering twice would fight it.
+        if (pinnedToBottom) {
+            return
+        }
+        // A row that starts at or below the top of the viewport is growing in
+        // full view: that is the row changing, not the transcript moving, and
+        // taking the view with it would scroll the reader off what they are
+        // reading.
+        if (rowY >= list.contentY) {
+            return
+        }
+        // The list has not published its new content height yet, so the bound
+        // to clamp against is the one it is about to have.
+        const previous = list.contentY
+        const minY = kineticWheelScroller.minimumY()
+        const maxY = kineticWheelScroller.maximumY() + Math.max(0, delta)
+        const next = Math.max(minY, Math.min(maxY, previous + delta))
+        if (Math.abs(next - previous) < 0.5) {
+            return
+        }
+        const wasProgrammatic = programmaticScroll
+        programmaticScroll = true
+        list.contentY = next
+        programmaticScroll = wasProgrammatic
+        kineticWheelScroller.noteViewportShift(next - previous)
     }
 
     // list.count trails the model inside a rowsInserted handler: QQuickListView
@@ -1711,12 +1803,31 @@ Item {
             onSelectionToggleRequested: root.toggleSelected(messageDelegate.messageId)
             onDaySelectionToggleRequested: root.toggleDaySelection(messageDelegate.messageId)
 
+            // Scroll-anchoring bookkeeping. A row reports a resize only once the
+            // list has placed it, so the run of heights a delegate walks
+            // through while it is being built or handed a new message's data is
+            // never mistaken for the transcript moving.
+            property bool placedByListView: false
+            property real placedHeight: 0
+
+            onYChanged: placedByListView = true
+
             ListView.onPooled: {
                 pooledByListView = true
+                placedByListView = false
             }
 
             ListView.onReused: {
                 pooledByListView = false
+                placedHeight = height
+            }
+
+            onHeightChanged: {
+                const previous = placedHeight
+                placedHeight = height
+                if (placedByListView && !pooledByListView && previous > 0) {
+                    root.noteRowResized(y, height - previous)
+                }
             }
         }
 
@@ -1724,6 +1835,10 @@ Item {
             if (rowScrollBar.dragging) {
                 noteThumbDrag()
             }
+            // Whether we are on the bottom has to be answered from the position
+            // *before* the content changes height, so it is recorded on every
+            // move rather than asked for after the fact.
+            root.refreshBottomPin()
             // While the chat is still opening the viewport is not the user's
             // yet — the open positions it itself — and updateScrollState()
             // costs two indexAt() probes plus an itemAtIndex(), each forcing a
@@ -1734,21 +1849,22 @@ Item {
             root.noteScroll()
         }
         onContentHeightChanged: {
-            // During the post-open settle window, content-height revisions
-            // (late row parses, thumbnails resolving intrinsic size) would
-            // otherwise leave a bottom-opened chat parked a few pixels up.
-            // Re-pin so no drifted frame is painted. Guarded on followNewest so
-            // unread-anchor opens are never touched, and the window ends at the
-            // first real user scroll.
+            // Content-height revisions (late row parses, thumbnails resolving
+            // their intrinsic size, a card measuring its own text) move the
+            // bottom of the transcript. A view that was sitting on that bottom
+            // has to go with it, or the reader is left short of the newest
+            // message with nothing to tell them why. pinnedToBottom is the
+            // durable half of that; the post-open settle window is the other,
+            // covering the moments while a chat is still placing itself and the
+            // viewport has not yet come to rest anywhere.
             //
             // Coalesced through the event queue rather than run inline: rows
             // settle their heights in bursts, and positionViewAtEnd() forces a
             // full layout every time it is called. One re-pin per frame is
             // indistinguishable on screen and turns a burst of forced layouts
             // into a single one.
-            if (bottomSettleTimer.running
+            if ((root.pinnedToBottom || bottomSettleTimer.running)
                     && root.followNewest
-                    && !root.programmaticScroll
                     && root.pendingJumpMessageId.length === 0
                     && list.count > 0) {
                 root.queueBottomRepin()
