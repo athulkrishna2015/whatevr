@@ -224,10 +224,11 @@ noted; this inventory fixes the shape of the protocol, not every field name.
 | `group` | `chat_id` | object | subject, description, avatar, created, owner, `member_count`, `my_role`, announce/locked flags (feeds composer lockout in admins-only groups); same two-phase behavior. No member array; the chat header and card chrome need only this |
 | `group_members` | `chat_id` | one item per member | jid, display name, phone, avatar path, role; joins/leaves/promotions are single upserts/removes. The info dialog subscribes to `group` + `group_members`; member search is presentation-side filtering over rows it already has |
 | `privacy` | none | object | all privacy category values |
-| `preferences` | none | object | daemon-persisted app preferences (notification gates, auto-download) |
+| `preferences` | none | object | daemon-persisted app preferences (notification gates, auto-download, and whether the daemon may fetch map tiles for a location) |
 | `blocklist` | none | blocked contacts | |
 | `starred` | optional `chat_id`, `limit` | message rows + `chat_name` | windowed; syncs with stars made on other devices. Ordered by the message's own timestamp (newest first), not by when it was starred (the store records no star time), so starring an old message places it deep in the window rather than at the top |
 | `pinned` | `chat_id` | message rows | currently-pinned, unexpired; expiry produces `remove` |
+| `live_locations` | `chat_id` | one item per share currently live in the chat | id is the message that opened the share; `sender`, `started_at`, `expires_at`, `updated_at` and the latest `location`. `remove` when a share ends or expires. Separate from the `messages` row for the same reason `typing` is separate from `chats`: a position that moves every few seconds must not invalidate a transcript row, and a banner above the timeline wants the live ones without reading the transcript at all |
 | `chat_media` | `chat_id`, `limit` | message rows, media kinds only | one chat's photos, videos, voice notes, audio and documents, newest first; windowed. Rows are ordinary `messages` items, so a download landing shows up here as the same upsert the conversation sees |
 | `stickers` | `source` (`recent`\|`favorite`\|`all`), `limit` | stickers | |
 | `sticker_packs` | none | packs | |
@@ -283,6 +284,10 @@ views.
 | `message.pin` | `message_id`, `pinned`, `duration_secs` | `{}` |
 | `message.forward` | `message_id`, `chat_ids` | `{message_ids}` |
 | `message.mark_played` | `message_id` | `{}`: sends a played receipt for an inbound voice note; repeat calls are no-ops |
+| `message.request_from_phone` | `message_id` | `{}`: asks your own phone to resend a message this device could not decrypt. The daemon already asks once by itself a few seconds after the failure; this is the manual retry for when that came and went. Fails `rejected` for a message that is not waiting for anything. The answer, if it comes, arrives as the `waiting` row upserting into the real message under the same id |
+| `poll.vote` | `message_id`, `option_ids` (indexes into the poll's options) | `{}`: the tally lands as a `messages` upsert. The list is the whole selection, not a delta: a voter takes a choice back by sending the selection without it, which is what WhatsApp's wire format means. An empty list withdraws every vote |
+| `event.rsvp` | `message_id`, `response` (`going`\|`not_going`\|`maybe`), `extra_guests` | `{}`: the answer lands as a `messages` upsert |
+| `group.join_invite` | `message_id` | `{chat_id}`: joins the group a `group_invite` row offers, and answers with the chat to open. A group we are already in joins nothing and simply says where to go, so a caller never has to tell the two cases apart. May fail `expired` |
 | `media.download` | `message_id` | `{}`: progress in `transfers`, path lands via message upsert |
 | `media.stream` | `message_id` | `{stream_id, url, mime, size_bytes, duration_secs}`: `stream_id` is opaque and identifies this request. The loopback range URL plays while the fetch is still running. The fetch continues to completion regardless, so the message still upserts with `media.path`, after which the path is what frontends should use. May fail `rejected` for media that cannot be streamed (no length or hash, a CDN that ignores ranges); the caller falls back to `media.download` |
 | `media.cancel_download` | `message_id` | `{}`: stops an in-flight `media.download` or `media.stream` fetch and closes the `transfers` row. Whatever has already landed on disk is kept, so a later `media.download` resumes rather than starting over. Fails `rejected` when nothing is in flight for that message |
@@ -319,9 +324,7 @@ whole result inside the one response `result` object, under a named key:
 
 ## Messages on the wire
 
-A message item has a `kind` (`text`, `image`, `sticker`, `video`, `gif`,
-`voice`, `audio`, `document`, `video_note`, and over time `location`, `poll`,
-…), kind-specific fields, and always:
+A message item has a `kind`, kind-specific fields, and always:
 
 - `fallback`: a human-readable one-line rendering ("🎤 Voice message (0:12)",
   "📊 Poll: dinner?"). A frontend renders `fallback` for any `kind` it does
@@ -329,7 +332,45 @@ A message item has a `kind` (`text`, `image`, `sticker`, `video`, `gif`,
 - `sort` (on the envelope), `id`, `chat_id`, `sender` (id, name, avatar path),
   `timestamp`, `direction`, `status` (`pending`→`sent`→`delivered`→`read`, or
   `failed`), and the interaction state that applies to any kind: `reply_to`
-  quote, `reactions`, `mentions`, `edited`, `revoked`, `starred`, `pinned_until`.
+  quote, `reactions`, `mentions`, `edited`, `revoked`, `starred`,
+  `pinned_until`, `kept` (somebody asked for a disappearing message to stay).
+
+The kinds: `text`, `image`, `sticker`, `video`, `gif`, `voice`, `audio`,
+`document`, `video_note`, `location`, `live_location`, `contact`, `contacts`,
+`poll`, `group_invite`, `event`, `album`, `interactive`, `product`, `order`,
+`payment`, `sticker_pack`, `call_log`, `system`, `waiting`, `unsupported`.
+
+Each kind that carries more than text hangs one nested object off the item,
+named for what it is and present only on the kinds it belongs to. The daemon
+does the deciding; a frontend draws what it is given:
+
+| object | on kinds | what it carries |
+| --- | --- | --- |
+| `media` | the media-bearing kinds | see below |
+| `location` | `location`, `live_location` | `lat`, `lng`, `name`, `address`, `url`, `accuracy_m`. The map itself is media: the daemon fetches and stitches OSM tiles into the cache, so it arrives through the ordinary download lifecycle |
+| `live` | `live_location` | whether the share is `active`, `started_at`, `expires_at`, `updated_at`, `speed_mps`, `heading_deg`, `point_count`. The trail's moving positions are the `live_locations` view's job |
+| `contacts` | `contact`, `contacts` | `display_name` plus `cards`: each a parsed vCard (name, phones with labels, emails, org, title, url, birthday) with the raw text kept for export |
+| `poll` | `poll` | the `question`, `options` (each with its `index`, `name`, `voters` and `self_voted`), `selectable_count` (1 for a radio poll), `total_voters`, `self_voted`, plus `quiz` and `allow_add_option`. The tally is joined at read time rather than snapshotted, so a vote is one upsert of this row and never stale |
+| `invite` | `group_invite` | `group_jid`, `code`, `expires_at`, the sender's `name`/`caption`, and what the daemon resolved from WhatsApp itself: `subject`, `topic`, `member_count`, `photo_path`, `joined` (already a member), `resolve_error` |
+| `event` | `event` | `name`, `description`, `starts_at`/`ends_at`, `location` (drawn with the same map treatment as a location row), `join_link`, `canceled`, and the answers: `responders`, `going_count`, `self_response`, `self_guests` |
+| `album` | `album` | `expected` (how many pictures the sender promised) and `items`: the children, as whole message items. Each keeps its own id, media and download state, so a tile reuses every path a lone photo has. Children are excluded from the transcript while their parent exists; an album whose header never arrived degrades to ordinary bubbles |
+| `link_preview` | `text` | the card the *sender's* client built for a link in the message: `url`, `host`, `title`, `description`, `type`, and the inline `thumbnail_path`. Nothing here is fetched. This is the one object that rides a row of another kind: the words are still the message |
+| `interactive` | `interactive` | a business message flattened from WhatsApp's four wire shapes into one: `title`, `body`, `footer`, `thumbnail_path`, `buttons`, `sections`, and `cards` for a carousel. Each button carries `live`, which says whether the desktop can actually carry it out: opening a link and dialling a number are local, a quick reply means sending a message back and is not implemented |
+| `commerce` | `product`, `order`, `payment` | `kind`, title, description, `thumbnail_path`, and money as the integer WhatsApp sent (thousandths of a unit) plus its ISO 4217 code, never pre-formatted: how a sum reads is a question about the reader |
+| `sticker_pack` | `sticker_pack` | the shared pack plus what the local library says about it now: `installable` (the daemon can find it) and `installed`. Joined at read time, so installing from the picker settles a card elsewhere in the transcript |
+| `call_log` | `call_log` | `video`, `outcome`, `duration_secs`, `group`. Not a message anybody wrote, which is why frontends draw it centered |
+| `system` | `system` | something the chat did to itself: `type` (`group_join`, `group_name`, `ephemeral`, `identity_change`, …), `text` (the whole sentence, already composed and already bounded to a few names plus a count), the parts it was built from (`actor`, `names`, `overflow`, `value`, `on`, `seconds`) for a frontend that speaks another language, and `about_self`. Also centered, and see below |
+| `waiting` | `waiting` | a message that arrived and would not decrypt: `first_seen`, `retry_at` (when the next attempt happens by itself), `requests`, `asked` |
+
+System rows are quiet by default: they do not reorder the chat list, do not
+replace its preview and do not count as unread. The exception is an event that
+named you, which is what `about_self` marks; that decision is made once, in the
+daemon, so every reader agrees about it.
+
+A `waiting` row is the one place the dedup-by-id rule yields. A resend carries
+the *same* id as the placeholder standing in for it, so it upserts that row in
+place, keeping its position and its unread accounting, rather than being dropped
+as a duplicate or appearing twice.
 
 Media-bearing kinds carry `media` (`mime`, dimensions, `thumbnail_path`,
 `path` which is empty until downloaded, `downloading`, optional

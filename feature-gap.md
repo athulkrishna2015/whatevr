@@ -90,10 +90,13 @@ Everything below is **missing** (or broken).
 
 ## 1. Receiving message types
 
-Daemon-side, incoming handling stores only `Conversation`, `ExtendedTextMessage`,
-`ImageMessage`, `StickerMessage`. whatsmeow already delivers all of the below in
-`events.Message`; each needs storage (`MediaKind`), a bubble in whatkevr, and a
-chat-list preview string:
+**Closed 2026-08-20.** When this was written the daemon stored only
+`Conversation`, `ExtendedTextMessage`, `ImageMessage` and `StickerMessage`, and
+everything else fell into a grey tombstone or into nothing at all. Every entry
+below is now struck through; each needed storage (a `MediaKind` plus, for most,
+a payload object on the wire), a bubble or pill in whatkevr, and a chat-list
+preview string. The per-entry notes say what landed and what deliberately did
+not.
 
 - ~~**Video**: playback, duration, thumbnail-first render (`VideoMessage`).~~
 - ~~**GIFs**: `VideoMessage` + `GifPlayback`; auto-looping muted playback.~~
@@ -118,14 +121,37 @@ chat-list preview string:
   sparse cache file, so a large video starts immediately and seeks anywhere;
   when the last chunk lands the file is hash-verified and becomes an ordinary
   cache entry. Note view-once video and audio deliberately stay tombstoned.
-- **Location**: `LocationMessage`: lat/long, name, address, embedded JPEG thumb;
-  click → OSM/system maps.
-- **Live location**: `LiveLocationMessage` + its update stream.
-- **Contact cards**: `ContactMessage` / `ContactsArrayMessage` (vCard parse,
-  "Message" / "Add" actions).
-- **Polls**: render `PollCreationMessage(V2/V3)`, tally votes via
+- ~~**Location**: `LocationMessage`: lat/long, name, address, embedded JPEG thumb;
+  click → OSM/system maps.~~
+- ~~**Live location**: `LiveLocationMessage` + its update stream.~~
+  **Done 2026-08-14:** both ingest into real rows carrying `location` and, for a
+  live share, `live`. The map is not the sender's thumbnail: the daemon fetches
+  and stitches OSM raster tiles into its own cache (`wa/maps.go`, one preference
+  to turn it off) and serves them through the ordinary download lifecycle, so a
+  location gets a real map with a progress ring and an offline-first inline
+  thumbnail. whatsmeow has no live-location correlation at all, so the daemon
+  owns the grouping: updates are swallowed by an interceptor, ordered and deduped
+  by `SequenceNumber`, and the trail is drawn as a polyline. Moving positions
+  live in their own `live_locations` view, with a banner above the timeline while
+  a share is running. The desktop-native part is the `geo:` handoff, which opens
+  whatever holds the handler.
+- ~~**Contact cards**: `ContactMessage` / `ContactsArrayMessage` (vCard parse,
+  "Message" / "Add" actions).~~ **Done 2026-08-15:** vCards are parsed daemon-side
+  into structured fields (phones with labels, emails, org, title, url, birthday)
+  with the raw text kept for a `.vcf` export. The card resolves each number
+  through the existing `contacts.check_phone` path, so a number that is on
+  WhatsApp gets a real avatar and a Message action routed into the existing
+  contact dialog; `ContactsArrayMessage` renders as a deck that expands.
+- ~~**Polls**: render `PollCreationMessage(V2/V3)`, tally votes via
   `DecryptPollVote`, show voters, **vote** via `BuildPollVote`/`EncryptPollVote`,
-  live result updates.
+  live result updates.~~ **Done 2026-08-16:** full two-way. Votes arrive as
+  ordinary messages, are decrypted, mapped back to options and replace that
+  voter's whole selection (a vote message is the current selection, not a delta);
+  a vote for a poll we have not seen yet parks in `poll_votes_pending` and drains
+  when the poll lands. `poll.vote` sends our own. The bubble fills each row with
+  a bar and stacks the voters' avatars at its end, which is strictly more than
+  WhatsApp shows, and history-sync polls are tallyable because the parse loop now
+  stores message secrets `ParseWebMessage` skips.
 - ~~**View-once media**: view-once photos/videos/voice notes render as *nothing*.~~
   **Done 2026-07-04:** whatsmeow's `UnwrapRaw` already unwraps the wrappers (sets
   `evt.IsViewOnce`); these now get an honest "View once, view on your phone"
@@ -136,33 +162,105 @@ chat-list preview string:
   `ViewOnceMessage*` / `DocumentWithCaptionMessage` arrive already unwrapped and
   ephemeral text/images render fine. The real gap was silent dropping of
   non-text/image/sticker payloads, fixed by the tombstone below.
-- **Group invites**: `GroupInviteMessage`: group preview + Join button
-  (`JoinGroupWithInvite`).
-- **Event messages**: WhatsApp group events (`EventMessage`): time/place/RSVPs
-  (`EncryptComment`/`DecryptComment`).
-- **Albums**: `AlbumMessage`: collage-cluster consecutive photos/videos.
-- **Buttons / lists / templates / interactive** business messages: at minimum
-  render their text content instead of dropping them.
-- **Order / product / catalog / payment / sticker-pack-share / call-log
-  messages**: placeholder cards.
-- **Keep-in-chat** (`KeepInChatMessage`): honor + badge kept messages.
-- **Link previews (receive)**: `ExtendedTextMessage` title/description/thumbnail
-  are ignored; render the preview card.
+- ~~**Group invites**: `GroupInviteMessage`: group preview + Join button
+  (`JoinGroupWithInvite`).~~ **Done 2026-08-16:** the daemon resolves the invite
+  through `GetGroupInfoFromInvite`, so the card shows the group's real subject,
+  photo and member count rather than the sender's copy, and says when you are
+  **already a member**, in which case the button reads Open and jumps to the
+  chat. Expiry runs as a live countdown and the card greys out when it passes.
+  `group.join_invite` joins.
+- ~~**Event messages**: WhatsApp group events (`EventMessage`): time/place/RSVPs
+  (`EncryptComment`/`DecryptComment`).~~ **Done 2026-08-17:** a calendar-leaf card
+  with the time range, the venue drawn with the same map treatment as a location,
+  the join link as a live button, and three RSVP chips with attendee avatars and
+  a full responses dialog. This whatsmeow exports the poll and comment secret
+  pairs but not the event-response one, so `wa/msgsecret_event.go` reimplements
+  the derivation over the exported `hkdfutil` / `gcmutil`; it carries a known
+  vector so an upstream change fails loudly. The desktop payoff is **Add to
+  calendar**, which generates an `.ics` and hands it to the desktop (§18).
+- ~~**Albums**: `AlbumMessage`: collage-cluster consecutive photos/videos.~~
+  **Done 2026-08-18:** the daemon groups them. Children are stored as ordinary
+  rows tagged with their parent, so each keeps its own id, media, download state
+  and receipts, and the transcript simply excludes a child whose parent exists;
+  an album whose header never arrived degrades to ordinary bubbles rather than to
+  nothing. The bubble is an aspect-respecting mosaic (2 side by side, 3 as one
+  large plus two stacked, 4 as a grid, 5+ with a "+N" tile) that opens into the
+  viewer with the album as its gallery.
+- ~~**Buttons / lists / templates / interactive** business messages: at minimum
+  render their text content instead of dropping them.~~
+- ~~**Order / product / catalog / payment / sticker-pack-share / call-log
+  messages**: placeholder cards.~~ **Done 2026-08-19:** WhatsApp's four wire
+  shapes for one idea (`ButtonsMessage`, `ListMessage`, hydrated `TemplateMessage`,
+  `InteractiveMessage` including carousel recursion) are flattened daemon-side
+  into one `interactive` object, so a frontend draws one card rather than four.
+  URL and call buttons are genuinely live because they are only a link and a
+  `tel:` handoff; a quick reply renders with a lock glyph and one honest line
+  saying it needs the phone. Products, orders and payments share one commerce
+  card with the money crossing as WhatsApp's integer plus its currency code,
+  never pre-formatted. Sticker-pack shares are not a placeholder at all: they get
+  an Add button wired to the existing `sticker_pack.install`. Call logs are a
+  centered pill rather than a card, because nobody said them. Non-hydrated
+  `HighlyStructuredMessage` still needs a template catalogue we do not have.
+- ~~**Keep-in-chat** (`KeepInChatMessage`): honor + badge kept messages.~~
+  **Done 2026-08-20:** an interceptor rather than a row: it flags the message it
+  names and the transcript draws a bookmark next to the time. History sync reads
+  the flag off `waWeb.KeepInChat`, since backfill never replays the control
+  message. Honoring it *fully* needs the disappearing-message expiry sweep, which
+  is §4 and still out of scope; the flag and the badge are honest on their own.
+- ~~**Link previews (receive)**: `ExtendedTextMessage` title/description/thumbnail
+  are ignored; render the preview card.~~ **Done 2026-08-18:** stored and rendered
+  as a card above the words, in one of two layouts chosen by the sender's own
+  preview type. Everything on it arrived inline, so the card costs no request and
+  leaks nothing; the hi-res `ThumbnailDirectPath` fetch is deliberately left out
+  for the same reason. Note this whatsmeow has no `canonicalURL`: the URL is
+  `MatchedText`.
 - ~~**"Unsupported message" tombstone**: unrecognized `waE2E.Message` types should
   produce a visible "Unsupported message, view on phone" bubble~~ **Done
   2026-07-04:** documents/video/audio/voice/location/contacts/polls/events/group
   invites/view-once now store a `MediaKindUnsupported` tombstone with a best-effort
   label ("Voice message", "Poll: …", "Document: name.pdf") shown in bubble + chat
   preview. Note: tombstoned rows do **not** self-upgrade when real rendering for a
-  kind lands later (dedup by message ID). `BuildUnavailableMessageRequest` fetch
-  from phone still TODO.
-- **System bubbles in history:** disappearing-timer changes, group
+  kind lands later (dedup by message ID). ~~`BuildUnavailableMessageRequest` fetch
+  from phone still TODO.~~ **Done 2026-08-20**, see the undecryptable entry below.
+  The unsupported path now also stores `media_payload`, so a future kind can
+  upgrade its own tombstones if that is ever worth doing.
+- ~~**System bubbles in history:** disappearing-timer changes, group
   join/leave/subject/photo/settings/admin changes (`events.GroupInfo` mutates
   state today but leaves no trace in the transcript), **`events.IdentityChange`**
-  ("security code changed"), currently entirely unhandled.
-- **Undecryptable placeholder retry**: `events.UndecryptableMessage` is stored,
+  ("security code changed"), currently entirely unhandled.~~ **Done 2026-08-20:**
+  seventeen event types now write `system` rows and render as centered pills with
+  a per-type glyph. The daemon composes the sentence and bounds it to three names
+  plus a count, so a forty-person add is one pill and never forty; a burst of
+  separate events for one action folds into a single row. They are **quiet**: no
+  reorder, no chat-list preview, no unread, because somebody joining a group four
+  hundred messages ago must not raise a conversation to the top. The exception is
+  an event that named you (added, removed, promoted, demoted, security code), and
+  that decision is made once, in the daemon, and rides on the row. The pill's
+  words are composed in the frontend from the flags so they can be translated,
+  with the daemon's own sentence as the fallback for a type it does not know.
+- ~~**Undecryptable placeholder retry**: `events.UndecryptableMessage` is stored,
   but there's no "Waiting for this message… request from phone" flow
-  (`immediate/delayedRequestMessageFromPhone`).
+  (`immediate/delayedRequestMessageFromPhone`).~~ **Done 2026-08-20:** the hole
+  gets a `waiting` row that says it is a hole, counts down to the automatic
+  attempt (`AutomaticMessageRerequestFromPhone` is on now), offers **Ask again**
+  once that is spent (`message.request_from_phone` over
+  `BuildUnavailableMessageRequest` + `SendPeerMessage`), and says plainly that
+  the phone did not answer rather than shimmering forever. The resend carries the
+  *same message id*, so this is the one place the dedup-by-id rule yields: the
+  placeholder is replaced in place, keeping its position in the transcript and
+  its unread accounting, instead of being dropped as a duplicate. A message the
+  server marked hidden, and a view-once message, get no placeholder: promising
+  either would be a wait that never ends.
+
+**Section 1 is closed.** Every payload WhatsApp can deliver now renders as its
+own bubble or pill, every one has a real chat-list preview, a poll can be voted
+in and an event answered from whatevr, a group invite can be joined, a group's
+changes leave a trail, and an undecryptable message resolves itself. What
+deliberately stays out of scope, in the sections that own it: displaying
+view-once media (above), the disappearing-message expiry sweep that would make
+keep-in-chat mean something (§4), the security-code verification screen the
+identity pill's Learn more would open (§10), and **sending** any of these kinds
+(§2).
 
 ## 2. Sending message types & composer
 
@@ -255,7 +353,10 @@ proto fields:
   (`ChatWallpaper.qml`); add a per-chat key.
 - **Disappearing messages**: per-chat timer (`SetDisappearingTimer`), default
   for new chats (`SetDefaultDisappearingTimer`), local expiry sweep, timer state
-  in the header, system bubbles (§1).
+  in the header. ~~System bubbles (§1).~~ The pills landed with §1 on 2026-08-20,
+  and so did the keep-in-chat flag; **the expiry sweep is what is left**, and it
+  is what would make both mean something: nothing local ever actually disappears
+  today.
 - **Chat lock / hidden chats** (local PIN/keyring).
 - **Export chat** to txt/zip with media (local).
 - **Labels**: WhatsApp labels: `BuildLabelChat` / `BuildLabelMessage` /
@@ -356,8 +457,9 @@ Zero handling: `events.CallOffer` / `CallOfferNotice` / `CallTerminate` /
 - **Contact QR**: show mine (`GetContactQRLink`), resolve scanned/pasted ones
   (`ResolveContactQRLink`); handle `wa.me/...` links in search and message text.
 - **Security/identity screen**: `GetUserDevices`, identity key comparison,
-  40-digit code + QR verify; pairs with the missing `events.IdentityChange`
-  handling (§1).
+  40-digit code + QR verify. `events.IdentityChange` is handled as of 2026-08-20
+  (§1): a "your security code changed" pill lands in the chat and its Learn more
+  affordance is exactly the screen that does not exist yet.
 - **Business profile detail**: `GetBusinessProfile`: category, address, hours,
   website, catalog link (card shows only a "Business account" badge today).
 - **Meta AI bots**: `GetBotListV2` / `GetBotProfiles` (label those chats
@@ -526,7 +628,9 @@ Track separately; not buildable without upstream/reverse-engineering work:
   `whatevrctl` CLI = the scriptable WhatsApp for Linux.
 - **Headless relay mode**: daemon-only install forwarding to ntfy/email/Matrix
   when no frontend holds a session (SessionBus already knows).
-- **Date/time detection → "add to calendar"** action on messages.
+- **Date/time detection → "add to calendar"** action on messages. **Partly done
+  2026-08-17:** an `EventMessage` exports a real `.ics` and hands it to the
+  desktop (§1). Detecting a date in ordinary prose is the half that remains.
 - **Message statistics dashboard**: volume, response times, top emoji (local
   SQLite).
 - **Archive exporter**: per-chat Markdown/HTML with inlined media.
