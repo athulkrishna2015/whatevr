@@ -73,6 +73,7 @@ Item {
     required property var commerce
     required property var stickerPack
     required property var callLog
+    required property var system
     required property bool isRevoked
     required property bool isEdited
     required property bool isStarred
@@ -320,6 +321,9 @@ Item {
     // A call that happened. Not a message anybody wrote, and the one row here
     // that draws no plate and picks no side: see the centered-pill mode below.
     readonly property bool isCallLog: mediaKind === "call_log"
+    // Something the chat did to itself: a membership change, a setting, a
+    // security code. A pill for the same reason a call log is one.
+    readonly property bool isSystemEvent: mediaKind === "system"
     // Real message whose payload the app can't render yet (document, voice
     // note, poll, ...). The daemon puts a short label in the body text; the
     // row renders like a revoked tombstone and never offers a download.
@@ -334,11 +338,13 @@ Item {
     // Rows that are not somebody talking. A call happened; nobody said it, so
     // there is no side of the transcript it belongs on and no plate to put it
     // in. It draws as a pill in the middle, the way the day separator does,
-    // with no avatar, no sender name and no reply affordance.
+    // with no avatar, no sender name and no reply affordance. A system event is
+    // the same shape of thing: the chat changed, and nobody is claiming to have
+    // said so.
     //
     // A sibling of `frameless` rather than a variant of it: a frameless row is
     // still a message from somebody, drawn without its box.
-    readonly property bool centeredPill: isCallLog
+    readonly property bool centeredPill: isCallLog || isSystemEvent
     readonly property real jumboEmojiPixelSize: Kirigami.Units.gridUnit
         * (displayEmojiOnlyCount === 1 ? 2.8 : displayEmojiOnlyCount === 2 ? 2.2 : 1.8)
     readonly property bool isAnimatedSticker: isSticker && (mediaAnimated || mediaMimeType === "image/gif")
@@ -1953,9 +1959,18 @@ Item {
         x: Math.round((root.width - width) / 2)
         y: root.messageBaseY
 
-        sourceComponent: CallLogPill {
-            row: root
-        }
+        // Which pill this is comes from a URL rather than from a pair of
+        // inline Components. A Component is an object on every delegate that
+        // declares it, instantiated or not, so a second one would charge every
+        // plain text row for a pill it will never draw (MIGRATION.md, DN9).
+        // setSource carries `row` as an initial property, which is what a
+        // required property needs, and re-runs on reuse when the kind changes.
+        readonly property url pillSource: root.isSystemEvent
+            ? Qt.resolvedUrl("SystemPill.qml")
+            : Qt.resolvedUrl("CallLogPill.qml")
+
+        onPillSourceChanged: setSource(pillSource, { row: root })
+        Component.onCompleted: setSource(pillSource, { row: root })
     }
 
     // Instantiated only while the jump-to-reply glow animation is running.
@@ -2105,7 +2120,10 @@ Item {
         id: senderHeaderLoader
 
         anchors.fill: parent
-        active: root.showSenderHeader
+        // The `!centeredPill` half matches senderHeaderHeight above: a pill
+        // reserves no room for a header, so drawing one would put a name and an
+        // avatar on top of the row rather than above it.
+        active: root.showSenderHeader && !root.centeredPill
 
         sourceComponent: Item {
             readonly property real labelImplicitHeight: senderHeader.implicitHeight

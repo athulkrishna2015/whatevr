@@ -617,6 +617,44 @@ type messageItem struct {
 	// CallLog is a call that happened. It is not a message anybody wrote, which
 	// is why a frontend draws it centered rather than in somebody's bubble.
 	CallLog *store.CallLogPayload `json:"call_log,omitempty"`
+	// System is something the chat did to itself: a membership change, a
+	// setting, a security code. Like a call log it is drawn centered, and for
+	// the same reason: it has no author to put it beside.
+	System *messageSystem `json:"system,omitempty"`
+}
+
+// messageSystem is one thing that happened to a chat.
+//
+// It carries both a finished sentence and the parts it was built from. `text`
+// is what rule 5 needs: any frontend can print it and be correct. The parts are
+// what a frontend that speaks a language other than this daemon's needs, since
+// the daemon composes in English and has no idea who is reading. Whether an
+// event reads "Ana joined" or "You added Ana" is still decided here, in the
+// flags; a frontend chooses words, never meaning.
+type messageSystem struct {
+	// Type names what happened ("group_join", "identity_change", …).
+	Type string `json:"type"`
+	Text string `json:"text"`
+	// Actor is who did it, absent when the server reported no author (a join
+	// through an invite link has nobody to credit).
+	Actor *store.SystemParticipant `json:"actor,omitempty"`
+	// Names are the first few people the event named. The list is bounded here
+	// so a forty-person add crosses as three names and a number, which is what
+	// the sentence says anyway.
+	Names []store.SystemParticipant `json:"names,omitempty"`
+	// Overflow is how many more people the event named beyond Names.
+	Overflow int `json:"overflow,omitempty"`
+	// Value is the new subject or description, for the kinds that set one.
+	Value string `json:"value,omitempty"`
+	// On is the direction of a two-state change: a timer turned on, a group
+	// locked, messages restricted to admins.
+	On bool `json:"on,omitempty"`
+	// Seconds is the new disappearing-message timer, meaningful when On.
+	Seconds uint32 `json:"seconds,omitempty"`
+	// AboutSelf marks an event that named you: you were added, removed,
+	// promoted, demoted, or your security code changed. It is the same flag that
+	// decided whether the row reordered your chat list.
+	AboutSelf bool `json:"about_self,omitempty"`
 }
 
 // messageStickerPack is a shared sticker pack plus the library's answer about
@@ -866,8 +904,41 @@ func attachMessagePayload(item *messageItem, m store.Message) {
 		item.StickerPack = messageStickerPackFromStore(m, payload.StickerPack)
 	case store.MediaKindCallLog:
 		item.CallLog = payload.CallLog
+	case store.MediaKindSystem:
+		item.System = messageSystemFromStore(m, payload.System)
 	}
 }
+
+// messageSystemFromStore trims the stored event to what a pill needs. The full
+// participant list stays in the store: a forty-person add crosses as three
+// names and a number, because that is what the sentence already says.
+func messageSystemFromStore(m store.Message, payload *store.SystemPayload) *messageSystem {
+	if payload == nil {
+		return nil
+	}
+	system := &messageSystem{
+		Type:      payload.Type,
+		Text:      m.PayloadSummary,
+		Actor:     payload.Actor,
+		Value:     payload.Value,
+		On:        payload.On,
+		Seconds:   payload.Seconds,
+		AboutSelf: payload.AboutSelf,
+	}
+	for _, participant := range payload.Participants {
+		if len(system.Names) >= systemWireNameLimit {
+			system.Overflow++
+			continue
+		}
+		system.Names = append(system.Names, participant)
+	}
+	return system
+}
+
+// systemWireNameLimit is how many names cross the wire. It matches the number
+// the daemon's own sentence names before it starts counting, so `names` and
+// `text` never disagree about who was listed.
+const systemWireNameLimit = 3
 
 // messageStickerPackFromStore joins what the share said with what the library
 // says about it now.

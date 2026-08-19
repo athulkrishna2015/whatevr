@@ -30,6 +30,7 @@ type MessagePayload struct {
 	Commerce    *CommercePayload    `json:"commerce,omitempty"`
 	StickerPack *StickerPackPayload `json:"sticker_pack,omitempty"`
 	CallLog     *CallLogPayload     `json:"call_log,omitempty"`
+	System      *SystemPayload      `json:"system,omitempty"`
 }
 
 // InteractivePayload is a business message: a header, some words, a footer and
@@ -246,6 +247,84 @@ type CallLogPayload struct {
 	VoiceChat bool `json:"voice_chat,omitempty"`
 	// Participants is how many people the log named, 0 when it named none.
 	Participants int `json:"participants,omitempty"`
+}
+
+// System event types, spelled as they cross the wire. They name what happened,
+// not how it should look: the glyph a pill draws is the frontend's choice.
+const (
+	SystemTypeGroupJoin       = "group_join"
+	SystemTypeGroupLeave      = "group_leave"
+	SystemTypeGroupPromote    = "group_promote"
+	SystemTypeGroupDemote     = "group_demote"
+	SystemTypeGroupName       = "group_name"
+	SystemTypeGroupTopic      = "group_topic"
+	SystemTypeGroupPhoto      = "group_photo"
+	SystemTypeGroupLocked     = "group_locked"
+	SystemTypeGroupAnnounce   = "group_announce"
+	SystemTypeGroupApproval   = "group_approval"
+	SystemTypeGroupInviteLink = "group_invite_link"
+	SystemTypeGroupLink       = "group_link"
+	SystemTypeGroupUnlink     = "group_unlink"
+	SystemTypeGroupDelete     = "group_delete"
+	SystemTypeEphemeral       = "ephemeral"
+	SystemTypeIdentityChange  = "identity_change"
+)
+
+// SystemParticipant is one person a system event named, with their name
+// resolved at ingest so a pill never has to look anybody up.
+type SystemParticipant struct {
+	JID  string `json:"jid,omitempty"`
+	Name string `json:"name,omitempty"`
+	// Self marks us, which is what lets a sentence say "you" and what makes a
+	// row loud enough to reorder the chat list.
+	Self bool `json:"self,omitempty"`
+}
+
+// SystemPayload is something the chat did rather than something somebody said:
+// a membership change, a setting, a security code. It renders as a centered
+// pill, because putting it in a plate on one side would claim an author it does
+// not have.
+//
+// The whole participant list is kept here even though a pill shows three names
+// and a count. It is what makes the coalescing below possible (a second add has
+// to know who the first one named), and it is what a "who exactly" affordance
+// would need later.
+type SystemPayload struct {
+	Type string `json:"type"`
+	// Actor is who did it. Absent for events the server reports with no author,
+	// which is normal for a join through an invite link.
+	Actor *SystemParticipant `json:"actor,omitempty"`
+	// Participants are who it was done to, in arrival order.
+	Participants []SystemParticipant `json:"participants,omitempty"`
+	// Value is the new subject, description or invite link, depending on Type.
+	Value string `json:"value,omitempty"`
+	// Detail is the type's own qualifier: which kind of community link changed,
+	// or the reason a group was deleted. It is recorded rather than rendered.
+	Detail string `json:"detail,omitempty"`
+	// On carries the direction of a two-state change: disappearing messages
+	// turned on or off, the group locked or unlocked, announcements restricted
+	// or opened up.
+	On bool `json:"on,omitempty"`
+	// Seconds is the new disappearing-message timer, meaningful when On.
+	Seconds uint32 `json:"seconds,omitempty"`
+	// AboutSelf is set when the event named us. It is decided once, here, so
+	// that every reader (the chat list, the unread count, the pill's emphasis)
+	// agrees about which events are worth interrupting somebody for.
+	AboutSelf bool `json:"about_self,omitempty"`
+}
+
+// NamesParticipant reports whether a JID is already in the list, so a repeat of
+// the same event does not name somebody twice.
+func (p *SystemPayload) NamesParticipant(jid string) bool {
+	if p == nil {
+		return false
+	}
+	for _, participant := range p.Participants {
+		if participant.JID == jid {
+			return true
+		}
+	}
+	return false
 }
 
 // LinkPreviewPayload is the card a sender's client built for a link in their
@@ -533,5 +612,5 @@ func (p MessagePayload) isZero() bool {
 	return p.Location == nil && p.LiveShare == nil && p.Contacts == nil &&
 		p.Poll == nil && p.GroupInvite == nil && p.Event == nil && p.Album == nil &&
 		p.LinkPreview == nil && p.Interactive == nil && p.Commerce == nil &&
-		p.StickerPack == nil && p.CallLog == nil
+		p.StickerPack == nil && p.CallLog == nil && p.System == nil
 }

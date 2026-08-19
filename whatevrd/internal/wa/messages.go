@@ -391,6 +391,12 @@ func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offline
 	if c.handleKeepInChat(ctx, evt, offlineSync) {
 		return
 	}
+	// Changing the disappearing timer in a one-to-one chat is something the chat
+	// did, not something anybody said, so it becomes a pill rather than a
+	// bubble.
+	if c.handleEphemeralSetting(ctx, evt) {
+		return
+	}
 	// A live-location update moves an existing share rather than becoming a row
 	// of its own, so it never reaches the ingest below.
 	if c.handleLiveLocationUpdate(ctx, evt) {

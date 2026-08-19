@@ -128,6 +128,11 @@ public:
         // A call that happened. Not a message anybody wrote, which is why it
         // draws as a centered pill rather than in somebody's bubble.
         CallLogRole,
+        // Something the chat did to itself: somebody joined, the subject
+        // changed, a security code changed. Centered for the same reason a call
+        // log is, and carrying both a finished sentence and the parts it was
+        // built from, so the pill can say it in the reader's language.
+        SystemRole,
     };
     Q_ENUM(Role)
 
@@ -195,6 +200,7 @@ private:
     [[nodiscard]] static QString formatTime(qint64 timestampUnix);
     [[nodiscard]] static QString formatRelativeDate(qint64 timestampUnix);
     [[nodiscard]] QString cachedRelativeDate(const QVariantMap &item) const;
+    [[nodiscard]] static bool isAuthorless(const QVariantMap &item);
     [[nodiscard]] bool startsSenderGroup(int row) const;
     [[nodiscard]] bool endsSenderGroup(int row) const;
     [[nodiscard]] bool startsDayGroup(int row) const;

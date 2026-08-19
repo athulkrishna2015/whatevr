@@ -100,13 +100,26 @@ var rawSequenceBuilders = map[string]rawSequenceBuilder{
 	"album": buildRawAlbum,
 }
 
+// rawEventInjector produces something that is not a message: a membership
+// change, a renamed group, a changed security code. Those arrive from whatsmeow
+// as events rather than as messages, so there is nothing to build and send;
+// the injector constructs the event and runs it through the real handler.
+type rawEventInjector func(ctx context.Context, c *Client, chatJID types.JID, params json.RawMessage) error
+
+var rawEventInjectors = map[string]rawEventInjector{
+	"system": injectRawSystemEvent,
+}
+
 // RawSendKinds lists what the driver can produce, for the tool's help output.
 func RawSendKinds() []string {
-	kinds := make([]string, 0, len(rawMessageBuilders)+len(rawSequenceBuilders))
+	kinds := make([]string, 0, len(rawMessageBuilders)+len(rawSequenceBuilders)+len(rawEventInjectors))
 	for kind := range rawMessageBuilders {
 		kinds = append(kinds, kind)
 	}
 	for kind := range rawSequenceBuilders {
+		kinds = append(kinds, kind)
+	}
+	for kind := range rawEventInjectors {
 		kinds = append(kinds, kind)
 	}
 	return kinds
@@ -129,6 +142,14 @@ func (c *Client) SendRawMessage(ctx context.Context, req RawSendRequest) (string
 
 	var messages []*waE2E.Message
 	switch {
+	case rawEventInjectors[req.Kind] != nil:
+		// Not a message at all: something the chat did to itself, which arrives
+		// as a whatsmeow event and can only ever be injected locally, because
+		// nothing we send makes the server emit one.
+		if err := rawEventInjectors[req.Kind](ctx, c, chatJID, req.Params); err != nil {
+			return "", app.NewCommandError(app.CommandErrorInvalidArgument, "inject %s: %v", req.Kind, err)
+		}
+		return "", nil
 	case rawMessageBuilders[req.Kind] != nil:
 		message, err := rawMessageBuilders[req.Kind](ctx, c, req.Params)
 		if err != nil {
@@ -252,6 +273,114 @@ func buildRawText(ctx context.Context, c *Client, params json.RawMessage) (*waE2
 		p.Text = "raw send"
 	}
 	return &waE2E.Message{Conversation: &p.Text}, nil
+}
+
+// injectRawSystemEvent produces one of the events a chat emits about itself and
+// runs it through the real handler. Every system type this build understands is
+// reachable from here, because there is no other way to see one: a group's
+// membership does not change on request, and a security code changes when
+// somebody reinstalls WhatsApp.
+func injectRawSystemEvent(ctx context.Context, c *Client, chatJID types.JID, params json.RawMessage) error {
+	var p struct {
+		// Type is a system type as the wire spells it ("group_join",
+		// "group_name", "identity_change", …).
+		Type string `json:"type"`
+		// Actor is who did it, as a JID. Empty means the server named nobody,
+		// which is what a join through an invite link looks like.
+		Actor string `json:"actor"`
+		// Participants are who it was done to, as JIDs. "me" stands for us,
+		// which is the case that makes a row loud.
+		Participants []string `json:"participants"`
+		Value        string   `json:"value"`
+		On           bool     `json:"on"`
+		Seconds      uint32   `json:"seconds"`
+	}
+	if err := decodeRawParams(params, &p); err != nil {
+		return err
+	}
+	if p.Type == "" {
+		return fmt.Errorf("type is required")
+	}
+
+	own := types.JID{}
+	if client := c.currentClient(); client != nil {
+		own = client.Store.GetJID().ToNonAD()
+	}
+	parse := func(raw string) (types.JID, error) {
+		if raw == "me" {
+			if own.IsEmpty() {
+				return types.JID{}, fmt.Errorf("not logged in, so there is no \"me\"")
+			}
+			return own, nil
+		}
+		return types.ParseJID(raw)
+	}
+
+	participants := make([]types.JID, 0, len(p.Participants))
+	for _, raw := range p.Participants {
+		jid, err := parse(raw)
+		if err != nil {
+			return fmt.Errorf("participant %q: %w", raw, err)
+		}
+		participants = append(participants, jid)
+	}
+
+	var actor *types.JID
+	if p.Actor != "" {
+		jid, err := parse(p.Actor)
+		if err != nil {
+			return fmt.Errorf("actor %q: %w", p.Actor, err)
+		}
+		actor = &jid
+	}
+
+	now := time.Now()
+	switch p.Type {
+	case appstore.SystemTypeIdentityChange:
+		c.recordIdentityChange(ctx, &events.IdentityChange{JID: chatJID, Timestamp: now})
+		return nil
+	case appstore.SystemTypeGroupPhoto:
+		author := types.JID{}
+		if actor != nil {
+			author = *actor
+		}
+		c.recordGroupPhotoChange(ctx, &events.Picture{
+			JID: chatJID, Author: author, Timestamp: now, Remove: !p.On,
+		})
+		return nil
+	}
+
+	evt := &events.GroupInfo{JID: chatJID, Sender: actor, Timestamp: now}
+	switch p.Type {
+	case appstore.SystemTypeGroupJoin:
+		evt.Join = participants
+	case appstore.SystemTypeGroupLeave:
+		evt.Leave = participants
+	case appstore.SystemTypeGroupPromote:
+		evt.Promote = participants
+	case appstore.SystemTypeGroupDemote:
+		evt.Demote = participants
+	case appstore.SystemTypeGroupName:
+		evt.Name = &types.GroupName{Name: p.Value}
+	case appstore.SystemTypeGroupTopic:
+		evt.Topic = &types.GroupTopic{Topic: p.Value, TopicDeleted: p.Value == ""}
+	case appstore.SystemTypeGroupLocked:
+		evt.Locked = &types.GroupLocked{IsLocked: p.On}
+	case appstore.SystemTypeGroupAnnounce:
+		evt.Announce = &types.GroupAnnounce{IsAnnounce: p.On}
+	case appstore.SystemTypeGroupApproval:
+		evt.MembershipApprovalMode = &types.GroupMembershipApprovalMode{IsJoinApprovalRequired: p.On}
+	case appstore.SystemTypeGroupInviteLink:
+		evt.NewInviteLink = ptrTo(p.Value)
+	case appstore.SystemTypeGroupDelete:
+		evt.Delete = &types.GroupDelete{Deleted: true, DeleteReason: p.Value}
+	case appstore.SystemTypeEphemeral:
+		evt.Ephemeral = &types.GroupEphemeral{IsEphemeral: p.On, DisappearingTimer: p.Seconds}
+	default:
+		return fmt.Errorf("no system event of type %q", p.Type)
+	}
+	c.recordGroupInfoEvents(ctx, chatJID, evt)
+	return nil
 }
 
 // buildRawKeep produces the control message somebody's phone sends when they

@@ -43,6 +43,11 @@ func (c *Client) handleGroupInfoEvent(ctx context.Context, evt *events.GroupInfo
 		c.ensureOrUpdateGroupName(ctx, chatJID, evt.Name.Name)
 	}
 	c.applyGroupParticipantChanges(ctx, chatJID, evt.Join, evt.Leave)
+	// The state above is what the app needs to work; the rows below are what the
+	// reader needs to understand it. Until now this event changed the first and
+	// left no trace of the second, so a group's whole history of who arrived and
+	// who left was invisible.
+	c.recordGroupInfoEvents(ctx, chatJID, evt)
 }
 
 // canonicalParticipantJID reduces a participant JID to the bare phone-number

@@ -115,6 +115,7 @@ QVariantMap baseProps()
         {QStringLiteral("commerce"), QVariantMap()},
         {QStringLiteral("stickerPack"), QVariantMap()},
         {QStringLiteral("callLog"), QVariantMap()},
+        {QStringLiteral("system"), QVariantMap()},
         {QStringLiteral("isRevoked"), false},
         {QStringLiteral("isEdited"), false},
         {QStringLiteral("isStarred"), false},
@@ -244,6 +245,8 @@ private Q_SLOTS:
     void linkPreviewSitsAboveTheWordsAndFitsTheBubble();
     void businessCardDrawsALockedButtonAsLocked();
     void aCallLogIsAPillInTheMiddleWithNoPlate();
+    void aSystemEventIsAPillThatSaysWhatHappened();
+    void anUnknownSystemEventFallsBackToTheDaemonsWords();
     void aShrinkingPaneDoesNotDragTheTranscriptWithIt();
 
 private:
@@ -1785,6 +1788,105 @@ void ChatBubblePerf::aCallLogIsAPillInTheMiddleWithNoPlate()
              qPrintable(QStringLiteral("a %1-tall pill sits in a %2-tall row")
                             .arg(pill->height())
                             .arg(bubbleItem->height())));
+}
+
+// A system event is not a message anybody wrote either. It draws as the same
+// centered pill a call log does, says its whole sentence from the parts the
+// daemon sent rather than from the daemon's own English, and suppresses the
+// sender header a group chat would otherwise put above it.
+void ChatBubblePerf::aSystemEventIsAPillThatSaysWhatHappened()
+{
+    const QVariantMap event{
+        {QStringLiteral("type"), QStringLiteral("group_join")},
+        // Deliberately wrong, so a pill that printed it instead of composing
+        // its own sentence fails here rather than silently shipping English.
+        {QStringLiteral("text"), QStringLiteral("DAEMON FALLBACK")},
+        {QStringLiteral("actor"), QVariantMap{{QStringLiteral("jid"), QStringLiteral("cy@s.whatsapp.net")},
+                                              {QStringLiteral("name"), QStringLiteral("Cy")}}},
+        {QStringLiteral("names"), QVariantList{
+                                      QVariantMap{{QStringLiteral("jid"), QStringLiteral("ana@s.whatsapp.net")},
+                                                  {QStringLiteral("name"), QStringLiteral("Ana")}},
+                                      QVariantMap{{QStringLiteral("jid"), QStringLiteral("bo@s.whatsapp.net")},
+                                                  {QStringLiteral("name"), QStringLiteral("Bo")}}}},
+    };
+    const QVariantMap props =
+        withProps(baseProps(), {{QStringLiteral("messageId"), QStringLiteral("sys-1")},
+                                {QStringLiteral("mediaKind"), QStringLiteral("system")},
+                                {QStringLiteral("system"), event},
+                                // A group chat, so the sender header and avatar
+                                // would be drawn if the pill did not suppress
+                                // them.
+                                {QStringLiteral("showSenderHeader"), true},
+                                {QStringLiteral("showSenderAvatar"), true},
+                                {QStringLiteral("showSenderGutter"), true}});
+
+    QQmlComponent component(
+        m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/ChatBubble.qml")));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> bubble(component.createWithInitialProperties(props));
+    QVERIFY2(bubble, qPrintable(component.errorString()));
+    auto *bubbleItem = qobject_cast<QQuickItem *>(bubble.get());
+    bubbleItem->setParentItem(m_window->contentItem());
+    m_window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_window));
+
+    QVERIFY(bubbleItem->property("centeredPill").toBool());
+    QCOMPARE(bubbleItem->property("senderHeaderHeight").toReal(), 0.0);
+    QCOMPARE(bubbleItem->property("senderGutterWidth").toReal(), 0.0);
+    QVERIFY(!bubbleItem->property("canReply").toBool());
+
+    QQuickItem *pill = findVisualChild(bubbleItem, QStringLiteral("systemPill"));
+    QVERIFY2(pill, "no system pill was drawn");
+    QTRY_VERIFY(pill->width() > 0 && pill->height() > 0);
+
+    // The sentence is built here, from the flags, so it can be translated. The
+    // daemon's own line is the fallback for a type this build never heard of.
+    QCOMPARE(pill->property("summary").toString(), QStringLiteral("Cy added Ana and Bo"));
+
+    const qreal pillCentre = pill->mapToItem(bubbleItem, QPointF(pill->width() / 2, 0)).x();
+    QVERIFY2(qAbs(pillCentre - bubbleItem->width() / 2) < 1.5,
+             qPrintable(QStringLiteral("the pill is centred at %1 in a %2-wide row")
+                            .arg(pillCentre)
+                            .arg(bubbleItem->width())));
+
+    const qreal hPadding = pill->property("hPadding").toReal();
+    QVERIFY2(hPadding >= pill->height() * 0.3,
+             qPrintable(QStringLiteral("a %1-tall pill pads its sides by %2")
+                            .arg(pill->height())
+                            .arg(hPadding)));
+
+    QVERIFY2(bubbleItem->height() < pill->height() * 1.6,
+             qPrintable(QStringLiteral("a %1-tall pill sits in a %2-tall row")
+                            .arg(pill->height())
+                            .arg(bubbleItem->height())));
+}
+
+// An event type this build has never heard of still says something: the daemon
+// already wrote a sentence for it, and printing that beats printing nothing.
+void ChatBubblePerf::anUnknownSystemEventFallsBackToTheDaemonsWords()
+{
+    const QVariantMap event{
+        {QStringLiteral("type"), QStringLiteral("something_from_the_future")},
+        {QStringLiteral("text"), QStringLiteral("Cy did something new")},
+    };
+    const QVariantMap props =
+        withProps(baseProps(), {{QStringLiteral("messageId"), QStringLiteral("sys-2")},
+                                {QStringLiteral("mediaKind"), QStringLiteral("system")},
+                                {QStringLiteral("system"), event}});
+
+    QQmlComponent component(
+        m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/ChatBubble.qml")));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> bubble(component.createWithInitialProperties(props));
+    QVERIFY2(bubble, qPrintable(component.errorString()));
+    auto *bubbleItem = qobject_cast<QQuickItem *>(bubble.get());
+    bubbleItem->setParentItem(m_window->contentItem());
+    m_window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_window));
+
+    QQuickItem *pill = findVisualChild(bubbleItem, QStringLiteral("systemPill"));
+    QVERIFY2(pill, "no system pill was drawn");
+    QCOMPARE(pill->property("summary").toString(), QStringLiteral("Cy did something new"));
 }
 
 void ChatBubblePerf::aShrinkingPaneDoesNotDragTheTranscriptWithIt()

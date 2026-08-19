@@ -430,6 +430,8 @@ QVariant ProtocolMessageModel::data(const QModelIndex &index, int role) const
         return item.value(QStringLiteral("sticker_pack")).toMap();
     case CallLogRole:
         return item.value(QStringLiteral("call_log")).toMap();
+    case SystemRole:
+        return item.value(QStringLiteral("system")).toMap();
     case ShowSenderHeaderRole:
         return groupChat && !outgoing && startsSenderGroup(index.row());
     case ShowSenderAvatarRole:
@@ -577,6 +579,7 @@ QHash<int, QByteArray> ProtocolMessageModel::roleNames() const
         {CommerceRole, "commerce"},
         {StickerPackRole, "stickerPack"},
         {CallLogRole, "callLog"},
+        {SystemRole, "system"},
     };
 }
 
@@ -779,13 +782,32 @@ QString ProtocolMessageModel::cachedRelativeDate(const QVariantMap &item) const
     return text;
 }
 
+// A row nobody said: a call that happened, something the chat did to itself.
+// It has a sender on the wire (the person who made the change) but it is not
+// that person talking, so it belongs to no run of their messages: it neither
+// starts one nor continues one, and it breaks the run it lands in.
+bool ProtocolMessageModel::isAuthorless(const QVariantMap &item)
+{
+    const QString kind = item.value(QStringLiteral("kind")).toString();
+    return kind == QLatin1String("system") || kind == QLatin1String("call_log");
+}
+
 bool ProtocolMessageModel::startsSenderGroup(int row) const
 {
-    if (row <= 0 || row >= rowCount()) {
+    if (row < 0 || row >= rowCount()) {
         return true;
     }
     const QVariantMap message = wireItem(row);
+    if (isAuthorless(message)) {
+        return false;
+    }
+    if (row == 0) {
+        return true;
+    }
     const QVariantMap previous = wireItem(row - 1);
+    if (isAuthorless(previous)) {
+        return true;
+    }
     if (directionValue(message.value(QStringLiteral("direction")).toString())
             != directionValue(previous.value(QStringLiteral("direction")).toString())
         || sender(message).value(QStringLiteral("id")) != sender(previous).value(QStringLiteral("id"))) {
@@ -797,11 +819,20 @@ bool ProtocolMessageModel::startsSenderGroup(int row) const
 
 bool ProtocolMessageModel::endsSenderGroup(int row) const
 {
-    if (row < 0 || row >= rowCount() - 1) {
+    if (row < 0 || row >= rowCount()) {
         return true;
     }
     const QVariantMap message = wireItem(row);
+    if (isAuthorless(message)) {
+        return false;
+    }
+    if (row >= rowCount() - 1) {
+        return true;
+    }
     const QVariantMap next = wireItem(row + 1);
+    if (isAuthorless(next)) {
+        return true;
+    }
     if (directionValue(message.value(QStringLiteral("direction")).toString())
             != directionValue(next.value(QStringLiteral("direction")).toString())
         || sender(message).value(QStringLiteral("id")) != sender(next).value(QStringLiteral("id"))) {

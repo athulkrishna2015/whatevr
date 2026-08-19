@@ -136,6 +136,7 @@ func (c *Client) handleEvent(eventGen uint64, raw any) {
 		c.handleGroupInfoEvent(c.backgroundContext(), evt)
 	case *events.Picture:
 		c.handlePictureEvent(c.backgroundContext(), evt)
+		c.recordGroupPhotoChange(c.backgroundContext(), evt)
 		if c.isSelfJID(evt.JID) {
 			// Our own profile photo changed: refresh the settings profile page.
 			c.daemon.PublishSelfProfileChanged()
@@ -154,6 +155,10 @@ func (c *Client) handleEvent(eventGen uint64, raw any) {
 		jid := c.normalizeJIDForChat(c.backgroundContext(), evt.JID)
 		c.log.Warnf("WhatsApp identity changed for %s (implicit=%t)", jid, evt.Implicit)
 		c.daemon.PublishIdentityChanged(jid.ToNonAD().String())
+		// The notice above is transient. The transcript keeps the fact, because
+		// "when did this change" is the question somebody asks about a security
+		// code, and a banner that has already gone cannot answer it.
+		c.recordIdentityChange(c.backgroundContext(), evt)
 	case *events.Presence:
 		chatJID := c.normalizeJIDForChat(c.backgroundContext(), evt.From)
 		availability := app.ContactAvailabilityOnline
