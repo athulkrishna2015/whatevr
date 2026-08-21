@@ -1010,79 +1010,23 @@ Item {
         }
     }
 
-    // Everything multi-select mode needs — the covering click surface, the row
-    // tint and the check circle — is built only while that mode is on. It used
-    // to be three permanently instantiated (and normally invisible) subtrees on
-    // every row, worth roughly seven objects each time (DN9).
+    // Everything that sits on top of the row: the multi-select chrome, the
+    // jump-to-reply glow, the hover reply button. One Loader for all three
+    // rather than one each, for the reason the media slot has one: an inactive
+    // Loader holding an inline component is two objects on every delegate in
+    // the chat, and none of these three is showing on almost any row at any
+    // moment. See RowOverlays.qml.
     Loader {
-        id: selectionChromeLoader
+        id: rowOverlaysLoader
 
         anchors.fill: parent
+        z: 7
         active: root.selectionModeActive
+                || root.replyGlowOpacity > 0
+                || (root.hoverLatched && root.canReply && !root.pooled)
 
-        sourceComponent: Item {
-            anchors.fill: parent
-
-            // Selection-mode click surface: every left click toggles this
-            // message and nothing underneath (links, reply button, image
-            // buttons) reacts.
-            MouseArea {
-                anchors.fill: parent
-                acceptedButtons: Qt.LeftButton
-                z: 10
-                cursorShape: Qt.PointingHandCursor
-                onClicked: root.selectionToggleRequested()
-            }
-
-            // Selection tint over the message row, excluding the date-pill
-            // region at the top so the day separator is never highlighted.
-            Rectangle {
-                anchors.fill: parent
-                anchors.topMargin: root.dateSeparatorHeight
-                z: 6
-                visible: root.selected
-                color: Qt.alpha(Kirigami.Theme.highlightColor, 0.14)
-                radius: Kirigami.Units.cornerRadius
-            }
-
-            // Selection check circle in the free space opposite the bubble
-            // (mirrors the hover reply button's placement), so nothing shifts.
-            Rectangle {
-                id: selectionCheck
-
-                readonly property real desiredX: root.isOutgoing
-                                                 ? root.visualX - width - Kirigami.Units.smallSpacing
-                                                 : root.visualX + root.visualWidth + Kirigami.Units.smallSpacing
-
-                z: 11
-                x: Math.round(Math.max(root.outerMargin,
-                                       Math.min(root.width - root.outerMargin - width, desiredX)))
-                y: Math.round(root.visualY + Math.max(0, root.visualHeight - height) / 2)
-                width: Kirigami.Units.iconSizes.smallMedium + Kirigami.Units.smallSpacing
-                height: width
-                radius: width / 2
-                color: root.selected ? Kirigami.Theme.highlightColor : Qt.alpha(Kirigami.Theme.backgroundColor, 0.92)
-                border.color: root.selected ? Kirigami.Theme.highlightColor : Qt.alpha(Kirigami.Theme.textColor, 0.38)
-                border.width: 1
-
-                Behavior on color {
-                    ColorAnimation {
-                        duration: Kirigami.Units.shortDuration
-                        easing.type: Easing.OutCubic
-                    }
-                }
-
-                Kirigami.Icon {
-                    anchors.centerIn: parent
-                    visible: root.selected
-                    source: root.tickSource
-                    width: Math.round(parent.width * 0.62)
-                    height: width
-                    color: Kirigami.Theme.highlightedTextColor
-                    isMask: true
-                }
-            }
-        }
+        readonly property url overlaySource: active ? Qt.resolvedUrl("RowOverlays.qml") : ""
+        onOverlaySourceChanged: setSource(overlaySource, { row: root })
     }
 
     TextMetrics {
@@ -1199,8 +1143,8 @@ Item {
 
                 // One Loader for every media kind that fills the slot, not one
                 // per kind. An inactive Loader with an inline sourceComponent is
-                // two objects — the Loader and the component it will probably
-                // never build — on every delegate in the chat, so a Loader each
+                // two objects (the Loader, and the component it will probably
+                // never build) on every delegate in the chat, so a Loader each
                 // for pictures, players, audio rows and documents taxed every
                 // plain text message four times over for kinds it is not. The
                 // kinds are mutually exclusive by construction, so one Loader
@@ -1718,109 +1662,7 @@ Item {
         Component.onCompleted: setSource(pillSource, { row: root })
     }
 
-    // Instantiated only while the jump-to-reply glow animation is running.
-    Loader {
-        active: root.replyGlowOpacity > 0
-        x: Math.round(root.replyGlowLeft - root.replyGlowPadding)
-        y: Math.round(root.replyGlowTop - root.replyGlowPadding)
-        z: 7
-        width: Math.max(0, Math.round(root.replyGlowRight - root.replyGlowLeft + root.replyGlowPadding * 2))
-        height: Math.max(0, Math.round(root.replyGlowBottom - root.replyGlowTop + root.replyGlowPadding * 2))
 
-        sourceComponent: Item {
-            id: replyGlowOverlay
-
-            readonly property real innerMargin: Math.max(1, Math.round(Kirigami.Units.smallSpacing / 2))
-
-            anchors.fill: parent
-            opacity: root.replyGlowOpacity
-
-            Rectangle {
-                id: replyGlowOuter
-
-                anchors.fill: parent
-                radius: Kirigami.Units.cornerRadius + root.replyGlowPadding
-                color: Qt.alpha(Kirigami.Theme.highlightColor, 0.06)
-                border.color: Qt.alpha(Kirigami.Theme.highlightColor, 0.72)
-                border.width: Math.max(2, Math.round(Kirigami.Units.smallSpacing / 2))
-            }
-
-            Rectangle {
-                anchors.fill: parent
-                anchors.margins: replyGlowOverlay.innerMargin
-                radius: Math.max(0, replyGlowOuter.radius - replyGlowOverlay.innerMargin)
-                color: "transparent"
-                border.color: Qt.alpha(Kirigami.Theme.highlightColor, 0.28)
-                border.width: 1
-            }
-        }
-    }
-
-    // Built lazily on first hover of the row (hoverLatched): scrolling never
-    // pays for the button, only the rows the pointer actually visits do. Off
-    // the frame's critical path too, for the same reason as the selection
-    // surface above: rows crossing an idle cursor must not each cost a stall.
-    Loader {
-        anchors.fill: parent
-        asynchronous: true
-        active: root.hoverLatched && root.canReply && !root.pooled
-        z: 8
-
-        sourceComponent: Item {
-            ToolButton {
-                id: replyButton
-
-                readonly property real desiredX: root.isOutgoing
-                                                 ? root.visualX - width - Kirigami.Units.smallSpacing
-                                                 : root.visualX + root.visualWidth + Kirigami.Units.smallSpacing
-
-                enabled: opacity > 0.01
-                opacity: (rowHoverHandler.hovered || hovered || pressed) ? 1 : 0
-                x: Math.round(Math.max(root.outerMargin,
-                                       Math.min(root.width - root.outerMargin - width, desiredX)))
-                y: Math.round(root.visualY + Math.max(0, root.visualHeight - height) / 2)
-                width: Math.round(Math.max(Kirigami.Units.iconSizes.smallMedium + Kirigami.Units.smallSpacing,
-                                           Math.min(Kirigami.Units.gridUnit * 1.45,
-                                                    root.visualHeight - Kirigami.Units.smallSpacing)))
-                height: width
-                icon.name: "smiley-add-symbolic"
-                // Set both dimensions to the constant directly; binding icon.height to
-                // icon.width loops through the control's implicit-size machinery.
-                icon.width: Kirigami.Units.iconSizes.smallMedium
-                icon.height: Kirigami.Units.iconSizes.smallMedium
-                text: Whatevr.I18n.i18nc("@action:button", "React")
-                display: AbstractButton.IconOnly
-                focusPolicy: Qt.NoFocus
-                hoverEnabled: true
-                onClicked: root.reactionPickerRequested(x + width / 2, y)
-
-                contentItem: Item {
-                    Kirigami.Icon {
-                        anchors.centerIn: parent
-                        source: replyButton.icon.name
-                        width: replyButton.icon.width
-                        height: replyButton.icon.height
-                        color: Kirigami.Theme.textColor
-                        isMask: true
-                    }
-                }
-
-                background: Rectangle {
-                    radius: width / 2
-                    color: Qt.alpha(Kirigami.Theme.backgroundColor, replyButton.hovered || replyButton.pressed ? 0.98 : 0.9)
-                    border.color: Qt.alpha(Kirigami.Theme.textColor, replyButton.hovered || replyButton.pressed ? 0.24 : 0.14)
-                    border.width: 1
-                }
-
-                Behavior on opacity {
-                    NumberAnimation {
-                        duration: Kirigami.Units.shortDuration
-                        easing.type: Easing.OutCubic
-                    }
-                }
-            }
-        }
-    }
 
     // Reaction chips in their own band below the bubble, aligned with the
     // bubble's edge (left for incoming, right for outgoing via the row's
