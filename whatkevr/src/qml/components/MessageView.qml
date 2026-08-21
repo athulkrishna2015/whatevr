@@ -844,19 +844,31 @@ Item {
     // is complete and the viewport is placed, but the frame carrying that has
     // not been rendered yet. A FrameAnimation fires once per rendered frame, so
     // arming it here and stamping on its first tick measures a real paint.
-    onOpeningChatChanged: {
-        if (!openingChat && chatId.length > 0 && Whatevr.ProtocolController.perfLogging) {
+    // A stamp is owed from the moment a chat is selected until the frame that
+    // first shows its rows. It is not enough to stamp when openingChat clears:
+    // a switch empties the window first, so the pane reaches a settled, painted,
+    // empty state a few milliseconds in, and the rows arrive after it. The debt
+    // is therefore held until there is something on screen to have painted.
+    property bool openStampOwed: false
+
+    readonly property bool openStampReady: openStampOwed && !openingChat && list.count > 0
+    onOpenStampReadyChanged: {
+        if (openStampReady) {
             Whatevr.ProtocolController.markChatOpenPhase("settled")
             paintProbe.running = true
         }
     }
 
+    // FrameAnimation fires once per rendered frame, so arming it after the
+    // window is placed and stamping on its first tick measures a real paint
+    // rather than the intent to paint.
     FrameAnimation {
         id: paintProbe
 
         running: false
         onTriggered: {
             running = false
+            root.openStampOwed = false
             Whatevr.ProtocolController.markChatOpenPhase("painted")
         }
     }
@@ -1486,6 +1498,7 @@ Item {
     }
 
     onChatIdChanged: {
+        openStampOwed = Whatevr.ProtocolController.perfLogging && chatId.length > 0
         if (pendingJumpMessageId.length > 0) {
             finishPendingJump()
         }
@@ -1689,9 +1702,41 @@ Item {
         // with the band shut builds the viewport, paints it, and lets the band
         // fill afterwards out of idle time, which is what "incubated
         // asynchronously" was supposed to buy in the first place.
+        //
+        // Bounded by its own timer as well as by openingChat, and not by
+        // openingChat alone. That flag is latched by whichever of several paths
+        // finishes the open, and it has been seen to stay set for seconds when
+        // none of them runs; a chat scrolling with no cache band at all is a
+        // far worse bargain than the one this is trying to win. The timer is
+        // the guarantee: whatever else happens, the band is open a quarter of a
+        // second after the chat changed.
         readonly property real steadyCacheBuffer: Math.max(height * 2, Kirigami.Units.gridUnit * 60)
-        cacheBuffer: root.openingChat ? 0 : steadyCacheBuffer
+        cacheBuffer: (root.openingChat && cacheBandDelay.running) ? 0 : steadyCacheBuffer
         reuseItems: true
+
+        Timer {
+            id: cacheBandDelay
+
+            interval: 250
+            running: false
+            // The first chat is opened by the pane being built around it, not by
+            // chatId changing, and it is the one open with nothing warm behind
+            // it. Started here rather than bound to chatId so that restart()
+            // below is not fighting a binding for ownership of `running`.
+            Component.onCompleted: if (root.chatId.length > 0) start()
+        }
+
+        Connections {
+            target: root
+
+            function onChatIdChanged() {
+                if (root.chatId.length > 0) {
+                    cacheBandDelay.restart()
+                } else {
+                    cacheBandDelay.stop()
+                }
+            }
+        }
 
         // True while flinging faster than ~1.25 viewport-heights per second.
         // Delegates use this to hold off full-resolution media decoding so the

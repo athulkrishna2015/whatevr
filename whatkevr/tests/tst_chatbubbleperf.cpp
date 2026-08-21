@@ -2073,9 +2073,11 @@ void ChatBubblePerf::openingAChatBuildsItsWindowWithinBudget()
     QQmlComponent component(
         m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/MessageView.qml")));
     QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    // Built with no chat, so that selecting one below goes through the same
+    // path a switch does. Handing it a chat as an initial property would skip
+    // onChatIdChanged, and with it everything an open arms.
     std::unique_ptr<QObject> view(component.createWithInitialProperties(
-        {{QStringLiteral("chatId"), QStringLiteral("open@g.us")},
-         {QStringLiteral("model"), QVariant::fromValue<QObject *>(&model)}}));
+        {{QStringLiteral("model"), QVariant::fromValue<QObject *>(&model)}}));
     QVERIFY2(view, qPrintable(component.errorString()));
     auto *viewItem = qobject_cast<QQuickItem *>(view.get());
     viewItem->setParentItem(m_window->contentItem());
@@ -2127,13 +2129,15 @@ void ChatBubblePerf::openingAChatBuildsItsWindowWithinBudget()
         sorts.append(QStringLiteral("%1").arg(1'700'000'000 + i * 60, 20, 10, QLatin1Char('0')));
     }
 
-    // An open runs with openingChat latched, which is what shuts the cache
-    // buffer while the viewport is being built. Setting it here is what makes
-    // this measure an open rather than a live append.
-    viewItem->setProperty("openingChat", true);
-
+    // The chat is selected and its window arrives, which is an open. Selecting
+    // it arms everything an open arms (the cache band shuts); openingChat is
+    // latched here because in the app the controller does it, and released
+    // after the window is up.
     QElapsedTimer timer;
     timer.start();
+
+    viewItem->setProperty("chatId", QStringLiteral("open@g.us"));
+    viewItem->setProperty("openingChat", true);
 
     source.onBatchBegin();
     for (int i = 0; i < kWindowRows; ++i) {

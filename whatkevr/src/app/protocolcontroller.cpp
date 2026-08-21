@@ -3540,6 +3540,14 @@ void ProtocolController::markChatOpenPhase(const QString &phase)
         return;
     }
     const int rows = m_messagePresentationModel ? m_messagePresentationModel->rowCount() : 0;
+    // The view reaches its settled state once before the rows do: a switch
+    // clears the window, and for a turn or two the pane is a laid-out, painted,
+    // empty list. Stamping that would report a four-millisecond open and stop
+    // the clock before the work happened, so an empty window is not an open
+    // yet and the clock keeps running.
+    if (rows == 0 && (phase == QLatin1String("settled") || phase == QLatin1String("painted"))) {
+        return;
+    }
     const int delta = rows - m_openPhaseRows;
     m_openPhaseRows = rows;
     qInfo("[perf] open %-10s %6.1f ms  rows=%d (+%d)",
