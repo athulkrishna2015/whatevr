@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QAbstractItemModel>
+#include <QElapsedTimer>
 #include <QJsonObject>
 #include <QObject>
 #include <QHash>
@@ -639,6 +640,15 @@ public:
 
     [[nodiscard]] static bool perfLogging();
 
+    // Chat-open stopwatch (WHATKEVR_PERF=1). The open path crosses C++ and QML
+    // several times — subscribe, the daemon's reply, the first row, the last
+    // row, the frame that finally shows them — and until now only its two ends
+    // were visible, which made "opening is slow" impossible to attribute. Every
+    // phase is stamped against one clock started in subscribeMessages(), so the
+    // log reads as a breakdown rather than a set of unrelated timestamps.
+    // QML calls this for the phases only it can see (`painted`).
+    Q_INVOKABLE void markChatOpenPhase(const QString &phase);
+
     // Single-instance entry point: the launch arguments of this process, or
     // those forwarded by a second launch through KDBusService. A
     // `whatevr://chat/<id>` URL selects that chat once the shell is up;
@@ -907,6 +917,13 @@ private:
     bool m_conversationVisible = false;
     int m_messagesGeneration = 0;
     int m_phoneHistoryGeneration = 0;
+
+    // Chat-open stopwatch (WHATKEVR_PERF=1 only). Started in subscribeMessages
+    // and read by markChatOpenPhase; m_openPhaseRows records how many rows had
+    // landed when a phase was stamped, because "ready after 40ms" means
+    // something different for eight rows than for eighty.
+    QElapsedTimer m_openClock;
+    int m_openPhaseRows = 0;
 
     // The chat the `presence` subscription currently covers (empty when none).
     QString m_presenceChatId;

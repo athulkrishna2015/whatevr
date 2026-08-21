@@ -14,6 +14,7 @@
 
 #include <QApplication>
 #include <QDateTime>
+#include <QDeadlineTimer>
 #include <QElapsedTimer>
 #include <QImage>
 #include <QJsonObject>
@@ -250,6 +251,7 @@ private Q_SLOTS:
     void anUnknownSystemEventFallsBackToTheDaemonsWords();
     void aWaitingRowSaysWhetherItIsStillTrying();
     void aShrinkingPaneDoesNotDragTheTranscriptWithIt();
+    void openingAChatBuildsItsWindowWithinBudget();
 
 private:
     QQuickWindow *m_window = nullptr;
@@ -2032,6 +2034,148 @@ void ChatBubblePerf::aShrinkingPaneDoesNotDragTheTranscriptWithIt()
 
     m_window->hide();
     viewItem->setParentItem(nullptr);
+}
+
+// The whole point of the delegate budget above is what it costs to open a chat,
+// and until now nothing measured that directly: delegateCost() builds rows by
+// hand, one at a time, outside any view. This builds the real thing — a real
+// MessageView over a real ProtocolMessageModel, sized like the app — and fills
+// it the way a subscribe fill does, in one batch, then measures what the open
+// actually cost.
+//
+// Two numbers come out. Objects is the gate: it is deterministic, and it is the
+// product of the per-row cost and how many rows the view decides to materialise,
+// which are exactly the two things worth holding down. Wall time is reported but
+// not asserted, for the same reason delegateCost does not assert it.
+void ChatBubblePerf::openingAChatBuildsItsWindowWithinBudget()
+{
+    // The window a `messages` subscribe asks for (kMessagePageSize).
+    constexpr int kWindowRows = 80;
+    // A ceiling, not a target, and set just above what this measures today so
+    // regrowth is a build failure. The baseline it was set from: 3163 objects
+    // across 55 materialised rows (58 per row) and ~80ms to lay the window out,
+    // Release, for eighty plain text rows carrying no media at all. Lower it
+    // whenever a landing earns the lower number.
+    constexpr int kMaxObjects = 3400;
+
+    CollectionViewModel source;
+    ProtocolMessageModel model(&source);
+
+    QQmlComponent component(
+        m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/MessageView.qml")));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> view(component.createWithInitialProperties(
+        {{QStringLiteral("chatId"), QStringLiteral("open@g.us")},
+         {QStringLiteral("model"), QVariant::fromValue<QObject *>(&model)}}));
+    QVERIFY2(view, qPrintable(component.errorString()));
+    auto *viewItem = qobject_cast<QQuickItem *>(view.get());
+    viewItem->setParentItem(m_window->contentItem());
+    viewItem->setWidth(900);
+    viewItem->setHeight(700);
+    m_window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_window));
+
+    QQuickItem *list = findVisualChild(viewItem, QStringLiteral("messageList"));
+    QVERIFY2(list, "the timeline has no list");
+
+    // Settle the empty view first, so the measurement below covers the fill and
+    // not the one-time cost of compiling and instantiating MessageView itself.
+    QTest::qWait(200);
+
+    // A fill crosses as one batch, which is the shape CollectionViewModel
+    // collapses into a single insert transaction. Building the JSON inside the
+    // timed section would measure the test harness, so it is built first.
+    QList<QJsonObject> rows;
+    rows.reserve(kWindowRows);
+    QList<QString> sorts;
+    sorts.reserve(kWindowRows);
+    for (int i = 0; i < kWindowRows; ++i) {
+        const QString id = QStringLiteral("m%1").arg(i, 4, 10, QLatin1Char('0'));
+        // A mix that looks like a real transcript rather than eighty identical
+        // rows: both directions, a sender change every few rows so headers and
+        // group boundaries are exercised, and bodies that wrap.
+        const bool outgoing = (i / 3) % 2 == 0;
+        rows.append(QJsonObject{
+            {QStringLiteral("id"), id},
+            {QStringLiteral("chat_id"), QStringLiteral("open@g.us")},
+            {QStringLiteral("kind"), QStringLiteral("text")},
+            {QStringLiteral("text"),
+             i % 5 == 0 ? QStringLiteral("a longer line that has to wrap across the bubble "
+                                         "because it says considerably more than the others (%1)")
+                              .arg(i)
+                        : QStringLiteral("row %1").arg(i)},
+            {QStringLiteral("fallback"), QStringLiteral("row %1").arg(i)},
+            {QStringLiteral("timestamp"), 1'700'000'000 + i * 60},
+            {QStringLiteral("direction"),
+             outgoing ? QStringLiteral("outgoing") : QStringLiteral("incoming")},
+            {QStringLiteral("status"), QStringLiteral("read")},
+            {QStringLiteral("sender"),
+             QJsonObject{{QStringLiteral("id"),
+                          outgoing ? QStringLiteral("me@s.whatsapp.net")
+                                   : QStringLiteral("%1@s.whatsapp.net").arg(i / 3)},
+                         {QStringLiteral("name"), QStringLiteral("Person %1").arg(i / 3)}}},
+        });
+        sorts.append(QStringLiteral("%1").arg(1'700'000'000 + i * 60, 20, 10, QLatin1Char('0')));
+    }
+
+    QElapsedTimer timer;
+    timer.start();
+
+    source.onBatchBegin();
+    for (int i = 0; i < kWindowRows; ++i) {
+        source.onUpsert(sorts.at(i), rows.at(i));
+    }
+    source.onBatchEnd();
+    source.onReady(true, true);
+    QCOMPARE(model.rowCount(), kWindowRows);
+
+    // Spin until the view has actually laid the window out. This is the number
+    // that answers "how long until the transcript is on screen".
+    //
+    // Deliberately not QTRY_VERIFY: it sleeps 50ms between polls, which would
+    // quantise a 20ms fill and a 69ms one to the same reading. A tight
+    // processEvents loop costs nothing when the condition is already true and
+    // resolves to the frame the layout actually completed on.
+    const auto laidOut = [&] {
+        return list->property("count").toInt() == kWindowRows
+            && list->property("contentHeight").toReal() > 0;
+    };
+    QDeadlineTimer deadline(5000);
+    while (!laidOut() && !deadline.hasExpired()) {
+        QCoreApplication::processEvents();
+    }
+    const double fillMs = timer.nsecsElapsed() / 1e6;
+    QVERIFY2(laidOut(), "the view never laid the window out");
+
+    // Let the cache buffer finish incubating, so the object count describes the
+    // steady state an open leaves behind rather than whichever frame we caught.
+    QTest::qWait(600);
+
+    QQuickItem *content = list->property("contentItem").value<QQuickItem *>();
+    QVERIFY2(content, "the list has no content item");
+    int materialised = 0;
+    const auto delegates = content->childItems();
+    for (QQuickItem *child : delegates) {
+        if (!child->property("messageId").toString().isEmpty()) {
+            ++materialised;
+        }
+    }
+    QVERIFY2(materialised > 0, "the list materialised no rows at all");
+
+    const int objects = objectCount(viewItem);
+    qInfo("DN9 %-24s objects=%5d  rows=%3d/%d  objects/row=%4.0f  fill=%6.1f ms",
+          "chat-open", objects, materialised, kWindowRows,
+          double(objects) / materialised, fillMs);
+
+    m_window->hide();
+    viewItem->setParentItem(nullptr);
+
+    QVERIFY2(objects <= kMaxObjects,
+             qPrintable(QStringLiteral("opening a chat built %1 objects, over the budget of %2 "
+                                       "(%3 rows materialised)")
+                            .arg(objects)
+                            .arg(kMaxObjects)
+                            .arg(materialised)));
 }
 
 int main(int argc, char *argv[])

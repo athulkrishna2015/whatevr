@@ -326,6 +326,12 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
     connect(m_messagesModel, &QAbstractItemModel::rowsInserted, this,
             [this](const QModelIndex &, int first, int) {
         Q_UNUSED(first)
+        // The first row of an open is the moment the window stops being a round
+        // trip and starts being a rendering problem, so it is the phase that
+        // splits the open budget in two.
+        if (m_openClock.isValid() && m_openPhaseRows == 0) {
+            markChatOpenPhase(QStringLiteral("first-row"));
+        }
         if (m_phoneHistoryRequesting && m_phoneHistoryGeneration == m_messagesGeneration
             && m_messagePresentationModel->messageIdAt(0) != m_phoneHistoryOldestId) {
             // Backfills arrive as a burst of individual upserts. Restore the
@@ -1023,6 +1029,13 @@ void ProtocolController::subscribeMessages(const QString &anchor, const QString 
     m_messagesSub = nullptr;
     ++m_messagesGeneration;
 
+    if (perfLogging()) {
+        m_openClock.start();
+        m_openPhaseRows = 0;
+        qInfo("[perf] open %-10s %6.1f ms  chat=%s anchor=%s", "subscribe", 0.0,
+              qPrintable(m_selectedChatId), qPrintable(anchor));
+    }
+
     m_requestedAnchor = anchor;
     m_effectiveAnchor = anchor;
     m_pendingJumpMessageId = jumpMessageId;
@@ -1075,6 +1088,7 @@ void ProtocolController::subscribeMessages(const QString &anchor, const QString 
 
 void ProtocolController::onMessagesSubscribed(const QVariantMap &meta)
 {
+    markChatOpenPhase(QStringLiteral("subscribed"));
     m_messageErrorText.clear();
     if (m_requestedAnchor == QLatin1String("unread")) {
         m_unreadAnchorMessageId = meta.value(QStringLiteral("anchor_id")).toString();
@@ -1119,6 +1133,7 @@ void ProtocolController::onMessagesReady(bool exhausted)
     if (!m_waitingInitialMessages) {
         return;
     }
+    markChatOpenPhase(QStringLiteral("ready"));
     m_waitingInitialMessages = false;
     m_displayedMessagesChatId = m_selectedChatId;
     m_messagesReloading = false;
@@ -3517,6 +3532,23 @@ bool ProtocolController::perfLogging()
 {
     static const bool enabled = qEnvironmentVariableIsSet("WHATKEVR_PERF");
     return enabled;
+}
+
+void ProtocolController::markChatOpenPhase(const QString &phase)
+{
+    if (!perfLogging() || !m_openClock.isValid()) {
+        return;
+    }
+    const int rows = m_messagePresentationModel ? m_messagePresentationModel->rowCount() : 0;
+    const int delta = rows - m_openPhaseRows;
+    m_openPhaseRows = rows;
+    qInfo("[perf] open %-10s %6.1f ms  rows=%d (+%d)",
+          qPrintable(phase), m_openClock.nsecsElapsed() / 1e6, rows, delta);
+    // `painted` is the last phase there is: the transcript is on screen, and
+    // anything stamped after it belongs to the next open rather than this one.
+    if (phase == QLatin1String("painted")) {
+        m_openClock.invalidate();
+    }
 }
 
 void ProtocolController::setChatDraft(const QString &chatId, const QString &text)

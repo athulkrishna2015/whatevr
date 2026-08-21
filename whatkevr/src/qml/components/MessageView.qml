@@ -838,6 +838,29 @@ Item {
                     extra === undefined ? "" : "| " + extra)
     }
 
+    // Closes the chat-open stopwatch started in subscribeMessages(). The phase
+    // that matters is not when the rows arrive but when they are on the glass,
+    // and QML is the only side that knows: openingChat clearing means the model
+    // is complete and the viewport is placed, but the frame carrying that has
+    // not been rendered yet. A FrameAnimation fires once per rendered frame, so
+    // arming it here and stamping on its first tick measures a real paint.
+    onOpeningChatChanged: {
+        if (!openingChat && chatId.length > 0 && Whatevr.ProtocolController.perfLogging) {
+            Whatevr.ProtocolController.markChatOpenPhase("settled")
+            paintProbe.running = true
+        }
+    }
+
+    FrameAnimation {
+        id: paintProbe
+
+        running: false
+        onTriggered: {
+            running = false
+            Whatevr.ProtocolController.markChatOpenPhase("painted")
+        }
+    }
+
     // Whether the list can actually answer geometry questions. ConversationPane
     // keeps this pane hidden until the messages *and* the pinned-banner layout
     // have both settled, and a hidden view materialises no delegates: every
