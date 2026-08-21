@@ -24,6 +24,7 @@
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QRegularExpression>
+#include <QSet>
 #include <QSignalSpy>
 #include <QDir>
 #include <QStandardPaths>
@@ -254,6 +255,7 @@ private Q_SLOTS:
     void openingAChatBuildsItsWindowWithinBudget();
     void theNewestMessageIsDrawnAtTheBottomAndHistoryClimbsAwayFromIt();
     void aHiddenTranscriptKeepsItsRowsSoComingBackToItIsFree();
+    void flingingThroughAMediaHeavyChatReusesItsRows();
 
 private:
     QQuickWindow *m_window = nullptr;
@@ -2417,6 +2419,158 @@ void ChatBubblePerf::aHiddenTranscriptKeepsItsRowsSoComingBackToItIsFree()
     // holding N conversations' worth of objects for no saving at all.
     QCOMPARE(whileHidden, whileShown);
     QCOMPARE(afterReturning, whileShown);
+
+    m_window->hide();
+    viewItem->setParentItem(nullptr);
+}
+
+// What a fast scroll through a chat full of pictures, video and voice notes
+// actually costs.
+//
+// The delegate budgets above measure one row at a time, and the chat-open
+// benchmark measures building a window once. Neither catches the case people
+// complain about most, which is flinging: rows leaving one end of the viewport
+// and arriving at the other as fast as the view can manage. That is supposed to
+// be nearly free, because ListView pools a row that scrolls out and hands it
+// straight back with new data (reuseItems). If reuse breaks, every row on the
+// way past is built from nothing instead, and on a media row that is upwards of
+// a hundred objects apiece.
+//
+// So the number this asserts is not time, it is how many delegates were ever
+// created. A working fling creates roughly a viewport's worth and then reuses
+// them forever.
+void ChatBubblePerf::flingingThroughAMediaHeavyChatReusesItsRows()
+{
+    CollectionViewModel source;
+    source.setReverseOrder(true);
+    ProtocolMessageModel model(&source);
+
+    constexpr int kRows = 200;
+    for (int i = 0; i < kRows; ++i) {
+        const QString id = QStringLiteral("f%1").arg(i, 4, 10, QLatin1Char('0'));
+        QJsonObject row{
+            {QStringLiteral("id"), id},
+            {QStringLiteral("chat_id"), QStringLiteral("heavy@g.us")},
+            {QStringLiteral("timestamp"), 1'700'000'000 + i * 60},
+            {QStringLiteral("direction"), (i % 3 == 0) ? QStringLiteral("outgoing")
+                                                       : QStringLiteral("incoming")},
+            {QStringLiteral("status"), QStringLiteral("read")},
+            {QStringLiteral("fallback"), QStringLiteral("row %1").arg(i)},
+            {QStringLiteral("sender"), QJsonObject{
+                 {QStringLiteral("id"), QStringLiteral("%1@s.whatsapp.net").arg(i / 4)},
+                 {QStringLiteral("name"), QStringLiteral("Person %1").arg(i / 4)}}},
+        };
+        // A real content-heavy conversation: mostly talk, with pictures, video
+        // and voice notes through it.
+        switch (i % 5) {
+        case 0:
+            row.insert(QStringLiteral("kind"), QStringLiteral("image"));
+            row.insert(QStringLiteral("media"), QJsonObject{
+                {QStringLiteral("mime"), QStringLiteral("image/jpeg")},
+                {QStringLiteral("width"), 1280}, {QStringLiteral("height"), 720}});
+            break;
+        case 1:
+            row.insert(QStringLiteral("kind"), QStringLiteral("video"));
+            row.insert(QStringLiteral("media"), QJsonObject{
+                {QStringLiteral("mime"), QStringLiteral("video/mp4")},
+                {QStringLiteral("width"), 1280}, {QStringLiteral("height"), 720},
+                {QStringLiteral("duration_secs"), 12}});
+            break;
+        case 2:
+            row.insert(QStringLiteral("kind"), QStringLiteral("voice"));
+            row.insert(QStringLiteral("media"), QJsonObject{
+                {QStringLiteral("mime"), QStringLiteral("audio/ogg")},
+                {QStringLiteral("duration_secs"), 7}});
+            break;
+        default:
+            row.insert(QStringLiteral("kind"), QStringLiteral("text"));
+            row.insert(QStringLiteral("text"),
+                       QStringLiteral("a line of conversation that is long enough to wrap "
+                                      "onto a second line in this pane (%1)").arg(i));
+            break;
+        }
+        source.onUpsert(QStringLiteral("%1").arg(1'700'000'000 + i * 60, 20, 10, QLatin1Char('0')),
+                        row);
+    }
+    QCOMPARE(model.rowCount(), kRows);
+
+    QQmlComponent component(
+        m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/MessageView.qml")));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> view(component.createWithInitialProperties(
+        {{QStringLiteral("model"), QVariant::fromValue<QObject *>(&model)}}));
+    QVERIFY2(view, qPrintable(component.errorString()));
+    auto *viewItem = qobject_cast<QQuickItem *>(view.get());
+    viewItem->setParentItem(m_window->contentItem());
+    viewItem->setWidth(900);
+    viewItem->setHeight(700);
+    m_window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_window));
+    viewItem->setProperty("chatId", QStringLiteral("heavy@g.us"));
+    QTest::qWait(800);
+
+    QQuickItem *list = findVisualChild(viewItem, QStringLiteral("messageList"));
+    QVERIFY2(list, "the timeline has no list");
+    QQuickItem *content = list->property("contentItem").value<QQuickItem *>();
+    QVERIFY2(content, "the list has no content item");
+
+    // Every distinct delegate this scroll ever puts on screen. Pointers can be
+    // recycled by the allocator after a delete, which would undercount; the
+    // objectName each row is stamped with makes an identity that cannot be.
+    QSet<QString> everSeen;
+    int settledRows = 0;
+    const auto sample = [&] {
+        int n = 0;
+        const auto children = content->childItems();
+        for (QQuickItem *child : children) {
+            const QString id = child->property("messageId").toString();
+            if (id.isEmpty()) {
+                continue;
+            }
+            ++n;
+            everSeen.insert(QStringLiteral("%1@%2")
+                                .arg(QString::number(reinterpret_cast<quintptr>(child), 16), id));
+        }
+        return n;
+    };
+    settledRows = sample();
+    QVERIFY2(settledRows > 0, "the transcript built no rows");
+
+    // Fling up through history and back, in the steps a real fling moves in.
+    const qreal top = list->property("contentY").toReal();
+    const qreal step = list->height() * 0.6;
+    QElapsedTimer timer;
+    timer.start();
+    for (int pass = 0; pass < 2; ++pass) {
+        for (int i = 0; i < 24; ++i) {
+            const qreal target = top - step * (pass == 0 ? (i + 1) : (24 - i));
+            list->setProperty("contentY", target);
+            QCoreApplication::processEvents();
+            sample();
+        }
+    }
+    const double flingMs = timer.nsecsElapsed() / 1e6;
+
+    // Every (delegate, message) pairing the scroll produced. A row that is
+    // reused keeps its pointer and gets a new id, so this grows by one per
+    // *reuse*, which is what makes the ratio below meaningful.
+    QSet<QString> pointers;
+    for (const QString &seen : everSeen) {
+        pointers.insert(seen.section(QLatin1Char('@'), 0, 0));
+    }
+
+    qInfo("DN9 %-24s viewport=%d  delegates=%d  pairings=%d  fling=%6.1f ms",
+          "media-fling", settledRows, pointers.size(), everSeen.size(), flingMs);
+
+    // The gate. Reuse working means the number of delegate objects stays close
+    // to what the band holds, however far the scroll travels; reuse broken
+    // means it climbs toward the number of rows passed.
+    QVERIFY2(pointers.size() < kRows,
+             qPrintable(QStringLiteral("a fling built %1 delegates for a %2-row chat: rows are "
+                                       "not being reused, so every one that scrolls past is "
+                                       "constructed from nothing")
+                            .arg(pointers.size())
+                            .arg(kRows)));
 
     m_window->hide();
     viewItem->setParentItem(nullptr);

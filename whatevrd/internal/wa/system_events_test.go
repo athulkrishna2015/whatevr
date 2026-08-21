@@ -419,3 +419,66 @@ func TestRepeatedSystemEventDoesNotDouble(t *testing.T) {
 		t.Fatalf("summary = %q: a repeat must not name anybody twice", rows[0].PayloadSummary)
 	}
 }
+
+// A changed security code is about us, but it is not news: it fires whenever
+// the other side reinstalls, and left loud it dragged silent chats to the top
+// of the list with unread badges nobody had written.
+func TestSecurityCodeChangeIsQuiet(t *testing.T) {
+	client := newMediaIngestClient(t)
+	ctx := context.Background()
+	chatJID := parseTestJID(t, systemTestChat)
+
+	if _, err := client.store.SaveTextMessage(ctx, appstore.TextMessageInput{
+		ID:        systemTestChat + ":m1",
+		ChatID:    systemTestChat,
+		SenderID:  "ana@s.whatsapp.net",
+		Text:      "see you there",
+		Timestamp: time.Unix(1_700_000_000, 0),
+		Direction: appstore.DirectionIncoming,
+		IsGroup:   true,
+	}); err != nil {
+		t.Fatalf("save message: %v", err)
+	}
+	before, err := client.store.GetChat(ctx, systemTestChat)
+	if err != nil {
+		t.Fatalf("get chat: %v", err)
+	}
+
+	payload := appstore.SystemPayload{
+		Type:         appstore.SystemTypeIdentityChange,
+		Participants: []appstore.SystemParticipant{{JID: "ana@s.whatsapp.net", Name: "Ana"}},
+		AboutSelf:    true,
+	}
+	client.recordSystemEvent(ctx, chatJID, payload, time.Unix(1_700_000_100, 0))
+
+	after, err := client.store.GetChat(ctx, systemTestChat)
+	if err != nil {
+		t.Fatalf("get chat: %v", err)
+	}
+	if after.LastMessageTime != before.LastMessageTime {
+		t.Fatalf("last message time moved to %d: a security code change must not reorder the list",
+			after.LastMessageTime)
+	}
+	if after.LastMessage != before.LastMessage {
+		t.Fatalf("preview changed to %q: a security code change must not replace it", after.LastMessage)
+	}
+	if after.UnreadCount != before.UnreadCount {
+		t.Fatalf("unread went from %d to %d: a security code change must not raise a badge",
+			before.UnreadCount, after.UnreadCount)
+	}
+
+	// It is still in the transcript, which is the whole point of keeping it.
+	messages, err := client.store.ListMessages(ctx, systemTestChat, 10, "")
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	var found bool
+	for _, m := range messages {
+		if m.MediaKind == appstore.MediaKindSystem {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the security code pill is not in the transcript")
+	}
+}

@@ -826,6 +826,115 @@ Item {
         }
     }
 
+    // Scroll pacing (WHATKEVR_PERF=1). Frame gaps are the only honest measure of
+    // whether scrolling is smooth: an average is useless here, because what is
+    // felt as lag is the handful of frames that took four times as long as the
+    // rest. So this counts frames while the transcript is actually moving and
+    // reports the distribution once a second, along with how far the view
+    // travelled and how many rows the band was holding, which is what the cost
+    // is proportional to.
+    //
+    // One object per pane, not per row, and it does not run at all unless the
+    // env var is set.
+    FrameAnimation {
+        id: scrollProbe
+
+        readonly property bool transcriptMoving: list.moving || list.flicking
+                                                 || Math.abs(list.verticalVelocity) > 1
+                                                 || rowScrollBar.dragging
+        running: Whatevr.ProtocolController.perfLogging && root.visible && transcriptMoving
+
+        property int frames: 0
+        property int overOneFrame: 0
+        property int overFourFrames: 0
+        property real worstMs: 0
+        property real travelled: 0
+        property real lastY: 0
+        property double windowStart: 0
+
+        onRunningChanged: {
+            if (running) {
+                frames = 0; overOneFrame = 0; overFourFrames = 0
+                worstMs = 0; travelled = 0
+                lastY = list.contentY
+                windowStart = Date.now()
+            } else if (frames > 0) {
+                report("settle")
+            }
+        }
+
+        function report(why) {
+            const elapsed = Math.max(1, Date.now() - windowStart)
+            console.log("[perf] scroll", why,
+                        "frames=" + frames,
+                        "fps=" + (frames * 1000 / elapsed).toFixed(0),
+                        ">16ms=" + overOneFrame,
+                        ">66ms=" + overFourFrames,
+                        "worst=" + worstMs.toFixed(1) + "ms",
+                        "travel=" + travelled.toFixed(0) + "px",
+                        "rows=" + root.materialisedRowCount(),
+                        "band=" + list.cacheBuffer.toFixed(0) +
+                        " fast=" + list.fastFlicking)
+            frames = 0; overOneFrame = 0; overFourFrames = 0
+            worstMs = 0; travelled = 0
+            windowStart = Date.now()
+        }
+
+        // Rows held at the end of the previous frame, so a stall can be
+        // attributed: a long frame that also churned twenty rows is delegate
+        // work, one that churned none while the view barely moved is something
+        // else entirely (a decode landing, a layout pass, the collector).
+        property int lastRows: 0
+
+        onTriggered: {
+            const ms = frameTime * 1000
+            const moved = Math.abs(list.contentY - lastY)
+            frames += 1
+            if (ms > 16.6) overOneFrame += 1
+            if (ms > 66) overFourFrames += 1
+            if (ms > worstMs) worstMs = ms
+            travelled += moved
+            lastY = list.contentY
+
+            if (ms > 66) {
+                const rows = root.materialisedRowCount()
+                console.log("[perf] stall", ms.toFixed(0) + "ms",
+                            "moved=" + moved.toFixed(0) + "px",
+                            "rows=" + rows,
+                            "churn=" + (rows - lastRows),
+                            "band=" + list.cacheBuffer.toFixed(0),
+                            "fast=" + list.fastFlicking,
+                            "flicking=" + list.flicking,
+                            "kinetic=" + Math.abs(kineticWheelScroller.velocity).toFixed(0))
+                lastRows = rows
+            } else if (frames % 30 === 0) {
+                lastRows = root.materialisedRowCount()
+            }
+
+            if (Date.now() - windowStart >= 1000) {
+                report("moving")
+            }
+        }
+    }
+
+    // How many rows the list is currently holding materialised. Walks the
+    // content item's children rather than asking the view, because that count
+    // (viewport plus cache band) is exactly what a scroll re-binds per frame.
+    function materialisedRowCount() {
+        const content = list.contentItem
+        if (!content) {
+            return 0
+        }
+        let n = 0
+        const kids = content.children
+        for (let i = 0; i < kids.length; ++i) {
+            if (kids[i].messageId !== undefined && String(kids[i].messageId).length > 0) {
+                n += 1
+            }
+        }
+        return n
+    }
+
     // Whether the list can actually answer geometry questions. ConversationPane
     // keeps this pane hidden until the messages *and* the pinned-banner layout
     // have both settled, and a hidden view materialises no delegates: every
@@ -1704,6 +1813,14 @@ Item {
         // far worse bargain than the one this is trying to win. The timer is
         // the guarantee: whatever else happens, the band is open a quarter of a
         // second after the chat changed.
+        // Deliberately *not* shrunk while flinging, though the arithmetic says
+        // it should be. A fast fling travels up to 4,000px in a frame, which
+        // invalidates the whole band every frame, so on paper a smaller band
+        // during a fling is less work per frame. Tried, measured, reverted: it
+        // did not move the stalls, and restoring the band when the fling
+        // settled built forty rows in one turn, which stalls exactly when the
+        // reader has stopped and is looking. Whatever the long frames are, the
+        // band is not it.
         readonly property real steadyCacheBuffer: Math.max(height * 2, Kirigami.Units.gridUnit * 60)
         cacheBuffer: (root.openingChat && cacheBandDelay.running) ? 0 : steadyCacheBuffer
         reuseItems: true
