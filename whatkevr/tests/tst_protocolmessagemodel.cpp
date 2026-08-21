@@ -533,6 +533,49 @@ private Q_SLOTS:
         QCOMPARE(role(model, 1, ProtocolMessageModel::IsKeptRole).toBool(), true);
     }
 
+    // The shaped-text cache outlives a model reset now, so that returning to a
+    // chat does not re-parse and re-measure every line of it. That is only safe
+    // because an entry checks the words it was built from before it is handed
+    // back: a message can come back under its own id with different text, both
+    // from an edit and from a resync, and serving the old shaping would draw
+    // the old message.
+    void reshapingHappensWhenTheWordsChangeAndNotWhenTheChatDoes()
+    {
+        CollectionViewModel source;
+        ProtocolMessageModel model(&source);
+
+        QJsonObject item = message(QStringLiteral("m1"), 1'700'000'000);
+        item.insert(QStringLiteral("text"), QStringLiteral("the original words"));
+        source.onUpsert(QStringLiteral("0001"), item);
+        QCOMPARE(role(model, 0, ProtocolMessageModel::TextRole).toString(),
+                 QStringLiteral("the original words"));
+        const qreal originalWidth = role(model, 0, ProtocolMessageModel::WidestLineWidthRole).toReal();
+        QVERIFY(originalWidth > 0);
+
+        // A reset and a refill with the same message: the cache should carry
+        // over, and the row must still read correctly.
+        source.onReset();
+        source.onUpsert(QStringLiteral("0001"), item);
+        QCOMPARE(role(model, 0, ProtocolMessageModel::TextRole).toString(),
+                 QStringLiteral("the original words"));
+        QCOMPARE(role(model, 0, ProtocolMessageModel::WidestLineWidthRole).toReal(), originalWidth);
+
+        // Now the same id comes back saying something much longer. The measured
+        // width has to follow it, which it cannot do from a stale entry.
+        QJsonObject edited = item;
+        edited.insert(QStringLiteral("text"),
+                      QStringLiteral("the original words, plus a great many more of them so that "
+                                     "the line is unmistakably wider than it was before"));
+        edited.insert(QStringLiteral("edited"), true);
+        source.onReset();
+        source.onUpsert(QStringLiteral("0001"), edited);
+
+        QCOMPARE(role(model, 0, ProtocolMessageModel::TextRole).toString(),
+                 edited.value(QStringLiteral("text")).toString());
+        QVERIFY2(role(model, 0, ProtocolMessageModel::WidestLineWidthRole).toReal() > originalWidth,
+                 "the edited body was measured with the shaping of the text it replaced");
+    }
+
     // The transcript is held newest-first so a BottomToTop view can pin its
     // live edge at row 0. Everything that reasons about neighbours has to read
     // the same way round afterwards, or a day changes on the wrong row and a

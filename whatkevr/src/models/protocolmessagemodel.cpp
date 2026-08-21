@@ -90,7 +90,11 @@ ProtocolMessageModel::ProtocolMessageModel(whatevr::proto::CollectionViewModel *
         beginResetModel();
     });
     connect(m_source, &QAbstractItemModel::modelReset, this, [this] {
-        m_textById.clear();
+        // m_textById deliberately survives this. It is keyed by message id and
+        // verifies its own contents on read (see ensureTextPresentation), so a
+        // chat switch no longer throws away the shaping for a conversation the
+        // reader is very likely to come back to. Only the row cache goes, and
+        // that one has to: it is keyed by row index.
         invalidateRowCache();
         endResetModel();
     });
@@ -896,16 +900,42 @@ bool ProtocolMessageModel::startsDayGroup(int row) const
     return before < 0 || dayNumber(wireItem(row)) != dayNumber(wireItem(before));
 }
 
+// What a message's body costs to prepare: the WhatsApp markup parse, a walk of
+// the link extractor's TLD table, and a font-metric measurement of every line.
+// All three are pure functions of the body text and the body font, so the
+// answer keeps until one of those changes.
+//
+// This cache used to be emptied whenever the source model reset, which is to
+// say on every chat switch, so returning to a chat re-shaped every line of it
+// from scratch. Message ids are unique across chats, so there was never
+// anything unsafe about keeping them; what the clear was really guarding
+// against is a message coming back under the same id with different words,
+// which a resync can do. That is now checked directly, by comparing the text
+// the row actually carries against the text the entry was built from. One
+// string compare against re-parsing and re-shaping a paragraph is not a close
+// call, and unlike the clear it is also correct for an edit that arrives while
+// the chat is closed.
 ProtocolMessageModel::TextPresentation &ProtocolMessageModel::ensureTextPresentation(const QVariantMap &item) const
 {
     const QString id = item.value(QStringLiteral("id")).toString();
+    const QString source = displayText(item);
     auto existing = m_textById.find(id);
-    if (existing != m_textById.end()) {
+    if (existing != m_textById.end() && existing->sourceText == source) {
         return existing.value();
     }
 
+    // Bounded so a long session cannot grow it without limit. Dropping the lot
+    // is crude next to evicting the coldest entries, but it happens roughly
+    // never (the cap is many screens' worth of conversation), and paying for
+    // recency bookkeeping on every row read to avoid it would cost more than it
+    // saves.
+    constexpr int kMaxCachedPresentations = 4000;
+    if (m_textById.size() >= kMaxCachedPresentations) {
+        m_textById.clear();
+    }
+
     TextPresentation presentation;
-    presentation.sourceText = displayText(item);
+    presentation.sourceText = source;
     presentation.previewText = collapsedMessageText(presentation.sourceText);
     presentation.truncated = presentation.previewText != presentation.sourceText;
     presentation.previewMarkup = whatevr::util::parseWhatsAppMessageMarkup(
