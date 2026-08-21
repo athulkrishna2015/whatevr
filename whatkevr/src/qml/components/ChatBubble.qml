@@ -1197,266 +1197,40 @@ Item {
                 height: visible ? (root.isAttachmentBlock ? root.attachmentBlockHeight : root.imageDisplayHeight) : 0
                 clip: !root.isAttachmentBlock
 
-                // Lazily instantiate the image stack (shader-effect images,
-                // backdrop, loading overlay) only for image messages. Text and
-                // sticker delegates skip it entirely — this is the bulk of the
-                // per-delegate node cost behind scroll-time instantiation spikes.
-                // One loader per media family, each gated on its own kind, so a
-                // voice note never instantiates the image stack and a photo
-                // never instantiates a player.
+                // One Loader for every media kind that fills the slot, not one
+                // per kind. An inactive Loader with an inline sourceComponent is
+                // two objects — the Loader and the component it will probably
+                // never build — on every delegate in the chat, so a Loader each
+                // for pictures, players, audio rows and documents taxed every
+                // plain text message four times over for kinds it is not. The
+                // kinds are mutually exclusive by construction, so one Loader
+                // choosing a URL does the same job for a quarter of the cost.
+                //
+                // Sourced by URL rather than by component precisely because a
+                // URL costs nothing when unused; `row` is the one initial
+                // property each of them needs, since everything else they render
+                // they bind through that back-reference.
                 Loader {
                     anchors.fill: parent
-                    active: mediaSlot.visible && root.isImage
-                    sourceComponent: Component {
-                      Item {
-                        anchors.fill: parent
+                    active: mediaSlot.visible && mediaSource != ""
 
-                // Reported up so the footer knows whether it is sitting on a
-                // picture or on an empty plate. A Binding rather than a typed
-                // Loader.item handle because this component is inline and has no
-                // name to read it back through; it is released with the stack,
-                // which is exactly when the answer goes back to false.
-                Binding {
-                    target: root
-                    property: "mediaArtworkShown"
-                    restoreMode: Binding.RestoreBindingOrValue
-                    value: (root.hasLocalImage && img.status === Image.Ready)
-                           || (root.hasThumbnailImage && thumb.status === Image.Ready)
-                }
+                    readonly property url mediaSource: root.isImage
+                        ? Qt.resolvedUrl("ImageBubble.qml")
+                        : root.isPlayableVideo ? Qt.resolvedUrl("VideoBubble.qml")
+                        : root.isVoice ? Qt.resolvedUrl("VoiceBubble.qml")
+                        : root.isAudioFile ? Qt.resolvedUrl("AudioFileBubble.qml")
+                        : root.isDocument ? Qt.resolvedUrl("DocumentBubble.qml")
+                        : ""
 
-                Kirigami.ShadowedRectangle {
-                    id: mediaBackground
-
-                    anchors.fill: parent
-                    corners.topLeftRadius: root.mediaTopLeftRadius
-                    corners.topRightRadius: root.mediaTopRightRadius
-                    corners.bottomLeftRadius: root.mediaBottomLeftRadius
-                    corners.bottomRightRadius: root.mediaBottomRightRadius
-                    color: Qt.alpha(Kirigami.Theme.textColor, 0.06)
-                    border.color: Qt.alpha(Kirigami.Theme.textColor, 0.12)
-                    border.width: 1
-                }
-
-                // Low-resolution placeholder, drawn with rounded corners in a
-                // single shader pass. The tiny decode cap upscales into the
-                // blur-up look without a blur shader.
-                RoundedImage {
-                    id: roundedThumb
-
-                    anchors.fill: parent
-                    // Stay up as the blur-up placeholder until the full image has
-                    // decoded, so a fast fling (which holds off the full-res
-                    // decode) always has the cheap thumbnail to show.
-                    //
-                    // Held until the full image is *fully* opaque, not until it
-                    // reports Ready: the image below fades in over
-                    // shortDuration, so cutting on Ready left the bubble showing
-                    // its empty plate for the whole of that fade. That is the
-                    // blink a completed download used to end with.
-                    //
-                    // Latched from the fade's end rather than bound to the
-                    // opacity, which re-evaluated this per animation frame and
-                    // dropped the thumbnail for good; reset on delegate reuse so
-                    // the next decode has its blur-up again.
-                    property bool fullImageShown: false
-                    visible: root.hasThumbnailImage && (!root.hasLocalImage || !fullImageShown)
-                    opacity: thumb.status === Image.Ready ? 0.78 : 0
-                    source: thumb
-                    topLeftRadius: root.mediaTopLeftRadius
-                    topRightRadius: root.mediaTopRightRadius
-                    bottomRightRadius: root.mediaBottomRightRadius
-                    bottomLeftRadius: root.mediaBottomLeftRadius
-
-                    Image {
-                        id: thumb
-
-                        anchors.fill: parent
-                        visible: false
-                        source: root.mediaSourceActive && mediaSlot.visible && root.hasThumbnailImage && !roundedThumb.fullImageShown
-                                ? Whatevr.ProtocolController.localFileUrl(root.mediaThumbnailLocalPath) : ""
-                        asynchronous: true
-                        cache: true
-                        sourceSize.width: root.thumbnailDecodeWidth
-                        sourceSize.height: root.thumbnailDecodeHeight
-                    }
-
-                    Behavior on opacity {
-                        NumberAnimation {
-                            duration: Kirigami.Units.shortDuration
-                            easing.type: Easing.OutCubic
-                        }
-                    }
-                }
-
-                // Full-resolution image. Sampled straight from the (hidden) Image
-                // texture provider, so there is no layer/mask/FBO to allocate or
-                // tear down as the delegate scrolls through the viewport.
-                RoundedImage {
-                    id: roundedImg
-
-                    anchors.fill: parent
-                    visible: root.hasLocalImage
-                    opacity: img.status === Image.Ready ? 1 : 0
-                    onOpacityChanged: {
-                        if (opacity >= 1 && img.status === Image.Ready) {
-                            roundedThumb.fullImageShown = true
-                        }
-                    }
-                    source: img
-                    topLeftRadius: root.mediaTopLeftRadius
-                    topRightRadius: root.mediaTopRightRadius
-                    bottomRightRadius: root.mediaBottomRightRadius
-                    bottomLeftRadius: root.mediaBottomLeftRadius
-
-                    Image {
-                        id: img
-
-                        // Latched readiness, set from onStatusChanged rather than
-                        // read off `status` inside the source binding (which would
-                        // make source depend on its own load state and loop). Reset
-                        // when the underlying file changes on delegate reuse.
-                        property bool everDecoded: false
-                        readonly property string targetPath: root.mediaLocalPath
-                        onTargetPathChanged: {
-                            everDecoded = false
-                            roundedThumb.fullImageShown = false
-                        }
-                        onStatusChanged: if (status === Image.Ready) everDecoded = true
-
-                        anchors.fill: parent
-                        visible: false
-                        // Hold the full-res decode while flinging (unless it is
-                        // already decoded), letting the thumbnail carry the scroll.
-                        source: root.mediaSourceActive && mediaSlot.visible && root.hasLocalImage
-                                && (!root.fastFlicking || img.everDecoded)
-                                ? Whatevr.ProtocolController.localFileUrl(root.mediaLocalPath) : ""
-                        asynchronous: true
-                        cache: true
-                        sourceSize.width: root.imageDecodeWidth
-                        sourceSize.height: root.imageDecodeHeight
-                    }
-
-                    Behavior on opacity {
-                        NumberAnimation {
-                            duration: Kirigami.Units.shortDuration
-                            easing.type: Easing.OutCubic
-                        }
-                    }
-
-                    // Click-to-open lightbox. SingleTap is made exclusive with
-                    // DoubleTap so double-tap-to-reply on the photo still wins.
-                    TapHandler {
-                        acceptedButtons: Qt.LeftButton
-                        enabled: root.hasLocalImage && !root.isSticker && !root.selectionModeActive
-                        exclusiveSignals: TapHandler.SingleTap | TapHandler.DoubleTap
-                        onSingleTapped: root.imageActivated(root.messageId, root.mediaLocalPath)
-                    }
-
-                    HoverHandler {
-                        enabled: root.hasLocalImage && !root.selectionModeActive
-                        cursorShape: Qt.PointingHandCursor
-                    }
-                }
-
-                Item {
-                    id: imageOverlay
-                    anchors.fill: parent
-
-                    // A decode in progress is not, by itself, a reason to cover
-                    // the bubble: the thumbnail below is already showing the
-                    // picture. Only a row with nothing to look at, an active
-                    // download, or a failure gets chrome, so an ordinary decode
-                    // (including a re-decode after a fling settles) no longer
-                    // darkens and un-darkens the image.
-                    readonly property bool hasPicture: root.hasThumbnailImage && thumb.status === Image.Ready
-                    visible: !root.hasLocalImage
-                             || root.mediaDownloading
-                             || thumb.status === Image.Loading
-                             || (img.status === Image.Loading && !hasPicture)
-                             || img.status === Image.Error
-                             || root.mediaDownloadError.length > 0
-
-                    Kirigami.ShadowedRectangle {
-                        anchors.fill: parent
-                        corners.topLeftRadius: root.mediaTopLeftRadius
-                        corners.topRightRadius: root.mediaTopRightRadius
-                        corners.bottomLeftRadius: root.mediaBottomLeftRadius
-                        corners.bottomRightRadius: root.mediaBottomRightRadius
-                        color: Qt.alpha(Kirigami.Theme.backgroundColor, root.hasLocalImage || root.hasThumbnailImage ? 0.34 : 0.0)
-                    }
-
-                    Column {
-                        anchors.centerIn: parent
-                        width: Math.max(0, parent.width - Kirigami.Units.largeSpacing * 2)
-                        spacing: Kirigami.Units.smallSpacing
-
-                        BusyIndicator {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            visible: (root.mediaDownloading && root.mediaDownloadProgress < 0)
-                                     || (!root.mediaDownloading && !root.hasLocalImage && root.hasThumbnailImage && thumb.status === Image.Loading)
-                                     || (root.hasLocalImage && img.status === Image.Loading)
-                            running: visible
-                            implicitWidth: Kirigami.Units.gridUnit * 2
-                            implicitHeight: Kirigami.Units.gridUnit * 2
-                        }
-
-                        ProgressCircle {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            visible: root.mediaDownloading && root.mediaDownloadProgress >= 0
-                            progress: Math.max(0, root.mediaDownloadProgress)
-                            width: Kirigami.Units.gridUnit * 2
-                            height: width
-                        }
-
-                        Button {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            visible: !root.hasLocalImage && !root.mediaDownloading
-                            icon.name: "folder-download-symbolic"
-                            text: Whatevr.I18n.i18nc("@action:button", "Load image")
-                            enabled: root.messageId.length > 0
-                            onClicked: {
-                                Whatevr.ProtocolController.downloadMessageMedia(root.messageId)
-                                root.conversationFocusRequested()
-                            }
-                        }
-
-                        Label {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            width: parent.width
-                            visible: img.status === Image.Error && root.hasLocalImage
-                            text: Whatevr.I18n.i18nc("@info", "Image could not be displayed")
-                            color: Kirigami.Theme.negativeTextColor
-                            font.pointSize: Kirigami.Theme.smallFont.pointSize
-                            wrapMode: Text.Wrap
-                            horizontalAlignment: Text.AlignHCenter
-                        }
-
-                        Label {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            width: parent.width
-                            visible: !root.mediaDownloading && root.mediaDownloadError.length > 0
-                            text: root.mediaDownloadError
-                            color: Kirigami.Theme.negativeTextColor
-                            font.pointSize: Kirigami.Theme.smallFont.pointSize
-                            wrapMode: Text.Wrap
-                            horizontalAlignment: Text.AlignHCenter
-                        }
-                    }
-                }
-                      }
-                    }
-                }
-
-                Loader {
-                    anchors.fill: parent
-                    active: mediaSlot.visible && root.isPlayableVideo
-                    sourceComponent: VideoBubble {
-                        row: root
-                        topLeftRadius: root.mediaTopLeftRadius
-                        topRightRadius: root.mediaTopRightRadius
-                        bottomLeftRadius: root.mediaBottomLeftRadius
-                        bottomRightRadius: root.mediaBottomRightRadius
-                    }
+                    // Only the change handler, with no Component.onCompleted
+                    // beside it. The binding above is evaluated during
+                    // completion, so a row that has media reaches this once on
+                    // the way up and once per kind change afterwards, and a row
+                    // that has none never reaches it at all. Loading from both
+                    // places instead built the bubble twice: the second
+                    // setSource orphans the first rather than unwinding it in
+                    // the same turn, and for a moment the row held two players.
+                    onMediaSourceChanged: setSource(mediaSource, { row: root })
                 }
 
                 // Dark scrim behind the time and ticks overlaid on media that
@@ -1505,40 +1279,6 @@ Item {
                     }
                 }
 
-                // A recording and a shared track are different rows (round and
-                // wordless against square and named), but they are the same slot
-                // and never both: one Loader picking between them, rather than
-                // one each, keeps two objects off every delegate in the chat,
-                // text rows included.
-                Loader {
-                    anchors.fill: parent
-                    active: mediaSlot.visible && (root.isVoice || root.isAudioFile)
-                    sourceComponent: root.isVoice ? voiceRow : audioFileRow
-
-                    Component {
-                        id: voiceRow
-
-                        VoiceBubble {
-                            row: root
-                        }
-                    }
-
-                    Component {
-                        id: audioFileRow
-
-                        AudioFileBubble {
-                            row: root
-                        }
-                    }
-                }
-
-                Loader {
-                    anchors.fill: parent
-                    active: mediaSlot.visible && root.isDocument
-                    sourceComponent: DocumentBubble {
-                        row: root
-                    }
-                }
 
                 // One Loader for the whole card family, not one per kind: an
                 // inactive Loader costs two objects on every row in the

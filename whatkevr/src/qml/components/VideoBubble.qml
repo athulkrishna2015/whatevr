@@ -32,10 +32,14 @@ Item {
     objectName: "videoBubble"
     required property ChatBubble row
 
-    property real topLeftRadius: 0
-    property real topRightRadius: 0
-    property real bottomLeftRadius: 0
-    property real bottomRightRadius: 0
+    // Defaulted from the row rather than assigned by whoever loads this, so the
+    // media slot can hand every kind the same single initial property (`row`)
+    // and pick between them by URL. A video note ignores all four: cornerTopLeft
+    // below replaces them with its circle radius.
+    property real topLeftRadius: row.mediaTopLeftRadius
+    property real topRightRadius: row.mediaTopRightRadius
+    property real bottomLeftRadius: row.mediaBottomLeftRadius
+    property real bottomRightRadius: row.mediaBottomRightRadius
 
     readonly property bool isGif: row.isGif
     readonly property bool isVideoNote: row.isVideoNote

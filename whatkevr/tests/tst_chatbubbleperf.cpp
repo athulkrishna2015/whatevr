@@ -302,39 +302,39 @@ void ChatBubblePerf::delegateCost_data()
         "the whole point of this row is that it wraps across several lines so "
         "the body text actually has to lay out more than one line of content");
 
-    // The text rows below are each one object up on their old ceiling, and all
-    // for the same reason: the media slot's audio loader now picks between a
-    // voice note's row and a shared audio file's, so it carries a Component for
-    // each instead of one inline. Two loaders would have cost twice that on
-    // every delegate in the chat, this one included.
+    // Every budget below came down by 7 or 8 when the media slot stopped
+    // keeping a Loader per kind. Pictures, players, audio rows and documents
+    // are mutually exclusive, so they are one Loader choosing a URL now, and a
+    // URL costs nothing on a row that never loads it. The saving lands on every
+    // kind including the text rows, which is the point: what a plain message
+    // paid for was four kinds it is not.
     //
-    // Every budget is a further 2 up for the centered-pill row mode: a Loader
-    // and the Component it holds. That is what a row which is not somebody
-    // talking costs, and it is paid once for the whole family rather than per
-    // kind: a call log is the first, and the system events in the next phase
-    // draw through the same loader. Folding it into the frameless loader would
-    // have saved one of the two and bought a null-handling branch in each of
-    // the row's geometry reads, which is a worse trade than one object.
+    // A dump of what is left is a standing invitation to keep going. Run
+    // WHATEVR_DN9_DUMP=1 on any row here: a plain text row is still mostly
+    // Loaders and the components they hold, and the groups that could merge the
+    // same way the media slot did are the row modes (frameless against pill),
+    // the overlays (selection chrome, jump glow, hover reply) and the body
+    // extras (the selectable copy, the read-more button).
     const QList<Sample> samples = {
         {"plain-text-incoming",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m1")},
                     {QStringLiteral("text"), shortBody},
                     {QStringLiteral("layoutText"), shortBody},
-                    {QStringLiteral("status"), 4}}), 66},
+                    {QStringLiteral("status"), 4}}), 60},
         {"plain-text-outgoing",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m2")},
                     {QStringLiteral("text"), shortBody},
                     {QStringLiteral("layoutText"), shortBody},
                     {QStringLiteral("isOutgoing"), true},
-                    {QStringLiteral("status"), 4}}), 73},
+                    {QStringLiteral("status"), 4}}), 67},
         {"multiline-text",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m3")},
                     {QStringLiteral("text"), longBody},
                     {QStringLiteral("layoutText"), longBody},
-                    {QStringLiteral("status"), 3}}), 66},
+                    {QStringLiteral("status"), 3}}), 60},
         {"text-with-reply",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m4")},
@@ -342,7 +342,7 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("layoutText"), shortBody},
                     {QStringLiteral("replyToMessageId"), QStringLiteral("m1")},
                     {QStringLiteral("replyToSenderName"), QStringLiteral("Aditi")},
-                    {QStringLiteral("replyToText"), shortBody}}), 96},
+                    {QStringLiteral("replyToText"), shortBody}}), 90},
         {"text-with-sender-header",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m5")},
@@ -350,7 +350,7 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("layoutText"), shortBody},
                     {QStringLiteral("showSenderHeader"), true},
                     {QStringLiteral("showSenderAvatar"), true},
-                    {QStringLiteral("showSenderGutter"), true}}), 98},
+                    {QStringLiteral("showSenderGutter"), true}}), 90},
         {"image",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m6")},
@@ -358,7 +358,7 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("hasMedia"), true},
                     {QStringLiteral("mediaMimeType"), QStringLiteral("image/jpeg")},
                     {QStringLiteral("mediaWidth"), 1280},
-                    {QStringLiteral("mediaHeight"), 720}}), 126},
+                    {QStringLiteral("mediaHeight"), 720}}), 118},
         {"video",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m6-video")},
@@ -372,13 +372,13 @@ void ChatBubblePerf::delegateCost_data()
                     // stops, less the pill it replaced) and the bubble gained
                     // the two grace timers that keep a handoff and a scroll
                     // from flashing a spinner or a stale poster.
-                    {QStringLiteral("mediaDurationSecs"), 12}}), 145},
+                    {QStringLiteral("mediaDurationSecs"), 12}}), 142},
         {"sticker",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m7")},
                     {QStringLiteral("mediaKind"), QStringLiteral("sticker")},
                     {QStringLiteral("hasMedia"), true},
-                    {QStringLiteral("mediaMimeType"), QStringLiteral("image/webp")}}), 156},
+                    {QStringLiteral("mediaMimeType"), QStringLiteral("image/webp")}}), 150},
         // A voice note and a video note are the two kinds whose layout is not a
         // picture: one is a fixed-height row inside the bubble, the other a
         // frameless circle with no bubble at all. Both are here so the cost of
@@ -390,7 +390,7 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("mediaKind"), QStringLiteral("voice")},
                     {QStringLiteral("hasMedia"), true},
                     {QStringLiteral("mediaMimeType"), QStringLiteral("audio/ogg")},
-                    {QStringLiteral("mediaDurationSecs"), 6}}), 139},
+                    {QStringLiteral("mediaDurationSecs"), 6}}), 136},
         // The other audio row: a shared track, which is a squared-off tile, a
         // filename and a plain seek line rather than a disc and a waveform.
         {"audio-file",
@@ -401,7 +401,7 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("mediaMimeType"), QStringLiteral("audio/mpeg")},
                     {QStringLiteral("mediaFileName"), QStringLiteral("Interstellar - Main.mp3")},
                     {QStringLiteral("mediaSizeBytes"), 4.2 * 1024 * 1024},
-                    {QStringLiteral("mediaDurationSecs"), 204}}), 145},
+                    {QStringLiteral("mediaDurationSecs"), 204}}), 142},
         {"video-note",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m9")},
@@ -410,7 +410,7 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("mediaMimeType"), QStringLiteral("video/mp4")},
                     {QStringLiteral("mediaWidth"), 480},
                     {QStringLiteral("mediaHeight"), 480},
-                    {QStringLiteral("mediaDurationSecs"), 11}}), 194},
+                    {QStringLiteral("mediaDurationSecs"), 11}}), 178},
     };
 
     for (const Sample &s : samples) {
@@ -2056,11 +2056,14 @@ void ChatBubblePerf::openingAChatBuildsItsWindowWithinBudget()
     // landing earns the lower number.
     //
     // Baselines this was set from, Release, eighty plain text rows carrying no
-    // media at all, on the settled band of 55 rows: 4180 objects, 76 per row.
-    // Time to glass with the cache band left open during the open was ~197ms
-    // for all 55 of those rows; shutting the band for the open brought it to
-    // ~70ms for the 19 rows the viewport actually shows.
-    constexpr int kMaxObjects = 4400;
+    // media at all, on the settled band of 55 rows. Time to glass with the
+    // cache band left open during the open was ~197ms for all 55 of those rows;
+    // shutting the band for the open brought it to ~70ms for the 19 rows the
+    // viewport actually shows.
+    //
+    //   band open, one Loader per media kind   4180 settled (76/row), 1462 painted
+    //   band shut, one Loader for the family   3740 settled (68/row), 1310 painted
+    constexpr int kMaxObjects = 3850;
 
     CollectionViewModel source;
     ProtocolMessageModel model(&source);
