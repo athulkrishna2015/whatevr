@@ -108,7 +108,19 @@ class ProtocolController final : public QObject
     Q_PROPERTY(QString historySyncDetail READ historySyncDetail NOTIFY historySyncChanged FINAL)
 
     // Conversation selection + protocol `messages` timeline (D3b).
-    Q_PROPERTY(QAbstractItemModel *messageListModel READ messageListModel CONSTANT FINAL)
+    Q_PROPERTY(QAbstractItemModel *messageListModel READ messageListModel NOTIFY warmWindowsChanged FINAL)
+    // How many transcript panes the conversation keeps parked. Constant, so the
+    // Repeater that builds them never rebuilds a pane; what changes is which
+    // chat each slot holds, and only for a slot that was actually reused.
+    Q_PROPERTY(int warmWindowCount READ warmWindowCount CONSTANT FINAL)
+    // One entry per slot: `chatId` and the `model` that slot's pane renders.
+    //
+    // A property rather than only the invokable below, because a pane has to
+    // *re-read* this when a slot changes hands, and only a property with a
+    // NOTIFY can be depended on. A binding that names the signal instead reads
+    // as a constant and never fires again, which leaves every pane holding the
+    // empty slot it was built with.
+    Q_PROPERTY(QVariantList warmWindows READ warmWindows NOTIFY warmWindowsChanged FINAL)
     Q_PROPERTY(QString selectedChatId READ selectedChatId NOTIFY selectionChanged FINAL)
     Q_PROPERTY(QString selectedChatName READ selectedChatName NOTIFY selectionChanged FINAL)
     Q_PROPERTY(QString selectedChatAvatarLocalPath READ selectedChatAvatarLocalPath NOTIFY selectionChanged FINAL)
@@ -319,6 +331,11 @@ public:
     [[nodiscard]] QString historySyncDetail() const { return m_historySyncDetail; }
 
     [[nodiscard]] QAbstractItemModel *messageListModel() const;
+    [[nodiscard]] static int warmWindowCount() { return kWarmChatWindows; }
+    [[nodiscard]] QVariantList warmWindows() const;
+    /// What slot `index` currently holds: `chatId` and the `model` its pane
+    /// should render. Both empty for a slot nothing has been parked in yet.
+    [[nodiscard]] Q_INVOKABLE QVariantMap warmWindowAt(int index) const;
     [[nodiscard]] QString selectedChatId() const { return m_selectedChatId; }
     [[nodiscard]] QString selectedChatName() const;
     [[nodiscard]] QString selectedChatAvatarLocalPath() const;
@@ -668,6 +685,9 @@ Q_SIGNALS:
     void historySyncChanged();
     void selectionChanged();
     void messagesChanged();
+    /// A warm slot started holding a different chat, or the chat on screen
+    /// changed which slot it is. Panes re-read warmWindowAt() from this.
+    void warmWindowsChanged();
     void unreadAnchorChanged();
     void presenceChanged();
     void messageReceiptsChanged();
@@ -769,6 +789,38 @@ private:
     void selectedChatLookupFailed(const QString &chatId, const QString &code, const QString &message);
     void setSelectedChat(const QString &chatId, const QString &anchor, const QString &jumpMessageId);
     void subscribeMessages(const QString &anchor, const QString &jumpMessageId = {});
+
+    // --- warm transcript pool ---------------------------------------------
+    //
+    // Defined further down with the members it is stored in; only ever handled
+    // by pointer up here.
+    struct MessageWindow;
+
+    // The entry for a chat opened at this anchor, or nullptr when there is
+    // none. The anchor is part of the identity: a window pinned at the unread
+    // divider and one at the live edge put the reader in different places, so
+    // they are different windows even over the same chat.
+    [[nodiscard]] MessageWindow *warmWindowFor(const QString &chatId, const QString &anchor) const;
+    // Where this chat should be opened: the anchor it is already parked at if
+    // it is warm, otherwise the one the caller worked out.
+    [[nodiscard]] QString anchorForOpening(const QString &chatId, const QString &requested) const;
+    // Build an entry, its two models and its subscription, and make it the head
+    // of the pool, evicting the coldest if that takes it over the cap.
+    MessageWindow *openMessageWindow(const QString &chatId, const QString &anchor);
+    // Point the controller's single-valued members at this entry, having first
+    // written the ones they currently hold back to whichever entry owns them.
+    void activateMessageWindow(MessageWindow *window);
+    void saveActiveWindowState();
+    void restoreWindowState(const MessageWindow *window);
+    // Tear an entry down: unsubscribe, delete its models, drop it from the pool.
+    void closeMessageWindow(MessageWindow *window);
+    void closeAllMessageWindows();
+    // No chat on screen, every warm chat still warm.
+    void detachVisibleMessageWindow();
+    // Wire one entry's model signals. The handlers ignore anything from an
+    // entry that is not on screen, so a warm chat keeps receiving its updates
+    // without driving the visible chat's state.
+    void connectMessageWindow(MessageWindow *window);
     // Records that the window now reaches the newest message, which is not the
     // same thing as the anchor it was opened on.
     void noteReachedLiveEdge();
@@ -883,6 +935,81 @@ private:
     QHash<QString, QString> m_drafts;
     // Active stream request ids, used to reject stale or misdirected updates.
     QHash<QString, QString> m_mediaStreamMessages;
+
+    // A chat's transcript, kept alive after you leave it.
+    //
+    // Opening a chat costs what it costs to build its rows, and nothing else
+    // came close once the daemon was measured: the query is 3ms and the whole
+    // window crosses the socket in one drain. So the only way for a re-open to
+    // be instant is for the rows not to be rebuilt, and the only way for them
+    // not to be rebuilt is for the view that holds them to still exist. Handing
+    // one ListView a different model does not work; it destroys every delegate
+    // it has. A hidden view keeps them (tst_chatbubbleperf pins this down), so
+    // the frontend parks a whole pane per recent chat and shows one of them.
+    //
+    // Each entry keeps its own copy of the two models and its own live
+    // subscription, which is why coming back costs no round trip either: the
+    // daemon has been keeping it correct the whole time it was off screen.
+    struct MessageWindow {
+        QString chatId;
+        QString anchor;
+        whatevr::proto::CollectionViewModel *source = nullptr;
+        ProtocolMessageModel *presentation = nullptr;
+        whatevr::proto::Subscription *sub = nullptr;
+        // Everything about "where this transcript was left" that the controller
+        // otherwise holds in single-valued members. Swapped in and out around
+        // those members on a chat change, so the ~180 places that read them
+        // keep reading exactly what they always did.
+        struct State {
+            QString displayedChatId;
+            QString requestedAnchor;
+            QString effectiveAnchor;
+            QString pendingJumpMessageId;
+            QString jumpFallbackAnchor;
+            QString pendingExtendDirection;
+            QString errorText;
+            QString unreadAnchorMessageId;
+            QString pendingReadWatermark;
+            QString lastReadWatermark;
+            QString phoneHistoryOldestId;
+            int unreadAnchorCount = 0;
+            int generation = 0;
+            int phoneHistoryGeneration = 0;
+            bool unreadAnchorResolving = false;
+            bool waitingInitialMessages = false;
+            bool reloading = false;
+            bool refillingAfterReset = false;
+            bool olderLoading = false;
+            bool newerLoading = false;
+            bool canLoadOlder = false;
+            bool canLoadNewer = false;
+            bool olderFailed = false;
+            bool newerFailed = false;
+            bool atLiveEdge = false;
+            bool phoneHistoryRequesting = false;
+        } state;
+    };
+
+    // How many transcripts stay warm. Each one costs a live subscription and a
+    // window of rows; four covers the back-and-forth people actually do without
+    // holding a meaningful amount of memory.
+    static constexpr int kWarmChatWindows = 4;
+
+    // Fixed slots, not a most-recently-used list, and the difference matters to
+    // the frontend rather than to this file. The panes are a Repeater over a
+    // constant count, so slot i is the same pane for as long as the chat in it
+    // lives there; reordering the pool would move chats between panes and hand
+    // each of them a different model, which is precisely the delegate rebuild
+    // this exists to avoid. A chat keeps its slot until it is evicted.
+    // Empty slots are nullptr.
+    QList<MessageWindow *> m_messageWindows;
+    // Slot indices, coldest last. Only consulted to choose what to evict.
+    QList<int> m_messageWindowUse;
+
+    // The empty stand-in the active-transcript pointers hold when no chat is
+    // open, so that they are never null. See the constructor.
+    whatevr::proto::CollectionViewModel *m_idleMessagesModel = nullptr;
+    ProtocolMessageModel *m_idleMessagePresentation = nullptr;
 
     QString m_selectedChatId;
     QString m_displayedMessagesChatId;

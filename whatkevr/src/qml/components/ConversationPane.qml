@@ -10,6 +10,16 @@ import "Wallpapers.js" as Wallpapers
 Kirigami.Page {
     id: root
 
+    // The transcript pane currently on screen.
+    //
+    // There is one pane per warm chat rather than one pane, because a re-open
+    // is only free if the rows are still there, and handing a single ListView a
+    // different model destroys every delegate it holds. So the panes are parked
+    // and one of them is shown. This is what the selection actions, the media
+    // viewer and the context menus below talk to, and because a parked pane is
+    // never destroyed it is only ever null before the first one is built.
+    property MessageView messageView: null
+
     // In the wide layout the close action is always offered for a selected
     // chat; in the single-column layout only while this page is the visible
     // one (the chat list page has its own actions).
@@ -740,89 +750,121 @@ Kirigami.Page {
                 }
             }
 
-            MessageView {
-                id: messageView
+            // One transcript pane per warm chat, and the reason they are a
+            // Repeater over a *constant* count rather than over the pool
+            // itself: a model that changed length or order would have the
+            // Repeater rebuild its delegates, and rebuilding the delegates is
+            // the exact cost this pool exists to avoid. The count never moves,
+            // a chat keeps its slot until it is evicted, and switching between
+            // two warm chats therefore changes nothing but which pane is
+            // visible.
+            Repeater {
+                id: transcriptPanes
 
-                anchors.fill: parent
-                anchors.margins: Kirigami.Units.smallSpacing
-                // Hiding this destroys every delegate and rebuilds them on the
-                // way back, so "empty for a moment" must not read as "gone":
-                // a reload of the same chat keeps the view mounted.
-                visible: Whatevr.ProtocolController.hasSelectedChat
-                          && root.pinnedLayoutReady
-                          && root.messagesCurrent
-                          && !Whatevr.ProtocolController.unreadAnchorResolving
-                          && Whatevr.ProtocolController.messageErrorText.length === 0
-                          && (!Whatevr.ProtocolController.messagesEmpty
-                              || Whatevr.ProtocolController.messagesReloading)
-                chatId: Whatevr.ProtocolController.selectedChatId
-                model: Whatevr.ProtocolController.messageListModel
-                loadingMessages: Whatevr.ProtocolController.messagesLoading
-                loadingOlderMessages: Whatevr.ProtocolController.olderMessagesLoading
-                loadingNewerMessages: Whatevr.ProtocolController.newerMessagesLoading
-                canLoadOlderMessages: Whatevr.ProtocolController.canLoadOlderMessages
-                canLoadNewerMessages: Whatevr.ProtocolController.canLoadNewerMessages
-                olderMessagesFailed: Whatevr.ProtocolController.olderMessagesFailed
-                newerMessagesFailed: Whatevr.ProtocolController.newerMessagesFailed
-                messagesAtLiveEdge: Whatevr.ProtocolController.messagesAtLiveEdge
-                historyExhausted: Whatevr.ProtocolController.selectedChatHistoryExhausted
-                phoneHistoryRequesting: Whatevr.ProtocolController.phoneHistoryRequesting
-                onLoadOlderMessagesRequested: Whatevr.ProtocolController.loadOlderMessages()
-                onLoadNewerMessagesRequested: Whatevr.ProtocolController.loadNewerMessages()
-                onLoadPhoneHistoryRequested: Whatevr.ProtocolController.requestOlderMessagesFromPhone()
-                onConversationFocusRequested: root.forceActiveFocus(Qt.MouseFocusReason)
-                onTypeIntoComposerRequested: text => root.typeIntoComposer(text)
-                onReplyToMessageRequested: (messageId, senderName, text, mediaKind, mediaMimeType, outgoing) => root.setReplyTarget(messageId, senderName, text, mediaKind, mediaMimeType, outgoing)
-                onEditMessageRequested: (messageId, text) => root.setEditTarget(messageId, text)
-                onMentionClicked: jid => contactInfoDialog.openFor({ isGroup: false, targetJid: jid })
-                onMentionAllClicked: root.openChatInfo()
-                onImageViewRequested: (messageId, localPath) => {
-                    // The delegate only carries what it renders; the file name
-                    // and send time come from the row snapshot so Save As can
-                    // name and date the file after the message.
-                    const snapshot = messageView.messageSnapshot(messageId)
-                    messageImageViewer.showImage(localPath, messageId,
-                                                 snapshot ? String(snapshot.mediaFileName || "") : "",
-                                                 snapshot ? Number(snapshot.timestampUnix || 0) : 0)
-                }
-                onAlbumViewRequested: (albumMessageId, index) => {
-                    // The gallery is only the pictures that are actually on
-                    // disk. Stepping onto one that has not been fetched would
-                    // be a full-screen nothing; the mosaic behind is where an
-                    // undownloaded picture is asked for, and it is one tap
-                    // away.
-                    const snapshot = messageView.messageSnapshot(albumMessageId)
-                    const tiles = snapshot && snapshot.album ? (snapshot.album.items ?? []) : []
-                    const entries = []
-                    let start = 0
-                    for (let i = 0; i < tiles.length; ++i) {
-                        const media = tiles[i].media ?? {}
-                        const path = String(media.path ?? "")
-                        if (path.length === 0)
-                            continue
-                        if (i <= index)
-                            start = entries.length
-                        entries.push({
-                            id: String(tiles[i].id ?? ""),
-                            kind: String(tiles[i].kind ?? "image"),
-                            path: path,
-                            fileName: String(media.filename ?? ""),
-                            timestampUnix: Number(tiles[i].timestamp ?? 0),
-                            width: Number(media.width ?? 0),
-                            height: Number(media.height ?? 0),
-                            durationSecs: Number(media.duration_secs ?? 0),
-                        })
+                model: Whatevr.ProtocolController.warmWindowCount
+
+                delegate: MessageView {
+                    id: pane
+
+                    required property int index
+
+                    // Re-read whenever a slot changes hands. For a switch
+                    // between two chats that are both already warm, nothing in
+                    // here changes at all.
+                    readonly property var slot: Whatevr.ProtocolController.warmWindows[index]
+                    readonly property string slotChatId: slot ? String(slot.chatId ?? "") : ""
+                    readonly property bool isCurrent: slotChatId.length > 0
+                                                      && slotChatId === Whatevr.ProtocolController.selectedChatId
+
+                    // The pane the rest of this file talks to. Panes are never
+                    // destroyed, so once one has claimed this it is never null
+                    // again; with no chat selected it stays whichever pane was
+                    // last on screen, which is what the selection actions want
+                    // to keep reading.
+                    onIsCurrentChanged: if (isCurrent) root.messageView = pane
+                    Component.onCompleted: if (!root.messageView) root.messageView = pane
+
+                    anchors.fill: parent
+                    anchors.margins: Kirigami.Units.smallSpacing
+                    visible: isCurrent
+                             && root.pinnedLayoutReady
+                             && root.messagesCurrent
+                             && !Whatevr.ProtocolController.unreadAnchorResolving
+                             && Whatevr.ProtocolController.messageErrorText.length === 0
+                             && (!Whatevr.ProtocolController.messagesEmpty
+                                 || Whatevr.ProtocolController.messagesReloading)
+                    chatId: slotChatId
+                    model: slot ? slot.model : null
+                    // Every piece of live window state below describes the chat
+                    // on screen, so a parked pane is handed the quiescent value of
+                    // each and does no work while it waits.
+                    loadingMessages: isCurrent && Whatevr.ProtocolController.messagesLoading
+                    loadingOlderMessages: isCurrent && Whatevr.ProtocolController.olderMessagesLoading
+                    loadingNewerMessages: isCurrent && Whatevr.ProtocolController.newerMessagesLoading
+                    canLoadOlderMessages: isCurrent && Whatevr.ProtocolController.canLoadOlderMessages
+                    canLoadNewerMessages: isCurrent && Whatevr.ProtocolController.canLoadNewerMessages
+                    olderMessagesFailed: isCurrent && Whatevr.ProtocolController.olderMessagesFailed
+                    newerMessagesFailed: isCurrent && Whatevr.ProtocolController.newerMessagesFailed
+                    messagesAtLiveEdge: !isCurrent || Whatevr.ProtocolController.messagesAtLiveEdge
+                    historyExhausted: isCurrent && Whatevr.ProtocolController.selectedChatHistoryExhausted
+                    phoneHistoryRequesting: isCurrent && Whatevr.ProtocolController.phoneHistoryRequesting
+                    onLoadOlderMessagesRequested: Whatevr.ProtocolController.loadOlderMessages()
+                    onLoadNewerMessagesRequested: Whatevr.ProtocolController.loadNewerMessages()
+                    onLoadPhoneHistoryRequested: Whatevr.ProtocolController.requestOlderMessagesFromPhone()
+                    onConversationFocusRequested: root.forceActiveFocus(Qt.MouseFocusReason)
+                    onTypeIntoComposerRequested: text => root.typeIntoComposer(text)
+                    onReplyToMessageRequested: (messageId, senderName, text, mediaKind, mediaMimeType, outgoing) => root.setReplyTarget(messageId, senderName, text, mediaKind, mediaMimeType, outgoing)
+                    onEditMessageRequested: (messageId, text) => root.setEditTarget(messageId, text)
+                    onMentionClicked: jid => contactInfoDialog.openFor({ isGroup: false, targetJid: jid })
+                    onMentionAllClicked: root.openChatInfo()
+                    onImageViewRequested: (messageId, localPath) => {
+                        // The delegate only carries what it renders; the file name
+                        // and send time come from the row snapshot so Save As can
+                        // name and date the file after the message.
+                        const snapshot = pane.messageSnapshot(messageId)
+                        messageImageViewer.showImage(localPath, messageId,
+                                                     snapshot ? String(snapshot.mediaFileName || "") : "",
+                                                     snapshot ? Number(snapshot.timestampUnix || 0) : 0)
                     }
-                    if (entries.length > 0)
-                        messageImageViewer.showGallery(entries, start)
-                }
-                onVideoViewRequested: (messageId, localPath, streamUrl, streamId, kind, durationSecs, startAt) => {
-                    const snapshot = messageView.messageSnapshot(messageId)
-                    messageImageViewer.showVideo(messageId, localPath, streamUrl, streamId, kind, durationSecs, startAt,
-                                                 snapshot ? String(snapshot.mediaFileName || "") : "",
-                                                 snapshot ? Number(snapshot.timestampUnix || 0) : 0,
-                                                 snapshot ? Number(snapshot.mediaWidth || 0) : 0,
-                                                 snapshot ? Number(snapshot.mediaHeight || 0) : 0)
+                    onAlbumViewRequested: (albumMessageId, index) => {
+                        // The gallery is only the pictures that are actually on
+                        // disk. Stepping onto one that has not been fetched would
+                        // be a full-screen nothing; the mosaic behind is where an
+                        // undownloaded picture is asked for, and it is one tap
+                        // away.
+                        const snapshot = pane.messageSnapshot(albumMessageId)
+                        const tiles = snapshot && snapshot.album ? (snapshot.album.items ?? []) : []
+                        const entries = []
+                        let start = 0
+                        for (let i = 0; i < tiles.length; ++i) {
+                            const media = tiles[i].media ?? {}
+                            const path = String(media.path ?? "")
+                            if (path.length === 0)
+                                continue
+                            if (i <= index)
+                                start = entries.length
+                            entries.push({
+                                id: String(tiles[i].id ?? ""),
+                                kind: String(tiles[i].kind ?? "image"),
+                                path: path,
+                                fileName: String(media.filename ?? ""),
+                                timestampUnix: Number(tiles[i].timestamp ?? 0),
+                                width: Number(media.width ?? 0),
+                                height: Number(media.height ?? 0),
+                                durationSecs: Number(media.duration_secs ?? 0),
+                            })
+                        }
+                        if (entries.length > 0)
+                            messageImageViewer.showGallery(entries, start)
+                    }
+                    onVideoViewRequested: (messageId, localPath, streamUrl, streamId, kind, durationSecs, startAt) => {
+                        const snapshot = pane.messageSnapshot(messageId)
+                        messageImageViewer.showVideo(messageId, localPath, streamUrl, streamId, kind, durationSecs, startAt,
+                                                     snapshot ? String(snapshot.mediaFileName || "") : "",
+                                                     snapshot ? Number(snapshot.timestampUnix || 0) : 0,
+                                                     snapshot ? Number(snapshot.mediaWidth || 0) : 0,
+                                                     snapshot ? Number(snapshot.mediaHeight || 0) : 0)
+                    }
                 }
             }
 

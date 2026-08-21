@@ -1207,16 +1207,22 @@ private Q_SLOTS:
         QCOMPARE(daemon.lastMessagesParams.value(QStringLiteral("anchor")).toString(), QStringLiteral("target"));
         QVERIFY(!ctrl.messagesAtLiveEdge());
 
+        // Back to the live edge, and no third subscribe: this chat's `latest`
+        // window is still warm from the open, so returning to it is taking the
+        // pane back rather than asking the daemon again.
         ctrl.jumpToBottom();
-        QTRY_COMPARE(daemon.messagesSubscribeCount, 3);
-        QCOMPARE(daemon.lastMessagesParams.value(QStringLiteral("anchor")).toString(), QStringLiteral("latest"));
         QTRY_VERIFY(ctrl.messagesAtLiveEdge());
+        QCOMPARE(daemon.messagesSubscribeCount, 2);
 
         QSignalSpy unavailableSpy(&ctrl, &ProtocolController::messageJumpUnavailable);
         ctrl.jumpToMessage(QStringLiteral("not-found"));
         QTRY_COMPARE(unavailableSpy.count(), 1);
         QVERIFY(ctrl.messageErrorText().isEmpty());
-        QTRY_COMPARE(daemon.messagesSubscribeCount, 4); // prior latest window restored
+        // Still two. The rejected anchor is never counted (the daemon answers it
+        // with an error rather than a subscription), and the fallback that puts
+        // the reader back at the live edge finds that window warm.
+        QTRY_VERIFY(ctrl.messagesAtLiveEdge());
+        QCOMPARE(daemon.messagesSubscribeCount, 2);
     }
 
     void readWatermarkAndOpenChatUseConnectionSurface()
@@ -1284,7 +1290,85 @@ private Q_SLOTS:
         QVERIFY(ctrl.canLoadNewerMessages());
     }
 
-    void hiddenConversationClearsSessionAndResubscribesWhenShown()
+    // Switching back to a chat you were just in must not ask the daemon again,
+    // and must not empty the transcript on the way. Those two together are what
+    // make the return instant: the pane still holds its rows, so there is
+    // nothing to rebuild and nothing to wait for.
+    void returningToARecentChatCostsNoRoundTripAndKeepsItsRows()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats({chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000")),
+                               chatRow(QStringLiteral("b@s"), QStringLiteral("Bob"), QStringLiteral("1-001"))});
+        daemon.setMessages({messageRow(QStringLiteral("m1"), QStringLiteral("0001")),
+                            messageRow(QStringLiteral("m2"), QStringLiteral("0002"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_VERIFY(!ctrl.chatsLoading());
+        ctrl.setConversationVisible(true);
+
+        ctrl.selectChat(QStringLiteral("a@s"));
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("a@s"));
+        QCOMPARE(daemon.messagesSubscribeCount, 1);
+        auto *first = qobject_cast<ProtocolMessageModel *>(ctrl.messageListModel());
+        QVERIFY(first);
+        QCOMPARE(first->rowCount(), 2);
+
+        ctrl.selectChat(QStringLiteral("b@s"));
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("b@s"));
+        QCOMPARE(daemon.messagesSubscribeCount, 2);
+        // A different chat is a different model, which is the point: the first
+        // one is still intact behind it rather than having been emptied.
+        QVERIFY(ctrl.messageListModel() != first);
+        QCOMPARE(first->rowCount(), 2);
+
+        ctrl.selectChat(QStringLiteral("a@s"));
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("a@s"));
+        QCOMPARE(daemon.messagesSubscribeCount, 2); // warm: nothing was asked
+        QCOMPARE(ctrl.messageListModel(), first);   // and the same rows came back
+        QCOMPARE(first->rowCount(), 2);
+    }
+
+    // The pool is finite, so the chat that has been away longest gives up its
+    // slot. Coming back to that one does cost a round trip again.
+    void theColdestChatLosesItsSlotWhenThePoolIsFull()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        QList<QJsonObject> chats;
+        for (int i = 0; i < 6; ++i) {
+            chats.append(chatRow(QStringLiteral("c%1@s").arg(i), QStringLiteral("Chat %1").arg(i),
+                                 QStringLiteral("1-%1").arg(i, 3, 10, QLatin1Char('0'))));
+        }
+        daemon.setActiveChats(chats);
+        daemon.setMessages({messageRow(QStringLiteral("m1"), QStringLiteral("0001"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_VERIFY(!ctrl.chatsLoading());
+        ctrl.setConversationVisible(true);
+
+        // Fill the pool, then push one more chat through it.
+        const int warm = ProtocolController::warmWindowCount();
+        for (int i = 0; i <= warm; ++i) {
+            ctrl.selectChat(QStringLiteral("c%1@s").arg(i));
+            QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("c%1@s").arg(i));
+        }
+        QCOMPARE(daemon.messagesSubscribeCount, warm + 1);
+
+        // The one visited most recently before this is still warm.
+        ctrl.selectChat(QStringLiteral("c%1@s").arg(warm - 1));
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("c%1@s").arg(warm - 1));
+        QCOMPARE(daemon.messagesSubscribeCount, warm + 1);
+
+        // The first one is not: it was evicted to make room.
+        ctrl.selectChat(QStringLiteral("c0@s"));
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("c0@s"));
+        QCOMPARE(daemon.messagesSubscribeCount, warm + 2);
+    }
+
+    void hiddenConversationClearsTheSessionButKeepsItsTranscriptWarm()
     {
         FakeDaemon daemon(m_path);
         daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
@@ -1304,9 +1388,16 @@ private Q_SLOTS:
         QVERIFY(ctrl.hasSelectedChat()); // presentation selection survives the status page
         QVERIFY(ctrl.displayedMessagesChatId().isEmpty());
 
+        // Coming back does not ask again. The window stayed subscribed while
+        // the conversation was off screen, which is both what makes the return
+        // instant and what kept it correct in the meantime.
+        //
+        // The daemon is still told nothing is on screen, though: notification
+        // suppression and presence key off `session.update`, not off this
+        // subscription, so a warm chat off screen still notifies.
         ctrl.setConversationVisible(true);
-        QTRY_COMPARE(daemon.messagesSubscribeCount, 2);
         QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("a@s"));
+        QCOMPARE(daemon.messagesSubscribeCount, 1);
     }
 
     void resetDuringInitialFillStillCompletesUnreadAndJump()

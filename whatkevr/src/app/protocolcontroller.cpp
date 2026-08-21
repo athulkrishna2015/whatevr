@@ -311,40 +311,26 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
     m_syncModel = new ObjectViewModel(this);
     connect(m_syncModel, &ObjectViewModel::valueChanged, this, &ProtocolController::recomputeHistorySync);
 
-    m_messagesModel = new CollectionViewModel(this);
-    // The transcript is the one view held newest-first. Its live edge is the
-    // bottom of the screen, and a BottomToTop ListView draws row 0 there, so
-    // pinning the newest message at row 0 makes the end the reader is looking
-    // at the end the view measures from. Everything upward of it is then
-    // estimated history, which is where an estimate belongs.
-    m_messagesModel->setReverseOrder(true);
-    m_messagePresentationModel = new ProtocolMessageModel(m_messagesModel, this);
+    // The transcript models are per warm chat and built on demand; the pool
+    // starts empty with one slot per pane the conversation will park.
+    m_messageWindows.resize(kWarmChatWindows);
+
+    // An empty transcript that is never filled and never subscribed, so that
+    // "no chat is open" is a model saying it holds nothing rather than a null
+    // pointer. Around a dozen readers of the active transcript are property
+    // getters that QML evaluates before any chat has been chosen, and a
+    // placeholder answers all of them correctly (no rows, not ready, no such
+    // message) for the cost of one object.
+    m_idleMessagesModel = new CollectionViewModel(this);
+    m_idleMessagesModel->setReverseOrder(true);
+    m_idleMessagePresentation = new ProtocolMessageModel(m_idleMessagesModel, this);
+    m_messagesModel = m_idleMessagesModel;
+    m_messagePresentationModel = m_idleMessagePresentation;
+
     // Media transfers (D4c): the global `transfers` view is what makes a
     // downloading bubble show progress. The timeline model reads it through by
     // message id at render time — the two views are never merged into one row.
     m_transfersModel = new CollectionViewModel(this);
-    m_messagePresentationModel->setTransfersSource(m_transfersModel);
-    connect(m_messagesModel, &CollectionViewModel::readyReceived, this, &ProtocolController::onMessagesReady);
-    connect(m_messagesModel, &QAbstractItemModel::modelReset, this, &ProtocolController::onMessagesReset);
-    connect(m_messagesModel, &CollectionViewModel::countChanged, this, [this] {
-        Q_EMIT messagesChanged();
-    });
-    connect(m_messagesModel, &QAbstractItemModel::rowsInserted, this,
-            [this](const QModelIndex &, int first, int) {
-        Q_UNUSED(first)
-        // The first row of an open is the moment the window stops being a round
-        // trip and starts being a rendering problem, so it is the phase that
-        // splits the open budget in two.
-        if (m_openClock.isValid() && m_openPhaseRows == 0) {
-            markChatOpenPhase(QStringLiteral("first-row"));
-        }
-        if (m_phoneHistoryRequesting && m_phoneHistoryGeneration == m_messagesGeneration
-            && m_messagePresentationModel->oldestMessageId() != m_phoneHistoryOldestId) {
-            // Backfills arrive as a burst of individual upserts. Restore the
-            // viewport only after that burst settles, not after its first row.
-            m_phoneHistorySettleTimer->start();
-        }
-    });
 
     // Conversation-header presence (D3c): one item for the selected chat's
     // counterpart while a conversation is on screen.
@@ -536,7 +522,8 @@ ProtocolController::~ProtocolController()
     delete m_archivedSub;
     delete m_typingSub;
     delete m_syncSub;
-    delete m_messagesSub;
+    // The transcript subscriptions belong to the warm windows, one each.
+    closeAllMessageWindows();
     delete m_presenceSub;
     delete m_receiptsSub;
     delete m_pinnedSub;
@@ -960,18 +947,7 @@ void ProtocolController::setSelectedChat(const QString &chatId, const QString &a
     updateChatMembersSubscription();
 
     if (chatId.isEmpty()) {
-        delete m_messagesSub;
-        m_messagesSub = nullptr;
-        m_requestedAnchor.clear();
-        m_effectiveAnchor.clear();
-        m_pendingJumpMessageId.clear();
-        m_displayedMessagesChatId.clear();
-        m_messagesReloading = false;
-        m_waitingInitialMessages = false;
-        m_unreadAnchorMessageId.clear();
-        m_unreadAnchorCount = 0;
-        m_unreadAnchorResolving = false;
-        m_messagesModel->onReset();
+        detachVisibleMessageWindow();
         Q_EMIT unreadAnchorChanged();
         Q_EMIT messagesChanged();
         return;
@@ -983,34 +959,311 @@ void ProtocolController::setSelectedChat(const QString &chatId, const QString &a
     const QString effectiveAnchor = anchor.isEmpty() ? resolvedAnchor : anchor;
 
     if (effectiveAnchor.isEmpty()) {
-        delete m_messagesSub;
-        m_messagesSub = nullptr;
-        m_requestedAnchor.clear();
-        m_effectiveAnchor.clear();
-        m_pendingJumpMessageId.clear();
-        m_displayedMessagesChatId.clear();
-        m_messagesReloading = false;
+        detachVisibleMessageWindow();
         m_waitingInitialMessages = true;
-        m_messagesModel->onReset();
         Q_EMIT messagesChanged();
         return;
     }
 
     if (!m_conversationVisible) {
-        delete m_messagesSub;
-        m_messagesSub = nullptr;
+        detachVisibleMessageWindow();
         m_requestedAnchor = effectiveAnchor;
         m_effectiveAnchor = effectiveAnchor;
         m_pendingJumpMessageId = jumpMessageId;
-        m_displayedMessagesChatId.clear();
-        m_messagesReloading = false;
-        m_waitingInitialMessages = false;
-        m_messagesModel->onReset();
         Q_EMIT messagesChanged();
         return;
     }
 
     subscribeMessages(effectiveAnchor, jumpMessageId);
+}
+
+// --- warm transcript pool ---------------------------------------------------
+
+QVariantList ProtocolController::warmWindows() const
+{
+    QVariantList out;
+    out.reserve(m_messageWindows.size());
+    for (int i = 0; i < m_messageWindows.size(); ++i) {
+        out.append(warmWindowAt(i));
+    }
+    return out;
+}
+
+QVariantMap ProtocolController::warmWindowAt(int index) const
+{
+    if (index < 0 || index >= m_messageWindows.size()) {
+        return {};
+    }
+    const MessageWindow *window = m_messageWindows.at(index);
+    if (!window) {
+        return {{QStringLiteral("chatId"), QString()},
+                {QStringLiteral("model"), QVariant::fromValue<QObject *>(nullptr)}};
+    }
+    return {{QStringLiteral("chatId"), window->chatId},
+            {QStringLiteral("model"), QVariant::fromValue<QObject *>(window->presentation)}};
+}
+
+ProtocolController::MessageWindow *ProtocolController::warmWindowFor(const QString &chatId,
+                                                                    const QString &anchor) const
+{
+    if (chatId.isEmpty()) {
+        return nullptr;
+    }
+    for (MessageWindow *window : m_messageWindows) {
+        if (window && window->chatId == chatId && window->anchor == anchor) {
+            return window;
+        }
+    }
+    return nullptr;
+}
+
+// Reopening a chat that is still parked reopens it where it was parked.
+//
+// Without this, leaving a conversation and coming back recomputes the anchor
+// from the unread badge, so a chat parked at `latest` would be asked for at
+// `unread` and rebuilt from scratch, having been warm the whole time. Keeping
+// the reader's place is also the better answer on its own terms: they were just
+// here, and the divider is for a chat you are arriving at, not returning to.
+QString ProtocolController::anchorForOpening(const QString &chatId, const QString &requested) const
+{
+    for (MessageWindow *window : m_messageWindows) {
+        if (window && window->chatId == chatId) {
+            return window->anchor;
+        }
+    }
+    return requested;
+}
+
+void ProtocolController::connectMessageWindow(MessageWindow *window)
+{
+    // Every entry stays connected while it is warm, so an off-screen chat keeps
+    // its transcript correct. What the handlers must not do is let a background
+    // chat drive the state of the one on screen, which is what the guard on
+    // each of them is for: the controller's window state describes the visible
+    // conversation and nothing else.
+    CollectionViewModel *source = window->source;
+    connect(source, &CollectionViewModel::readyReceived, this, [this, window](bool exhausted) {
+        if (window->source != m_messagesModel) {
+            // Remember it anyway: this is how far its frontier reaches, and it
+            // is the answer we will need the moment it comes back on screen.
+            window->state.canLoadOlder = !exhausted;
+            window->state.waitingInitialMessages = false;
+            return;
+        }
+        onMessagesReady(exhausted);
+    });
+    connect(source, &QAbstractItemModel::modelReset, this, [this, window] {
+        if (window->source != m_messagesModel) {
+            return;
+        }
+        onMessagesReset();
+    });
+    connect(source, &CollectionViewModel::countChanged, this, [this, window] {
+        if (window->source != m_messagesModel) {
+            return;
+        }
+        Q_EMIT messagesChanged();
+    });
+    connect(source, &QAbstractItemModel::rowsInserted, this,
+            [this, window](const QModelIndex &, int, int) {
+        if (window->source != m_messagesModel) {
+            return;
+        }
+        // The first row of an open is the moment the window stops being a round
+        // trip and starts being a rendering problem, so it is the phase that
+        // splits the open budget in two.
+        if (m_openClock.isValid() && m_openPhaseRows == 0) {
+            markChatOpenPhase(QStringLiteral("first-row"));
+        }
+        if (m_phoneHistoryRequesting && m_phoneHistoryGeneration == m_messagesGeneration
+            && m_messagePresentationModel->oldestMessageId() != m_phoneHistoryOldestId) {
+            // Backfills arrive as a burst of individual upserts. Restore the
+            // viewport only after that burst settles, not after its first row.
+            m_phoneHistorySettleTimer->start();
+        }
+    });
+}
+
+ProtocolController::MessageWindow *ProtocolController::openMessageWindow(const QString &chatId,
+                                                                        const QString &anchor)
+{
+    // A free slot first; failing that, the one used longest ago.
+    int slot = m_messageWindows.indexOf(nullptr);
+    if (slot < 0) {
+        slot = m_messageWindowUse.isEmpty() ? 0 : m_messageWindowUse.last();
+        closeMessageWindow(m_messageWindows.at(slot));
+    }
+
+    auto *window = new MessageWindow;
+    window->chatId = chatId;
+    window->anchor = anchor;
+    window->source = new CollectionViewModel(this);
+    // The transcript is the one view held newest-first. Its live edge is the
+    // bottom of the screen, and a BottomToTop ListView draws row 0 there, so
+    // pinning the newest message at row 0 makes the end the reader is looking
+    // at the end the view measures from. Everything upward of it is then
+    // estimated history, which is where an estimate belongs.
+    window->source->setReverseOrder(true);
+    window->presentation = new ProtocolMessageModel(window->source, this);
+    window->presentation->setTransfersSource(m_transfersModel);
+    connectMessageWindow(window);
+
+    m_messageWindows[slot] = window;
+    m_messageWindowUse.removeAll(slot);
+    m_messageWindowUse.prepend(slot);
+    return window;
+}
+
+void ProtocolController::closeMessageWindow(MessageWindow *window)
+{
+    if (!window) {
+        return;
+    }
+    const int slot = m_messageWindows.indexOf(window);
+    if (slot >= 0) {
+        m_messageWindows[slot] = nullptr;
+        m_messageWindowUse.removeAll(slot);
+    }
+    if (window->source == m_messagesModel) {
+        // Back to the empty stand-in rather than to nullptr: everything that
+        // reads the active transcript is entitled to find a model there.
+        m_messagesModel = m_idleMessagesModel;
+        m_messagePresentationModel = m_idleMessagePresentation;
+        m_messagesSub = nullptr;
+    }
+    delete window->sub;
+    delete window->presentation;
+    delete window->source;
+    delete window;
+}
+
+void ProtocolController::closeAllMessageWindows()
+{
+    const QList<MessageWindow *> windows = m_messageWindows;
+    for (MessageWindow *window : windows) {
+        closeMessageWindow(window);
+    }
+    m_messageWindows.fill(nullptr, kWarmChatWindows);
+    m_messageWindowUse.clear();
+    Q_EMIT warmWindowsChanged();
+}
+
+void ProtocolController::saveActiveWindowState()
+{
+    MessageWindow *active = nullptr;
+    for (MessageWindow *window : m_messageWindows) {
+        if (window && window->source == m_messagesModel) {
+            active = window;
+            break;
+        }
+    }
+    if (!active) {
+        return;
+    }
+    MessageWindow::State &s = active->state;
+    s.displayedChatId = m_displayedMessagesChatId;
+    s.requestedAnchor = m_requestedAnchor;
+    s.effectiveAnchor = m_effectiveAnchor;
+    s.pendingJumpMessageId = m_pendingJumpMessageId;
+    s.jumpFallbackAnchor = m_jumpFallbackAnchor;
+    s.pendingExtendDirection = m_pendingExtendDirection;
+    s.errorText = m_messageErrorText;
+    s.unreadAnchorMessageId = m_unreadAnchorMessageId;
+    s.pendingReadWatermark = m_pendingReadWatermark;
+    s.lastReadWatermark = m_lastReadWatermark;
+    s.phoneHistoryOldestId = m_phoneHistoryOldestId;
+    s.unreadAnchorCount = m_unreadAnchorCount;
+    s.generation = m_messagesGeneration;
+    s.phoneHistoryGeneration = m_phoneHistoryGeneration;
+    s.unreadAnchorResolving = m_unreadAnchorResolving;
+    s.waitingInitialMessages = m_waitingInitialMessages;
+    s.reloading = m_messagesReloading;
+    s.refillingAfterReset = m_refillingAfterReset;
+    s.olderLoading = m_olderMessagesLoading;
+    s.newerLoading = m_newerMessagesLoading;
+    s.canLoadOlder = m_canLoadOlderMessages;
+    s.canLoadNewer = m_canLoadNewerMessages;
+    s.olderFailed = m_olderMessagesFailed;
+    s.newerFailed = m_newerMessagesFailed;
+    s.atLiveEdge = m_messagesAtLiveEdge;
+    s.phoneHistoryRequesting = m_phoneHistoryRequesting;
+}
+
+void ProtocolController::restoreWindowState(const MessageWindow *window)
+{
+    const MessageWindow::State &s = window->state;
+    m_displayedMessagesChatId = s.displayedChatId;
+    m_requestedAnchor = s.requestedAnchor;
+    m_effectiveAnchor = s.effectiveAnchor;
+    m_pendingJumpMessageId = s.pendingJumpMessageId;
+    m_jumpFallbackAnchor = s.jumpFallbackAnchor;
+    m_pendingExtendDirection = s.pendingExtendDirection;
+    m_messageErrorText = s.errorText;
+    m_unreadAnchorMessageId = s.unreadAnchorMessageId;
+    m_pendingReadWatermark = s.pendingReadWatermark;
+    m_lastReadWatermark = s.lastReadWatermark;
+    m_phoneHistoryOldestId = s.phoneHistoryOldestId;
+    m_unreadAnchorCount = s.unreadAnchorCount;
+    m_messagesGeneration = s.generation;
+    m_phoneHistoryGeneration = s.phoneHistoryGeneration;
+    m_unreadAnchorResolving = s.unreadAnchorResolving;
+    m_waitingInitialMessages = s.waitingInitialMessages;
+    m_messagesReloading = s.reloading;
+    m_refillingAfterReset = s.refillingAfterReset;
+    m_olderMessagesLoading = s.olderLoading;
+    m_newerMessagesLoading = s.newerLoading;
+    m_canLoadOlderMessages = s.canLoadOlder;
+    m_canLoadNewerMessages = s.canLoadNewer;
+    m_olderMessagesFailed = s.olderFailed;
+    m_newerMessagesFailed = s.newerFailed;
+    m_messagesAtLiveEdge = s.atLiveEdge;
+    m_phoneHistoryRequesting = s.phoneHistoryRequesting;
+}
+
+void ProtocolController::activateMessageWindow(MessageWindow *window)
+{
+    if (!window) {
+        return;
+    }
+    if (window->source != m_messagesModel) {
+        // The state the controller is holding belongs to whichever chat is on
+        // screen; hand it back before taking this one's.
+        saveActiveWindowState();
+        m_messagesModel = window->source;
+        m_messagePresentationModel = window->presentation;
+        m_messagesSub = window->sub;
+    }
+    // Restored even when this window was already the active one, because
+    // leaving a conversation clears the visible state without unparking the
+    // window behind it. Coming back to the chat you just left is that case, and
+    // it has to put the state back rather than find it already correct.
+    restoreWindowState(window);
+
+    const int slot = m_messageWindows.indexOf(window);
+    if (slot >= 0) {
+        m_messageWindowUse.removeAll(slot);
+        m_messageWindowUse.prepend(slot);
+    }
+    Q_EMIT warmWindowsChanged();
+}
+
+// Leaving the conversation: no chat is on screen, but every chat that was warm
+// stays warm. The transcript models are deliberately not reset here, which is
+// the whole point of the pool; the panes hide themselves because none of their
+// chat ids matches the (now empty) selection, and the rows they hold are still
+// there when one of them does again.
+void ProtocolController::detachVisibleMessageWindow()
+{
+    saveActiveWindowState();
+    m_requestedAnchor.clear();
+    m_effectiveAnchor.clear();
+    m_pendingJumpMessageId.clear();
+    m_displayedMessagesChatId.clear();
+    m_messagesReloading = false;
+    m_waitingInitialMessages = false;
+    m_unreadAnchorMessageId.clear();
+    m_unreadAnchorCount = 0;
+    m_unreadAnchorResolving = false;
 }
 
 void ProtocolController::subscribeMessages(const QString &anchor, const QString &jumpMessageId)
@@ -1031,16 +1284,50 @@ void ProtocolController::subscribeMessages(const QString &anchor, const QString 
                           {{QStringLiteral("chat_id"), m_selectedChatId},
                            {QStringLiteral("up_to_message_id"), watermark}});
     }
-    delete m_messagesSub;
-    m_messagesSub = nullptr;
-    ++m_messagesGeneration;
-
     if (perfLogging()) {
         m_openClock.start();
         m_openPhaseRows = 0;
         qInfo("[perf] open %-10s %6.1f ms  chat=%s anchor=%s", "subscribe", 0.0,
               qPrintable(m_selectedChatId), qPrintable(anchor));
     }
+
+    // Already warm *at the anchor being asked for*: its pane still holds its
+    // rows and its subscription has been keeping them right the whole time it
+    // was off screen. Switching to it is taking back the state it was left in,
+    // and nothing else at all. No round trip, no reset, no rows rebuilt.
+    //
+    // A different anchor over the same chat is a different window (the unread
+    // divider and the live edge put the reader in different places), so it
+    // falls through and is rebuilt into this chat's one slot rather than
+    // claiming a second.
+    if (MessageWindow *warm = warmWindowFor(m_selectedChatId, anchor)) {
+        activateMessageWindow(warm);
+        m_pendingJumpMessageId = jumpMessageId;
+        m_messagesReloading = false;
+        m_displayedMessagesChatId = m_selectedChatId;
+        Q_EMIT unreadAnchorChanged();
+        Q_EMIT messagesChanged();
+        markChatOpenPhase(QStringLiteral("warm"));
+        if (!jumpMessageId.isEmpty()) {
+            // The rows are already here, so the jump can be answered now rather
+            // than waiting for a fill that is not coming.
+            const QString jumpId = std::exchange(m_pendingJumpMessageId, {});
+            if (m_messagePresentationModel->indexOf(jumpId) >= 0) {
+                Q_EMIT messageJumpReady(jumpId);
+            } else {
+                Q_EMIT messageJumpUnavailable(jumpId);
+            }
+        }
+        return;
+    }
+
+    // Cold: a slot has to hold this chat, and the daemon has to be asked.
+    saveActiveWindowState();
+    MessageWindow *window = openMessageWindow(m_selectedChatId, anchor);
+    m_messagesModel = window->source;
+    m_messagePresentationModel = window->presentation;
+    m_messagesSub = nullptr;
+    ++m_messagesGeneration;
 
     m_requestedAnchor = anchor;
     m_effectiveAnchor = anchor;
@@ -1067,6 +1354,7 @@ void ProtocolController::subscribeMessages(const QString &anchor, const QString 
     m_messagesModel->onReset();
     Q_EMIT unreadAnchorChanged();
     Q_EMIT messagesChanged();
+    Q_EMIT warmWindowsChanged();
 
     m_messagesSub = m_client->subscribe(
         QStringLiteral("messages"),
@@ -1074,6 +1362,7 @@ void ProtocolController::subscribeMessages(const QString &anchor, const QString 
          {QStringLiteral("limit"), kMessagePageSize},
          {QStringLiteral("anchor"), anchor}},
         m_messagesModel);
+    window->sub = m_messagesSub;
     connect(m_messagesSub, &Subscription::subscribed, this, &ProtocolController::onMessagesSubscribed);
     connect(m_messagesSub, &Subscription::failed, this, &ProtocolController::onMessagesFailed);
     connect(m_messagesSub, &Subscription::extendFailed, this,
@@ -1432,12 +1721,7 @@ void ProtocolController::setConversationVisible(bool visible)
         m_phoneHistoryRequesting = false;
         m_phoneHistoryTimer->stop();
         m_phoneHistorySettleTimer->stop();
-        delete m_messagesSub;
-        m_messagesSub = nullptr;
-        m_displayedMessagesChatId.clear();
-        m_messagesReloading = false;
-        m_waitingInitialMessages = false;
-        m_messagesModel->onReset();
+        detachVisibleMessageWindow();
         sendSessionUpdate();
         Q_EMIT messagesChanged();
         return;
@@ -1447,8 +1731,8 @@ void ProtocolController::setConversationVisible(bool visible)
         if (m_waitingForSelectedChatItem) {
             return;
         }
-        const QString anchor = selectedChatUnreadCount() > 0 ? QStringLiteral("unread") : QStringLiteral("latest");
-        subscribeMessages(anchor);
+        const QString fresh = selectedChatUnreadCount() > 0 ? QStringLiteral("unread") : QStringLiteral("latest");
+        subscribeMessages(anchorForOpening(m_selectedChatId, fresh));
     }
 }
 

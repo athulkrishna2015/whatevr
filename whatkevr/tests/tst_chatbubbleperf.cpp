@@ -253,6 +253,7 @@ private Q_SLOTS:
     void aShrinkingPaneDoesNotDragTheTranscriptWithIt();
     void openingAChatBuildsItsWindowWithinBudget();
     void theNewestMessageIsDrawnAtTheBottomAndHistoryClimbsAwayFromIt();
+    void aHiddenTranscriptKeepsItsRowsSoComingBackToItIsFree();
 
 private:
     QQuickWindow *m_window = nullptr;
@@ -2326,6 +2327,96 @@ void ChatBubblePerf::theNewestMessageIsDrawnAtTheBottomAndHistoryClimbsAwayFromI
                                 .arg(bottomOf.value(onScreen.at(i - 1)))
                                 .arg(bottomOf.value(onScreen.at(i)))));
     }
+
+    m_window->hide();
+    viewItem->setParentItem(nullptr);
+}
+
+// Whether a transcript that is merely hidden keeps the delegates it built.
+//
+// The whole cost of opening a chat is building rows, so a re-open is only free
+// if the rows of the chat you left are still there when you come back. Keeping
+// the *model* warm is not enough: handing a ListView a different model destroys
+// every delegate it holds. Keeping the whole view warm and just hiding it is
+// the only arrangement that can avoid the rebuild, and this pins down whether
+// hiding actually preserves them.
+void ChatBubblePerf::aHiddenTranscriptKeepsItsRowsSoComingBackToItIsFree()
+{
+    CollectionViewModel source;
+    source.setReverseOrder(true);
+    ProtocolMessageModel model(&source);
+    for (int i = 0; i < 40; ++i) {
+        const QString id = QStringLiteral("h%1").arg(i, 3, 10, QLatin1Char('0'));
+        source.onUpsert(QStringLiteral("%1").arg(1'700'000'000 + i * 60, 20, 10, QLatin1Char('0')),
+                        QJsonObject{
+                            {QStringLiteral("id"), id},
+                            {QStringLiteral("chat_id"), QStringLiteral("warm@g.us")},
+                            {QStringLiteral("kind"), QStringLiteral("text")},
+                            {QStringLiteral("text"), QStringLiteral("row %1").arg(i)},
+                            {QStringLiteral("fallback"), QStringLiteral("row %1").arg(i)},
+                            {QStringLiteral("timestamp"), 1'700'000'000 + i * 60},
+                            {QStringLiteral("direction"), QStringLiteral("incoming")},
+                            {QStringLiteral("status"), QStringLiteral("read")},
+                        });
+    }
+
+    QQmlComponent component(
+        m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/MessageView.qml")));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> view(component.createWithInitialProperties(
+        {{QStringLiteral("model"), QVariant::fromValue<QObject *>(&model)}}));
+    QVERIFY2(view, qPrintable(component.errorString()));
+    auto *viewItem = qobject_cast<QQuickItem *>(view.get());
+    viewItem->setParentItem(m_window->contentItem());
+    viewItem->setWidth(700);
+    viewItem->setHeight(420);
+    m_window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_window));
+    viewItem->setProperty("chatId", QStringLiteral("warm@g.us"));
+    QTest::qWait(700);
+
+    QQuickItem *list = findVisualChild(viewItem, QStringLiteral("messageList"));
+    QVERIFY2(list, "the timeline has no list");
+    QQuickItem *content = list->property("contentItem").value<QQuickItem *>();
+    QVERIFY2(content, "the list has no content item");
+
+    const auto builtRows = [&] {
+        int n = 0;
+        const auto children = content->childItems();
+        for (QQuickItem *child : children) {
+            if (!child->property("messageId").toString().isEmpty()) {
+                ++n;
+            }
+        }
+        return n;
+    };
+
+    const int whileShown = builtRows();
+    QVERIFY2(whileShown > 0, "the transcript built no rows while visible");
+
+    viewItem->setVisible(false);
+    QTest::qWait(400);
+    const int whileHidden = builtRows();
+
+    viewItem->setVisible(true);
+    QTest::qWait(400);
+    const int afterReturning = builtRows();
+
+    qInfo("DN9 %-24s shown=%d hidden=%d back=%d", "hidden-transcript",
+          whileShown, whileHidden, afterReturning);
+
+    QVERIFY2(afterReturning > 0, "the transcript came back empty");
+
+    // The finding, and the licence for the warm pane pool: hiding a transcript
+    // keeps every row it had built. ConversationPane carried a comment claiming
+    // the opposite for a long time, which is why keeping panes per chat was
+    // never tried; it is measurably untrue.
+    //
+    // If this ever starts failing, the pool has stopped paying for itself and
+    // ChatPanes should go back to a single pane, because it would then be
+    // holding N conversations' worth of objects for no saving at all.
+    QCOMPARE(whileHidden, whileShown);
+    QCOMPARE(afterReturning, whileShown);
 
     m_window->hide();
     viewItem->setParentItem(nullptr);
