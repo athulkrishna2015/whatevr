@@ -896,19 +896,22 @@ Item {
             travelled += moved
             lastY = list.contentY
 
+            // Sampled every frame, not only on a stall: compared against a
+            // baseline refreshed once in thirty frames, churn read zero for
+            // every stall whether or not a single row had moved, which is
+            // exactly the thing it exists to distinguish.
+            const rows = root.materialisedRowCount()
+            const churn = rows - lastRows
+            lastRows = rows
             if (ms > 66) {
-                const rows = root.materialisedRowCount()
                 console.log("[perf] stall", ms.toFixed(0) + "ms",
                             "moved=" + moved.toFixed(0) + "px",
                             "rows=" + rows,
-                            "churn=" + (rows - lastRows),
+                            "churn=" + churn,
                             "band=" + list.cacheBuffer.toFixed(0),
                             "fast=" + list.fastFlicking,
                             "flicking=" + list.flicking,
                             "kinetic=" + Math.abs(kineticWheelScroller.velocity).toFixed(0))
-                lastRows = rows
-            } else if (frames % 30 === 0) {
-                lastRows = root.materialisedRowCount()
             }
 
             if (Date.now() - windowStart >= 1000) {

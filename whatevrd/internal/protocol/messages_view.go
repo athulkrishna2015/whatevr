@@ -656,8 +656,10 @@ type messageSystem struct {
 	// Seconds is the new disappearing-message timer, meaningful when On.
 	Seconds uint32 `json:"seconds,omitempty"`
 	// AboutSelf marks an event that named you: you were added, removed,
-	// promoted, demoted, or your security code changed. It is the same flag that
-	// decided whether the row reordered your chat list.
+	// promoted, demoted, or your security code changed. It is what decides
+	// whether the row reordered your chat list, with one exception: a changed
+	// security code names you but stays quiet, because it fires whenever the
+	// other side reinstalls and is nobody's doing.
 	AboutSelf bool `json:"about_self,omitempty"`
 }
 
