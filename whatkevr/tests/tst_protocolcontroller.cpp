@@ -1403,7 +1403,9 @@ private Q_SLOTS:
         QTRY_VERIFY(!ctrl.phoneHistoryRequesting());
         auto *messages = qobject_cast<ProtocolMessageModel *>(ctrl.messageListModel());
         QVERIFY(messages);
-        QCOMPARE(messages->messageIdAt(0), QStringLiteral("old2"));
+        // The rows are held newest-first, so the oldest one has to be asked
+        // for by name rather than found at index 0.
+        QCOMPARE(messages->oldestMessageId(), QStringLiteral("old2"));
 
         ctrl.requestOlderMessagesFromPhone();
         QTRY_VERIFY(ctrl.phoneHistoryRequesting());

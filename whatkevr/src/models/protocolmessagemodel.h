@@ -167,6 +167,25 @@ public:
     [[nodiscard]] Q_INVOKABLE QStringList allMessageIds() const;
     [[nodiscard]] Q_INVOKABLE QStringList messageIdsForDay(const QString &messageId) const;
 
+    /// The ends of the transcript in time rather than in row index. Callers
+    /// that mean "the oldest message we hold" must ask for it by name: the
+    /// transcript is held newest-first, so row 0 is the newest one and the
+    /// literal 0 that used to mean "oldest" now means its opposite.
+    [[nodiscard]] Q_INVOKABLE QString oldestMessageId() const;
+    [[nodiscard]] Q_INVOKABLE QString newestMessageId() const;
+
+    /// True when row 0 holds the newest message. Every question about which way
+    /// the rows run is answered from here, and from the two neighbour helpers
+    /// below, rather than from arithmetic spelled out at each site.
+    [[nodiscard]] bool newestFirst() const;
+    /// The row holding the message immediately older (or newer) in time than
+    /// this one, or -1 at that end of the transcript.
+    [[nodiscard]] Q_INVOKABLE int olderRow(int row) const;
+    [[nodiscard]] Q_INVOKABLE int newerRow(int row) const;
+    /// The row holding the nth-oldest message, for the handful of readers that
+    /// genuinely want a conversation in the order it happened.
+    [[nodiscard]] int chronologicalRow(int nth) const;
+
 private:
     struct TextPresentation {
         QString sourceText;

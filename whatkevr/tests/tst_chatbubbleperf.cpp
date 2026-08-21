@@ -252,6 +252,7 @@ private Q_SLOTS:
     void aWaitingRowSaysWhetherItIsStillTrying();
     void aShrinkingPaneDoesNotDragTheTranscriptWithIt();
     void openingAChatBuildsItsWindowWithinBudget();
+    void theNewestMessageIsDrawnAtTheBottomAndHistoryClimbsAwayFromIt();
 
 private:
     QQuickWindow *m_window = nullptr;
@@ -2233,6 +2234,101 @@ void ChatBubblePerf::openingAChatBuildsItsWindowWithinBudget()
                             .arg(objects)
                             .arg(kMaxObjects)
                             .arg(materialised)));
+}
+
+// The transcript is drawn bottom-up over a model held newest-first, which is
+// two inversions that have to cancel exactly. If either one is applied without
+// the other the conversation renders upside down, and nothing else in the suite
+// would notice: the rows would all be present, correctly grouped and correctly
+// counted, just in the wrong order on the glass.
+void ChatBubblePerf::theNewestMessageIsDrawnAtTheBottomAndHistoryClimbsAwayFromIt()
+{
+    CollectionViewModel source;
+    source.setReverseOrder(true);
+    ProtocolMessageModel model(&source);
+
+    constexpr int kRows = 40;
+    for (int i = 0; i < kRows; ++i) {
+        const QString id = QStringLiteral("m%1").arg(i, 3, 10, QLatin1Char('0'));
+        source.onUpsert(QStringLiteral("%1").arg(1'700'000'000 + i * 60, 20, 10, QLatin1Char('0')),
+                        QJsonObject{
+                            {QStringLiteral("id"), id},
+                            {QStringLiteral("chat_id"), QStringLiteral("order@g.us")},
+                            {QStringLiteral("kind"), QStringLiteral("text")},
+                            {QStringLiteral("text"), QStringLiteral("row %1").arg(i)},
+                            {QStringLiteral("fallback"), QStringLiteral("row %1").arg(i)},
+                            {QStringLiteral("timestamp"), 1'700'000'000 + i * 60},
+                            {QStringLiteral("direction"), QStringLiteral("incoming")},
+                            {QStringLiteral("status"), QStringLiteral("read")},
+                        });
+    }
+    // Newest last in time, first in the model.
+    QCOMPARE(model.rowCount(), kRows);
+    QCOMPARE(model.newestMessageId(), QStringLiteral("m039"));
+    QCOMPARE(model.messageIdAt(0), QStringLiteral("m039"));
+
+    QQmlComponent component(
+        m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/MessageView.qml")));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> view(component.createWithInitialProperties(
+        {{QStringLiteral("model"), QVariant::fromValue<QObject *>(&model)}}));
+    QVERIFY2(view, qPrintable(component.errorString()));
+    auto *viewItem = qobject_cast<QQuickItem *>(view.get());
+    viewItem->setParentItem(m_window->contentItem());
+    viewItem->setWidth(700);
+    viewItem->setHeight(420);
+    m_window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_window));
+    viewItem->setProperty("chatId", QStringLiteral("order@g.us"));
+    QTest::qWait(600);
+
+    QQuickItem *list = findVisualChild(viewItem, QStringLiteral("messageList"));
+    QVERIFY2(list, "the timeline has no list");
+    QQuickItem *content = list->property("contentItem").value<QQuickItem *>();
+    QVERIFY2(content, "the list has no content item");
+
+    // Where each message actually landed, by id.
+    QHash<QString, qreal> bottomOf;
+    const auto children = content->childItems();
+    for (QQuickItem *child : children) {
+        const QString id = child->property("messageId").toString();
+        if (!id.isEmpty()) {
+            bottomOf.insert(id, child->y());
+        }
+    }
+    QVERIFY2(bottomOf.size() >= 3, "too few rows materialised to judge the order");
+
+    // The newest message is on screen, and it is the lowest thing on screen.
+    QVERIFY2(bottomOf.contains(QStringLiteral("m039")),
+             "the newest message was not materialised, so the view did not open at it");
+    const qreal newestY = bottomOf.value(QStringLiteral("m039"));
+    for (auto it = bottomOf.cbegin(); it != bottomOf.cend(); ++it) {
+        if (it.key() == QStringLiteral("m039")) {
+            continue;
+        }
+        QVERIFY2(it.value() < newestY,
+                 qPrintable(QStringLiteral("%1 is drawn below the newest message (y %2 vs %3): the "
+                                           "transcript is upside down")
+                                .arg(it.key())
+                                .arg(it.value())
+                                .arg(newestY)));
+    }
+
+    // And within the history above it, older is higher: the ids sort in the
+    // order the messages were sent, so their y coordinates must increase along
+    // with them.
+    QStringList onScreen = bottomOf.keys();
+    std::sort(onScreen.begin(), onScreen.end());
+    for (int i = 1; i < onScreen.size(); ++i) {
+        QVERIFY2(bottomOf.value(onScreen.at(i - 1)) < bottomOf.value(onScreen.at(i)),
+                 qPrintable(QStringLiteral("%1 should sit above %2, but is drawn at y %3 against %4")
+                                .arg(onScreen.at(i - 1), onScreen.at(i))
+                                .arg(bottomOf.value(onScreen.at(i - 1)))
+                                .arg(bottomOf.value(onScreen.at(i)))));
+    }
+
+    m_window->hide();
+    viewItem->setParentItem(nullptr);
 }
 
 int main(int argc, char *argv[])

@@ -312,6 +312,12 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
     connect(m_syncModel, &ObjectViewModel::valueChanged, this, &ProtocolController::recomputeHistorySync);
 
     m_messagesModel = new CollectionViewModel(this);
+    // The transcript is the one view held newest-first. Its live edge is the
+    // bottom of the screen, and a BottomToTop ListView draws row 0 there, so
+    // pinning the newest message at row 0 makes the end the reader is looking
+    // at the end the view measures from. Everything upward of it is then
+    // estimated history, which is where an estimate belongs.
+    m_messagesModel->setReverseOrder(true);
     m_messagePresentationModel = new ProtocolMessageModel(m_messagesModel, this);
     // Media transfers (D4c): the global `transfers` view is what makes a
     // downloading bubble show progress. The timeline model reads it through by
@@ -333,7 +339,7 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
             markChatOpenPhase(QStringLiteral("first-row"));
         }
         if (m_phoneHistoryRequesting && m_phoneHistoryGeneration == m_messagesGeneration
-            && m_messagePresentationModel->messageIdAt(0) != m_phoneHistoryOldestId) {
+            && m_messagePresentationModel->oldestMessageId() != m_phoneHistoryOldestId) {
             // Backfills arrive as a burst of individual upserts. Restore the
             // viewport only after that burst settles, not after its first row.
             m_phoneHistorySettleTimer->start();
@@ -1296,7 +1302,7 @@ void ProtocolController::requestOlderMessagesFromPhone()
     const QString chatId = m_selectedChatId;
     const int generation = m_messagesGeneration;
     m_phoneHistoryRequesting = true;
-    m_phoneHistoryOldestId = m_messagePresentationModel->messageIdAt(0);
+    m_phoneHistoryOldestId = m_messagePresentationModel->oldestMessageId();
     m_phoneHistoryGeneration = generation;
     m_phoneHistoryTimer->start();
     Q_EMIT messagesChanged();
@@ -1389,7 +1395,18 @@ void ProtocolController::markSelectedChatViewed(const QString &upToMessageId)
     if (!m_pendingReadWatermark.isEmpty() && pending < 0) {
         return;
     }
-    if (candidate >= 0 && (candidate < pending || candidate < sent)) {
+    // A watermark only ever moves forward in time. The rows are held
+    // newest-first, so "older than what we already marked" is a *larger* index,
+    // not a smaller one.
+    //
+    // Each side is guarded on the watermark existing at all, rather than
+    // leaning on -1 comparing the way we want. Under the old ordering a missing
+    // watermark's -1 was smaller than every real row and so was harmless; with
+    // the comparison the other way round it would read as newer than
+    // everything, and the very first watermark of a chat would be refused.
+    const bool wouldRegress = (pending >= 0 && candidate > pending)
+        || (sent >= 0 && candidate > sent);
+    if (candidate >= 0 && wouldRegress) {
         return;
     }
     m_pendingReadWatermark = upToMessageId;

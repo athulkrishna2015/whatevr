@@ -797,6 +797,47 @@ bool ProtocolMessageModel::isAuthorless(const QVariantMap &item)
     return kind == QLatin1String("system") || kind == QLatin1String("call_log");
 }
 
+bool ProtocolMessageModel::newestFirst() const
+{
+    return m_source && m_source->reverseOrder();
+}
+
+int ProtocolMessageModel::olderRow(int row) const
+{
+    if (row < 0 || row >= rowCount()) {
+        return -1;
+    }
+    const int neighbour = newestFirst() ? row + 1 : row - 1;
+    return (neighbour < 0 || neighbour >= rowCount()) ? -1 : neighbour;
+}
+
+int ProtocolMessageModel::newerRow(int row) const
+{
+    if (row < 0 || row >= rowCount()) {
+        return -1;
+    }
+    const int neighbour = newestFirst() ? row - 1 : row + 1;
+    return (neighbour < 0 || neighbour >= rowCount()) ? -1 : neighbour;
+}
+
+int ProtocolMessageModel::chronologicalRow(int nth) const
+{
+    if (nth < 0 || nth >= rowCount()) {
+        return -1;
+    }
+    return newestFirst() ? rowCount() - 1 - nth : nth;
+}
+
+QString ProtocolMessageModel::oldestMessageId() const
+{
+    return messageIdAt(chronologicalRow(0));
+}
+
+QString ProtocolMessageModel::newestMessageId() const
+{
+    return messageIdAt(chronologicalRow(rowCount() - 1));
+}
+
 bool ProtocolMessageModel::startsSenderGroup(int row) const
 {
     if (row < 0 || row >= rowCount()) {
@@ -806,10 +847,11 @@ bool ProtocolMessageModel::startsSenderGroup(int row) const
     if (isAuthorless(message)) {
         return false;
     }
-    if (row == 0) {
+    const int before = olderRow(row);
+    if (before < 0) {
         return true;
     }
-    const QVariantMap previous = wireItem(row - 1);
+    const QVariantMap previous = wireItem(before);
     if (isAuthorless(previous)) {
         return true;
     }
@@ -831,10 +873,11 @@ bool ProtocolMessageModel::endsSenderGroup(int row) const
     if (isAuthorless(message)) {
         return false;
     }
-    if (row >= rowCount() - 1) {
+    const int after = newerRow(row);
+    if (after < 0) {
         return true;
     }
-    const QVariantMap next = wireItem(row + 1);
+    const QVariantMap next = wireItem(after);
     if (isAuthorless(next)) {
         return true;
     }
@@ -849,7 +892,8 @@ bool ProtocolMessageModel::endsSenderGroup(int row) const
 
 bool ProtocolMessageModel::startsDayGroup(int row) const
 {
-    return row <= 0 || dayNumber(wireItem(row)) != dayNumber(wireItem(row - 1));
+    const int before = olderRow(row);
+    return before < 0 || dayNumber(wireItem(row)) != dayNumber(wireItem(before));
 }
 
 ProtocolMessageModel::TextPresentation &ProtocolMessageModel::ensureTextPresentation(const QVariantMap &item) const
@@ -955,8 +999,10 @@ QString ProtocolMessageModel::copyTextForMessages(const QStringList &messageIds)
 {
     const QSet<QString> selected(messageIds.cbegin(), messageIds.cend());
     QList<QVariantMap> messages;
-    for (int row = 0; row < rowCount(); ++row) {
-        const QVariantMap item = wireItem(row);
+    // Gathered oldest first, not row first: what comes out of here is a
+    // conversation somebody is about to paste somewhere.
+    for (int nth = 0; nth < rowCount(); ++nth) {
+        const QVariantMap item = wireItem(chronologicalRow(nth));
         if (selected.contains(item.value(QStringLiteral("id")).toString())) {
             messages.append(item);
         }
@@ -1075,12 +1121,15 @@ double ProtocolMessageModel::downloadProgress(const QVariantMap &item) const
     return std::min(1.0, static_cast<double>(received) / static_cast<double>(total));
 }
 
+// Oldest to newest, whichever way the rows happen to be held. Everything that
+// consumes this reads it as a transcript (select all, then copy it), and a
+// transcript that ran backwards would be a strange thing to put on a clipboard.
 QStringList ProtocolMessageModel::allMessageIds() const
 {
     QStringList ids;
     ids.reserve(rowCount());
-    for (int row = 0; row < rowCount(); ++row) {
-        const QString id = wireItem(row).value(QStringLiteral("id")).toString();
+    for (int nth = 0; nth < rowCount(); ++nth) {
+        const QString id = wireItem(chronologicalRow(nth)).value(QStringLiteral("id")).toString();
         if (!id.isEmpty()) {
             ids.append(id);
         }
@@ -1097,7 +1146,7 @@ QVariantMap ProtocolMessageModel::nextVoiceMessage(const QString &messageId) con
     if (from < 0) {
         return {};
     }
-    for (int row = from + 1; row < rowCount(); ++row) {
+    for (int row = newerRow(from); row >= 0; row = newerRow(row)) {
         const QVariantMap item = wireItem(row);
         if (mediaKind(item) != QLatin1String("voice")) {
             continue;
@@ -1130,8 +1179,8 @@ QStringList ProtocolMessageModel::messageIdsForDay(const QString &messageId) con
     }
     const int selectedDay = dayNumber(wireItem(row));
     QStringList ids;
-    for (int candidate = 0; candidate < rowCount(); ++candidate) {
-        const QVariantMap item = wireItem(candidate);
+    for (int nth = 0; nth < rowCount(); ++nth) {
+        const QVariantMap item = wireItem(chronologicalRow(nth));
         if (dayNumber(item) == selectedDay) {
             ids.append(item.value(QStringLiteral("id")).toString());
         }

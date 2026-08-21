@@ -532,6 +532,85 @@ private Q_SLOTS:
         QCOMPARE(role(model, 0, ProtocolMessageModel::IsKeptRole).toBool(), false);
         QCOMPARE(role(model, 1, ProtocolMessageModel::IsKeptRole).toBool(), true);
     }
+
+    // The transcript is held newest-first so a BottomToTop view can pin its
+    // live edge at row 0. Everything that reasons about neighbours has to read
+    // the same way round afterwards, or a day changes on the wrong row and a
+    // sender group opens at the wrong end.
+    void newestFirstPutsTheLiveEdgeAtRowZero()
+    {
+        CollectionViewModel source;
+        source.setReverseOrder(true);
+        ProtocolMessageModel model(&source);
+
+        // Three days, oldest to newest, delivered in wire order.
+        const qint64 day = 24 * 60 * 60;
+        source.onUpsert(QStringLiteral("0001"), message(QStringLiteral("old"), 1'700'000'000));
+        source.onUpsert(QStringLiteral("0002"), message(QStringLiteral("mid"), 1'700'000'000 + day));
+        source.onUpsert(QStringLiteral("0003"), message(QStringLiteral("new"), 1'700'000'000 + day * 2));
+
+        QCOMPARE(model.rowCount(), 3);
+        QCOMPARE(model.messageIdAt(0), QStringLiteral("new"));
+        QCOMPARE(model.messageIdAt(2), QStringLiteral("old"));
+
+        // The ends by time, not by index. These are what callers must use.
+        QCOMPARE(model.oldestMessageId(), QStringLiteral("old"));
+        QCOMPARE(model.newestMessageId(), QStringLiteral("new"));
+
+        // Older is downward now, newer is upward, and both run off the end.
+        QCOMPARE(model.olderRow(0), 1);
+        QCOMPARE(model.newerRow(0), -1);
+        QCOMPARE(model.olderRow(2), -1);
+        QCOMPARE(model.newerRow(2), 1);
+
+        // Every row here is a different day, so every row starts one. Read the
+        // wrong way this would be true for two rows and false for the third.
+        for (int row = 0; row < 3; ++row) {
+            QVERIFY2(role(model, row, ProtocolMessageModel::DateSeparatorTextRole).toString().length() > 0,
+                     qPrintable(QStringLiteral("row %1 carries no day separator").arg(row)));
+        }
+
+        // And a conversation still reads forwards when it leaves the model.
+        QCOMPARE(model.allMessageIds(),
+                 (QStringList{QStringLiteral("old"), QStringLiteral("mid"), QStringLiteral("new")}));
+    }
+
+    // The same rows, the same grouping questions, held the other way up. A
+    // sender run must open at its oldest message and close at its newest
+    // whichever end of the list that happens to be.
+    void senderRunsOpenAtTheirOldestMessageEitherWayRound()
+    {
+        for (const bool reversed : {false, true}) {
+            CollectionViewModel source;
+            source.setReverseOrder(reversed);
+            ProtocolMessageModel model(&source);
+
+            // Two from Alice, then one from Bob, within the grouping window.
+            QJsonObject second = message(QStringLiteral("a2"), 1'700'000'060);
+            QJsonObject third = message(QStringLiteral("b1"), 1'700'000'120);
+            third.insert(QStringLiteral("sender"), QJsonObject{
+                {QStringLiteral("id"), QStringLiteral("bob@s.whatsapp.net")},
+                {QStringLiteral("name"), QStringLiteral("Bob")},
+            });
+            source.onUpsert(QStringLiteral("0001"), message(QStringLiteral("a1"), 1'700'000'000));
+            source.onUpsert(QStringLiteral("0002"), second);
+            source.onUpsert(QStringLiteral("0003"), third);
+
+            const auto rowOf = [&](const QString &id) { return model.indexOf(id); };
+            const auto groupStart = [&](const QString &id) {
+                return role(model, rowOf(id), ProtocolMessageModel::GroupStartRole).toBool();
+            };
+            const auto groupEnd = [&](const QString &id) {
+                return role(model, rowOf(id), ProtocolMessageModel::GroupEndRole).toBool();
+            };
+
+            const QString what = reversed ? QStringLiteral("newest-first") : QStringLiteral("oldest-first");
+            QVERIFY2(groupStart(QStringLiteral("a1")), qPrintable(what + QStringLiteral(": a1 should open Alice's run")));
+            QVERIFY2(!groupStart(QStringLiteral("a2")), qPrintable(what + QStringLiteral(": a2 should continue it")));
+            QVERIFY2(groupEnd(QStringLiteral("a2")), qPrintable(what + QStringLiteral(": a2 should close it")));
+            QVERIFY2(groupStart(QStringLiteral("b1")), qPrintable(what + QStringLiteral(": b1 should open Bob's run")));
+        }
+    }
 };
 
 QTEST_MAIN(TestProtocolMessageModel)

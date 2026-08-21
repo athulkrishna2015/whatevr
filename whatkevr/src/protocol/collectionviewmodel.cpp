@@ -70,7 +70,7 @@ int CollectionViewModel::indexOfId(const QString &id) const
     return m_indexById.value(id, -1);
 }
 
-bool CollectionViewModel::sortsBefore(const Item &lhs, const Item &rhs)
+bool CollectionViewModel::ascends(const Item &lhs, const Item &rhs)
 {
     if (lhs.sortKey != rhs.sortKey) {
         return lhs.sortKey < rhs.sortKey;
@@ -78,9 +78,28 @@ bool CollectionViewModel::sortsBefore(const Item &lhs, const Item &rhs)
     return lhs.id < rhs.id;
 }
 
+bool CollectionViewModel::sortsBefore(const Item &lhs, const Item &rhs) const
+{
+    // Both terms swap together, never just the key: swapping only the key would
+    // leave the id tiebreak pointing the other way and stop this being a strict
+    // weak ordering, which std::sort is entitled to crash on.
+    return m_reverseOrder ? ascends(rhs, lhs) : ascends(lhs, rhs);
+}
+
+void CollectionViewModel::setReverseOrder(bool reverse)
+{
+    if (m_reverseOrder == reverse) {
+        return;
+    }
+    Q_ASSERT_X(m_items.isEmpty(), "CollectionViewModel::setReverseOrder",
+               "the order must be chosen before the view holds anything");
+    m_reverseOrder = reverse;
+}
+
 int CollectionViewModel::lowerBound(const Item &item) const
 {
-    const auto it = std::lower_bound(m_items.cbegin(), m_items.cend(), item, sortsBefore);
+    const auto it = std::lower_bound(m_items.cbegin(), m_items.cend(), item,
+                                     [this](const Item &l, const Item &r) { return sortsBefore(l, r); });
     return static_cast<int>(it - m_items.cbegin());
 }
 
@@ -264,7 +283,8 @@ void CollectionViewModel::insertSortedRun(QList<Item> fresh)
     if (fresh.isEmpty()) {
         return;
     }
-    std::sort(fresh.begin(), fresh.end(), sortsBefore);
+    std::sort(fresh.begin(), fresh.end(),
+              [this](const Item &l, const Item &r) { return sortsBefore(l, r); });
 
     int i = 0;
     while (i < fresh.size()) {

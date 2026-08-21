@@ -86,13 +86,15 @@ Item {
     // Index whose date the floating pill currently shows. The date for a given
     // row never changes, so the model lookup is skipped while it stays put.
     property int lastTopIndex: -1
-    // Visible-row window feeding the index-based scrollbar. topVisibleIndex is
-    // the row at the visual top (the lowest visible index); topRowFraction is
-    // how much of it is scrolled off
-    // above the viewport. They keep their last value when the indexAt probes
+    // The visible window, named by time rather than by screen edge, because the
+    // rows run newest-first and an index no longer says where a message is
+    // drawn. The oldest visible row is the one highest on screen and carries
+    // the larger index; the newest sits against the composer at the smaller
+    // one. topRowFraction is how much of the topmost row is scrolled off above
+    // the viewport. All three keep their last value when the indexAt probes
     // land in row spacing, so the thumb never flickers.
-    property int topVisibleIndex: -1
-    property int bottomVisibleIndex: -1
+    property int oldestVisibleRow: -1
+    property int newestVisibleRow: -1
     property real topRowFraction: 0
     // Set while we move the viewport ourselves (chat open, scroll-to-newest) so
     // those programmatic jumps don't flash the floating date pill.
@@ -663,7 +665,7 @@ Item {
         cancelUnreadAnchorSettle()
         if (list.count > 0) {
             programmaticScroll = true
-            list.positionViewAtEnd()
+            list.positionViewAtBeginning()
             floatingDateActive = false
             floatingDateIdleTimer.stop()
             bottomSettleTimer.restart()
@@ -676,7 +678,7 @@ Item {
     }
 
     // Coalesces the settle-window re-pin to at most one per event-loop turn.
-    // positionViewAtEnd() forces a synchronous layout of the whole materialised
+    // positionViewAtBeginning() forces a synchronous layout of the whole materialised
     // band, so calling it once per content-height revision was the dominant
     // cost of the frames after a chat opened.
     property bool bottomRepinQueued: false
@@ -711,7 +713,7 @@ Item {
             return
         }
         bottomRepinRetries = 0
-        // positionViewAtEnd() forces a synchronous layout of the whole
+        // positionViewAtBeginning() forces a synchronous layout of the whole
         // materialised band, and the settle window fires on every content-height
         // revision, several per send while the new row settles. Skip it when
         // the viewport did not actually drift, which is the ordinary case for a
@@ -721,7 +723,7 @@ Item {
         }
         traceViewport("applyBottomRepin")
         programmaticScroll = true
-        list.positionViewAtEnd()
+        list.positionViewAtBeginning()
         refreshBottomPin()
         Qt.callLater(() => { root.programmaticScroll = false })
     }
@@ -755,65 +757,16 @@ Item {
         pinnedToBottom = list.count > 0 && distanceFromBottom() <= 1
     }
 
-    // Scroll anchoring: hold the reader still when a row above them changes
-    // height after the view has already placed it.
+    // Scroll anchoring used to live here: when a row above the viewport changed
+    // height after the list had placed it, the view was nudged by the same
+    // amount so the reader stayed on the words they were reading.
     //
-    // A recycled delegate is handed its new message's data one property at a
-    // time, and the card bubbles measure themselves through a Layout, whose
-    // implicit height lands on the next polish rather than in the turn the data
-    // arrived. The list positions the row from whatever height it is publishing
-    // at that instant, which for a recycled delegate is still the height of the
-    // message it held before, and then lays every row below it out from there.
-    // A 300px card taking over a delegate that was holding a 460px one
-    // therefore drags the whole transcript 160px under the reader's cursor, and
-    // it happens most in the chats with the most cards.
-    //
-    // Correcting the viewport by the same amount the content above it moved is
-    // what a browser does for this (scroll anchoring, `overflow-anchor`), and
-    // it is the only fix that does not depend on every bubble being able to
-    // state its height before it has measured its own text.
-    function noteRowResized(rowY, delta) {
-        if (Math.abs(delta) < 0.5 || list.count === 0 || programmaticScroll
-                || pendingJumpMessageId.length > 0) {
-            return
-        }
-        // Parked on the newest message the bottom pin already answers this, and
-        // answering twice would fight it.
-        if (pinnedToBottom) {
-            return
-        }
-        // A row that starts at or below the top of the viewport is growing in
-        // full view: that is the row changing, not the transcript moving, and
-        // taking the view with it would scroll the reader off what they are
-        // reading.
-        if (rowY >= list.contentY) {
-            return
-        }
-        // The list has not published its new content height yet, so the bound
-        // to clamp against is the one it is about to have.
-        const previous = list.contentY
-        const minY = kineticWheelScroller.minimumY()
-        const maxY = kineticWheelScroller.maximumY() + Math.max(0, delta)
-        const next = Math.max(minY, Math.min(maxY, previous + delta))
-        if (Math.abs(next - previous) < 0.5) {
-            return
-        }
-        const wasProgrammatic = programmaticScroll
-        programmaticScroll = true
-        list.contentY = next
-        programmaticScroll = wasProgrammatic
-        kineticWheelScroller.noteViewportShift(next - previous)
-    }
-
-    // list.count trails the model inside a rowsInserted handler: QQuickListView
-    // and our Connections both observe the same signal and the handler order is
-    // an implementation detail. Ask the model itself so an append is never
-    // misread as a prepend.
-    function modelRowCount() {
-        return list.model && typeof list.model.rowCount === "function"
-               ? list.model.rowCount()
-               : list.count
-    }
+    // A bottom-up list does not need it, and running it anyway would be the bug
+    // it was written to fix, with the sign flipped. Laid out from the newest
+    // message upward, a row growing somewhere up in history moves only the rows
+    // older than itself; everything between it and the composer is positioned
+    // from the bottom and does not care. There is no shove left to undo, so
+    // compensating for one would be a shove of its own.
 
     // Viewport-placement trace (WHATKEVR_PERF=1). Every path that can move the
     // viewport during an open reports through here, so one reproduction shows
@@ -942,11 +895,11 @@ Item {
 
     function captureOlderViewport() {
         olderViewportAnchorId = ""
-        if (topVisibleIndex < 0 || !list.model || typeof list.model.messageIdAt !== "function") {
+        if (oldestVisibleRow < 0 || !list.model || typeof list.model.messageIdAt !== "function") {
             return
         }
-        const item = list.itemAtIndex(topVisibleIndex)
-        olderViewportAnchorId = list.model.messageIdAt(topVisibleIndex)
+        const item = list.itemAtIndex(oldestVisibleRow)
+        olderViewportAnchorId = list.model.messageIdAt(oldestVisibleRow)
         olderViewportAnchorOffset = item !== null ? item.y - list.contentY : 0
     }
 
@@ -1129,18 +1082,20 @@ Item {
             return
         }
 
-        // The unread region spans anchorIndex..last (the highest row is newest).
-        // Without a locatable anchor only the newest row counts as "viewing".
-        let regionStart = list.count - 1
+        // The unread region runs from the anchor down to row 0, because the rows
+        // are held newest-first: everything unread is *at or below* the anchor's
+        // index, not above it. Without a locatable anchor only the newest row
+        // counts as "viewing".
+        let regionStart = 0
         if (unreadAnchorMessageId.length > 0 && list.model && typeof list.model.indexOf === "function") {
             const anchorIndex = list.model.indexOf(unreadAnchorMessageId)
             if (anchorIndex >= 0) {
                 regionStart = anchorIndex
             }
         }
-        if (bottomVisibleIndex >= regionStart && list.model
+        if (newestVisibleRow >= 0 && newestVisibleRow <= regionStart && list.model
                 && typeof list.model.messageIdAt === "function") {
-            const watermark = list.model.messageIdAt(bottomVisibleIndex)
+            const watermark = list.model.messageIdAt(newestVisibleRow)
             Whatevr.ProtocolController.markSelectedChatViewed(watermark)
         }
     }
@@ -1325,12 +1280,16 @@ Item {
             atNewest = true
             followNewest = true
             pendingNewestMessageCount = 0
-            topVisibleIndex = -1
-            bottomVisibleIndex = -1
+            oldestVisibleRow = -1
+            newestVisibleRow = -1
             topRowFraction = 0
             return
         }
 
+        // Rows are held newest-first, so the message highest on screen carries
+        // the *highest* index and the one against the composer carries the
+        // lowest. These two probes are still the visual top and bottom edges;
+        // it is only the ordering of what they return that has swapped.
         const cx = list.width / 2
         const topIndex = list.indexAt(cx, list.contentY + 1)
         const bottomIndex = list.indexAt(cx, list.contentY + Math.max(1, list.height - 1))
@@ -1353,22 +1312,26 @@ Item {
             lastTopIndex = -1
         }
 
-        let lo = -1
-        let hi = -1
+        // The oldest visible row is the one highest on screen and so the one
+        // with the larger index; the newest visible row is the smaller. Both
+        // probes return -1 when they land in the gap between two rows, so each
+        // end takes whichever of the two actually answered.
+        let newest = -1
+        let oldest = -1
         if (topIndex >= 0) {
-            lo = topIndex
-            hi = topIndex
+            newest = topIndex
+            oldest = topIndex
         }
         if (bottomIndex >= 0) {
-            lo = lo < 0 ? bottomIndex : Math.min(lo, bottomIndex)
-            hi = hi < 0 ? bottomIndex : Math.max(hi, bottomIndex)
+            newest = newest < 0 ? bottomIndex : Math.min(newest, bottomIndex)
+            oldest = oldest < 0 ? bottomIndex : Math.max(oldest, bottomIndex)
         }
 
-        if (lo >= 0) {
-            topVisibleIndex = lo
+        if (newest >= 0) {
+            newestVisibleRow = newest
         }
-        if (hi >= 0) {
-            bottomVisibleIndex = hi
+        if (oldest >= 0) {
+            oldestVisibleRow = oldest
         }
 
         // Geometry decides first: within followPixelSlack of the bottom counts
@@ -1377,9 +1340,11 @@ Item {
         // at the very bottom used to drop follow-mode outright).
         const nearBottom = distanceFromBottom() <= followPixelSlack
 
-        if (hi >= 0) {
-            atNewest = nearBottom || hi === list.count - 1
-            followNewest = atNewest || hi >= list.count - 1 - followRowThreshold
+        if (newest >= 0) {
+            // The newest message is row 0 now, so being parked at it is a test
+            // against zero rather than against the end of the list.
+            atNewest = nearBottom || newest === 0
+            followNewest = atNewest || newest <= followRowThreshold
         } else {
             atNewest = nearBottom || list.atYEnd
             followNewest = atNewest
@@ -1389,23 +1354,26 @@ Item {
             pendingNewestMessageCount = 0
         }
 
-        if (shouldPrefetchOlder(lo)) {
+        if (shouldPrefetchOlder(oldest)) {
             queueOlderLoadRequest()
         }
-        if (shouldPrefetchNewer(hi)) {
+        if (shouldPrefetchNewer(newest)) {
             queueNewerLoadRequest()
         }
 
         maybeMarkViewedRead()
     }
 
-    function shouldPrefetchOlder(topIndex) {
+    // History lies at the far end of the list now, so approaching it is a test
+    // against count - 1 rather than against zero. The two prefetch predicates
+    // swapped their arithmetic when the rows turned over, and nothing else.
+    function shouldPrefetchOlder(oldestRow) {
         return !openingChat
                 && pendingJumpMessageId.length === 0
-                && topIndex >= 0
+                && oldestRow >= 0
                 && canLoadOlderMessages
                 && !loadingOlderMessages
-                && topIndex <= prefetchRowThreshold
+                && oldestRow >= list.count - 1 - prefetchRowThreshold
     }
 
     function queueOlderLoadRequest() {
@@ -1415,20 +1383,20 @@ Item {
         olderLoadRequestQueued = true
         Qt.callLater(() => {
             olderLoadRequestQueued = false
-            if (shouldPrefetchOlder(topVisibleIndex)) {
+            if (shouldPrefetchOlder(oldestVisibleRow)) {
                 captureOlderViewport()
                 loadOlderMessagesRequested()
             }
         })
     }
 
-    function shouldPrefetchNewer(bottomIndex) {
+    function shouldPrefetchNewer(newestRow) {
         return !openingChat
                 && pendingJumpMessageId.length === 0
-                && bottomIndex >= 0
+                && newestRow >= 0
                 && canLoadNewerMessages
                 && !loadingNewerMessages
-                && bottomIndex >= list.count - 1 - prefetchRowThreshold
+                && newestRow <= prefetchRowThreshold
     }
 
     function queueNewerLoadRequest() {
@@ -1438,7 +1406,7 @@ Item {
         newerLoadRequestQueued = true
         Qt.callLater(() => {
             newerLoadRequestQueued = false
-            if (shouldPrefetchNewer(bottomVisibleIndex)) {
+            if (shouldPrefetchNewer(newestVisibleRow)) {
                 loadNewerMessagesRequested()
             }
         })
@@ -1470,8 +1438,8 @@ Item {
             return
         }
         lastTopIndex = -1
-        topVisibleIndex = -1
-        bottomVisibleIndex = -1
+        oldestVisibleRow = -1
+        newestVisibleRow = -1
         topRowFraction = 0
         if (pendingJumpMessageId.length === 0) {
             // A chat with unread messages opens at the unread divider instead
@@ -1551,42 +1519,62 @@ Item {
 
         objectName: "messageList"
 
-        // Pin the viewport itself to the bottom and only grow as tall as content,
-        // keeping short conversations adjacent to the composer.
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-
-        // The viewport hangs from the bottom edge and is never taller than its
-        // content, so both terms move it. They need opposite timing.
-        //
-        // The content's height is coalesced through the event queue: resizing
-        // the view triggers a layout pass that revises the estimate, so binding
-        // the height straight to it re-enters itself while delegates churn
-        // during a scroll.
-        //
-        // The pane's own height is not part of that cycle and must land in the
-        // frame it changes in. Anything that grows the composer (opening a
-        // reply strip, a wrapping line) shortens this pane from below, and the
-        // anchor moves the viewport up immediately; a height that arrives a
-        // turn later leaves the whole transcript drawn a strip too high for
-        // that turn and then snapping back. Parked at the newest message the
-        // drift is invisible, because pinning to the bottom was going to move
-        // the content by exactly that much anyway, which is why this only ever
-        // showed while scrolled up.
-        property real settledContentHeight: 0
-        Binding on settledContentHeight {
-            value: list.contentHeight
-            delayed: true
-        }
-        height: Math.min(settledContentHeight, list.parent.height)
+        anchors.fill: parent
         clip: true
 
-        // A viewport-height change (e.g. the pinned banner appearing/disappearing
-        // above us) leaves contentY untouched, so a list parked at the newest
-        // message drifts off the bottom edge. Re-pin when we were following the
-        // newest message and the user isn't mid-jump.
+        // The transcript is drawn from the bottom up: row 0 is the newest
+        // message and sits against the composer, and the rows climb away from
+        // it into history.
+        //
+        // This is the whole reason the model is held newest-first, and it fixes
+        // a class of problem rather than an instance of one. A ListView's
+        // contentHeight is an *estimate* built from the average height of the
+        // rows it has actually built, and it is revised every time another one
+        // materialises. Laid out top-down, that revision lands above the reader
+        // and shoves everything below it, which is why this file grew a
+        // scroll-anchoring apparatus (noteRowResized, applyBottomRepin, the
+        // delayed contentHeight-to-height binding, the settle timers) whose
+        // entire job was to undo the shove. Laid out bottom-up, the estimate is
+        // revised at the far end of the list, thousands of pixels up in history
+        // where nobody is looking, and the newest message never moves because
+        // it is the fixed point the layout is measured from.
+        //
+        // Two things stay exactly as they were, which is what makes this
+        // tractable: contentY is still a plain top-down coordinate over the
+        // content, so every geometric test in here (distanceFromBottom, the
+        // wheel scroller's bounds, atYEnd) reads the same. What inverts is only
+        // what a row *index* means, and Qt's naming is genuinely confusing about
+        // it: the model's beginning (index 0, the newest message) is at the
+        // geometric end, so positionViewAtBeginning() is what scrolls to the
+        // bottom of the screen.
+        verticalLayoutDirection: ListView.BottomToTop
+
+        // A viewport-height change (the pinned banner appearing above, the
+        // composer growing below) has to be answered differently depending on
+        // where the reader is, and a bottom-up list makes both answers explicit.
+        //
+        // Parked at the newest message, the bottom is where they want to stay,
+        // so re-pin. Scrolled up in history, the bottom is not where they are
+        // looking: the layout is measured from it, so shrinking the viewport
+        // slides everything they *are* looking at by the same amount. Undoing
+        // that by the height delta is the one piece of scroll anchoring this
+        // list still needs, and unlike the old apparatus it fires on an
+        // isolated, exactly-known event rather than on every revised estimate.
+        property real lastViewportHeight: 0
         onHeightChanged: {
+            const shrankBy = height - lastViewportHeight
+            lastViewportHeight = height
+
+            if (!root.followNewest && !root.programmaticScroll
+                    && root.pendingJumpMessageId.length === 0
+                    && list.count > 0 && Math.abs(shrankBy) >= 0.5) {
+                const wasProgrammatic = root.programmaticScroll
+                root.programmaticScroll = true
+                list.contentY += shrankBy
+                root.programmaticScroll = wasProgrammatic
+                return
+            }
+
             if (root.followNewest && !root.programmaticScroll
                     && root.pendingJumpMessageId.length === 0) {
                 // Re-pin synchronously so no drifted intermediate frame is
@@ -1600,17 +1588,23 @@ Item {
                 root.traceViewport("list.onHeightChanged:repin")
                 if (list.count > 0 && !root.openingChat) {
                     root.programmaticScroll = true
-                    list.positionViewAtEnd()
+                    list.positionViewAtBeginning()
                     Qt.callLater(() => { root.programmaticScroll = false })
                 }
                 Qt.callLater(root.scrollToNewest)
             }
         }
 
-        // Once the daemon's local history is fully loaded, the header at the
-        // visual top offers pulling older messages from the phone, or
-        // states that nothing older exists there.
-        header: Item {
+        // Once the daemon's local history is fully loaded, the strip at the
+        // visual top offers pulling older messages from the phone, or states
+        // that nothing older exists there.
+        //
+        // The list's `footer`, not its `header`, and for the same reason
+        // positionViewAtBeginning() scrolls to the bottom: these two are named
+        // after the ends of the *model*, and the model runs newest-first. The
+        // header would draw this under the newest message, which is the one
+        // place in the transcript where older history certainly is not.
+        footer: Item {
             width: list.width
             height: phoneHistoryColumn.visible
                     ? phoneHistoryColumn.implicitHeight + Kirigami.Units.largeSpacing * 2
@@ -1881,32 +1875,12 @@ Item {
             onSelectionToggleRequested: root.toggleSelected(messageDelegate.messageId)
             onDaySelectionToggleRequested: root.toggleDaySelection(messageDelegate.messageId)
 
-            // Scroll-anchoring bookkeeping. A row reports a resize only once the
-            // list has placed it, so the run of heights a delegate walks
-            // through while it is being built or handed a new message's data is
-            // never mistaken for the transcript moving.
-            property bool placedByListView: false
-            property real placedHeight: 0
-
-            onYChanged: placedByListView = true
-
-            ListView.onPooled: {
-                pooledByListView = true
-                placedByListView = false
-            }
-
-            ListView.onReused: {
-                pooledByListView = false
-                placedHeight = height
-            }
-
-            onHeightChanged: {
-                const previous = placedHeight
-                placedHeight = height
-                if (placedByListView && !pooledByListView && previous > 0) {
-                    root.noteRowResized(y, height - previous)
-                }
-            }
+            // The scroll-anchoring bookkeeping that used to live here (two
+            // properties, an onYChanged and an onHeightChanged on every row in
+            // the chat) went with the anchoring itself: a bottom-up list holds
+            // the reader still on its own. See the note by noteRowResized.
+            ListView.onPooled: pooledByListView = true
+            ListView.onReused: pooledByListView = false
         }
 
         onContentYChanged: {
@@ -1937,7 +1911,7 @@ Item {
             // viewport has not yet come to rest anywhere.
             //
             // Coalesced through the event queue rather than run inline: rows
-            // settle their heights in bursts, and positionViewAtEnd() forces a
+            // settle their heights in bursts, and positionViewAtBeginning() forces a
             // full layout every time it is called. One re-pin per frame is
             // indistinguishable on screen and turns a burst of forced layouts
             // into a single one.
@@ -1972,9 +1946,11 @@ Item {
                 }
             }
             function onRowsInserted(parent, first, last) {
-                // Live-edge messages append at the end. Older extends prepend;
-                // their viewport is restored when loadingOlderMessages clears.
-                if (!root.openingChat && last === root.modelRowCount() - 1) {
+                // A message arriving at the live edge lands at row 0, because
+                // the rows are held newest-first. Older extends land at the far
+                // end instead; their viewport is restored when
+                // loadingOlderMessages clears.
+                if (!root.openingChat && first === 0) {
                     if (root.followNewest && root.pendingJumpMessageId.length === 0) {
                         Qt.callLater(root.scrollToNewest)
                     } else {
@@ -1984,9 +1960,12 @@ Item {
                             100, root.pendingNewestMessageCount + root.incomingRowsBetween(first, last))
                     }
                 }
+                // Rows older than the anchor now land at indices *above* it,
+                // not below, so the test that says "history arrived behind
+                // where the reader is" turns over with everything else.
                 if (root.phoneHistoryAnchorActive && list.model
                         && typeof list.model.indexOf === "function"
-                        && first < list.model.indexOf(root.phoneHistoryViewportAnchorId)) {
+                        && last > list.model.indexOf(root.phoneHistoryViewportAnchorId)) {
                     Qt.callLater(root.restorePhoneHistoryViewport)
                 }
             }
@@ -2119,9 +2098,17 @@ Item {
         z: kineticWheelScroller.z + 1
 
         count: list.count
-        topVisibleIndex: root.topVisibleIndex
-        bottomVisibleIndex: root.bottomVisibleIndex
-        topRowFraction: root.topRowFraction
+
+        // Translated from row indices into rows on the screen here, once, so the
+        // scrollbar never has to know which way the model runs. Older messages
+        // are the ones above the viewport, and they are the ones with indices
+        // above the oldest visible row.
+        visibleSpan: root.oldestVisibleRow >= 0 && root.newestVisibleRow >= 0
+                     ? Math.max(1, root.oldestVisibleRow - root.newestVisibleRow + 1)
+                     : 1
+        rowsAbove: root.oldestVisibleRow >= 0
+                   ? Math.max(0, list.count - 1 - root.oldestVisibleRow + root.topRowFraction)
+                   : 0
 
         onDraggingChanged: {
             // Reset the drag-velocity estimator on both grab and release so
@@ -2139,7 +2126,12 @@ Item {
             }
         }
 
-        onDragPositionRequested: (index, fraction) => {
+        onDragPositionRequested: rowsAbove => {
+            // Back from rows-on-screen into a row index: the row wanted at the
+            // visual top is the one with exactly this many older rows above it.
+            const whole = Math.floor(rowsAbove)
+            const index = Math.max(0, Math.min(list.count - 1, list.count - 1 - whole))
+            const fraction = rowsAbove - whole
             // positionViewAtIndex materialises the row near the viewport; the
             // exact alignment is done through contentY below.
             list.positionViewAtIndex(index, ListView.Visible)
