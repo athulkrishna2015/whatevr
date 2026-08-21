@@ -1677,10 +1677,20 @@ Item {
         // prepared here is one fewer synchronous creation while the user is
         // scrolling (those are what stall frames). Two viewports each way, not
         // four: every row in the band is a live delegate that re-evaluates its
-        // bindings on a model change, and a chat open pays for all of them at
-        // once. Cached text rows are a Text node plus a few rectangles; the
-        // bound cost left in the band is thumbnail decodes, capped per image.
-        cacheBuffer: Math.max(height * 2, Kirigami.Units.gridUnit * 60)
+        // bindings on a model change. Cached text rows are a Text node plus a
+        // few rectangles; the bound cost left in the band is thumbnail decodes,
+        // capped per image.
+        //
+        // The band is closed while a chat is opening, and that is the whole
+        // point. Two viewports each way is five viewports of rows, and an open
+        // starts with an empty reuse pool, so leaving the band open meant
+        // building every one of them before the first frame could be painted:
+        // measured, 55 delegates for a window whose viewport shows 20. Opening
+        // with the band shut builds the viewport, paints it, and lets the band
+        // fill afterwards out of idle time, which is what "incubated
+        // asynchronously" was supposed to buy in the first place.
+        readonly property real steadyCacheBuffer: Math.max(height * 2, Kirigami.Units.gridUnit * 60)
+        cacheBuffer: root.openingChat ? 0 : steadyCacheBuffer
         reuseItems: true
 
         // True while flinging faster than ~1.25 viewport-heights per second.

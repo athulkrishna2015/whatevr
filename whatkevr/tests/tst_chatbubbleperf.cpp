@@ -2051,12 +2051,16 @@ void ChatBubblePerf::openingAChatBuildsItsWindowWithinBudget()
 {
     // The window a `messages` subscribe asks for (kMessagePageSize).
     constexpr int kWindowRows = 80;
-    // A ceiling, not a target, and set just above what this measures today so
-    // regrowth is a build failure. The baseline it was set from: 3163 objects
-    // across 55 materialised rows (58 per row) and ~80ms to lay the window out,
-    // Release, for eighty plain text rows carrying no media at all. Lower it
-    // whenever a landing earns the lower number.
-    constexpr int kMaxObjects = 3400;
+    // A ceiling on the settled band, not a target, set just above what this
+    // measures today so regrowth is a build failure. Lower it whenever a
+    // landing earns the lower number.
+    //
+    // Baselines this was set from, Release, eighty plain text rows carrying no
+    // media at all, on the settled band of 55 rows: 4180 objects, 76 per row.
+    // Time to glass with the cache band left open during the open was ~197ms
+    // for all 55 of those rows; shutting the band for the open brought it to
+    // ~70ms for the 19 rows the viewport actually shows.
+    constexpr int kMaxObjects = 4400;
 
     CollectionViewModel source;
     ProtocolMessageModel model(&source);
@@ -2118,6 +2122,11 @@ void ChatBubblePerf::openingAChatBuildsItsWindowWithinBudget()
         sorts.append(QStringLiteral("%1").arg(1'700'000'000 + i * 60, 20, 10, QLatin1Char('0')));
     }
 
+    // An open runs with openingChat latched, which is what shuts the cache
+    // buffer while the viewport is being built. Setting it here is what makes
+    // this measure an open rather than a live append.
+    viewItem->setProperty("openingChat", true);
+
     QElapsedTimer timer;
     timer.start();
 
@@ -2129,43 +2138,82 @@ void ChatBubblePerf::openingAChatBuildsItsWindowWithinBudget()
     source.onReady(true, true);
     QCOMPARE(model.rowCount(), kWindowRows);
 
-    // Spin until the view has actually laid the window out. This is the number
-    // that answers "how long until the transcript is on screen".
+    // Spin until the view stops building rows. This is the number that answers
+    // "how long until the transcript is on screen", and it has to be quiescence
+    // rather than "the first delegate exists": the list's own height is a
+    // delayed binding on its content height, so the viewport it is filling is
+    // still growing for several turns after the rows land, and each turn
+    // materialises more of them.
     //
     // Deliberately not QTRY_VERIFY: it sleeps 50ms between polls, which would
     // quantise a 20ms fill and a 69ms one to the same reading. A tight
-    // processEvents loop costs nothing when the condition is already true and
-    // resolves to the frame the layout actually completed on.
-    const auto laidOut = [&] {
-        return list->property("count").toInt() == kWindowRows
-            && list->property("contentHeight").toReal() > 0;
+    // processEvents loop resolves to the turn the building actually stopped on.
+    QCOMPARE(list->property("count").toInt(), kWindowRows);
+    const auto builtRows = [&] {
+        int n = 0;
+        const auto children =
+            list->property("contentItem").value<QQuickItem *>()->childItems();
+        for (QQuickItem *child : children) {
+            if (!child->property("messageId").toString().isEmpty()) {
+                ++n;
+            }
+        }
+        return n;
     };
+    constexpr int kQuietTurns = 8;
+    int quiet = 0;
+    int lastRows = -1;
     QDeadlineTimer deadline(5000);
-    while (!laidOut() && !deadline.hasExpired()) {
+    while (quiet < kQuietTurns && !deadline.hasExpired()) {
         QCoreApplication::processEvents();
+        const int now = builtRows();
+        quiet = (now == lastRows && now > 0) ? quiet + 1 : 0;
+        lastRows = now;
     }
     const double fillMs = timer.nsecsElapsed() / 1e6;
-    QVERIFY2(laidOut(), "the view never laid the window out");
+    QVERIFY2(lastRows > 0, "the view never laid the window out");
 
-    // Let the cache buffer finish incubating, so the object count describes the
-    // steady state an open leaves behind rather than whichever frame we caught.
-    QTest::qWait(600);
-
+    // What the user waited for: the rows the viewport actually needed. The
+    // cache band is opened below, exactly as afterModelReset() does it, and
+    // what it costs afterwards is off the critical path.
     QQuickItem *content = list->property("contentItem").value<QQuickItem *>();
     QVERIFY2(content, "the list has no content item");
-    int materialised = 0;
-    const auto delegates = content->childItems();
-    for (QQuickItem *child : delegates) {
-        if (!child->property("messageId").toString().isEmpty()) {
-            ++materialised;
+    // Rows, and what those rows cost. Summed per delegate rather than taken
+    // from the content item in one go, for the reason findVisualChild exists:
+    // QQmlDelegateModel owns the delegates, so they are visual children of the
+    // content item without being QObject children of it, and a single
+    // findChildren() walk from the top misses every one of them.
+    //
+    // Scoped to the delegates deliberately: the pane also owns its context
+    // menus, dialogs, scrollbars and wheel scroller, a fixed cost paid once per
+    // pane that has nothing to do with how expensive a window of rows is.
+    const auto measureDelegates = [&] {
+        int rowCount = 0;
+        int objects = 0;
+        const auto children = content->childItems();
+        for (QQuickItem *child : children) {
+            if (child->property("messageId").toString().isEmpty()) {
+                continue;
+            }
+            ++rowCount;
+            objects += objectCount(child);
         }
-    }
-    QVERIFY2(materialised > 0, "the list materialised no rows at all");
+        return std::pair<int, int>{rowCount, objects};
+    };
+    const auto [paintedRows, paintedObjects] = measureDelegates();
 
-    const int objects = objectCount(viewItem);
-    qInfo("DN9 %-24s objects=%5d  rows=%3d/%d  objects/row=%4.0f  fill=%6.1f ms",
-          "chat-open", objects, materialised, kWindowRows,
-          double(objects) / materialised, fillMs);
+    // The open settles and the band opens. Let it finish incubating, so the
+    // steady-state numbers describe what an open leaves behind rather than
+    // whichever frame we happened to catch.
+    viewItem->setProperty("openingChat", false);
+    QTest::qWait(600);
+
+    const auto [materialised, objects] = measureDelegates();
+    QVERIFY2(paintedRows > 0, "the list materialised no rows at all");
+    qInfo("DN9 %-24s painted: %5d objects over %3d rows in %6.1f ms | "
+          "settled: %5d objects over %3d/%d rows (%.0f/row)",
+          "chat-open", paintedObjects, paintedRows, fillMs,
+          objects, materialised, kWindowRows, double(objects) / materialised);
 
     m_window->hide();
     viewItem->setParentItem(nullptr);
