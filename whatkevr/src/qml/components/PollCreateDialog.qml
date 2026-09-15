@@ -9,10 +9,10 @@ QQC2.Dialog {
 
     title: Whatevr.I18n.i18nc("@title:window", "Create Poll")
     modal: true
-    anchors.centerIn: Overlay.overlay
-    width: Math.min(Kirigami.Units.gridUnit * 24, Overlay.overlay ? Overlay.overlay.width - Kirigami.Units.gridUnit * 4 : 400)
+    anchors.centerIn: QQC2.Overlay.overlay
+    width: Math.min(Kirigami.Units.gridUnit * 24, QQC2.Overlay.overlay ? QQC2.Overlay.overlay.width - Kirigami.Units.gridUnit * 4 : 400)
     standardButtons: QQC2.Dialog.Ok | QQC2.Dialog.Cancel
-    parent: Overlay.overlay
+    parent: QQC2.Overlay.overlay
 
     property var options: ["", ""]
     property string replyToMessageId: ""

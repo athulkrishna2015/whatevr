@@ -5,6 +5,37 @@ PROTOCOL.md (stable at version 1: additive changes only).
 
 ## Unreleased
 
+### Fixed
+
+- `whatkevr` failed to launch entirely: the window never appeared, the process
+  exited 1, and nothing was printed to the terminal. `ChatBubble.qml` used
+  `QQC2.Button` (commit c94de1a) without the `import QtQuick.Controls as QQC2`
+  alias, which made the whole QML tree fail to load at runtime
+  (`QQC2 is neither a type nor a namespace`), cascading through MessageView →
+  ConversationPane → Main. The alias import was added alongside the plain one
+  (the file's other Controls types — Button, Label, ToolButton, BusyIndicator —
+  use unqualified names). Diagnosed via `journalctl --user | grep whatkevr`:
+  QML load errors from a desktop-file launch land in the journal, not on
+  stderr.
+- `PollCreateDialog.qml` referenced the unqualified `Overlay` attached object
+  without importing it — creating a poll logged `ReferenceError: Overlay is
+  not defined` and the dialog had no parent/centering. Qualified with the
+  file's existing `QQC2` alias, matching `MediaViewer`/`ProfilePictureViewer`.
+- `MessageComposer.qml` contact/location attach dialogs used the nonexistent
+  `Platform.FileDialog.AcceptOpenFileName` enum (`OpenFile` is the actual
+  name, as the file's other dialogs already used), a nonexistent `fileUrl`
+  property (the property is `file`), non-QML-JS `new QUrl(...)` and
+  `Qt.basename(...)` calls — attaching a contact or location would have thrown
+  at runtime. They now use `file` directly, matching the other dialogs in the
+  file, with a `decodeURI` basename fallback for the contact name.
+- The expression picker froze on the stickers tab: `ExpressionPicker.qml`
+  called `stickerPane.deactivate()` when switching back to emoji or closing,
+  but `StickerPane` never exposed that function. The TypeError aborted the
+  mode switch mid-way (`root.mode` was never updated), wedging the picker in
+  stickers mode. `StickerPane` now forwards `deactivate()` to the sticker
+  controller, which tears the view subscription down as intended.
+
+
 ### Added — sending
 
 - `send.media` now sends video, audio, voice notes and documents, not just

@@ -35,6 +35,13 @@ Item {
         pane.stickers.activate()
     }
 
+    // ExpressionPicker calls this when switching back to the emoji pane or on
+    // close: it tears the stickers view subscription down so the daemon stops
+    // streaming pack updates nobody is looking at.
+    function deactivate() {
+        pane.stickers.deactivate()
+    }
+
     function applySearchFilter(query) {
         pane.sendErrorText = ""
         if (query.length > 0) {

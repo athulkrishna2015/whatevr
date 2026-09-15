@@ -1084,14 +1084,16 @@ Frame {
         id: contactDialog
 
         title: Whatevr.I18n.i18nc("@title:window", "Attach contact")
-        fileMode: Platform.FileDialog.AcceptOpenFileName
+        fileMode: Platform.FileDialog.OpenFile
         nameFilters: [
             Whatevr.I18n.i18nc("@item:inlistbox", "vCard files (*.vcf)"),
             Whatevr.I18n.i18nc("@item:inlistbox", "All files (*)")
         ]
         onAccepted: {
-            const file = fileUrl.toString()
-            const localPath = file.startsWith("file:") ? new QUrl(file).toLocalFile() : file
+            // `file` is the picked URL (file:///...). XHR fetches file URLs
+            // directly; the basename fallback decodes the percent-encoding a
+            // URL carries for spaces and other special characters.
+            const base = decodeURI(file.substring(file.lastIndexOf("/") + 1))
             // Extract name and phone from the vCard, falling back to the filename.
             // The daemon sends contacts as name+phone so we parse the minimal vCard
             // fields the frontend has without depending on a vcard library.
@@ -1099,7 +1101,7 @@ Frame {
             let phone = ""
             try {
                 const req = new XMLHttpRequest()
-                req.open("GET", localPath, false)
+                req.open("GET", file, false)
                 req.send(null)
                 const txt = req.responseText
                 const fnMatch = txt.match(/FN[:;][^:\n]*/i)
@@ -1107,9 +1109,9 @@ Frame {
                 const telMatch = txt.match(/TEL[^:\n]*:([0-9+#\s()-]+)/i)
                 if (telMatch) phone = telMatch[1].trim()
             } catch (e) {
-                name = Qt.basename(localPath)
+                name = base
             }
-            if (!name) name = Qt.basename(localPath)
+            if (!name) name = base
             root.setComposing(false)
             Whatevr.ProtocolController.sendContact(name, phone, root.replyToMessageId)
             root.replyConsumed()
@@ -1122,13 +1124,11 @@ Frame {
         id: locationDialog
 
         title: Whatevr.I18n.i18nc("@title:window", "Attach location")
-        fileMode: Platform.FileDialog.AcceptOpenFileName
+        fileMode: Platform.FileDialog.OpenFile
         onAccepted: {
-            const file = fileUrl.toString()
-            const localPath = file.startsWith("file:") ? new QUrl(file).toLocalFile() : file
             try {
                 const req = new XMLHttpRequest()
-                req.open("GET", localPath, false)
+                req.open("GET", file, false)
                 req.send(null)
                 const data = JSON.parse(req.responseText)
                 root.setComposing(false)
