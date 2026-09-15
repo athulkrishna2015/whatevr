@@ -5,6 +5,8 @@ PROTOCOL.md (stable at version 1: additive changes only).
 
 ## Unreleased
 
+## 0.8.0 — 2026-09-15
+
 ### Fixed
 
 - `whatkevr` failed to launch entirely: the window never appeared, the process
@@ -34,7 +36,6 @@ PROTOCOL.md (stable at version 1: additive changes only).
   mode switch mid-way (`root.mode` was never updated), wedging the picker in
   stickers mode. `StickerPane` now forwards `deactivate()` to the sticker
   controller, which tears the view subscription down as intended.
-
 
 ### Added — sending
 
