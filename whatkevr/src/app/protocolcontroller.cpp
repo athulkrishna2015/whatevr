@@ -396,6 +396,17 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
     connect(m_callsModel, &CollectionViewModel::readyChanged, this, &ProtocolController::callsChanged);
     connect(m_callsModel, &CollectionViewModel::modelReset, this, &ProtocolController::callsChanged);
 
+    m_channelsModel = new CollectionViewModel(this);
+    connect(m_channelsModel, &CollectionViewModel::countChanged, this, &ProtocolController::channelsChanged);
+    connect(m_channelsModel, &CollectionViewModel::readyChanged, this, &ProtocolController::channelsChanged);
+    connect(m_channelsModel, &CollectionViewModel::modelReset, this, &ProtocolController::channelsChanged);
+    m_channelMessagesModel = new CollectionViewModel(this);
+    connect(m_channelMessagesModel, &CollectionViewModel::countChanged, this, &ProtocolController::channelMessagesChanged);
+    connect(m_channelMessagesModel, &CollectionViewModel::readyChanged, this, &ProtocolController::channelMessagesChanged);
+    connect(m_channelMessagesModel, &CollectionViewModel::modelReset, this, &ProtocolController::channelMessagesChanged);
+
+    m_logsModel = new CollectionViewModel(this);
+
     // Info card (D5): one object view (either `contact` or `group`, whichever
     // the open dialog asked for) plus the group's member roster. Two-phase
     // enrichment arrives as ordinary upserts on both.
@@ -547,6 +558,9 @@ ProtocolController::~ProtocolController()
     delete m_privacySub;
     delete m_preferencesSub;
     delete m_selfSub;
+    delete m_logsSub;
+    delete m_channelsSub;
+    delete m_channelMessagesSub;
     m_chatMembersSub = nullptr;
     m_starredSub = nullptr;
     m_chatMediaSub = nullptr;
@@ -556,6 +570,7 @@ ProtocolController::~ProtocolController()
     m_privacySub = nullptr;
     m_preferencesSub = nullptr;
     m_selfSub = nullptr;
+    m_logsSub = nullptr;
     m_connectionSub = nullptr;
     m_loginSub = nullptr;
     m_chatsSub = nullptr;
@@ -1715,6 +1730,107 @@ bool ProtocolController::sendClipboardImage(const QString &caption, const QStrin
     return false;
 }
 
+void ProtocolController::sendPoll(const QString &question, const QStringList &options, bool multiSelect, const QString &replyToMessageId)
+{
+    const QString trimmed = question.trimmed();
+    if (m_selectedChatId.isEmpty() || trimmed.isEmpty() || options.isEmpty() || m_sendInFlight) {
+        return;
+    }
+
+    setSelectedChatComposing(false);
+    dismissUnreadAnchor();
+    Q_EMIT messageSent();
+
+    QJsonArray opts;
+    for (const QString &opt : options) {
+        if (!opt.trimmed().isEmpty()) {
+            opts.append(opt.trimmed());
+        }
+    }
+
+    QJsonObject params{{QStringLiteral("chat_id"), m_selectedChatId},
+                       {QStringLiteral("question"), trimmed},
+                       {QStringLiteral("options"), opts},
+                       {QStringLiteral("multi"), multiSelect}};
+    if (const QString reply = replyToMessageId.trimmed(); !reply.isEmpty()) {
+        params.insert(QStringLiteral("reply_to"), reply);
+    }
+
+    m_sendInFlight = true;
+    m_composerErrorText.clear();
+    Q_EMIT composerChanged();
+
+    m_client->request(QStringLiteral("send.poll"), params, [this](const QJsonObject &, const ProtocolError &error) {
+        m_sendInFlight = false;
+        m_composerErrorText = error.isError()
+            ? (error.message.isEmpty() ? i18nc("@info", "Unable to send poll") : error.message)
+            : QString();
+        Q_EMIT composerChanged();
+    });
+}
+
+void ProtocolController::sendContact(const QString &name, const QString &phone, const QString &replyToMessageId)
+{
+    if (m_selectedChatId.isEmpty() || name.trimmed().isEmpty() || phone.trimmed().isEmpty() || m_sendInFlight) {
+        return;
+    }
+
+    setSelectedChatComposing(false);
+    dismissUnreadAnchor();
+    Q_EMIT messageSent();
+
+    QJsonObject params{{QStringLiteral("chat_id"), m_selectedChatId},
+                       {QStringLiteral("name"), name.trimmed()},
+                       {QStringLiteral("phone"), phone.trimmed()}};
+    if (const QString reply = replyToMessageId.trimmed(); !reply.isEmpty()) {
+        params.insert(QStringLiteral("reply_to"), reply);
+    }
+
+    m_sendInFlight = true;
+    m_composerErrorText.clear();
+    Q_EMIT composerChanged();
+
+    m_client->request(QStringLiteral("send.contact"), params, [this](const QJsonObject &, const ProtocolError &error) {
+        m_sendInFlight = false;
+        m_composerErrorText = error.isError()
+            ? (error.message.isEmpty() ? i18nc("@info", "Unable to send contact") : error.message)
+            : QString();
+        Q_EMIT composerChanged();
+    });
+}
+
+void ProtocolController::sendLocation(double latitude, double longitude, const QString &name, const QString &address, const QString &replyToMessageId)
+{
+    if (m_selectedChatId.isEmpty() || (latitude == 0.0 && longitude == 0.0) || m_sendInFlight) {
+        return;
+    }
+
+    setSelectedChatComposing(false);
+    dismissUnreadAnchor();
+    Q_EMIT messageSent();
+
+    QJsonObject params{{QStringLiteral("chat_id"), m_selectedChatId},
+                       {QStringLiteral("lat"), latitude},
+                       {QStringLiteral("long"), longitude},
+                       {QStringLiteral("name"), name},
+                       {QStringLiteral("address"), address}};
+    if (const QString reply = replyToMessageId.trimmed(); !reply.isEmpty()) {
+        params.insert(QStringLiteral("reply_to"), reply);
+    }
+
+    m_sendInFlight = true;
+    m_composerErrorText.clear();
+    Q_EMIT composerChanged();
+
+    m_client->request(QStringLiteral("send.location"), params, [this](const QJsonObject &, const ProtocolError &error) {
+        m_sendInFlight = false;
+        m_composerErrorText = error.isError()
+            ? (error.message.isEmpty() ? i18nc("@info", "Unable to send location") : error.message)
+            : QString();
+        Q_EMIT composerChanged();
+    });
+}
+
 void ProtocolController::setSelectedChatComposing(bool composing)
 {
     if (m_selectedChatId.isEmpty()) {
@@ -1927,6 +2043,20 @@ void ProtocolController::forwardMessage(const QString &messageId, const QStringL
             Q_EMIT messageForwarded(m_forwardBatchChatCount);
         }
     });
+}
+
+void ProtocolController::votePoll(const QString &messageId, const QStringList &selectedOptions)
+{
+    if (messageId.isEmpty() || selectedOptions.isEmpty()) {
+        return;
+    }
+    QJsonArray opts;
+    for (const QString &opt : selectedOptions) {
+        opts.append(opt);
+    }
+    sendMessageCommand(QStringLiteral("message.vote"),
+                       {{QStringLiteral("message_id"), messageId}, {QStringLiteral("options"), opts}},
+                       i18nc("@info", "Unable to record your vote"));
 }
 
 bool ProtocolController::canEditAt(qint64 timestampUnix) const
@@ -2437,6 +2567,11 @@ int ProtocolController::callsRingingCount() const
     return m_callsModel ? m_callsModel->count() : 0;
 }
 
+QAbstractItemModel *ProtocolController::logsModel() const
+{
+    return m_logsModel;
+}
+
 void ProtocolController::openCalls()
 {
     delete m_callsSub;
@@ -2458,6 +2593,44 @@ void ProtocolController::closeCalls()
     Q_EMIT callsChanged();
 }
 
+void ProtocolController::openLogs()
+{
+    if (m_logsSub) {
+        return;
+    }
+    m_logsLoading = true;
+    Q_EMIT logsLoadingChanged();
+
+    delete m_logsSub;
+    m_logsSub = nullptr;
+    m_logsModel->onReset();
+
+    m_logsSub = m_client->subscribe(
+        QStringLiteral("daemon.logs"),
+        {{QStringLiteral("limit"), 200}},
+        m_logsModel);
+    connect(m_logsModel, &CollectionViewModel::readyChanged, this, [this] {
+        if (m_logsLoading && m_logsModel->isReady()) {
+            m_logsLoading = false;
+            Q_EMIT logsLoadingChanged();
+        }
+    });
+}
+
+void ProtocolController::closeLogs()
+{
+    if (!m_logsSub) {
+        return;
+    }
+    delete m_logsSub;
+    m_logsSub = nullptr;
+    m_logsModel->onReset();
+    if (m_logsLoading) {
+        m_logsLoading = false;
+        Q_EMIT logsLoadingChanged();
+    }
+}
+
 void ProtocolController::rejectCall(const QString &chatId)
 {
     if (chatId.isEmpty()) {
@@ -2465,6 +2638,115 @@ void ProtocolController::rejectCall(const QString &chatId)
     }
     sendMessageCommand(QStringLiteral("call.reject"), {{QStringLiteral("chat_id"), chatId}},
                        i18nc("@info", "Unable to reject the call"));
+}
+
+// --- channels tab -----------------------------------------------------------
+
+QAbstractItemModel *ProtocolController::channelsModel() const
+{
+    return m_channelsModel;
+}
+
+bool ProtocolController::channelsLoading() const
+{
+    return m_channelsSub != nullptr && !m_channelsModel->isReady();
+}
+
+QAbstractItemModel *ProtocolController::channelMessagesModel() const
+{
+    return m_channelMessagesModel;
+}
+
+bool ProtocolController::channelMessagesLoading() const
+{
+    return m_channelMessagesSub != nullptr && !m_channelMessagesModel->isReady();
+}
+
+QString ProtocolController::selectedChannelJid() const
+{
+    return m_selectedChannelJid;
+}
+
+QString ProtocolController::selectedChannelName() const
+{
+    return m_selectedChannelName;
+}
+
+void ProtocolController::openChannels()
+{
+    delete m_channelsSub;
+    m_channelsSub = nullptr;
+    m_channelsModel->onReset();
+
+    m_channelsSub = m_client->subscribe(QStringLiteral("channels"), {}, m_channelsModel);
+    Q_EMIT channelsChanged();
+}
+
+void ProtocolController::closeChannels()
+{
+    if (!m_channelsSub) {
+        return;
+    }
+    delete m_channelsSub;
+    m_channelsSub = nullptr;
+    m_channelsModel->onReset();
+    Q_EMIT channelsChanged();
+}
+
+void ProtocolController::openChannelMessages(const QString &jid, const QString &name)
+{
+    closeChannelMessages();
+    m_selectedChannelJid = jid;
+    m_selectedChannelName = name;
+    Q_EMIT channelMessagesChanged();
+
+    m_channelMessagesSub = m_client->subscribe(
+        QStringLiteral("channel_messages"),
+        {{QStringLiteral("channel"), jid}},
+        m_channelMessagesModel);
+}
+
+void ProtocolController::closeChannelMessages()
+{
+    if (!m_channelMessagesSub) {
+        return;
+    }
+    delete m_channelMessagesSub;
+    m_channelMessagesSub = nullptr;
+    m_channelMessagesModel->onReset();
+    m_selectedChannelJid.clear();
+    m_selectedChannelName.clear();
+    Q_EMIT channelMessagesChanged();
+}
+
+void ProtocolController::followChannel(const QString &jidOrLink)
+{
+    if (jidOrLink.trimmed().isEmpty()) {
+        return;
+    }
+    QJsonObject params;
+    if (jidOrLink.contains(QLatin1Char('/')) || jidOrLink.startsWith(QStringLiteral("http")))
+        params[QStringLiteral("invite")] = jidOrLink;
+    else
+        params[QStringLiteral("jid")] = jidOrLink;
+    m_client->request(QStringLiteral("channel.follow"), params);
+}
+
+void ProtocolController::unfollowChannel(const QString &jid)
+{
+    if (jid.isEmpty()) {
+        return;
+    }
+    m_client->request(QStringLiteral("channel.unfollow"), {{QStringLiteral("jid"), jid}});
+}
+
+void ProtocolController::muteChannel(const QString &jid, bool muted)
+{
+    if (jid.isEmpty()) {
+        return;
+    }
+    m_client->request(QStringLiteral("channel.mute"),
+                      {{QStringLiteral("jid"), jid}, {QStringLiteral("muted"), muted}});
 }
 
 void ProtocolController::leaveGroup(const QString &chatId)
@@ -2509,7 +2791,7 @@ bool ProtocolController::chatMediaExhausted() const
     return m_chatMediaSub == nullptr || m_chatMediaModel->isExhausted();
 }
 
-void ProtocolController::openChatMedia(const QString &chatId)
+void ProtocolController::openChatMedia(const QString &chatId, const QString &kind)
 {
     delete m_chatMediaSub;
     m_chatMediaSub = nullptr;
@@ -2519,10 +2801,13 @@ void ProtocolController::openChatMedia(const QString &chatId)
         return;
     }
 
-    m_chatMediaSub = m_client->subscribe(QStringLiteral("chat_media"),
-                                         {{QStringLiteral("chat_id"), chatId},
-                                          {QStringLiteral("limit"), kChatMediaPageSize}},
-                                         m_chatMediaModel);
+    QJsonObject params{
+        {QStringLiteral("chat_id"), chatId},
+        {QStringLiteral("limit"), kChatMediaPageSize}};
+    if (!kind.isEmpty())
+        params[QStringLiteral("kind")] = kind;
+
+    m_chatMediaSub = m_client->subscribe(QStringLiteral("chat_media"), params, m_chatMediaModel);
     Q_EMIT chatMediaChanged();
 }
 

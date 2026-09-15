@@ -192,6 +192,60 @@ Self-profile photo editing remains incomplete because the pinned whatsmeow
 version exposes profile-picture reading but not a direct public self-avatar
 setter.
 
+### Polls Frontend
+
+- `PollCreateDialog.qml` added; wired to `send.poll` via
+  `ProtocolController::sendPoll` (chat_id from the selected conversation,
+  multi-select toggle, 2–12 options validated client-side).
+- Poll bubbles render question, options with vote bars (single/multi icons),
+  and a vote-count label.
+- Poll voting wired via `ProtocolController::votePoll` (`message.vote`);
+  multi-select toggles and re-votes per server-side ballot replacement.
+
+### Contact and Location Sharing
+
+- `send.contact` wired via `ProtocolController::sendContact`; the composer's
+  attach menu opens a vCard file dialog that extracts name and phone.
+- `send.location` wired via `ProtocolController::sendLocation`; the composer's
+  attach menu opens a JSON location file dialog.
+- Contact bubbles render name, phone, and a "Message" button that opens a
+  direct chat with the contact's JID.
+- Location bubbles render a pin placeholder, name, address, and an
+  "Open in Maps" link to OpenStreetMap.
+
+### Gallery Filters
+
+- `ChatMediaGalleryPage.qml` filters extended to all daemon-supported
+  gallery kinds: Photos, Videos, Voice, Audio, Docs, Polls, Contacts, Locations.
+- Links use the separate `chat_links` view, which remains a pending separate
+  page (not a `chat_media` kind).
+
+### Channels Frontend
+
+- `ChannelsPage.qml` added with a followed-channel list and a "Follow Channel"
+  action that accepts an invite link or JID.
+- `ChannelMessagesPage.qml` added with a read-only channel message timeline,
+  unfollow and mute/unmute actions.
+- `ChatListSidebar.qml` rail gains Channels and Logs buttons.
+- `ProtocolController` gains `openChannels`/`closeChannels`,
+  `openChannelMessages`/`closeChannelMessages`, `followChannel`,
+  `unfollowChannel`, `muteChannel`, and the `channelsModel` /
+  `channelMessagesModel` properties.
+
+### Logs Tab
+
+- `LogsPage.qml` added; subscribes `daemon.logs` for the page lifetime.
+- Error/warn rows get a tinted background; log level and timestamp are
+  rendered in monospace.
+- `ProtocolController` gains `openLogs`/`closeLogs` and `logsModel`/`logsLoading`.
+
+### Chat and Contact UX (implemented)
+
+- Chat info filters for media, documents, contacts, locations, polls,
+  audio, voice, and video — wired in `ChatMediaGalleryPage.qml`.
+- Location bubble includes "Open in Maps" via OpenStreetMap.
+- Contact bubble includes a "Message" button to start a direct chat.
+
 ## Existing Features Confirmed Before This Session
 
 These were already present in the repository and were not reimplemented:
@@ -264,19 +318,12 @@ These were already present in the repository and were not reimplemented:
 - GIF playback and receive rendering validation.
 - Sticker creation from image.
 
-### Channels Frontend
+### Channels Frontend (remaining)
 
-- New Channels tab.
-- Followed-channel list UI.
-- Explore channel invite/link flow.
-- Channel message feed page.
-- Channel follow/unfollow/mute controls.
 - Channel reaction UI.
 
-### Chat and Contact UX
+### Chat and Contact UX (remaining)
 
-- Chat info filters for media, links, documents, contacts, locations, polls,
-  audio, voice, and video.
 - Archived-chat button and dedicated archived-chat page/button flow.
 - Status avatars in the status tab.
 - DP/profile-photo save affordance in the profile viewer.
@@ -285,6 +332,11 @@ These were already present in the repository and were not reimplemented:
 - Username support and username editing. The pinned whatsmeow dependency does
   not expose a stable username setter or resolver API, so this needs upstream
   support or reverse engineering.
+
+> The Channels Frontend, Polls Frontend, Contact/Location Sharing, Gallery
+> Filters, Logs Tab, and the chat info filter / location map / contact
+> message-button items listed above were implemented in this session. See the
+> "Implemented Features" section above for details.
 
 ### Calls
 
@@ -301,8 +353,7 @@ These remain blocked by the upstream media-stack limitation described above.
 - Live database encryption with SQLCipher.
 - Import/export settings UI.
 - Full business commerce/catalog operations.
-- Poll voter-details frontend.
-- Full location map preview and open-in-map actions.
+- Poll voter-detail overlay (who voted what) in the poll bubble.
 
 ## Verification
 
@@ -316,12 +367,32 @@ GOMAXPROCS=2 go -C whatevrd test -tags sqlite_fts5 ./internal/...
 The full Qt frontend was built successfully with:
 
 ```sh
-just build-release
+cmake -S whatkevr -B build/debug/whatkevr -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build build/debug/whatkevr
 ```
 
-The release binaries were installed and socket activation was verified with a
-protocol `hello` request. The daemon responded online with the feature commit
-version.
+Both builds were green with no warnings or errors.
+
+### Release Build and Installation
+
+The app was built in release mode and installed to `/home/admin/.local`
+(user-writable prefix; `/usr/local` was not writable without sudo):
+
+- `whatevrd` → `/home/admin/.local/bin/whatevrd`
+- `whatkevr` → `/home/admin/.local/bin/whatkevr`
+- `whatevrd.service` → `/home/admin/.local/lib/systemd/user/whatevrd.service`
+- `whatevrd.socket` → `/home/admin/.local/lib/systemd/user/whatevrd.socket`
+
+Smoke test: the daemon started, created the protocol socket at
+`$XDG_RUNTIME_DIR/whatevr/whatevrd.sock`, and shut down cleanly:
+
+## Screenshot Notes
+
+Screenshots were supplied during the session but could not be inspected in this
+environment: the model in use does not support image/PDF input. Feature
+requirements were therefore derived from the codebase itself and the
+session transcript, not from screenshot content. No personal information from
+screenshots was used.
 
 ## Debugging Notes
 

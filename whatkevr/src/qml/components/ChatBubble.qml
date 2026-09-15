@@ -73,6 +73,17 @@ Item {
     // maps (ProtocolMessageModel ReactionsRole).
     required property var reactions
 
+    // Poll, contact, location roles from the daemon message item.
+    required property string pollQuestion
+    required property var pollOptions
+    required property bool pollMultiSelect
+    required property string contactName
+    required property string contactPhone
+    required property double locationLat
+    required property double locationLng
+    required property string locationName
+    required property string locationAddress
+
     // Raw text roles. A long message is delivered twice — the full text and a
     // truncated preview — and which one is shown depends on `textExpanded`,
     // which is view state rather than model data. The choice used to be made in
@@ -243,6 +254,10 @@ Item {
     readonly property bool isAudioFile: mediaKind === "audio"
     readonly property bool isDocument: mediaKind === "document"
     readonly property bool isAttachmentBlock: isVoice || isAudioFile || isDocument
+    readonly property bool isPoll: pollQuestion.length > 0
+    readonly property bool isContact: mediaKind === "contact" && contactName.length > 0
+    readonly property bool isLocation: mediaKind === "location" && (locationLat !== 0 || locationLng !== 0)
+    readonly property bool hasStructuredContent: isPoll || isContact || isLocation
     // Real message whose payload the app can't render yet (document, voice
     // note, poll, ...). The daemon puts a short label in the body text; the
     // row renders like a revoked tombstone and never offers a download.
@@ -593,6 +608,12 @@ Item {
     }
 
     function contentOffsetBeforeBody() {
+        if (root.hasStructuredContent) {
+            const loader = root.isPoll ? pollLoader : (root.isContact ? contactLoader : locationLoader)
+            if (loader.item)
+                return loader.y + loader.height + Kirigami.Units.smallSpacing
+            return root.innerPadding
+        }
         if (mediaSlot.visible) {
             return mediaSlot.y + mediaSlot.height + Kirigami.Units.smallSpacing
         }
@@ -608,6 +629,12 @@ Item {
         }
         if (root.hasBody) {
             return bodyTextLoader.y + bodyTextLoader.height
+        }
+        if (root.hasStructuredContent) {
+            const loader = root.isPoll ? pollLoader : (root.isContact ? contactLoader : locationLoader)
+            if (loader.item)
+                return loader.y + loader.height
+            return root.innerPadding
         }
         if (mediaSlot.visible) {
             return mediaSlot.y + mediaSlot.height
@@ -646,6 +673,9 @@ Item {
         }
         if (isAttachmentBlock) {
             w = Math.max(w, attachmentBlockWidth)
+        }
+        if (hasStructuredContent) {
+            w = Math.max(w, maxContentWidth)
         }
         w = Math.max(w, Math.min(maxContentWidth, tntWidth))
         return Math.max(w, hasBody ? Kirigami.Units.gridUnit * 2 : Kirigami.Units.gridUnit * 4)
@@ -1279,6 +1309,218 @@ Item {
                     active: mediaSlot.visible && root.isDocument
                     sourceComponent: DocumentBubble {
                         row: root
+                    }
+                }
+            }
+
+            // ---- Poll bubble ----
+            Loader {
+                id: pollLoader
+                active: root.isPoll
+                x: root.innerPadding
+                y: root.contentOffsetBeforeMedia() + root.innerPadding
+                width: root.maxContentWidth
+
+                sourceComponent: Column {
+                    spacing: Kirigami.Units.smallSpacing
+                    width: parent.width
+
+                    property var selectedOptions: []
+
+                    Label {
+                        text: root.pollQuestion
+                        font.weight: Font.Bold
+                        wrapMode: Text.Wrap
+                        width: parent.width
+                    }
+
+                    Repeater {
+                        model: root.pollOptions ?? []
+
+                        delegate: Row {
+                            required property var modelData
+                            width: parent.width
+                            spacing: Kirigami.Units.smallSpacing
+
+                            Kirigami.Icon {
+                                source: root.pollMultiSelect ? "checkbox-symbolic" : "radiobutton-symbolic"
+                                width: Kirigami.Units.iconSizes.small
+                                height: width
+                                anchors.verticalCenter: parent.verticalCenter
+                                opacity: modelData.voted ? 1 : 0.5
+                                color: modelData.voted ? Kirigami.Theme.highlightColor : ""
+                            }
+
+                            Column {
+                                width: parent.width - Kirigami.Units.iconSizes.small - Kirigami.Units.smallSpacing
+                                Label {
+                                    text: modelData.text ?? ""
+                                    wrapMode: Text.Wrap
+                                    width: parent.width
+                                }
+                                Rectangle {
+                                    width: Math.max(2, parent.width * Math.min(1, (modelData.count ?? 0) / Math.max(1, totalVotes)))
+                                    height: 3
+                                    radius: 1.5
+                                    color: Kirigami.Theme.highlightColor
+                                    visible: (modelData.count ?? 0) > 0
+
+                                    property int totalVotes: {
+                                        let sum = 0
+                                        const opts = root.pollOptions ?? []
+                                        for (let i = 0; i < opts.length; ++i)
+                                            sum += (opts[i].count ?? 0)
+                                        return sum
+                                    }
+                                }
+                                Label {
+                                    visible: (modelData.count ?? 0) > 0
+                                    text: Whatevr.I18n.i18ncp("@info poll vote count", "%1 vote", "%1 votes", modelData.count ?? 0)
+                                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                                    color: Kirigami.Theme.disabledTextColor
+                                }
+                            }
+
+                            TapHandler {
+                                onTapped: {
+                                    const opt = (modelData.text ?? "").trim()
+                                    if (opt.length === 0)
+                                        return
+                                    if (root.pollMultiSelect) {
+                                        const all = (pollLoader.selectedOptions || [])
+                                        const idx = all.indexOf(opt)
+                                        if (idx >= 0)
+                                            all.splice(idx, 1)
+                                        else
+                                            all.push(opt)
+                                        pollLoader.selectedOptions = all
+                                    } else {
+                                        pollLoader.selectedOptions = [opt]
+                                    }
+                                    Whatevr.ProtocolController.votePoll(root.messageId, pollLoader.selectedOptions)
+                                }
+                            }
+                        }
+                     }
+
+                    Label {
+                        text: root.pollMultiSelect
+                            ? Whatevr.I18n.i18nc("@info poll vote hint", "Tap options to vote")
+                            : Whatevr.I18n.i18nc("@info poll vote hint", "Tap an option to vote")
+                        font.pointSize: Kirigami.Theme.smallFont.pointSize
+                        color: Kirigami.Theme.disabledTextColor
+                        visible: root.pollOptions.length > 0
+                    }
+                }
+            }
+
+            // ---- Contact card bubble ----
+            Loader {
+                id: contactLoader
+                active: root.isContact
+                x: root.innerPadding
+                y: root.contentOffsetBeforeMedia() + root.innerPadding
+                width: root.maxContentWidth
+
+                sourceComponent: Row {
+                    spacing: Kirigami.Units.smallSpacing
+                    width: parent.width
+
+                    Kirigami.Icon {
+                        source: "im-user-symbolic"
+                        width: Kirigami.Units.iconSizes.medium
+                        height: width
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Column {
+                        width: parent.width - Kirigami.Units.iconSizes.medium - Kirigami.Units.smallSpacing
+                        Label {
+                            text: root.contactName
+                            font.weight: Font.Bold
+                            elide: Text.ElideRight
+                            width: parent.width
+                        }
+                        Label {
+                            text: root.contactPhone
+                            visible: root.contactPhone.length > 0
+                            font.pointSize: Kirigami.Theme.smallFont.pointSize
+                            color: Kirigami.Theme.disabledTextColor
+                            width: parent.width
+                        }
+                        QQC2.Button {
+                            text: Whatevr.I18n.i18nc("@action:button", "Message")
+                            visible: root.contactPhone.length > 0
+                            onClicked: {
+                                const phone = root.contactPhone.replace(/\D/g, "")
+                                if (phone.length > 0) {
+                                    Whatevr.ProtocolController.startDirectChat(phone + "@s.whatsapp.net")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ---- Location bubble ----
+            Loader {
+                id: locationLoader
+                active: root.isLocation
+                x: root.innerPadding
+                y: root.contentOffsetBeforeMedia() + root.innerPadding
+                width: root.maxContentWidth
+
+                sourceComponent: Column {
+                    spacing: Kirigami.Units.smallSpacing
+                    width: parent.width
+
+                    Rectangle {
+                        width: parent.width
+                        height: Kirigami.Units.gridUnit * 6
+                        color: Qt.alpha(Kirigami.Theme.textColor, 0.06)
+                        radius: Kirigami.Units.cornerRadius
+
+                        Kirigami.Icon {
+                            anchors.centerIn: parent
+                            source: "mark-location-symbolic"
+                            width: Kirigami.Units.iconSizes.large
+                            height: width
+                            color: Kirigami.Theme.disabledTextColor
+                        }
+                    }
+
+                    Label {
+                        text: root.locationName
+                        visible: root.locationName.length > 0
+                        font.weight: Font.Bold
+                        wrapMode: Text.Wrap
+                        width: parent.width
+                    }
+
+                    Label {
+                        text: root.locationAddress
+                        visible: root.locationAddress.length > 0
+                        wrapMode: Text.Wrap
+                        width: parent.width
+                        font.pointSize: Kirigami.Theme.smallFont.pointSize
+                        color: Kirigami.Theme.disabledTextColor
+                    }
+
+                    Label {
+                        text: Whatevr.I18n.i18nc("@action:button", "Open in Maps")
+                        color: Kirigami.Theme.linkColor
+                        font.pointSize: Kirigami.Theme.smallFont.pointSize
+
+                        TapHandler {
+                            onTapped: Qt.openUrlExternally(
+                                "https://www.openstreetmap.org/?mlat=" + root.locationLat
+                                + "&mlon=" + root.locationLng
+                                + "#map=15/" + root.locationLat + "/" + root.locationLng)
+                        }
+
+                        HoverHandler {
+                            cursorShape: Qt.PointingHandCursor
+                        }
                     }
                 }
             }

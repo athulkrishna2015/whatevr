@@ -110,6 +110,10 @@ set(WHATKEVR_QML_FILES
         qml/components/StatusViewerPage.qml
         qml/components/StatusPostDialog.qml
         qml/components/CallsPage.qml
+        qml/components/ChannelsPage.qml
+        qml/components/ChannelMessagesPage.qml
+        qml/components/LogsPage.qml
+        qml/components/PollCreateDialog.qml
         qml/components/ContactInfoDialog.qml
         qml/components/ProfilePictureViewer.qml
         qml/components/SearchResultDelegate.qml

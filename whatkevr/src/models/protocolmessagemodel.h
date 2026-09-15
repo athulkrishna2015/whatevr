@@ -84,6 +84,15 @@ public:
         PinnedUntilUnixRole,
         ReactionsRole,
         MediaDownloadProgressRole,
+        PollQuestionRole,
+        PollOptionsRole,
+        PollMultiSelectRole,
+        ContactNameRole,
+        ContactPhoneRole,
+        LocationLatRole,
+        LocationLngRole,
+        LocationNameRole,
+        LocationAddressRole,
     };
     Q_ENUM(Role)
 

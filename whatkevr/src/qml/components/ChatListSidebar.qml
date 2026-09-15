@@ -178,6 +178,22 @@ Item {
             QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
         }
 
+        QQC2.ToolButton {
+            Layout.alignment: Qt.AlignHCenter
+            icon.name: "rss-symbolic"
+            display: QQC2.AbstractButton.IconOnly
+            icon.width: root.railIconSize
+            icon.height: root.railIconSize
+            text: Whatevr.I18n.i18nc("@action:button open the channels tab", "Channels")
+            onClicked: {
+                applicationWindow().pageStack.layers.push(Qt.resolvedUrl("ChannelsPage.qml"))
+            }
+
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.text: text
+            QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+        }
+
         Item {
             Layout.fillHeight: true
         }
@@ -190,6 +206,22 @@ Item {
             icon.height: root.railIconSize
             text: Whatevr.I18n.i18nc("@action:button", "Settings")
             onClicked: applicationWindow().openSettings()
+
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.text: text
+            QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+        }
+
+        QQC2.ToolButton {
+            Layout.alignment: Qt.AlignHCenter
+            icon.name: "document-properties-symbolic"
+            display: QQC2.AbstractButton.IconOnly
+            icon.width: root.railIconSize
+            icon.height: root.railIconSize
+            text: Whatevr.I18n.i18nc("@action:button open the daemon logs view", "Logs")
+            onClicked: {
+                applicationWindow().pageStack.layers.push(Qt.resolvedUrl("LogsPage.qml"))
+            }
 
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.text: text

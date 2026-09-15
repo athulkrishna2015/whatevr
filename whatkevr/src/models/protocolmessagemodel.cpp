@@ -464,6 +464,24 @@ QVariant ProtocolMessageModel::data(const QModelIndex &index, int role) const
         const qulonglong received = active.value(QStringLiteral("received_bytes")).toULongLong();
         return std::min(1.0, static_cast<double>(received) / static_cast<double>(total));
     }
+    case PollQuestionRole:
+        return item.value(QStringLiteral("poll_question")).toString();
+    case PollOptionsRole:
+        return item.value(QStringLiteral("poll_options")).toList();
+    case PollMultiSelectRole:
+        return item.value(QStringLiteral("poll_multi_select")).toBool();
+    case ContactNameRole:
+        return item.value(QStringLiteral("contact_name")).toString();
+    case ContactPhoneRole:
+        return item.value(QStringLiteral("contact_phone")).toString();
+    case LocationLatRole:
+        return item.value(QStringLiteral("location_lat")).toDouble();
+    case LocationLngRole:
+        return item.value(QStringLiteral("location_lng")).toDouble();
+    case LocationNameRole:
+        return item.value(QStringLiteral("location_name")).toString();
+    case LocationAddressRole:
+        return item.value(QStringLiteral("location_address")).toString();
     default:
         return {};
     }
@@ -533,6 +551,15 @@ QHash<int, QByteArray> ProtocolMessageModel::roleNames() const
         {PinnedUntilUnixRole, "pinnedUntilUnix"},
         {ReactionsRole, "reactions"},
         {MediaDownloadProgressRole, "mediaDownloadProgress"},
+        {PollQuestionRole, "pollQuestion"},
+        {PollOptionsRole, "pollOptions"},
+        {PollMultiSelectRole, "pollMultiSelect"},
+        {ContactNameRole, "contactName"},
+        {ContactPhoneRole, "contactPhone"},
+        {LocationLatRole, "locationLat"},
+        {LocationLngRole, "locationLng"},
+        {LocationNameRole, "locationName"},
+        {LocationAddressRole, "locationAddress"},
     };
 }
 

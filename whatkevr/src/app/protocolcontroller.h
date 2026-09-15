@@ -210,6 +210,20 @@ class ProtocolController final : public QObject
     Q_PROPERTY(QAbstractItemModel *callsModel READ callsModel CONSTANT FINAL)
     Q_PROPERTY(int callsRingingCount READ callsRingingCount NOTIFY callsChanged FINAL)
 
+    // Logs tab: the `daemon.logs` view, subscribed while the logs page is on
+    // screen. Rows are log entries with time, level, and text.
+    Q_PROPERTY(QAbstractItemModel *logsModel READ logsModel CONSTANT FINAL)
+    Q_PROPERTY(bool logsLoading READ logsLoading NOTIFY logsLoadingChanged FINAL)
+
+    // Channels tab: the `channels` view, subscribed while the channels page is
+    // on screen. One item per followed channel; tapping opens its messages.
+    Q_PROPERTY(QAbstractItemModel *channelsModel READ channelsModel CONSTANT FINAL)
+    Q_PROPERTY(bool channelsLoading READ channelsLoading NOTIFY channelsChanged FINAL)
+    Q_PROPERTY(QAbstractItemModel *channelMessagesModel READ channelMessagesModel CONSTANT FINAL)
+    Q_PROPERTY(bool channelMessagesLoading READ channelMessagesLoading NOTIFY channelMessagesChanged FINAL)
+    Q_PROPERTY(QString selectedChannelJid READ selectedChannelJid NOTIFY channelMessagesChanged FINAL)
+    Q_PROPERTY(QString selectedChannelName READ selectedChannelName NOTIFY channelMessagesChanged FINAL)
+
     // Per-chat media gallery: the `chat_media` view, subscribed while the
     // gallery page is open. Rows are ordinary `messages` items, so the gallery
     // renders the same thumbnails and paths the conversation does.
@@ -410,6 +424,14 @@ public:
     [[nodiscard]] bool statusExhausted() const;
     [[nodiscard]] QAbstractItemModel *callsModel() const;
     [[nodiscard]] int callsRingingCount() const;
+     [[nodiscard]] QAbstractItemModel *logsModel() const;
+    [[nodiscard]] bool logsLoading() const { return m_logsLoading; }
+    [[nodiscard]] QAbstractItemModel *channelsModel() const;
+    [[nodiscard]] bool channelsLoading() const;
+    [[nodiscard]] QAbstractItemModel *channelMessagesModel() const;
+    [[nodiscard]] bool channelMessagesLoading() const;
+    [[nodiscard]] QString selectedChannelJid() const;
+    [[nodiscard]] QString selectedChannelName() const;
     [[nodiscard]] QAbstractItemModel *chatMediaModel() const;
     [[nodiscard]] bool chatMediaLoading() const;
     [[nodiscard]] bool chatMediaExhausted() const;
@@ -433,8 +455,28 @@ public:
     // Subscribe/drop the `calls` view for the calls tab's lifetime.
     Q_INVOKABLE void openCalls();
     Q_INVOKABLE void closeCalls();
+    // Subscribe/drop the `daemon.logs` view for the logs page's lifetime.
+    Q_INVOKABLE void openLogs();
+    Q_INVOKABLE void closeLogs();
+
+    // Subscribe/drop the `chat_media` view for the gallery filter.
+    Q_INVOKABLE void openChatMedia(const QString &chatId, const QString &kind = QString());
+    Q_INVOKABLE void closeChatMedia();
+    Q_INVOKABLE void extendChatMedia(int count = 60);
+
+    // Signals for logs and chat media.
+    void logsChanged();
+
     // Maps to `call.reject` for the latest ringing call in the chat.
     Q_INVOKABLE void rejectCall(const QString &chatId);
+    // Subscribe/drop the `channels` view for the channels tab's lifetime.
+    Q_INVOKABLE void openChannels();
+    Q_INVOKABLE void closeChannels();
+    Q_INVOKABLE void openChannelMessages(const QString &jid, const QString &name);
+    Q_INVOKABLE void closeChannelMessages();
+    Q_INVOKABLE void followChannel(const QString &jidOrLink);
+    Q_INVOKABLE void unfollowChannel(const QString &jid);
+    Q_INVOKABLE void muteChannel(const QString &jid, bool muted);
     // Group management for the group info card. Invite-link fetch copies the
     // link to the clipboard on success.
     Q_INVOKABLE void leaveGroup(const QString &chatId);
@@ -519,6 +561,13 @@ public:
     // clipboard had nothing sendable, so the caller can fall back to a normal
     // paste-as-text.
     Q_INVOKABLE bool sendClipboardImage(const QString &caption, const QString &replyToMessageId);
+    // Maps to `send.poll`; follows the send.text/send.media in-flight shape so
+    // the composer shows the same ack/error behaviour. replyToMessageId may be empty.
+    Q_INVOKABLE void sendPoll(const QString &question, const QStringList &options, bool multiSelect, const QString &replyToMessageId);
+    // Maps to `send.contact`; shares a name+phone vCard into the selected chat.
+    Q_INVOKABLE void sendContact(const QString &name, const QString &phone, const QString &replyToMessageId);
+    // Maps to `send.location`; shares a pin with optional name/address.
+    Q_INVOKABLE void sendLocation(double latitude, double longitude, const QString &name, const QString &address, const QString &replyToMessageId);
     // Maps to `chat.typing`; the composer calls this on every start/stop and
     // periodically while composing (WhatsApp's composing indicator has a TTL).
     Q_INVOKABLE void setSelectedChatComposing(bool composing);
@@ -563,6 +612,8 @@ public:
     // One call per source message; a multi-select forward loops over them and
     // the "forwarded" report fires once for the whole batch.
     Q_INVOKABLE void forwardMessage(const QString &messageId, const QStringList &chatIds);
+    // Maps to `message.vote`; a re-vote replaces the user's previous ballot.
+    Q_INVOKABLE void votePoll(const QString &messageId, const QStringList &selectedOptions);
     // Whether a message sent at this time is still inside WhatsApp's edit
     // window, so the context menu can hide the entry. The daemon is
     // authoritative and answers `expired` regardless.
@@ -616,10 +667,6 @@ public:
     /// manager or another application.
     Q_INVOKABLE void copyFileToClipboard(const QString &localPath);
     Q_INVOKABLE bool saveMediaAs(const QString &localPath, const QUrl &destUrl);
-    /// Subscribes the per-chat media gallery; unsubscribing releases the window.
-    Q_INVOKABLE void openChatMedia(const QString &chatId);
-    Q_INVOKABLE void closeChatMedia();
-    Q_INVOKABLE void extendChatMedia(int count);
     // WhatsApp markup -> CommonMark, for "Copy as Markdown".
     [[nodiscard]] Q_INVOKABLE QString toCommonMark(const QString &text) const;
     // Start of the grapheme cluster before the cursor, so Backspace deletes a
@@ -659,6 +706,9 @@ Q_SIGNALS:
     void chatMediaChanged();
     void statusChanged();
     void callsChanged();
+    void channelsChanged();
+    void channelMessagesChanged();
+    void logsLoadingChanged();
     // Answer to saveRemoteMedia: the bytes reached the destination path.
     void remoteMediaSaved(const QString &destPath);
     /// Answer to streamMessageMedia: where a player can read this message from
@@ -812,6 +862,9 @@ private:
     whatevr::proto::CollectionViewModel *m_chatMediaModel = nullptr;
     whatevr::proto::CollectionViewModel *m_statusModel = nullptr;
     whatevr::proto::CollectionViewModel *m_callsModel = nullptr;
+    whatevr::proto::CollectionViewModel *m_channelsModel = nullptr;
+    whatevr::proto::CollectionViewModel *m_channelMessagesModel = nullptr;
+    whatevr::proto::CollectionViewModel *m_logsModel = nullptr;
     whatevr::proto::CollectionViewModel *m_groupMembersModel = nullptr;
     whatevr::proto::CollectionViewModel *m_chatMembersModel = nullptr;
     whatevr::proto::CollectionViewModel *m_blocklistModel = nullptr;
@@ -840,6 +893,9 @@ private:
     whatevr::proto::Subscription *m_chatMediaSub = nullptr;
     whatevr::proto::Subscription *m_statusSub = nullptr;
     whatevr::proto::Subscription *m_callsSub = nullptr;
+    whatevr::proto::Subscription *m_channelsSub = nullptr;
+    whatevr::proto::Subscription *m_channelMessagesSub = nullptr;
+    whatevr::proto::Subscription *m_logsSub = nullptr;
     whatevr::proto::Subscription *m_infoCardSub = nullptr;
     whatevr::proto::Subscription *m_groupMembersSub = nullptr;
     whatevr::proto::Subscription *m_chatMembersSub = nullptr;
@@ -964,6 +1020,13 @@ private:
     int m_chatMembersRevision = 0;
     // Set once the mention picker asks for the roster; cleared on chat change.
     bool m_chatMembersWanted = false;
+    bool m_logsLoading = false;
+
+    // Channels tab state.
+    bool m_channelsLoading = false;
+    bool m_channelMessagesLoading = false;
+    QString m_selectedChannelJid;
+    QString m_selectedChannelName;
 
     QTimer *m_startupGraceTimer = nullptr;
     QTimer *m_qrTimer = nullptr;

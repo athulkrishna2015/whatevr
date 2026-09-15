@@ -789,6 +789,7 @@ Frame {
             }
 
             ToolButton {
+                id: attachButton
                 // Attaching media isn't part of an in-place edit (only the
                 // caption/body changes), so hide it while editing.
                 visible: !root.editing
@@ -796,8 +797,44 @@ Frame {
                 text: Whatevr.I18n.i18nc("@action:button", "Attach file")
                 display: AbstractButton.IconOnly
                 enabled: root.enabledForChat && !root.sending
-                onClicked: imageDialog.open()
+                onClicked: attachMenu.open()
                 Layout.alignment: Qt.AlignVCenter
+
+                Menu {
+                    id: attachMenu
+                    y: -height
+
+                    MenuItem {
+                        text: Whatevr.I18n.i18nc("@action:inmenu attach", "Photo & Video")
+                        icon.name: "image-x-generic-symbolic"
+                        onTriggered: photoVideoDialog.open()
+                    }
+                    MenuItem {
+                        text: Whatevr.I18n.i18nc("@action:inmenu attach", "Document")
+                        icon.name: "document-open-symbolic"
+                        onTriggered: documentDialog.open()
+                    }
+                    MenuItem {
+                        text: Whatevr.I18n.i18nc("@action:inmenu attach", "Audio")
+                        icon.name: "audio-x-generic-symbolic"
+                        onTriggered: audioDialog.open()
+                    }
+                    MenuItem {
+                        text: Whatevr.I18n.i18nc("@action:inmenu attach", "Contact")
+                        icon.name: "contact-new-symbolic"
+                        onTriggered: contactDialog.open()
+                    }
+                    MenuItem {
+                        text: Whatevr.I18n.i18nc("@action:inmenu attach", "Location")
+                        icon.name: "mark-location-symbolic"
+                        onTriggered: locationDialog.open()
+                    }
+                    MenuItem {
+                        text: Whatevr.I18n.i18nc("@action:inmenu attach", "Poll")
+                        icon.name: "view-list-symbolic"
+                        onTriggered: pollDialog.open()
+                    }
+                }
             }
 
             ToolButton {
@@ -982,13 +1019,12 @@ Frame {
     }
 
     Platform.FileDialog {
-        id: imageDialog
+        id: photoVideoDialog
 
-        title: Whatevr.I18n.i18nc("@title:window", "Attach file")
+        title: Whatevr.I18n.i18nc("@title:window", "Attach photo or video")
         nameFilters: [
             Whatevr.I18n.i18nc("@item:inlistbox", "Images (*.png *.jpg *.jpeg *.webp)"),
             Whatevr.I18n.i18nc("@item:inlistbox", "Videos (*.mp4 *.mov *.webm *.3gp)"),
-            Whatevr.I18n.i18nc("@item:inlistbox", "Audio (*.ogg *.oga *.opus *.mp3 *.m4a *.aac *.wav *.flac *.amr)"),
             Whatevr.I18n.i18nc("@item:inlistbox", "All files (*)")
         ]
         fileMode: Platform.FileDialog.OpenFile
@@ -996,6 +1032,112 @@ Frame {
             root.setComposing(false)
             root.sendImageRequested(file, root.inputPlainText(), root.replyToMessageId, "", root.viewOnceSend)
             root.viewOnceSend = false
+            root.replyConsumed()
+            input.clear()
+            root.hideSuggestions()
+        }
+    }
+
+    Platform.FileDialog {
+        id: documentDialog
+
+        title: Whatevr.I18n.i18nc("@title:window", "Attach document")
+        nameFilters: [
+            Whatevr.I18n.i18nc("@item:inlistbox", "All files (*)")
+        ]
+        fileMode: Platform.FileDialog.OpenFile
+        onAccepted: {
+            root.setComposing(false)
+            root.sendImageRequested(file, root.inputPlainText(), root.replyToMessageId, "document", root.viewOnceSend)
+            root.viewOnceSend = false
+            root.replyConsumed()
+            input.clear()
+            root.hideSuggestions()
+        }
+    }
+
+    Platform.FileDialog {
+        id: audioDialog
+
+        title: Whatevr.I18n.i18nc("@title:window", "Attach audio")
+        nameFilters: [
+            Whatevr.I18n.i18nc("@item:inlistbox", "Audio (*.ogg *.oga *.opus *.mp3 *.m4a *.aac *.wav *.flac *.amr)"),
+            Whatevr.I18n.i18nc("@item:inlistbox", "All files (*)")
+        ]
+        fileMode: Platform.FileDialog.OpenFile
+        onAccepted: {
+            root.setComposing(false)
+            root.sendImageRequested(file, root.inputPlainText(), root.replyToMessageId, "audio", root.viewOnceSend)
+            root.viewOnceSend = false
+            root.replyConsumed()
+            input.clear()
+            root.hideSuggestions()
+        }
+    }
+
+    PollCreateDialog {
+        id: pollDialog
+        replyToMessageId: root.replyToMessageId
+    }
+
+    Platform.FileDialog {
+        id: contactDialog
+
+        title: Whatevr.I18n.i18nc("@title:window", "Attach contact")
+        fileMode: Platform.FileDialog.AcceptOpenFileName
+        nameFilters: [
+            Whatevr.I18n.i18nc("@item:inlistbox", "vCard files (*.vcf)"),
+            Whatevr.I18n.i18nc("@item:inlistbox", "All files (*)")
+        ]
+        onAccepted: {
+            const file = fileUrl.toString()
+            const localPath = file.startsWith("file:") ? new QUrl(file).toLocalFile() : file
+            // Extract name and phone from the vCard, falling back to the filename.
+            // The daemon sends contacts as name+phone so we parse the minimal vCard
+            // fields the frontend has without depending on a vcard library.
+            let name = ""
+            let phone = ""
+            try {
+                const req = new XMLHttpRequest()
+                req.open("GET", localPath, false)
+                req.send(null)
+                const txt = req.responseText
+                const fnMatch = txt.match(/FN[:;][^:\n]*/i)
+                if (fnMatch) name = fnMatch[0].replace(/^FN[:;]/i, "").trim()
+                const telMatch = txt.match(/TEL[^:\n]*:([0-9+#\s()-]+)/i)
+                if (telMatch) phone = telMatch[1].trim()
+            } catch (e) {
+                name = Qt.basename(localPath)
+            }
+            if (!name) name = Qt.basename(localPath)
+            root.setComposing(false)
+            Whatevr.ProtocolController.sendContact(name, phone, root.replyToMessageId)
+            root.replyConsumed()
+            input.clear()
+            root.hideSuggestions()
+        }
+    }
+
+    Platform.FileDialog {
+        id: locationDialog
+
+        title: Whatevr.I18n.i18nc("@title:window", "Attach location")
+        fileMode: Platform.FileDialog.AcceptOpenFileName
+        onAccepted: {
+            const file = fileUrl.toString()
+            const localPath = file.startsWith("file:") ? new QUrl(file).toLocalFile() : file
+            try {
+                const req = new XMLHttpRequest()
+                req.open("GET", localPath, false)
+                req.send(null)
+                const data = JSON.parse(req.responseText)
+                root.setComposing(false)
+                Whatevr.ProtocolController.sendLocation(
+                    data.lat || 0, data.long || 0,
+                    data.name || "", data.address || "", root.replyToMessageId)
+            } catch (e) {
+                console.warn("Location file parse error:", e)
+            }
             root.replyConsumed()
             input.clear()
             root.hideSuggestions()
