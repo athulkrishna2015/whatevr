@@ -520,24 +520,28 @@ func messageSort(m store.Message) string {
 // `kind` and a human-readable `fallback` (rule 5); media crosses only as file
 // paths (rule 4).
 type messageItem struct {
-	ID          string            `json:"id"`
-	ChatID      string            `json:"chat_id"`
-	Kind        string            `json:"kind"`
-	Fallback    string            `json:"fallback"`
-	Text        string            `json:"text,omitempty"`
-	Sender      messageSender     `json:"sender"`
-	Timestamp   int64             `json:"timestamp"`
-	Direction   string            `json:"direction"`
-	Status      string            `json:"status,omitempty"`
-	ReplyTo     *messageReply     `json:"reply_to,omitempty"`
-	Reactions   []messageReaction `json:"reactions,omitempty"`
-	Mentions    []messageMention  `json:"mentions,omitempty"`
-	Edited      bool              `json:"edited,omitempty"`
-	Revoked     bool              `json:"revoked,omitempty"`
-	Starred     bool              `json:"starred,omitempty"`
-	Forwarded   bool              `json:"forwarded,omitempty"`
-	PinnedUntil int64             `json:"pinned_until,omitempty"`
-	Media       *messageMedia     `json:"media,omitempty"`
+	ID        string            `json:"id"`
+	ChatID    string            `json:"chat_id"`
+	Kind      string            `json:"kind"`
+	Fallback  string            `json:"fallback"`
+	Text      string            `json:"text,omitempty"`
+	Sender    messageSender     `json:"sender"`
+	Timestamp int64             `json:"timestamp"`
+	Direction string            `json:"direction"`
+	Status    string            `json:"status,omitempty"`
+	ReplyTo   *messageReply     `json:"reply_to,omitempty"`
+	Reactions []messageReaction `json:"reactions,omitempty"`
+	Mentions  []messageMention  `json:"mentions,omitempty"`
+	Edited    bool              `json:"edited,omitempty"`
+	Revoked   bool              `json:"revoked,omitempty"`
+	Starred   bool              `json:"starred,omitempty"`
+	Forwarded bool              `json:"forwarded,omitempty"`
+	// ViewOnce marks our own view-once sends. Inbound view-once media is
+	// never stored as media (phone-only tombstone), so this only appears on
+	// outgoing rows.
+	ViewOnce    bool          `json:"view_once,omitempty"`
+	PinnedUntil int64         `json:"pinned_until,omitempty"`
+	Media       *messageMedia `json:"media,omitempty"`
 }
 
 type messageSender struct {
@@ -578,11 +582,11 @@ type messageMedia struct {
 	DownloadError string `json:"download_error,omitempty"`
 	// Downloading is true while a fetch for this message is in flight. Only the
 	// `messages` view sets it; `transfers` still carries the byte counters.
-	Downloading bool `json:"downloading,omitempty"`
-	SizeBytes     int64  `json:"size_bytes,omitempty"`
-	DurationSecs  int32  `json:"duration_secs,omitempty"`
-	Filename      string `json:"filename,omitempty"`
-	PageCount     int32  `json:"page_count,omitempty"`
+	Downloading  bool   `json:"downloading,omitempty"`
+	SizeBytes    int64  `json:"size_bytes,omitempty"`
+	DurationSecs int32  `json:"duration_secs,omitempty"`
+	Filename     string `json:"filename,omitempty"`
+	PageCount    int32  `json:"page_count,omitempty"`
 	// Waveform is the voice-note amplitude envelope: 64 buckets of 0-100. It
 	// is the one piece of media data that crosses the socket rather than
 	// living in a file, because it is tiny and the bubble needs it before any
@@ -607,6 +611,7 @@ func messageItemFromStore(m store.Message) messageItem {
 		Revoked:     m.IsRevoked,
 		Starred:     m.IsStarred,
 		Forwarded:   m.IsForwarded,
+		ViewOnce:    m.IsViewOnce,
 		PinnedUntil: m.PinnedUntil,
 		Reactions:   messageReactions(m.Reactions),
 		Mentions:    messageMentions(m.Mentions),
@@ -627,9 +632,16 @@ func messageItemFromStore(m store.Message) messageItem {
 
 // messageKind maps the stored media kind to the wire `kind`. A revoked message
 // carries no content, so it renders as an (empty) text bubble plus revoked:true.
+// Inbound view-once rows keep their real kind and keys in the store (so an
+// explicit `media.save` can fetch them), but they always render as the
+// `unsupported` tombstone: no bubble and no auto-download policy may silently
+// defeat the sender's view-once intent.
 func messageKind(m store.Message) string {
 	if m.IsRevoked {
 		return "text"
+	}
+	if m.IsViewOnce && m.Direction == store.DirectionIncoming {
+		return store.MediaKindUnsupported
 	}
 	return mediaKindToWire(m.MediaKind)
 }
@@ -657,6 +669,21 @@ func messageFallback(m store.Message, kind string) string {
 			return caption
 		}
 		return label
+	}
+	// Our own view-once sends render with a one-eye marker so they are
+	// distinguishable from ordinary media in every frontend, including ones
+	// that never heard of view-once (rule 5).
+	if m.IsViewOnce {
+		switch kind {
+		case store.MediaKindImage:
+			return withCaption("👁 View-once photo")
+		case store.MediaKindVideo:
+			return withCaption("👁 View-once video" + durationSuffix(m.MediaDurationSecs))
+		case store.MediaKindVoice:
+			return withCaption("👁 View-once voice message" + durationSuffix(m.MediaDurationSecs))
+		case store.MediaKindAudio:
+			return withCaption("👁 View-once audio" + durationSuffix(m.MediaDurationSecs))
+		}
 	}
 	switch kind {
 	case store.MediaKindImage:

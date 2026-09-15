@@ -88,6 +88,7 @@ type CommandActions interface {
 
 	SendText(context.Context, string, string, string, []string) (appstore.SavedTextMessage, error)
 	SendMediaWithMentions(context.Context, string, string, string, string, []string) (appstore.SavedTextMessage, error)
+	SendMediaWithOptions(context.Context, string, string, string, string, []string, app.MediaSendOptions) (appstore.SavedTextMessage, error)
 	SendSticker(context.Context, string, string, string) (appstore.SavedTextMessage, error)
 	SendReaction(context.Context, string, string) (appstore.Message, error)
 	EditMessage(context.Context, string, string) (appstore.Message, error)
@@ -101,6 +102,30 @@ type CommandActions interface {
 	CancelMessageMediaDownload(context.Context, string) error
 	MarkMessagePlayed(context.Context, string) error
 	FetchProfilePicture(context.Context, string) (string, error)
+	SaveMediaToPath(context.Context, string, string, string, string) (string, error)
+	MarkStatusViewed(context.Context, string) (appstore.StatusUpdate, error)
+	PostStatus(context.Context, string, string, string) (appstore.StatusUpdate, error)
+	DownloadStatusMedia(context.Context, string) (appstore.StatusUpdate, error)
+
+	CreateGroup(context.Context, string, []string, string) (appstore.Chat, error)
+	LeaveGroup(context.Context, string) error
+	SetGroupName(context.Context, string, string) error
+	SetGroupDescription(context.Context, string, string) error
+	SetGroupPhoto(context.Context, string, string) error
+	GetGroupInviteLink(context.Context, string, bool) (string, error)
+	JoinGroupWithLink(context.Context, string) (appstore.Chat, error)
+	UpdateGroupMembers(context.Context, string, string, []string) error
+	SetGroupAnnounce(context.Context, string, bool) error
+	SetGroupLocked(context.Context, string, bool) error
+
+	RejectCall(context.Context, string) error
+
+	ExportBackup(context.Context, string, string, bool) (string, int64, error)
+	SetBackupPassphrase(context.Context, string) error
+	RecentLogs(context.Context, int) ([]string, error)
+	ListCommunitySubgroups(context.Context, string) ([]app.CommunityGroup, error)
+	LinkCommunityGroup(context.Context, string, string) error
+	UnlinkCommunityGroup(context.Context, string, string) error
 
 	SetPrivacySetting(context.Context, string, string, bool) (app.PrivacySettings, error)
 	UpdateAppPreferences(context.Context, func(*app.AppPreferences)) (app.AppPreferences, error)
@@ -150,6 +175,27 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("media.stream", cmd.mediaStreamCommand)
 	s.RegisterCommand("media.cancel_download", backgroundNet(cmd.mediaCancelDownload, false))
 	s.RegisterCommand("media.fetch_profile_picture", backgroundNet(cmd.mediaFetchProfilePicture, true))
+	s.RegisterCommand("media.save", backgroundNet(cmd.mediaSave, false))
+	s.RegisterCommand("status.mark_viewed", backgroundNet(cmd.statusMarkViewed, false))
+	s.RegisterCommand("status.post", backgroundNet(cmd.statusPost, false))
+	s.RegisterCommand("status.download", cmd.statusDownload)
+	s.RegisterCommand("group.create", backgroundNet(cmd.groupCreate, false))
+	s.RegisterCommand("group.leave", backgroundNet(cmd.groupLeave, false))
+	s.RegisterCommand("group.set_name", backgroundNet(cmd.groupSetName, false))
+	s.RegisterCommand("group.set_topic", backgroundNet(cmd.groupSetTopic, false))
+	s.RegisterCommand("group.set_photo", backgroundNet(cmd.groupSetPhoto, false))
+	s.RegisterCommand("group.invite_link", backgroundNet(cmd.groupInviteLink, true))
+	s.RegisterCommand("group.join_link", backgroundNet(cmd.groupJoinLink, false))
+	s.RegisterCommand("group.members", backgroundNet(cmd.groupMembers, false))
+	s.RegisterCommand("group.set_announce", backgroundNet(cmd.groupSetAnnounce, false))
+	s.RegisterCommand("group.set_locked", backgroundNet(cmd.groupSetLocked, false))
+	s.RegisterCommand("call.reject", backgroundNet(cmd.callReject, false))
+	s.RegisterCommand("daemon.backup_export", backgroundNet(cmd.backupExport, false))
+	s.RegisterCommand("daemon.backup_set_passphrase", backgroundNet(cmd.backupSetPassphrase, false))
+	s.RegisterCommand("daemon.logs", cmd.daemonLogs)
+	s.RegisterCommand("community.subgroups", backgroundNet(cmd.communitySubgroups, true))
+	s.RegisterCommand("community.link", backgroundNet(cmd.communityLink, false))
+	s.RegisterCommand("community.unlink", backgroundNet(cmd.communityUnlink, false))
 	// Phase C3 settings/contact/sticker commands and transient queries.
 	s.RegisterCommand("privacy.set", backgroundNet(cmd.privacySet, false))
 	s.RegisterCommand("preferences.set", cmd.preferencesSet)

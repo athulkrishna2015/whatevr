@@ -1,0 +1,158 @@
+package protocol
+
+import (
+	"context"
+	"encoding/json"
+	"log"
+	"sync"
+
+	"whatevrd/internal/app"
+	"whatevrd/internal/store"
+)
+
+// StatusLister supplies the `status` view its rows. *store.DB implements it.
+type StatusLister interface {
+	ListStatusUpdates(ctx context.Context, limit int) ([]store.StatusUpdate, error)
+}
+
+// statusView is the contact-status (stories) feed: a live-edge window over
+// status_updates, newest first. Rows reuse the message media facts where they
+// exist so a photo status renders from the same fields a chat photo would.
+type statusView struct {
+	daemon *app.Daemon
+	lister StatusLister
+}
+
+func (v statusView) Open(_ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+	events, cancel := v.daemon.SubscribeDaemonEvents()
+	ctx, cancelCtx := context.WithCancel(context.Background())
+	s := &statusSession{
+		lister:       v.lister,
+		eventsCancel: cancel,
+		ctx:          ctx,
+		cancelCtx:    cancelCtx,
+		done:         make(chan struct{}),
+	}
+	go s.run(events, invalidate)
+	return s, nil, nil
+}
+
+type statusSession struct {
+	lister       StatusLister
+	eventsCancel func()
+	ctx          context.Context
+	cancelCtx    context.CancelFunc
+	done         chan struct{}
+	closeOnce    sync.Once
+}
+
+func (s *statusSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+	for {
+		select {
+		case <-s.done:
+			return
+		case evt := <-events:
+			switch evt.Kind {
+			case app.DaemonEventStatusChanged, app.DaemonEventResync:
+				invalidate()
+			}
+		}
+	}
+}
+
+// Items returns the newest `max` statuses, newest first. `extend older`
+// pages back; statuses expire after 24h server-side, so deep windows are
+// short by nature.
+func (s *statusSession) Items(max int) []Item {
+	if s.lister == nil {
+		return nil
+	}
+	limit := max
+	if limit <= 0 {
+		limit = messagesUnboundedLimit
+	}
+	rows, err := s.lister.ListStatusUpdates(s.ctx, limit)
+	if err != nil {
+		log.Printf("protocol: list statuses for view: %v", err)
+		return nil
+	}
+	items := make([]Item, 0, len(rows))
+	for _, st := range rows {
+		items = append(items, Item{
+			ID:   st.ID,
+			Sort: newestFirstSort(statusSortSeed(st)),
+			Data: statusItemFromStore(st),
+		})
+	}
+	return items
+}
+
+func (s *statusSession) Close() {
+	s.closeOnce.Do(func() {
+		s.cancelCtx()
+		close(s.done)
+		s.eventsCancel()
+	})
+}
+
+// statusSortSeed adapts a status row to the newest-first sorter shared with
+// message views.
+func statusSortSeed(st store.StatusUpdate) store.Message {
+	return store.Message{TimestampUnix: st.TimestampUnix, ID: st.ID}
+}
+
+type statusItem struct {
+	ID        string        `json:"id"`
+	Sender    messageSender `json:"sender"`
+	Timestamp int64         `json:"timestamp"`
+	Kind      string        `json:"kind"`
+	Fallback  string        `json:"fallback"`
+	Text      string        `json:"text,omitempty"`
+	Viewed    bool          `json:"viewed,omitempty"`
+	Media     *messageMedia `json:"media,omitempty"`
+}
+
+func statusItemFromStore(st store.StatusUpdate) statusItem {
+	item := statusItem{
+		ID:        st.ID,
+		Sender:    messageSender{ID: st.SenderID, Name: st.SenderName},
+		Timestamp: st.TimestampUnix,
+		Kind:      st.Kind,
+		Text:      st.Text,
+		Viewed:    st.Viewed,
+	}
+	if item.Kind == "" {
+		item.Kind = "text"
+	}
+	item.Fallback = statusFallback(st)
+	if st.MediaKind != "" {
+		item.Media = &messageMedia{
+			Mime:         st.MediaMimeType,
+			Path:         st.MediaLocalPath,
+			SizeBytes:    st.MediaSizeBytes,
+			DurationSecs: st.MediaDurationSecs,
+			Filename:     st.MediaFileName,
+		}
+	}
+	return item
+}
+
+func statusFallback(st store.StatusUpdate) string {
+	if caption := oneLine(st.Text); caption != "" {
+		return caption
+	}
+	switch st.MediaKind {
+	case store.MediaKindImage:
+		return "📷 Photo status"
+	case store.MediaKindVideo:
+		return "🎥 Video status"
+	case store.MediaKindGIF:
+		return "🎞️ GIF status"
+	case store.MediaKindVoice:
+		return "🎤 Voice status"
+	case store.MediaKindAudio:
+		return "🎵 Audio status"
+	default:
+		return "Status update"
+	}
+}

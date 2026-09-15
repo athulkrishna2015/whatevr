@@ -126,6 +126,58 @@ Item {
             QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
         }
 
+        QQC2.ToolButton {
+            Layout.alignment: Qt.AlignHCenter
+            icon.name: "camera-photo-symbolic"
+            display: QQC2.AbstractButton.IconOnly
+            icon.width: root.railIconSize
+            icon.height: root.railIconSize
+            text: Whatevr.I18n.i18nc("@action:button open the status tab", "Status")
+            onClicked: {
+                // Like starred: the page owns its `status` subscription while
+                // on screen, grouped per contact inside the page itself.
+                applicationWindow().pageStack.layers.push(Qt.resolvedUrl("StatusPage.qml"))
+            }
+
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.text: text
+            QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+        }
+
+        QQC2.ToolButton {
+            id: callsButton
+
+            Layout.alignment: Qt.AlignHCenter
+            icon.name: "call-start-symbolic"
+            display: QQC2.AbstractButton.IconOnly
+            icon.width: root.railIconSize
+            icon.height: root.railIconSize
+            text: Whatevr.ProtocolController.callsRingingCount > 0
+                ? Whatevr.I18n.i18nc("@action:button open the calls tab", "Calls (%1 ringing)", Whatevr.ProtocolController.callsRingingCount)
+                : Whatevr.I18n.i18nc("@action:button open the calls tab", "Calls")
+            onClicked: {
+                // The page owns its `calls` subscription while on screen.
+                applicationWindow().pageStack.layers.push(Qt.resolvedUrl("CallsPage.qml"))
+            }
+
+            // Ringing dot while a call is coming in.
+            Rectangle {
+                anchors.right: parent.right
+                anchors.rightMargin: Kirigami.Units.smallSpacing / 2
+                anchors.top: parent.top
+                anchors.topMargin: Kirigami.Units.smallSpacing / 2
+                width: Kirigami.Units.smallSpacing
+                height: Kirigami.Units.smallSpacing
+                radius: width / 2
+                color: Kirigami.Theme.positiveTextColor
+                visible: Whatevr.ProtocolController.callsRingingCount > 0
+            }
+
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.text: text
+            QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+        }
+
         Item {
             Layout.fillHeight: true
         }

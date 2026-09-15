@@ -849,7 +849,7 @@ Kirigami.Page {
             editingMessageId: root.editingMessageId
             editingOriginalText: root.editingOriginalText
             onSendTextRequested: (text, replyToMessageId, mentionedJids) => Whatevr.ProtocolController.sendText(text, replyToMessageId, mentionedJids)
-            onSendImageRequested: (fileUrl, caption, replyToMessageId) => Whatevr.ProtocolController.sendMedia(fileUrl, caption, replyToMessageId)
+            onSendImageRequested: (fileUrl, caption, replyToMessageId, kind, viewOnce) => Whatevr.ProtocolController.sendMedia(fileUrl, caption, replyToMessageId, kind, viewOnce)
             onComposingChanged: composing => Whatevr.ProtocolController.setSelectedChatComposing(composing)
             onClearReplyRequested: root.clearReplyTarget()
             onReplyConsumed: root.clearReplyTarget()

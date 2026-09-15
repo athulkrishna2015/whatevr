@@ -233,6 +233,8 @@ noted; this inventory fixes the shape of the protocol, not every field name.
 | `sticker_packs` | none | packs | |
 | `sticker_pack` | `pack_id` | stickers | contents fetch is async; items land as they resolve |
 | `transfers` | none | active media transfers | `message_id`, `direction`, `received_bytes`, `total_bytes`, optional active `error`; `remove` on terminal success or failure. This view carries the byte counters only: whether a fetch is in flight at all is `media.downloading` on the message row, so a renderer never has to join two independently recomputed views and never sees the two disagree. `direction` is `"download"` today; outbound uploads are not yet modelled here (a known gap). A `media.stream` fetch reports through this view too, where `received_bytes` counts the chunks present rather than a sequential write head, so it can climb out of order as the viewer seeks |
+| `status` | none | contact statuses (stories) | one item per status update, newest first: `id`, `sender` (id, name), `timestamp`, `kind` (`text`\|media kinds), `fallback`, `text`, `viewed`, `media` (mime, path once downloaded, duration, filename). Statuses never create chat rows |
+| `calls` | none | ringing calls | one item per locally-ringing call: `id` (call id), `chat_id`, `caller` (id, name), `video`, `started_at`. `remove`d on terminate/reject; missed calls land in their chats as tombstone messages |
 | `notifications` | none | notification records | **Reserved, not served in protocol 1**: subscribing errors `not_found`. What the daemon would notify about, for applets, relays, and headless setups; the daemon's own D-Bus notifier is unaffected. Its shape waits on a real consumer (see *Open questions*) |
 
 Avatar paths are embedded in chat/message/contact/member rows and refresh via
@@ -273,7 +275,7 @@ views.
 | method | params | result |
 | --- | --- | --- |
 | `send.text` | `chat_id`, `text`, `reply_to`, `mentions` (jids) | `{message_id}` |
-| `send.media` | `chat_id`, `path`, `caption`, `reply_to`, `mentions` | `{message_id}`: daemon copies the file into its cache immediately; the caller may delete its copy on return |
+| `send.media` | `chat_id`, `path`, `caption`, `reply_to`, `mentions`, `kind` (`image`\|`video`\|`audio`\|`voice`\|`document`, empty auto-classifies from the file), `view_once` (photo/video/audio only), `filename` (document display-name override) | `{message_id}`: daemon copies the file into its cache immediately; the caller may delete its copy on return |
 | `send.sticker` | `chat_id`, `cache_key`, `reply_to` | `{message_id}` |
 | `message.react` | `message_id`, `emoji` ("" removes) | `{}` |
 | `message.edit` | `message_id`, `text` | `{}`: may fail `expired` |
@@ -287,6 +289,52 @@ views.
 | `media.stream` | `message_id` | `{stream_id, url, mime, size_bytes, duration_secs}`: `stream_id` is opaque and identifies this request. The loopback range URL plays while the fetch is still running. The fetch continues to completion regardless, so the message still upserts with `media.path`, after which the path is what frontends should use. May fail `rejected` for media that cannot be streamed (no length or hash, a CDN that ignores ranges); the caller falls back to `media.download` |
 | `media.cancel_download` | `message_id` | `{}`: stops an in-flight `media.download` or `media.stream` fetch and closes the `transfers` row. Whatever has already landed on disk is kept, so a later `media.download` resumes rather than starting over. Fails `rejected` when nothing is in flight for that message |
 | `media.fetch_profile_picture` | `jid` | `{path}`: full resolution, for the avatar viewer |
+| `media.save` | `message_id` xor `status_id` xor `jid`, `path` (absolute destination) | `{path}`: copies a chat message, status, or profile picture out of the daemon cache, downloading first when the row carries keys but no bytes yet. Saving an inbound view-once row is the caller's deliberate per-item override of "view on your phone" |
+
+**Status**
+
+| method | params | result |
+| --- | --- | --- |
+| `status.mark_viewed` | `status_id` | `{}`: local viewed flag only; no viewed receipt is sent yet |
+| `status.post` | `text` xor `path`, `caption` | `{status_id}`: publishes a text or photo/video/audio status; the post itself arrives through the `status` view |
+| `status.download` | `status_id` | `{}`: progress is silent; path lands via status upsert |
+
+**Groups**
+
+| method | params | result |
+| --- | --- | --- |
+| `group.create` | `name`, `members` (jids), `photo_path` | `{chat_id}` |
+| `group.leave` | `chat_id` | `{}` |
+| `group.set_name` | `chat_id`, `name` | `{}` |
+| `group.set_topic` | `chat_id`, `description` | `{}` |
+| `group.set_photo` | `chat_id`, `path` (empty clears) | `{}` |
+| `group.invite_link` | `chat_id`, `reset` | `{link}` |
+| `group.join_link` | `link` (URL or bare code) | `{chat_id}` |
+| `group.members` | `chat_id`, `action` (`add`\|`remove`\|`promote`\|`demote`), `members` | `{}` |
+| `group.set_announce` | `chat_id`, `enabled` | `{}`: admins-only sending |
+| `group.set_locked` | `chat_id`, `enabled` | `{}`: admins-only info editing |
+
+**Communities**
+
+| method | params | result |
+| --- | --- | --- |
+| `community.subgroups` | `chat_id` (community) | `{groups: [{id, name}]}`: the sub-group directory |
+| `community.link` | `community_id`, `group_id` | `{}`: attach a group (admins) |
+| `community.unlink` | `community_id`, `group_id` | `{}`: detach a sub-group (admins) |
+
+**Calls**
+
+| method | params | result |
+| --- | --- | --- |
+| `call.reject` | `chat_id` | `{}`: declines the latest ringing call; silent no-op when none is ringing. Answering from the desktop is impossible (no media stack upstream), so reject + "answer on your phone" is the whole surface |
+
+**Daemon**
+
+| method | params | result |
+| --- | --- | --- |
+| `daemon.backup_export` | `path` (default timestamped), `passphrase`, `use_keyring` | `{path, size_bytes}`: bundle of message store + session + media; encrypted (AES-256-GCM via scrypt) when a passphrase is given |
+| `daemon.backup_set_passphrase` | `passphrase` | `{}`: stores the backup passphrase in the OS keyring (Secret Service) |
+| `daemon.logs` | `limit` | `{lines}`: recent daemon log lines, oldest first, for debugging |
 
 **Settings, contacts, stickers**
 
@@ -329,7 +377,10 @@ A message item has a `kind` (`text`, `image`, `sticker`, `video`, `gif`,
 - `sort` (on the envelope), `id`, `chat_id`, `sender` (id, name, avatar path),
   `timestamp`, `direction`, `status` (`pending`→`sent`→`delivered`→`read`, or
   `failed`), and the interaction state that applies to any kind: `reply_to`
-  quote, `reactions`, `mentions`, `edited`, `revoked`, `starred`, `pinned_until`.
+  quote, `reactions`, `mentions`, `edited`, `revoked`, `starred`, `pinned_until`,
+  `view_once` (our own view-once sends; inbound view-once rows always render
+  the `unsupported` tombstone kind with a "View once …" fallback, keeping
+  their keys only so an explicit `media.save` can fetch them).
 
 Media-bearing kinds carry `media` (`mime`, dimensions, `thumbnail_path`,
 `path` which is empty until downloaded, `downloading`, optional

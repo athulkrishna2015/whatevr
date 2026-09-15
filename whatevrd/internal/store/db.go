@@ -287,6 +287,25 @@ func (db *DB) migrate(ctx context.Context) error {
 			updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_undecryptable_messages_created_at ON undecryptable_messages(created_at)`,
+		// Contact statuses (stories) live outside chats: storing them as chat
+		// messages would materialize a bogus "status" chat row.
+		`CREATE TABLE IF NOT EXISTS status_updates (
+			id TEXT PRIMARY KEY,
+			sender_id TEXT NOT NULL,
+			sender_name TEXT NOT NULL DEFAULT '',
+			timestamp INTEGER NOT NULL,
+			kind TEXT NOT NULL DEFAULT 'text',
+			text TEXT NOT NULL DEFAULT '',
+			media_mime_type TEXT NOT NULL DEFAULT '',
+			media_kind TEXT NOT NULL DEFAULT '',
+			media_local_path TEXT NOT NULL DEFAULT '',
+			media_payload BLOB NOT NULL DEFAULT x'',
+			media_duration_secs INTEGER NOT NULL DEFAULT 0,
+			media_size_bytes INTEGER NOT NULL DEFAULT 0,
+			media_file_name TEXT NOT NULL DEFAULT '',
+			is_viewed INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_status_updates_timestamp ON status_updates(timestamp DESC)`,
 	}
 
 	for _, statement := range statements {
@@ -1006,6 +1025,7 @@ func (db *DB) ensureMediaColumns(ctx context.Context) error {
 		{"media_page_count", `ALTER TABLE messages ADD COLUMN media_page_count INTEGER NOT NULL DEFAULT 0`},
 		{"media_waveform", `ALTER TABLE messages ADD COLUMN media_waveform BLOB NOT NULL DEFAULT x''`},
 		{"media_played", `ALTER TABLE messages ADD COLUMN media_played INTEGER NOT NULL DEFAULT 0`},
+		{"is_view_once", `ALTER TABLE messages ADD COLUMN is_view_once INTEGER NOT NULL DEFAULT 0`},
 	}
 	for _, a := range alterations {
 		if existing[a.col] {

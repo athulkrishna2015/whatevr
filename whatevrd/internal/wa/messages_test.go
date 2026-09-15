@@ -844,20 +844,32 @@ func TestMediaMessageInputCoversPlayableKinds(t *testing.T) {
 	}
 }
 
-// TestViewOnceMediaStaysTombstoned guards the one case that must keep falling
-// through to the unsupported path now that video and audio have builders.
+// TestViewOnceMediaStaysTombstoned guards the view-once ingest contract: the
+// row keeps its real kind and keys (so an explicit `media.save` can fetch it)
+// plus IsViewOnce, while the label stays the tombstone text. Rendering stays
+// tombstoned because messageKind() forces inbound view-once rows to the
+// `unsupported` wire kind.
 func TestViewOnceMediaStaysTombstoned(t *testing.T) {
 	client := newMediaIngestClient(t)
 
-	evt := mediaIngestEvent("VO1", &waE2E.Message{VideoMessage: &waE2E.VideoMessage{}})
+	evt := mediaIngestEvent("VO1", &waE2E.Message{VideoMessage: &waE2E.VideoMessage{
+		DirectPath: proto.String("/enc/video.enc"),
+		FileLength: proto.Uint64(1234),
+	}})
 	evt.IsViewOnce = true
 
 	input, ok := client.mediaMessageInput(context.Background(), evt, ingestOptions{})
 	if !ok {
 		t.Fatal("mediaMessageInput() returned ok=false for view-once video")
 	}
-	if input.MediaKind != appstore.MediaKindUnsupported {
-		t.Fatalf("kind = %q, want %q", input.MediaKind, appstore.MediaKindUnsupported)
+	if input.MediaKind != appstore.MediaKindVideo {
+		t.Fatalf("kind = %q, want %q", input.MediaKind, appstore.MediaKindVideo)
+	}
+	if !input.IsViewOnce {
+		t.Fatal("IsViewOnce = false, want true")
+	}
+	if len(input.MediaPayload) == 0 {
+		t.Fatal("MediaPayload is empty, want the stored video keys")
 	}
 	if input.Text != "View once video" {
 		t.Fatalf("label = %q, want %q", input.Text, "View once video")

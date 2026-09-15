@@ -139,6 +139,15 @@ func (c *Client) SendMedia(ctx context.Context, chatID, filePath, caption, reply
 }
 
 func (c *Client) SendMediaWithMentions(ctx context.Context, chatID, filePath, caption, replyToMessageID string, mentionedJIDs []string) (appstore.SavedTextMessage, error) {
+	return c.SendMediaWithOptions(ctx, chatID, filePath, caption, replyToMessageID, mentionedJIDs, MediaSendOptions{})
+}
+
+// MediaSendOptions is an alias of app.MediaSendOptions for callers that
+// already import wa; the canonical definition lives in app so the protocol
+// layer can name it without importing the WhatsApp client.
+type MediaSendOptions = app.MediaSendOptions
+
+func (c *Client) SendMediaWithOptions(ctx context.Context, chatID, filePath, caption, replyToMessageID string, mentionedJIDs []string, opts MediaSendOptions) (appstore.SavedTextMessage, error) {
 	rpcArrival := time.Now()
 	client := c.currentClient()
 	if client == nil {
@@ -148,9 +157,12 @@ func (c *Client) SendMediaWithMentions(ctx context.Context, chatID, filePath, ca
 		return appstore.SavedTextMessage{}, app.NewCommandError(app.CommandErrorNotLoggedIn, "WhatsApp session is not logged in")
 	}
 
-	data, mimeType, extension, err := readOutboundMedia(filePath)
+	data, mimeType, extension, mediaKind, fileName, err := readOutboundMedia(filePath, opts)
 	if err != nil {
 		return appstore.SavedTextMessage{}, err
+	}
+	if opts.ViewOnce && !viewOnceSendable(mediaKind) {
+		return appstore.SavedTextMessage{}, app.NewCommandError(app.CommandErrorInvalidArgument, "view-once is only supported for photo, video and audio messages")
 	}
 
 	targetJID, err := types.ParseJID(chatID)
@@ -175,9 +187,11 @@ func (c *Client) SendMediaWithMentions(ctx context.Context, chatID, filePath, ca
 	}
 
 	var mediaWidth, mediaHeight int32
-	if cfg, _, err := image.DecodeConfig(bytes.NewReader(data)); err == nil {
-		mediaWidth = int32(cfg.Width)
-		mediaHeight = int32(cfg.Height)
+	if mediaKind == appstore.MediaKindImage {
+		if cfg, _, err := image.DecodeConfig(bytes.NewReader(data)); err == nil {
+			mediaWidth = int32(cfg.Width)
+			mediaHeight = int32(cfg.Height)
+		}
 	}
 
 	saved, err := c.store.SaveMediaMessage(ctx, appstore.MediaMessageInput{
@@ -194,11 +208,14 @@ func (c *Client) SendMediaWithMentions(ctx context.Context, chatID, filePath, ca
 			ReplyTo:     replyTo,
 			Mentions:    c.resolveMentions(ctx, mentionedJIDs),
 		},
-		MediaKind:      appstore.MediaKindImage,
+		MediaKind:      mediaKind,
 		MediaMimeType:  mimeType,
 		MediaLocalPath: localPath,
 		MediaWidth:     mediaWidth,
 		MediaHeight:    mediaHeight,
+		MediaSizeBytes: int64(len(data)),
+		MediaFileName:  fileName,
+		IsViewOnce:     opts.ViewOnce,
 	})
 	if err != nil {
 		return appstore.SavedTextMessage{}, err
@@ -250,56 +267,131 @@ func replyFromStoredMessage(message appstore.Message) appstore.MessageReply {
 	}
 }
 
-func readOutboundMedia(filePath string) ([]byte, string, string, error) {
+// viewOnceSendable reports whether WhatsApp allows sending this media kind
+// view-once. Stickers and documents have no view-once form.
+func viewOnceSendable(mediaKind string) bool {
+	switch mediaKind {
+	case appstore.MediaKindImage, appstore.MediaKindVideo, appstore.MediaKindAudio, appstore.MediaKindVoice:
+		return true
+	default:
+		return false
+	}
+}
+
+// readOutboundMedia validates the file at filePath and classifies it into a
+// media kind. An explicit Kind hint forces that kind (with MIME sanity
+// checks); otherwise images stay images, video/audio take their kind, and
+// anything else (PDFs, zips, text, …) becomes a document. GIFs are still
+// rejected: WhatsApp treats them as short videos and the GIF→MP4 transcode
+// path does not exist yet.
+func readOutboundMedia(filePath string, opts MediaSendOptions) (data []byte, mimeType, extension, mediaKind, fileName string, err error) {
+	kindHint := strings.ToLower(strings.TrimSpace(opts.Kind))
+	switch kindHint {
+	case "", "auto", "image", "video", "audio", "voice", "document":
+	default:
+		return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "unknown media kind %q: want image, video, audio, voice or document", opts.Kind)
+	}
 	if !filepath.IsAbs(filePath) {
-		return nil, "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file path must be absolute")
+		return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file path must be absolute")
 	}
 	info, err := os.Lstat(filePath)
 	if err != nil {
-		return nil, "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file is not accessible")
+		return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file is not accessible")
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		return nil, "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file must not be a symlink")
+		return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file must not be a symlink")
 	}
 	if !info.Mode().IsRegular() {
-		return nil, "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file must be a regular file")
+		return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file must be a regular file")
 	}
 	if info.Size() <= 0 {
-		return nil, "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file is empty")
+		return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file is empty")
 	}
 	if info.Size() > maxOutboundMediaBytes {
-		return nil, "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file must be <= %d MiB", maxOutboundMediaBytes/(1024*1024))
+		return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file must be <= %d MiB", maxOutboundMediaBytes/(1024*1024))
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok || stat.Uid != uint32(os.Geteuid()) {
-		return nil, "", "", app.NewCommandError(app.CommandErrorRejected, "media file owner is not allowed")
+		return nil, "", "", "", "", app.NewCommandError(app.CommandErrorRejected, "media file owner is not allowed")
 	}
 
 	f, err := os.Open(filePath)
 	if err != nil {
-		return nil, "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file is not readable")
+		return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file is not readable")
 	}
 	defer f.Close()
 
-	data, err := io.ReadAll(io.LimitReader(f, maxOutboundMediaBytes+1))
+	data, err = io.ReadAll(io.LimitReader(f, maxOutboundMediaBytes+1))
 	if err != nil {
-		return nil, "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file could not be read")
+		return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file could not be read")
 	}
 	if len(data) > maxOutboundMediaBytes {
-		return nil, "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file must be <= %d MiB", maxOutboundMediaBytes/(1024*1024))
+		return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file must be <= %d MiB", maxOutboundMediaBytes/(1024*1024))
 	}
-	mimeType := http.DetectContentType(data)
+	mimeType = http.DetectContentType(data)
 	// WhatsApp GIFs are short MP4 videos with a gif-playback flag; sending the
 	// raw .gif bytes through the image path delivers a static picture. Refuse
 	// until a GIF→video transcode path exists.
 	if mimeType == "image/gif" {
-		return nil, "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "GIF files can't be sent yet: WhatsApp treats GIFs as short videos, which whatevr does not support sending")
+		return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "GIF files can't be sent yet: WhatsApp treats GIFs as short videos, which whatevr does not support sending")
 	}
-	extension, ok := outboundImageExtension(mimeType)
-	if !ok {
-		return nil, "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file must be a supported image")
+
+	sourceBase := filepath.Base(filePath)
+	switch {
+	case kindHint == "image":
+		if !strings.HasPrefix(mimeType, "image/") {
+			return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file must be a supported image")
+		}
+		mediaKind = appstore.MediaKindImage
+		extension, ok = outboundImageExtension(mimeType)
+		if !ok {
+			return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file must be a supported image")
+		}
+		return data, mimeType, extension, mediaKind, "", nil
+	case kindHint == "video":
+		if !strings.HasPrefix(mimeType, "video/") {
+			return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file must be a video")
+		}
+		mediaKind = appstore.MediaKindVideo
+		return data, mimeType, outboundVideoExtension(sourceBase, mimeType), mediaKind, "", nil
+	case kindHint == "audio":
+		if !strings.HasPrefix(mimeType, "audio/") {
+			return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file must be audio")
+		}
+		mediaKind = appstore.MediaKindAudio
+		return data, mimeType, outboundAudioExtension(sourceBase, mimeType), mediaKind, "", nil
+	case kindHint == "voice":
+		if !strings.HasPrefix(mimeType, "audio/") {
+			return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "voice notes must be audio files")
+		}
+		mediaKind = appstore.MediaKindVoice
+		return data, mimeType, outboundAudioExtension(sourceBase, mimeType), mediaKind, "", nil
+	case kindHint == "document":
+		mediaKind = appstore.MediaKindDocument
+		fileName = outboundDocumentName(sourceBase, opts.Filename)
+		return data, mimeType, outboundDocumentExtension(sourceBase, mimeType), mediaKind, fileName, nil
 	}
-	return data, mimeType, extension, nil
+
+	// Auto classification.
+	switch {
+	case strings.HasPrefix(mimeType, "image/"):
+		mediaKind = appstore.MediaKindImage
+		extension, ok = outboundImageExtension(mimeType)
+		if !ok {
+			return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file must be a supported image")
+		}
+		return data, mimeType, extension, mediaKind, "", nil
+	case strings.HasPrefix(mimeType, "video/"):
+		mediaKind = appstore.MediaKindVideo
+		return data, mimeType, outboundVideoExtension(sourceBase, mimeType), mediaKind, "", nil
+	case strings.HasPrefix(mimeType, "audio/"):
+		mediaKind = appstore.MediaKindAudio
+		return data, mimeType, outboundAudioExtension(sourceBase, mimeType), mediaKind, "", nil
+	default:
+		mediaKind = appstore.MediaKindDocument
+		fileName = outboundDocumentName(sourceBase, opts.Filename)
+		return data, mimeType, outboundDocumentExtension(sourceBase, mimeType), mediaKind, fileName, nil
+	}
 }
 
 func outboundImageExtension(mimeType string) (string, bool) {
@@ -313,6 +405,71 @@ func outboundImageExtension(mimeType string) (string, bool) {
 	default:
 		return "", false
 	}
+}
+
+// outboundPreservedExtension keeps the source file's extension when it looks
+// sane, so videos, audio and documents land in the cache (and on the
+// recipient's phone) with a usable name. Falls back to a MIME-derived default.
+func outboundPreservedExtension(sourceBase, mimeType, fallback string) string {
+	if ext := strings.ToLower(strings.TrimSpace(filepath.Ext(sourceBase))); ext != "" {
+		trimmed := strings.TrimPrefix(ext, ".")
+		if len(trimmed) >= 1 && len(trimmed) <= 10 {
+			clean := true
+			for _, r := range trimmed {
+				if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+					continue
+				}
+				clean = false
+				break
+			}
+			if clean {
+				return ext
+			}
+		}
+	}
+	switch {
+	case strings.HasPrefix(mimeType, "video/"):
+		return ".mp4"
+	case strings.HasPrefix(mimeType, "audio/ogg"):
+		return ".ogg"
+	case strings.HasPrefix(mimeType, "audio/"):
+		return ".m4a"
+	case mimeType == "application/pdf":
+		return ".pdf"
+	default:
+		return fallback
+	}
+}
+
+func outboundVideoExtension(sourceBase, mimeType string) string {
+	return outboundPreservedExtension(sourceBase, mimeType, ".mp4")
+}
+
+func outboundAudioExtension(sourceBase, mimeType string) string {
+	return outboundPreservedExtension(sourceBase, mimeType, ".ogg")
+}
+
+func outboundDocumentExtension(sourceBase, mimeType string) string {
+	return outboundPreservedExtension(sourceBase, mimeType, ".bin")
+}
+
+// outboundDocumentName picks the display filename for a sent document: an
+// explicit override wins, otherwise the source basename, sanitized to one
+// path segment of bounded length.
+func outboundDocumentName(sourceBase, override string) string {
+	if name := strings.TrimSpace(override); name != "" {
+		sourceBase = name
+	}
+	sourceBase = strings.ReplaceAll(sourceBase, "/", "_")
+	sourceBase = strings.ReplaceAll(sourceBase, "\\", "_")
+	sourceBase = strings.TrimSpace(sourceBase)
+	if sourceBase == "" || sourceBase == "." || sourceBase == ".." {
+		sourceBase = "file"
+	}
+	if runes := []rune(sourceBase); len(runes) > 128 {
+		sourceBase = string(runes[:128])
+	}
+	return sourceBase
 }
 
 const outgoingThumbnailMaxDimension = 100
@@ -540,7 +697,7 @@ func (c *Client) sendPendingMediaMessage(ctx context.Context, client *whatsmeow.
 
 	data, err := os.ReadFile(message.MediaLocalPath)
 	if err != nil {
-		// Forwarded copies of an undownloaded image carry only the original
+		// Forwarded copies of an undownloaded message carry only the original
 		// sender's media payload; resend those keys instead of re-uploading.
 		if sent, payloadErr := c.sendPendingMediaFromPayload(ctx, client, targetJID, externalID, message); sent || payloadErr != nil {
 			return payloadErr
@@ -554,32 +711,27 @@ func (c *Client) sendPendingMediaMessage(ctx context.Context, client *whatsmeow.
 		mimeType = http.DetectContentType(data)
 	}
 
-	resp, err := client.Upload(ctx, data, whatsmeow.MediaImage)
+	// View-once forwards are forbidden by WhatsApp; a queued view-once row is
+	// always our own fresh send (ForwardMessage rejects view-once sources).
+	outgoing, payloadProto, uploadType, buildErr := buildOutgoingMediaMessage(message, data, mimeType)
+	if buildErr != nil {
+		c.markPendingMessageFailed(ctx, message.ID, buildErr.Error())
+		return nil
+	}
+
+	resp, err := client.Upload(ctx, data, uploadType)
 	if err != nil {
 		return fmt.Errorf("upload media %s: %w", message.ID, err)
 	}
-
-	imgMsg := &waE2E.ImageMessage{
-		Caption:       proto.String(message.Text),
-		Mimetype:      proto.String(mimeType),
-		URL:           &resp.URL,
-		DirectPath:    &resp.DirectPath,
-		MediaKey:      resp.MediaKey,
-		FileEncSHA256: resp.FileEncSHA256,
-		FileSHA256:    resp.FileSHA256,
-		FileLength:    &resp.FileLength,
-	}
-	// Embed a small inline thumbnail like official clients do, so recipients
-	// have a preview while the full image downloads and so quotes of this
-	// image (here or on the other side) render a thumbnail.
-	if thumb := outgoingImageThumbnail(data); len(thumb) > 0 {
-		imgMsg.JPEGThumbnail = thumb
-	}
+	fillOutgoingMediaUpload(payloadProto, resp)
 	if contextInfo := c.outgoingContextInfo(ctx, client, message); contextInfo != nil {
-		imgMsg.ContextInfo = contextInfo
+		setOutgoingMediaContext(payloadProto, contextInfo)
+	}
+	if message.IsViewOnce {
+		outgoing = &waE2E.Message{ViewOnceMessage: &waE2E.FutureProofMessage{Message: outgoing}}
 	}
 
-	if _, err := client.SendMessage(ctx, targetJID, &waE2E.Message{ImageMessage: imgMsg}, whatsmeow.SendRequestExtra{ID: externalID}); err != nil {
+	if _, err := client.SendMessage(ctx, targetJID, outgoing, whatsmeow.SendRequestExtra{ID: externalID}); err != nil {
 		newAttempts := message.SendAttempts + 1
 		delay := sendQueueBackoff(newAttempts)
 		c.log.Warnf("Failed to send media %s (attempt %d), retry in %s: %v", message.ID, newAttempts, delay, err)
@@ -589,16 +741,145 @@ func (c *Client) sendPendingMediaMessage(ctx context.Context, client *whatsmeow.
 		return fmt.Errorf("send media %s: %w", message.ID, err)
 	}
 
-	// Persist the sent image proto (including thumbnail/media keys) so a later
-	// reply quoting our own image can be reconstructed losslessly.
-	if payload, marshalErr := proto.Marshal(imgMsg); marshalErr == nil {
+	// Persist the sent proto (including thumbnail/media keys) so a later reply
+	// quoting our own media can be reconstructed losslessly. The inner proto
+	// is stored, never the view-once wrapper, so forwards reuse the keys.
+	if payload, marshalErr := proto.Marshal(payloadProto); marshalErr == nil {
 		if _, dbErr := c.store.UpdateMessageMediaPayload(ctx, message.ID, payload); dbErr != nil {
-			c.log.Warnf("Failed to persist sent image payload for %s: %v", message.ID, dbErr)
+			c.log.Warnf("Failed to persist sent media payload for %s: %v", message.ID, dbErr)
 		}
 	}
 
 	c.markPendingMessageSent(ctx, message.ID)
 	return nil
+}
+
+// buildOutgoingMediaMessage assembles the wire message for a queued media row.
+// It returns the envelope, the inner media proto (which carries the upload
+// fields and is persisted for quotes/forwards), and the upload media type.
+// The caller fills upload fields, attaches context info, and optionally wraps
+// the envelope view-once.
+func buildOutgoingMediaMessage(message appstore.Message, data []byte, mimeType string) (envelope *waE2E.Message, inner proto.Message, uploadType whatsmeow.MediaType, err error) {
+	switch message.MediaKind {
+	case "", appstore.MediaKindImage:
+		imgMsg := &waE2E.ImageMessage{
+			Caption:  proto.String(message.Text),
+			Mimetype: proto.String(mimeType),
+		}
+		// Embed a small inline thumbnail like official clients do, so
+		// recipients have a preview while the full image downloads and so
+		// quotes of this image (here or on the other side) render one.
+		if thumb := outgoingImageThumbnail(data); len(thumb) > 0 {
+			imgMsg.JPEGThumbnail = thumb
+		}
+		if message.MediaWidth > 0 {
+			imgMsg.Width = proto.Uint32(uint32(message.MediaWidth))
+		}
+		if message.MediaHeight > 0 {
+			imgMsg.Height = proto.Uint32(uint32(message.MediaHeight))
+		}
+		return &waE2E.Message{ImageMessage: imgMsg}, imgMsg, whatsmeow.MediaImage, nil
+	case appstore.MediaKindVideo, appstore.MediaKindGIF:
+		videoMsg := &waE2E.VideoMessage{
+			Caption:  proto.String(message.Text),
+			Mimetype: proto.String(mimeType),
+		}
+		if message.MediaDurationSecs > 0 {
+			videoMsg.Seconds = proto.Uint32(uint32(message.MediaDurationSecs))
+		}
+		if message.MediaWidth > 0 {
+			videoMsg.Width = proto.Uint32(uint32(message.MediaWidth))
+		}
+		if message.MediaHeight > 0 {
+			videoMsg.Height = proto.Uint32(uint32(message.MediaHeight))
+		}
+		if message.MediaKind == appstore.MediaKindGIF {
+			videoMsg.GifPlayback = proto.Bool(true)
+		}
+		return &waE2E.Message{VideoMessage: videoMsg}, videoMsg, whatsmeow.MediaVideo, nil
+	case appstore.MediaKindVoice, appstore.MediaKindAudio:
+		audioMsg := &waE2E.AudioMessage{
+			Mimetype: proto.String(mimeType),
+		}
+		if message.MediaKind == appstore.MediaKindVoice {
+			audioMsg.PTT = proto.Bool(true)
+		}
+		if message.MediaDurationSecs > 0 {
+			audioMsg.Seconds = proto.Uint32(uint32(message.MediaDurationSecs))
+		}
+		if len(message.MediaWaveform) > 0 {
+			audioMsg.Waveform = message.MediaWaveform
+		}
+		return &waE2E.Message{AudioMessage: audioMsg}, audioMsg, whatsmeow.MediaAudio, nil
+	case appstore.MediaKindDocument:
+		fileName := strings.TrimSpace(message.MediaFileName)
+		if fileName == "" {
+			fileName = "file"
+		}
+		docMsg := &waE2E.DocumentMessage{
+			FileName: proto.String(fileName),
+			Mimetype: proto.String(mimeType),
+		}
+		if strings.TrimSpace(message.Text) != "" {
+			docMsg.Caption = proto.String(message.Text)
+		}
+		if message.MediaPageCount > 0 {
+			docMsg.PageCount = proto.Uint32(uint32(message.MediaPageCount))
+		}
+		return &waE2E.Message{DocumentMessage: docMsg}, docMsg, whatsmeow.MediaDocument, nil
+	default:
+		return nil, nil, "", errors.New("unsupported media kind for sending")
+	}
+}
+
+// fillOutgoingMediaUpload copies an upload response into the inner media
+// proto of an envelope built by buildOutgoingMediaMessage.
+func fillOutgoingMediaUpload(inner proto.Message, resp whatsmeow.UploadResponse) {
+	switch msg := inner.(type) {
+	case *waE2E.ImageMessage:
+		msg.URL = &resp.URL
+		msg.DirectPath = &resp.DirectPath
+		msg.MediaKey = resp.MediaKey
+		msg.FileEncSHA256 = resp.FileEncSHA256
+		msg.FileSHA256 = resp.FileSHA256
+		msg.FileLength = &resp.FileLength
+	case *waE2E.VideoMessage:
+		msg.URL = &resp.URL
+		msg.DirectPath = &resp.DirectPath
+		msg.MediaKey = resp.MediaKey
+		msg.FileEncSHA256 = resp.FileEncSHA256
+		msg.FileSHA256 = resp.FileSHA256
+		msg.FileLength = &resp.FileLength
+	case *waE2E.AudioMessage:
+		msg.URL = &resp.URL
+		msg.DirectPath = &resp.DirectPath
+		msg.MediaKey = resp.MediaKey
+		msg.FileEncSHA256 = resp.FileEncSHA256
+		msg.FileSHA256 = resp.FileSHA256
+		msg.FileLength = &resp.FileLength
+	case *waE2E.DocumentMessage:
+		msg.URL = &resp.URL
+		msg.DirectPath = &resp.DirectPath
+		msg.MediaKey = resp.MediaKey
+		msg.FileEncSHA256 = resp.FileEncSHA256
+		msg.FileSHA256 = resp.FileSHA256
+		msg.FileLength = &resp.FileLength
+	}
+}
+
+// setOutgoingMediaContext attaches reply/forward/mention context to the inner
+// media proto of an envelope built by buildOutgoingMediaMessage.
+func setOutgoingMediaContext(inner proto.Message, contextInfo *waE2E.ContextInfo) {
+	switch msg := inner.(type) {
+	case *waE2E.ImageMessage:
+		msg.ContextInfo = contextInfo
+	case *waE2E.VideoMessage:
+		msg.ContextInfo = contextInfo
+	case *waE2E.AudioMessage:
+		msg.ContextInfo = contextInfo
+	case *waE2E.DocumentMessage:
+		msg.ContextInfo = contextInfo
+	}
 }
 
 // sendPendingStickerMessage sends a queued sticker. The first send of a
@@ -720,6 +1001,36 @@ func (c *Client) sendPendingMediaFromPayload(ctx context.Context, client *whatsm
 		clone := proto.Clone(sticker).(*waE2E.StickerMessage)
 		clone.ContextInfo = c.outgoingContextInfo(ctx, client, message)
 		outgoing = &waE2E.Message{StickerMessage: clone}
+	case appstore.MediaKindVideo, appstore.MediaKindGIF:
+		video := &waE2E.VideoMessage{}
+		if proto.Unmarshal(message.MediaPayload, video) != nil || video.GetDirectPath() == "" {
+			return false, nil
+		}
+		clone := proto.Clone(video).(*waE2E.VideoMessage)
+		if message.Text != "" {
+			clone.Caption = proto.String(message.Text)
+		}
+		clone.ContextInfo = c.outgoingContextInfo(ctx, client, message)
+		outgoing = &waE2E.Message{VideoMessage: clone}
+	case appstore.MediaKindVoice, appstore.MediaKindAudio:
+		audio := &waE2E.AudioMessage{}
+		if proto.Unmarshal(message.MediaPayload, audio) != nil || audio.GetDirectPath() == "" {
+			return false, nil
+		}
+		clone := proto.Clone(audio).(*waE2E.AudioMessage)
+		clone.ContextInfo = c.outgoingContextInfo(ctx, client, message)
+		outgoing = &waE2E.Message{AudioMessage: clone}
+	case appstore.MediaKindDocument:
+		document := &waE2E.DocumentMessage{}
+		if proto.Unmarshal(message.MediaPayload, document) != nil || document.GetDirectPath() == "" {
+			return false, nil
+		}
+		clone := proto.Clone(document).(*waE2E.DocumentMessage)
+		if message.Text != "" {
+			clone.Caption = proto.String(message.Text)
+		}
+		clone.ContextInfo = c.outgoingContextInfo(ctx, client, message)
+		outgoing = &waE2E.Message{DocumentMessage: clone}
 	default:
 		img := &waE2E.ImageMessage{}
 		if proto.Unmarshal(message.MediaPayload, img) != nil || img.GetDirectPath() == "" {
@@ -805,23 +1116,34 @@ func (c *Client) outgoingReplyParticipant(ctx context.Context, client *whatsmeow
 // buildEditContent assembles the replacement message body for an edit. For a
 // text message it mirrors the normal send path (Conversation, or
 // ExtendedTextMessage when a reply quote/forward context must be preserved).
-// For a media message only the caption is editable, so it reuses the persisted
-// media proto (keys/URL/thumbnail) and swaps the caption rather than
-// re-uploading. It returns nil for content that cannot be edited (e.g. a
+// For an image or video message only the caption is editable, so it reuses
+// the persisted media proto (keys/URL/thumbnail) and swaps the caption rather
+// than re-uploading. It returns nil for content that cannot be edited (e.g. a
 // sticker, which has no caption, or media whose original proto is missing).
 func (c *Client) buildEditContent(ctx context.Context, client *whatsmeow.Client, message appstore.Message, newText string) *waE2E.Message {
 	if message.MediaMimeType != "" || message.MediaLocalPath != "" {
-		if message.MediaKind != appstore.MediaKindImage {
+		switch message.MediaKind {
+		case appstore.MediaKindImage:
+			img := &waE2E.ImageMessage{}
+			if len(message.MediaPayload) == 0 || proto.Unmarshal(message.MediaPayload, img) != nil || img.GetDirectPath() == "" {
+				return nil
+			}
+			clone := proto.Clone(img).(*waE2E.ImageMessage)
+			clone.Caption = proto.String(newText)
+			clone.ContextInfo = c.outgoingContextInfo(ctx, client, message)
+			return &waE2E.Message{ImageMessage: clone}
+		case appstore.MediaKindVideo:
+			video := &waE2E.VideoMessage{}
+			if len(message.MediaPayload) == 0 || proto.Unmarshal(message.MediaPayload, video) != nil || video.GetDirectPath() == "" {
+				return nil
+			}
+			clone := proto.Clone(video).(*waE2E.VideoMessage)
+			clone.Caption = proto.String(newText)
+			clone.ContextInfo = c.outgoingContextInfo(ctx, client, message)
+			return &waE2E.Message{VideoMessage: clone}
+		default:
 			return nil
 		}
-		img := &waE2E.ImageMessage{}
-		if len(message.MediaPayload) == 0 || proto.Unmarshal(message.MediaPayload, img) != nil || img.GetDirectPath() == "" {
-			return nil
-		}
-		clone := proto.Clone(img).(*waE2E.ImageMessage)
-		clone.Caption = proto.String(newText)
-		clone.ContextInfo = c.outgoingContextInfo(ctx, client, message)
-		return &waE2E.Message{ImageMessage: clone}
 	}
 
 	if contextInfo := c.outgoingContextInfo(ctx, client, message); contextInfo != nil {
@@ -866,6 +1188,51 @@ func quotedMessageFromStored(message appstore.Message) *waE2E.Message {
 			img.Caption = proto.String(message.Text)
 		}
 		return &waE2E.Message{ImageMessage: img}
+	case appstore.MediaKindVideo, appstore.MediaKindGIF:
+		video := &waE2E.VideoMessage{}
+		if len(message.MediaPayload) > 0 {
+			if err := proto.Unmarshal(message.MediaPayload, video); err != nil {
+				video = &waE2E.VideoMessage{}
+			}
+		}
+		if video.Mimetype == nil && message.MediaMimeType != "" {
+			video.Mimetype = proto.String(message.MediaMimeType)
+		}
+		if video.Caption == nil && message.Text != "" {
+			video.Caption = proto.String(message.Text)
+		}
+		if message.MediaKind == appstore.MediaKindGIF && video.GifPlayback == nil {
+			video.GifPlayback = proto.Bool(true)
+		}
+		return &waE2E.Message{VideoMessage: video}
+	case appstore.MediaKindVoice, appstore.MediaKindAudio:
+		audio := &waE2E.AudioMessage{}
+		if len(message.MediaPayload) > 0 {
+			if err := proto.Unmarshal(message.MediaPayload, audio); err != nil {
+				audio = &waE2E.AudioMessage{}
+			}
+		}
+		if audio.Mimetype == nil && message.MediaMimeType != "" {
+			audio.Mimetype = proto.String(message.MediaMimeType)
+		}
+		if message.MediaKind == appstore.MediaKindVoice && audio.PTT == nil {
+			audio.PTT = proto.Bool(true)
+		}
+		return &waE2E.Message{AudioMessage: audio}
+	case appstore.MediaKindDocument:
+		document := &waE2E.DocumentMessage{}
+		if len(message.MediaPayload) > 0 {
+			if err := proto.Unmarshal(message.MediaPayload, document); err != nil {
+				document = &waE2E.DocumentMessage{}
+			}
+		}
+		if document.Mimetype == nil && message.MediaMimeType != "" {
+			document.Mimetype = proto.String(message.MediaMimeType)
+		}
+		if document.Caption == nil && message.Text != "" {
+			document.Caption = proto.String(message.Text)
+		}
+		return &waE2E.Message{DocumentMessage: document}
 	default:
 		if message.Text != "" {
 			return &waE2E.Message{Conversation: proto.String(message.Text)}

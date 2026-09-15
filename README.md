@@ -188,11 +188,12 @@ Now with that, here is the current feature map, this is for whatevrd+whatkevr.
 | Message search | ✅ | |
 | Chat search | ✅ | |
 | Contact search/new chat | ✅ | |
-| Voice messages | ❌ | |
-| Audio playback | ❌ | |
-| Video playback | ❌ | |
-| View-once messages sending | ❌ | |
-| Document/file sending | ❌ | Images/media path exists, general file UX missing |
+| Voice messages | ✅ | Receive, playback and send (file-based; in-app recording pending) |
+| Audio playback | ✅ | |
+| Video playback | ✅ | |
+| View-once messages sending | ✅ | Photo, video and voice notes |
+| Document/file sending | ✅ | Any file type; GIF→video transcode still TODO |
+| Save message media | ✅ | Chat media, statuses, profile photos and inbound view-once (explicit per-item save) |
 | Stickers | ✅ | Receive and send stickers |
 | Message reactions | ✅ | |
 | Composer emoji inline search | ✅ | |
@@ -203,15 +204,17 @@ Now with that, here is the current feature map, this is for whatevrd+whatkevr.
 | Archive chats | ✅ | |
 | Mute chats | ✅ | |
 | Pinned messages | ✅ | |
-| Group management | ❌ | No create/invite/admin UI |
-| Community management | ❌ |  |
-| Calls | ❌ | Voice/video calls unsupported |
-| Status/stories | ❌ | |
+| Group management | ✅ | Create/leave/rename/photo/members/invite links via the group card; join-request approvals pending |
+| Community management | ✅ | Sub-group directory + link/unlink (daemon + protocol; UI pending) |
+| Calls | ✅ | Ringing tab with reject + missed-call log; answering impossible upstream (no media stack in whatsmeow) |
+| Status/stories | ✅ | Per-contact tab with viewer, post and save; replies and mute pending |
 | Settings UI | ✅ | |
 | Account/profile editing | ✅ | Includes privacy settings |
-| Import/export backups | ❌ | |
-| DB encryption and keyring integration | ❌ | |
-| Daemon SNI (Tray) | ❌ | |
+| Import/export backups | ✅ | Encrypted bundles + offline restore via commands/CLI; settings UI pending |
+| Backup encryption + OS keyring | ✅ | AES-256-GCM bundles, passphrase in Secret Service |
+| Live DB encryption at rest | ❌ | SQLCipher TODO |
+| Daemon SNI (Tray) | ✅ | Connection state + unread indicator |
+| Debug logs | ✅ | Rotated log file + `daemon.logs` query |
   
 </details>
 

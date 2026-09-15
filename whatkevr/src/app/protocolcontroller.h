@@ -196,6 +196,20 @@ class ProtocolController final : public QObject
     Q_PROPERTY(bool starredMessagesLoading READ starredMessagesLoading NOTIFY starredMessagesChanged FINAL)
     Q_PROPERTY(bool starredMessagesExhausted READ starredMessagesExhausted NOTIFY starredMessagesChanged FINAL)
 
+    // Status tab: the `status` view, subscribed while the status page is on
+    // screen. Rows are per-update items (id, sender, kind, fallback, media);
+    // the page groups them per contact itself over the rows it already holds.
+    Q_PROPERTY(QAbstractItemModel *statusModel READ statusModel CONSTANT FINAL)
+    Q_PROPERTY(bool statusLoading READ statusLoading NOTIFY statusChanged FINAL)
+    Q_PROPERTY(bool statusExhausted READ statusExhausted NOTIFY statusChanged FINAL)
+
+    // Calls tab: the `calls` view, subscribed while the calls page is on
+    // screen. One item per ringing call; callsRingingCount drives the rail
+    // badge. The desktop cannot answer (no media stack upstream): the page
+    // offers Reject and "answer on your phone".
+    Q_PROPERTY(QAbstractItemModel *callsModel READ callsModel CONSTANT FINAL)
+    Q_PROPERTY(int callsRingingCount READ callsRingingCount NOTIFY callsChanged FINAL)
+
     // Per-chat media gallery: the `chat_media` view, subscribed while the
     // gallery page is open. Rows are ordinary `messages` items, so the gallery
     // renders the same thumbnails and paths the conversation does.
@@ -391,6 +405,11 @@ public:
     [[nodiscard]] QAbstractItemModel *starredMessagesModel() const;
     [[nodiscard]] bool starredMessagesLoading() const;
     [[nodiscard]] bool starredMessagesExhausted() const;
+    [[nodiscard]] QAbstractItemModel *statusModel() const;
+    [[nodiscard]] bool statusLoading() const;
+    [[nodiscard]] bool statusExhausted() const;
+    [[nodiscard]] QAbstractItemModel *callsModel() const;
+    [[nodiscard]] int callsRingingCount() const;
     [[nodiscard]] QAbstractItemModel *chatMediaModel() const;
     [[nodiscard]] bool chatMediaLoading() const;
     [[nodiscard]] bool chatMediaExhausted() const;
@@ -399,6 +418,32 @@ public:
     Q_INVOKABLE void openStarredMessages(const QString &chatId);
     Q_INVOKABLE void closeStarredMessages();
     Q_INVOKABLE void loadMoreStarredMessages();
+    // Subscribe/drop the `status` view for the status tab's lifetime, and grow
+    // its live-edge window older on scroll.
+    Q_INVOKABLE void openStatus();
+    Q_INVOKABLE void closeStatus();
+    Q_INVOKABLE void loadMoreStatus();
+    // Maps to `status.mark_viewed`; the row upserts viewed through the view.
+    Q_INVOKABLE void markStatusViewed(const QString &statusId);
+    // Maps to `status.post` (text or a media file with an optional caption).
+    Q_INVOKABLE void postStatusText(const QString &text);
+    Q_INVOKABLE void postStatusMedia(const QString &fileUrl, const QString &caption);
+    // Maps to `status.download`; the row upserts with media.path on success.
+    Q_INVOKABLE void downloadStatus(const QString &statusId);
+    // Subscribe/drop the `calls` view for the calls tab's lifetime.
+    Q_INVOKABLE void openCalls();
+    Q_INVOKABLE void closeCalls();
+    // Maps to `call.reject` for the latest ringing call in the chat.
+    Q_INVOKABLE void rejectCall(const QString &chatId);
+    // Group management for the group info card. Invite-link fetch copies the
+    // link to the clipboard on success.
+    Q_INVOKABLE void leaveGroup(const QString &chatId);
+    Q_INVOKABLE void copyGroupInviteLink(const QString &chatId);
+    // Maps to `media.save`: copies a chat message, status, or profile picture
+    // out of the daemon cache to a local file, downloading first when the row
+    // carries keys but no bytes yet (explicit per-item save, including for
+    // inbound view-once rows). Exactly one source id may be set.
+    Q_INVOKABLE void saveRemoteMedia(const QString &messageId, const QString &statusId, const QString &jid, const QUrl &destUrl);
     // Display fields (`messageId`, `chatId`, `chatName`, `senderName`,
     // `preview`, `timeText`, `isOutgoing`) derived from one daemon message-row
     // item. A pure function of its argument, so a delegate can call it on the
@@ -465,7 +510,10 @@ public:
     // daemon acks with an id only, the rendered message arrives via the
     // `messages` view. mentionedJids/replyToMessageId/caption may be empty.
     Q_INVOKABLE void sendText(const QString &text, const QString &replyToMessageId, const QStringList &mentionedJids);
-    Q_INVOKABLE void sendMedia(const QString &fileUrl, const QString &caption, const QString &replyToMessageId);
+    // kind is "", "image", "video", "audio", "voice" or "document" ("" classifies
+    // from the file); viewOnce sends photo/video/audio view-once. QML may keep
+    // calling with three arguments — the defaults preserve the old behavior.
+    Q_INVOKABLE void sendMedia(const QString &fileUrl, const QString &caption, const QString &replyToMessageId, const QString &kind = {}, bool viewOnce = false);
     // Sends whatever image the clipboard currently holds (pasted bitmap or a
     // local image file URL), same as sendMedia. Returns false when the
     // clipboard had nothing sendable, so the caller can fall back to a normal
@@ -609,6 +657,10 @@ Q_SIGNALS:
     void chatSearchChanged();
     void starredMessagesChanged();
     void chatMediaChanged();
+    void statusChanged();
+    void callsChanged();
+    // Answer to saveRemoteMedia: the bytes reached the destination path.
+    void remoteMediaSaved(const QString &destPath);
     /// Answer to streamMessageMedia: where a player can read this message from
     /// while it is still downloading.
     void mediaStreamReady(const QString &messageId, const QString &streamId, const QUrl &url);
@@ -758,6 +810,8 @@ private:
     whatevr::proto::CollectionViewModel *m_transfersModel = nullptr;
     whatevr::proto::CollectionViewModel *m_starredModel = nullptr;
     whatevr::proto::CollectionViewModel *m_chatMediaModel = nullptr;
+    whatevr::proto::CollectionViewModel *m_statusModel = nullptr;
+    whatevr::proto::CollectionViewModel *m_callsModel = nullptr;
     whatevr::proto::CollectionViewModel *m_groupMembersModel = nullptr;
     whatevr::proto::CollectionViewModel *m_chatMembersModel = nullptr;
     whatevr::proto::CollectionViewModel *m_blocklistModel = nullptr;
@@ -784,6 +838,8 @@ private:
     whatevr::proto::Subscription *m_transfersSub = nullptr;
     whatevr::proto::Subscription *m_starredSub = nullptr;
     whatevr::proto::Subscription *m_chatMediaSub = nullptr;
+    whatevr::proto::Subscription *m_statusSub = nullptr;
+    whatevr::proto::Subscription *m_callsSub = nullptr;
     whatevr::proto::Subscription *m_infoCardSub = nullptr;
     whatevr::proto::Subscription *m_groupMembersSub = nullptr;
     whatevr::proto::Subscription *m_chatMembersSub = nullptr;

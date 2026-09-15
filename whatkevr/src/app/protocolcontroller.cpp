@@ -69,6 +69,9 @@ constexpr int kChatPageSize = 24;
 constexpr int kStarredPageSize = 50;
 // A gallery page is a grid, so it shows more per screen than the starred list.
 constexpr int kChatMediaPageSize = 60;
+// The status feed is windowed like any other collection; statuses expire after
+// 24h server-side, so one page already spans most of a day's stories.
+constexpr int kStatusPageSize = 100;
 // In-chat search asks for one generous page of matches: the match cursor walks
 // that list, it is not a scrollable surface.
 constexpr int kChatSearchLimit = 100;
@@ -380,6 +383,18 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
     connect(m_starredModel, &CollectionViewModel::countChanged, this, &ProtocolController::starredMessagesChanged);
     connect(m_starredModel, &CollectionViewModel::readyChanged, this, &ProtocolController::starredMessagesChanged);
     connect(m_starredModel, &CollectionViewModel::modelReset, this, &ProtocolController::starredMessagesChanged);
+
+    // Status and calls tabs: plain collection models over the `status` and
+    // `calls` views. The status page groups rows per contact itself; the calls
+    // count doubles as the rail badge.
+    m_statusModel = new CollectionViewModel(this);
+    connect(m_statusModel, &CollectionViewModel::countChanged, this, &ProtocolController::statusChanged);
+    connect(m_statusModel, &CollectionViewModel::readyChanged, this, &ProtocolController::statusChanged);
+    connect(m_statusModel, &CollectionViewModel::modelReset, this, &ProtocolController::statusChanged);
+    m_callsModel = new CollectionViewModel(this);
+    connect(m_callsModel, &CollectionViewModel::countChanged, this, &ProtocolController::callsChanged);
+    connect(m_callsModel, &CollectionViewModel::readyChanged, this, &ProtocolController::callsChanged);
+    connect(m_callsModel, &CollectionViewModel::modelReset, this, &ProtocolController::callsChanged);
 
     // Info card (D5): one object view (either `contact` or `group`, whichever
     // the open dialog asked for) plus the group's member roster. Two-phase
@@ -1583,7 +1598,7 @@ void ProtocolController::sendText(const QString &text, const QString &replyToMes
     });
 }
 
-void ProtocolController::sendMedia(const QString &fileUrl, const QString &caption, const QString &replyToMessageId)
+void ProtocolController::sendMedia(const QString &fileUrl, const QString &caption, const QString &replyToMessageId, const QString &kind, bool viewOnce)
 {
     if (m_selectedChatId.isEmpty() || fileUrl.isEmpty() || m_sendInFlight) {
         return;
@@ -1605,6 +1620,12 @@ void ProtocolController::sendMedia(const QString &fileUrl, const QString &captio
     if (const QString reply = replyToMessageId.trimmed(); !reply.isEmpty()) {
         params.insert(QStringLiteral("reply_to"), reply);
     }
+    if (!kind.trimmed().isEmpty()) {
+        params.insert(QStringLiteral("kind"), kind.trimmed());
+    }
+    if (viewOnce) {
+        params.insert(QStringLiteral("view_once"), true);
+    }
 
     m_sendInFlight = true;
     m_composerErrorText.clear();
@@ -1613,7 +1634,7 @@ void ProtocolController::sendMedia(const QString &fileUrl, const QString &captio
     m_client->request(QStringLiteral("send.media"), params, [this](const QJsonObject &, const ProtocolError &error) {
         m_sendInFlight = false;
         m_composerErrorText = error.isError()
-            ? (error.message.isEmpty() ? i18nc("@info", "Unable to send image") : error.message)
+            ? (error.message.isEmpty() ? i18nc("@info", "Unable to send media") : error.message)
             : QString();
         Q_EMIT composerChanged();
     });
@@ -2269,6 +2290,206 @@ void ProtocolController::loadMoreStarredMessages()
         return;
     }
     m_starredSub->extend(kStarredPageSize, QStringLiteral("older"));
+}
+
+// --- status tab -------------------------------------------------------------
+
+QAbstractItemModel *ProtocolController::statusModel() const
+{
+    return m_statusModel;
+}
+
+bool ProtocolController::statusLoading() const
+{
+    return m_statusSub != nullptr && !m_statusModel->isReady();
+}
+
+bool ProtocolController::statusExhausted() const
+{
+    return m_statusSub == nullptr || m_statusModel->isExhausted();
+}
+
+void ProtocolController::openStatus()
+{
+    delete m_statusSub;
+    m_statusSub = nullptr;
+    m_statusModel->onReset();
+
+    QJsonObject params{{QStringLiteral("limit"), kStatusPageSize}};
+    m_statusSub = m_client->subscribe(QStringLiteral("status"), params, m_statusModel);
+    Q_EMIT statusChanged();
+}
+
+void ProtocolController::closeStatus()
+{
+    if (!m_statusSub) {
+        return;
+    }
+    delete m_statusSub;
+    m_statusSub = nullptr;
+    m_statusModel->onReset();
+    Q_EMIT statusChanged();
+}
+
+void ProtocolController::loadMoreStatus()
+{
+    // Live-edge window: only ever grows `older`.
+    if (!m_statusSub || m_statusModel->isExhausted() || !m_statusModel->isReady()) {
+        return;
+    }
+    m_statusSub->extend(kStatusPageSize, QStringLiteral("older"));
+}
+
+void ProtocolController::markStatusViewed(const QString &statusId)
+{
+    if (statusId.isEmpty()) {
+        return;
+    }
+    sendMessageCommand(QStringLiteral("status.mark_viewed"), {{QStringLiteral("status_id"), statusId}},
+                       i18nc("@info", "Unable to mark the status viewed"));
+}
+
+void ProtocolController::postStatusText(const QString &text)
+{
+    if (text.trimmed().isEmpty()) {
+        return;
+    }
+    m_client->request(QStringLiteral("status.post"), {{QStringLiteral("text"), text}},
+                      [this](const QJsonObject &, const ProtocolError &error) {
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(error.message.isEmpty() ? i18nc("@info", "Unable to post the status")
+                                                                                 : error.message);
+                          }
+                      });
+}
+
+void ProtocolController::postStatusMedia(const QString &fileUrl, const QString &caption)
+{
+    const QUrl url(fileUrl);
+    const QString filePath = url.isLocalFile() ? url.toLocalFile() : fileUrl;
+    if (filePath.isEmpty()) {
+        return;
+    }
+    m_client->request(QStringLiteral("status.post"),
+                      {{QStringLiteral("path"), filePath}, {QStringLiteral("caption"), caption.trimmed()}},
+                      [this](const QJsonObject &, const ProtocolError &error) {
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(error.message.isEmpty() ? i18nc("@info", "Unable to post the status")
+                                                                                 : error.message);
+                          }
+                      });
+}
+
+void ProtocolController::downloadStatus(const QString &statusId)
+{
+    if (statusId.isEmpty()) {
+        return;
+    }
+    // Ack-then-lifecycle like media.download: the row upserts with media.path,
+    // failures surface only as a log line daemon-side, same as its twin.
+    m_client->request(QStringLiteral("status.download"), {{QStringLiteral("status_id"), statusId}});
+}
+
+void ProtocolController::saveRemoteMedia(const QString &messageId, const QString &statusId, const QString &jid, const QUrl &destUrl)
+{
+    if (!destUrl.isLocalFile()) {
+        return;
+    }
+    const QString destination = destUrl.toLocalFile();
+    if (destination.isEmpty()) {
+        return;
+    }
+    // The dialog already confirmed overwriting; QFile::copy refuses to.
+    if (QFile::exists(destination) && !QFile::remove(destination)) {
+        Q_EMIT messageActionFailed(i18nc("@info", "Unable to overwrite the existing file"));
+        return;
+    }
+    QJsonObject params{{QStringLiteral("path"), destination}};
+    if (!messageId.isEmpty()) {
+        params.insert(QStringLiteral("message_id"), messageId);
+    }
+    if (!statusId.isEmpty()) {
+        params.insert(QStringLiteral("status_id"), statusId);
+    }
+    if (!jid.isEmpty()) {
+        params.insert(QStringLiteral("jid"), jid);
+    }
+    m_client->request(QStringLiteral("media.save"), params,
+                      [this](const QJsonObject &result, const ProtocolError &error) {
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(
+                                  error.message.isEmpty() ? i18nc("@info", "Unable to save the file") : error.message);
+                              return;
+                          }
+                          Q_EMIT remoteMediaSaved(result.value(QStringLiteral("path")).toString());
+                      });
+}
+
+// --- calls tab --------------------------------------------------------------
+
+QAbstractItemModel *ProtocolController::callsModel() const
+{
+    return m_callsModel;
+}
+
+int ProtocolController::callsRingingCount() const
+{
+    return m_callsModel ? m_callsModel->count() : 0;
+}
+
+void ProtocolController::openCalls()
+{
+    delete m_callsSub;
+    m_callsSub = nullptr;
+    m_callsModel->onReset();
+
+    m_callsSub = m_client->subscribe(QStringLiteral("calls"), {}, m_callsModel);
+    Q_EMIT callsChanged();
+}
+
+void ProtocolController::closeCalls()
+{
+    if (!m_callsSub) {
+        return;
+    }
+    delete m_callsSub;
+    m_callsSub = nullptr;
+    m_callsModel->onReset();
+    Q_EMIT callsChanged();
+}
+
+void ProtocolController::rejectCall(const QString &chatId)
+{
+    if (chatId.isEmpty()) {
+        return;
+    }
+    sendMessageCommand(QStringLiteral("call.reject"), {{QStringLiteral("chat_id"), chatId}},
+                       i18nc("@info", "Unable to reject the call"));
+}
+
+void ProtocolController::leaveGroup(const QString &chatId)
+{
+    if (chatId.isEmpty()) {
+        return;
+    }
+    sendMessageCommand(QStringLiteral("group.leave"), {{QStringLiteral("chat_id"), chatId}},
+                       i18nc("@info", "Unable to leave the group"));
+}
+
+void ProtocolController::copyGroupInviteLink(const QString &chatId)
+{
+    if (chatId.isEmpty()) {
+        return;
+    }
+    m_client->request(QStringLiteral("group.invite_link"), {{QStringLiteral("chat_id"), chatId}},
+                      [this](const QJsonObject &result, const ProtocolError &error) {
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(
+                                  error.message.isEmpty() ? i18nc("@info", "Unable to get the invite link") : error.message);
+                              return;
+                          }
+                          copyToClipboard(result.value(QStringLiteral("link")).toString());
+                      });
 }
 
 // --- per-chat media gallery -------------------------------------------------

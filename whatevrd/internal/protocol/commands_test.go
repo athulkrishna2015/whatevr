@@ -32,37 +32,79 @@ type fakeCommandActions struct {
 	requested    bool
 	ensuredJID   string
 
-	sendTextChat      string
-	sendTextText      string
-	sendTextReply     string
-	sendTextMentions  []string
-	sendMediaChat     string
-	sendMediaPath     string
-	sendMediaCaption  string
-	sendMediaReply    string
-	sendMediaMentions []string
-	sendStickerChat   string
-	sendStickerKey    string
-	sendStickerReply  string
-	reactMessage      string
-	reactEmoji        string
-	editMessage       string
-	editText          string
-	revokeMessage     string
-	deleteMessage     string
-	starMessage       string
-	starred           bool
-	pinMessage        string
-	messagePinned     bool
-	pinDuration       uint32
-	forwardMessage    string
-	forwardChats      []string
-	downloadMessage   string
-	streamMessage     string
-	streamUpdate      func(app.MediaStreamUpdate)
-	cancelledMessage  string
-	playedMessage     string
-	fetchJID          string
+	sendTextChat        string
+	sendTextText        string
+	sendTextReply       string
+	sendTextMentions    []string
+	sendMediaChat       string
+	sendMediaPath       string
+	sendMediaCaption    string
+	sendMediaReply      string
+	sendMediaMentions   []string
+	sendMediaKind       string
+	sendMediaViewOnce   bool
+	sendMediaFilename   string
+	saveMessageID       string
+	saveStatusID        string
+	saveJID             string
+	saveDest            string
+	viewedStatusID      string
+	postedStatusText    string
+	postedStatusPath    string
+	postedStatusCaption string
+	downloadedStatusID  string
+	createdGroupName    string
+	createdGroupMembers []string
+	createdGroupPhoto   string
+	leftGroup           string
+	groupNameChat       string
+	groupName           string
+	groupTopicChat      string
+	groupTopic          string
+	groupPhotoChat      string
+	groupPhotoPath      string
+	inviteChat          string
+	inviteReset         bool
+	joinedLink          string
+	groupMembersChat    string
+	groupMembersAction  string
+	groupMembersList    []string
+	groupAnnounceChat   string
+	groupAnnounce       bool
+	groupLockedChat     string
+	groupLocked         bool
+	rejectedCallChat    string
+	backupDest          string
+	backupUseKeyring    bool
+	backupPassphrase    string
+	logsLimit           int
+	communityChat       string
+	linkedCommunity     string
+	linkedGroup         string
+	unlinkedCommunity   string
+	unlinkedGroup       string
+	sendStickerChat     string
+	sendStickerKey      string
+	sendStickerReply    string
+	reactMessage        string
+	reactEmoji          string
+	editMessage         string
+	editText            string
+	revokeMessage       string
+	deleteMessage       string
+	starMessage         string
+	starred             bool
+	pinMessage          string
+	messagePinned       bool
+	pinDuration         uint32
+	forwardMessage      string
+	forwardChats        []string
+	downloadMessage     string
+	streamMessage       string
+	streamUpdate        func(app.MediaStreamUpdate)
+	cancelledMessage    string
+	playedMessage       string
+	fetchJID            string
 
 	privacyCategory    string
 	privacyAudience    string
@@ -180,6 +222,13 @@ func (f *fakeCommandActions) SendMediaWithMentions(_ context.Context, chatID, pa
 	f.sendMediaChat, f.sendMediaPath, f.sendMediaCaption, f.sendMediaReply, f.sendMediaMentions = chatID, path, caption, reply, append([]string(nil), mentions...)
 	return appstore.SavedTextMessage{Message: appstore.Message{ID: "media-id", ChatID: chatID}}, f.err
 }
+func (f *fakeCommandActions) SendMediaWithOptions(_ context.Context, chatID, path, caption, reply string, mentions []string, opts app.MediaSendOptions) (appstore.SavedTextMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sendMediaChat, f.sendMediaPath, f.sendMediaCaption, f.sendMediaReply, f.sendMediaMentions = chatID, path, caption, reply, append([]string(nil), mentions...)
+	f.sendMediaKind, f.sendMediaViewOnce, f.sendMediaFilename = opts.Kind, opts.ViewOnce, opts.Filename
+	return appstore.SavedTextMessage{Message: appstore.Message{ID: "media-id", ChatID: chatID}}, f.err
+}
 func (f *fakeCommandActions) SendSticker(_ context.Context, chatID, cacheKey, reply string) (appstore.SavedTextMessage, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -284,6 +333,141 @@ func (f *fakeCommandActions) FetchProfilePicture(_ context.Context, jid string) 
 	defer f.mu.Unlock()
 	f.fetchJID = jid
 	return "/cache/avatar.jpg", f.err
+}
+func (f *fakeCommandActions) SaveMediaToPath(_ context.Context, messageID, statusID, jid, dest string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.saveMessageID, f.saveStatusID, f.saveJID, f.saveDest = messageID, statusID, jid, dest
+	if f.err != nil {
+		return "", f.err
+	}
+	return dest, nil
+}
+func (f *fakeCommandActions) MarkStatusViewed(_ context.Context, statusID string) (appstore.StatusUpdate, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.viewedStatusID = statusID
+	return appstore.StatusUpdate{ID: statusID}, f.err
+}
+func (f *fakeCommandActions) PostStatus(_ context.Context, text, path, caption string) (appstore.StatusUpdate, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.postedStatusText, f.postedStatusPath, f.postedStatusCaption = text, path, caption
+	return appstore.StatusUpdate{ID: "status:9", Text: text}, f.err
+}
+func (f *fakeCommandActions) DownloadStatusMedia(_ context.Context, statusID string) (appstore.StatusUpdate, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.downloadedStatusID = statusID
+	return appstore.StatusUpdate{ID: statusID}, f.err
+}
+func (f *fakeCommandActions) CreateGroup(_ context.Context, name string, members []string, photo string) (appstore.Chat, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.createdGroupName, f.createdGroupMembers, f.createdGroupPhoto = name, append([]string(nil), members...), photo
+	return appstore.Chat{ID: "g@g.us", Name: name}, f.err
+}
+func (f *fakeCommandActions) LeaveGroup(_ context.Context, chatID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.leftGroup = chatID
+	return f.err
+}
+func (f *fakeCommandActions) SetGroupName(_ context.Context, chatID, name string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.groupNameChat, f.groupName = chatID, name
+	return f.err
+}
+func (f *fakeCommandActions) SetGroupDescription(_ context.Context, chatID, description string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.groupTopicChat, f.groupTopic = chatID, description
+	return f.err
+}
+func (f *fakeCommandActions) SetGroupPhoto(_ context.Context, chatID, path string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.groupPhotoChat, f.groupPhotoPath = chatID, path
+	return f.err
+}
+func (f *fakeCommandActions) GetGroupInviteLink(_ context.Context, chatID string, reset bool) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.inviteChat, f.inviteReset = chatID, reset
+	return "https://chat.whatsapp.com/abc", f.err
+}
+func (f *fakeCommandActions) JoinGroupWithLink(_ context.Context, link string) (appstore.Chat, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.joinedLink = link
+	return appstore.Chat{ID: "joined@g.us"}, f.err
+}
+func (f *fakeCommandActions) UpdateGroupMembers(_ context.Context, chatID, action string, members []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.groupMembersChat, f.groupMembersAction, f.groupMembersList = chatID, action, append([]string(nil), members...)
+	return f.err
+}
+func (f *fakeCommandActions) SetGroupAnnounce(_ context.Context, chatID string, announce bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.groupAnnounceChat, f.groupAnnounce = chatID, announce
+	return f.err
+}
+func (f *fakeCommandActions) SetGroupLocked(_ context.Context, chatID string, locked bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.groupLockedChat, f.groupLocked = chatID, locked
+	return f.err
+}
+func (f *fakeCommandActions) RejectCall(_ context.Context, chatID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rejectedCallChat = chatID
+	return f.err
+}
+func (f *fakeCommandActions) ExportBackup(_ context.Context, dest, passphrase string, useKeyring bool) (string, int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.backupDest, f.backupUseKeyring = dest, useKeyring
+	if f.err != nil {
+		return "", 0, f.err
+	}
+	if dest == "" {
+		dest = "/tmp/backup.tar.gz"
+	}
+	return dest, 1234, nil
+}
+func (f *fakeCommandActions) SetBackupPassphrase(_ context.Context, passphrase string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.backupPassphrase = passphrase
+	return f.err
+}
+func (f *fakeCommandActions) RecentLogs(_ context.Context, limit int) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.logsLimit = limit
+	return []string{"l1", "l2"}, f.err
+}
+func (f *fakeCommandActions) ListCommunitySubgroups(_ context.Context, chatID string) ([]app.CommunityGroup, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.communityChat = chatID
+	return []app.CommunityGroup{{ID: "sub@g.us", Name: "Sub"}}, f.err
+}
+func (f *fakeCommandActions) LinkCommunityGroup(_ context.Context, communityID, groupID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.linkedCommunity, f.linkedGroup = communityID, groupID
+	return f.err
+}
+func (f *fakeCommandActions) UnlinkCommunityGroup(_ context.Context, communityID, groupID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.unlinkedCommunity, f.unlinkedGroup = communityID, groupID
+	return f.err
 }
 func (f *fakeCommandActions) SetPrivacySetting(_ context.Context, category, audience string, readReceipts bool) (app.PrivacySettings, error) {
 	f.mu.Lock()
@@ -536,6 +720,87 @@ func TestC2MessageAndMediaCommands(t *testing.T) {
 	result = c.recv()["result"].(map[string]any)
 	if result["path"] != "/cache/avatar.jpg" || actions.fetchJID != "user@s.whatsapp.net" {
 		t.Fatalf("fetch profile result/action = %v/%q", result, actions.fetchJID)
+	}
+
+	c.sendLine(`{"id":11,"method":"media.save","params":{"message_id":"m1","path":"/tmp/out.jpg"}}`)
+	result = c.recv()["result"].(map[string]any)
+	if result["path"] != "/tmp/out.jpg" || actions.saveMessageID != "m1" || actions.saveDest != "/tmp/out.jpg" {
+		t.Fatalf("media.save result/action = %v/%+v", result, actions)
+	}
+
+	c.sendLine(`{"id":12,"method":"media.save","params":{"path":"/tmp/out.jpg"}}`)
+	if msg := c.recv(); msg["error"] == nil {
+		t.Fatalf("media.save without a selector must fail, got %v", msg)
+	} else if errObj, ok := msg["error"].(map[string]any); !ok || errObj["code"] != "invalid_params" {
+		t.Fatalf("media.save without a selector must fail invalid_params, got %v", msg)
+	}
+
+	c.sendLine(`{"id":13,"method":"status.mark_viewed","params":{"status_id":"status:1"}}`)
+	if _, ok := c.recv()["result"].(map[string]any); !ok || actions.viewedStatusID != "status:1" {
+		t.Fatalf("status.mark_viewed action = %q", actions.viewedStatusID)
+	}
+
+	c.sendLine(`{"id":14,"method":"status.post","params":{"text":"hello stories"}}`)
+	result = c.recv()["result"].(map[string]any)
+	if result["status_id"] != "status:9" || actions.postedStatusText != "hello stories" {
+		t.Fatalf("status.post result/action = %v/%+v", result, actions)
+	}
+
+	c.sendLine(`{"id":15,"method":"group.create","params":{"name":"team","members":["a@s.whatsapp.net"]}}`)
+	result = c.recv()["result"].(map[string]any)
+	if result["chat_id"] != "g@g.us" || actions.createdGroupName != "team" || len(actions.createdGroupMembers) != 1 {
+		t.Fatalf("group.create result/action = %v/%+v", result, actions)
+	}
+
+	c.sendLine(`{"id":16,"method":"group.leave","params":{"chat_id":"g@g.us"}}`)
+	if _, ok := c.recv()["result"].(map[string]any); !ok || actions.leftGroup != "g@g.us" {
+		t.Fatalf("group.leave action = %q", actions.leftGroup)
+	}
+
+	c.sendLine(`{"id":17,"method":"group.members","params":{"chat_id":"g@g.us","action":"promote","members":["a@s.whatsapp.net"]}}`)
+	if _, ok := c.recv()["result"].(map[string]any); !ok || actions.groupMembersAction != "promote" {
+		t.Fatalf("group.members action = %+v", actions)
+	}
+
+	c.sendLine(`{"id":18,"method":"group.invite_link","params":{"chat_id":"g@g.us","reset":true}}`)
+	result = c.recv()["result"].(map[string]any)
+	if result["link"] != "https://chat.whatsapp.com/abc" || !actions.inviteReset {
+		t.Fatalf("group.invite_link result/action = %v/%+v", result, actions)
+	}
+
+	c.sendLine(`{"id":19,"method":"group.members","params":{"chat_id":"g@g.us","action":"ban","members":["a@s.whatsapp.net"]}}`)
+	if _, ok := c.recv()["result"].(map[string]any); ok {
+		t.Fatal("group.members with a bad action must fail")
+	}
+
+	c.sendLine(`{"id":20,"method":"call.reject","params":{"chat_id":"c@s.whatsapp.net"}}`)
+	if _, ok := c.recv()["result"].(map[string]any); !ok || actions.rejectedCallChat != "c@s.whatsapp.net" {
+		t.Fatalf("call.reject action = %q", actions.rejectedCallChat)
+	}
+
+	c.sendLine(`{"id":21,"method":"daemon.backup_export","params":{"path":"/tmp/b.tar.gz"}}`)
+	result = c.recv()["result"].(map[string]any)
+	if result["path"] != "/tmp/b.tar.gz" || actions.backupDest != "/tmp/b.tar.gz" {
+		t.Fatalf("backup_export result/action = %v/%+v", result, actions)
+	}
+
+	c.sendLine(`{"id":22,"method":"community.subgroups","params":{"chat_id":"com@g.us"}}`)
+	result = c.recv()["result"].(map[string]any)
+	groups := result["groups"].([]any)
+	if len(groups) != 1 || actions.communityChat != "com@g.us" {
+		t.Fatalf("community.subgroups result/action = %v/%+v", result, actions)
+	}
+
+	c.sendLine(`{"id":23,"method":"community.link","params":{"community_id":"com@g.us","group_id":"sub@g.us"}}`)
+	if _, ok := c.recv()["result"].(map[string]any); !ok || actions.linkedGroup != "sub@g.us" {
+		t.Fatalf("community.link action = %+v", actions)
+	}
+
+	c.sendLine(`{"id":24,"method":"daemon.logs","params":{"limit":50}}`)
+	result = c.recv()["result"].(map[string]any)
+	lines := result["lines"].([]any)
+	if len(lines) != 2 || actions.logsLimit != 50 {
+		t.Fatalf("daemon.logs result/action = %v/%+v", result, actions)
 	}
 }
 

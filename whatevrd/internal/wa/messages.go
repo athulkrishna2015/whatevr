@@ -350,6 +350,14 @@ func historySyncConversationPinState(conv *waHistorySync.Conversation) (present 
 }
 
 func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offlineSync bool) {
+	// Contact statuses ride the same event as chat messages but live outside
+	// chats; route them before any handler that would file them as one.
+	if isStatusBroadcast(evt) {
+		if !offlineSync {
+			c.ingestStatusUpdate(ctx, evt)
+		}
+		return
+	}
 	if c.handleManualHistorySyncNotification(ctx, evt) {
 		return
 	}
@@ -1060,7 +1068,7 @@ func (c *Client) unsupportedMessageInput(ctx context.Context, evt *events.Messag
 	}
 
 	direction, status := messageDirectionAndStatus(info, opts)
-	return appstore.MediaMessageInput{
+	input := appstore.MediaMessageInput{
 		TextMessageInput: appstore.TextMessageInput{
 			ID:             internalMessageIDForChat(chatID, info.ID),
 			ChatID:         chatID,
@@ -1077,7 +1085,57 @@ func (c *Client) unsupportedMessageInput(ctx context.Context, evt *events.Messag
 			ReplyTo:        c.replyFromContextInfo(ctx, chatID, unsupportedContextInfo(evt.Message)),
 		},
 		MediaKind: appstore.MediaKindUnsupported,
-	}, true
+	}
+	// Inbound view-once media keeps its keys on the row (real kind + payload)
+	// so an explicit `media.save` can fetch it later. It still renders as a
+	// tombstone: messageKind() forces inbound view-once rows to the
+	// `unsupported` wire kind, so no auto-download policy ever picks them up.
+	if kind, mime, payload, ok := viewOnceTombstoneAttrs(evt); ok {
+		input.MediaKind = kind
+		input.MediaMimeType = mime
+		input.MediaPayload = payload
+		input.IsViewOnce = true
+	}
+	return input, true
+}
+
+// viewOnceTombstoneAttrs extracts the savable facts of an inbound view-once
+// photo/video/voice note: the real media kind plus the wire payload (media
+// keys) that a later explicit `media.save` can download with. The row still
+// renders as a tombstone — nothing here fetches bytes on its own — so the
+// sender's "view on your phone" intent survives until the user deliberately
+// overrides it per message.
+func viewOnceTombstoneAttrs(evt *events.Message) (kind string, mime string, payload []byte, ok bool) {
+	if evt == nil || evt.Message == nil || !evt.IsViewOnce {
+		return "", "", nil, false
+	}
+	msg := evt.Message
+	if img := msg.GetImageMessage(); img != nil {
+		payload, err := proto.Marshal(img)
+		if err != nil {
+			return "", "", nil, false
+		}
+		return appstore.MediaKindImage, defaultMime(img.GetMimetype(), "image/jpeg"), payload, true
+	}
+	if video := msg.GetVideoMessage(); video != nil {
+		payload, err := proto.Marshal(video)
+		if err != nil {
+			return "", "", nil, false
+		}
+		return appstore.MediaKindVideo, defaultMime(video.GetMimetype(), "video/mp4"), payload, true
+	}
+	if audio := msg.GetAudioMessage(); audio != nil {
+		payload, err := proto.Marshal(audio)
+		if err != nil {
+			return "", "", nil, false
+		}
+		kind := appstore.MediaKindAudio
+		if audio.GetPTT() {
+			kind = appstore.MediaKindVoice
+		}
+		return kind, defaultMime(audio.GetMimetype(), "audio/ogg; codecs=opus"), payload, true
+	}
+	return "", "", nil, false
 }
 
 // unsupportedMessageLabel maps not-yet-rendered payload types to a short

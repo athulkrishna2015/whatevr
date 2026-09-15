@@ -5,6 +5,8 @@ import (
 	"math"
 	"strings"
 	"unicode/utf8"
+
+	"whatevrd/internal/app"
 )
 
 type sendTextParams struct {
@@ -47,6 +49,13 @@ type sendMediaParams struct {
 	Caption  string   `json:"caption"`
 	ReplyTo  string   `json:"reply_to"`
 	Mentions []string `json:"mentions"`
+	// Kind forces the media kind: "image", "video", "audio", "voice" or
+	// "document". Empty (or "auto") classifies from the file contents.
+	Kind string `json:"kind"`
+	// ViewOnce sends photo/video/audio media view-once.
+	ViewOnce bool `json:"view_once"`
+	// Filename overrides the document display name.
+	Filename string `json:"filename"`
 }
 
 func (h commandHandlers) sendMedia(_ *conn, req request) (any, *Error) {
@@ -69,11 +78,21 @@ func (h commandHandlers) sendMedia(_ *conn, req request) (any, *Error) {
 	if utf8.RuneCountInString(p.Caption) > maxCommandCaptionRunes {
 		return nil, errorf(CodeInvalidParams, "caption must be <= %d characters", maxCommandCaptionRunes)
 	}
-	saved, err := h.actions.SendMediaWithMentions(context.Background(), strings.TrimSpace(p.ChatID), path, p.Caption, strings.TrimSpace(p.ReplyTo), trimStringSlice(p.Mentions))
+	saved, err := h.actions.SendMediaWithOptions(context.Background(), strings.TrimSpace(p.ChatID), path, p.Caption, strings.TrimSpace(p.ReplyTo), trimStringSlice(p.Mentions), mediaSendOptions(p))
 	if perr := mapCommandError(err); perr != nil {
 		return nil, perr
 	}
 	return map[string]any{"message_id": saved.Message.ID}, nil
+}
+
+// mediaSendOptions converts send.media params to the daemon's media options.
+// It lives in this file (rather than inline) so the mapping is unit-testable.
+func mediaSendOptions(p sendMediaParams) app.MediaSendOptions {
+	return app.MediaSendOptions{
+		Kind:     strings.TrimSpace(p.Kind),
+		ViewOnce: p.ViewOnce,
+		Filename: strings.TrimSpace(p.Filename),
+	}
 }
 
 type sendStickerParams struct {

@@ -33,6 +33,7 @@ type Daemon struct {
 	presenceByChatID  map[string]presenceState
 	latestHistorySync *HistorySyncEvent
 	mediaDownloads    map[string]MediaDownloadEvent
+	ringingCalls      map[string]RingingCall
 
 	retryAttempt  atomic.Int32
 	nextRetryUnix atomic.Int64
@@ -115,9 +116,11 @@ type DaemonEvent struct {
 	// MessageDeleted payload (the row is gone, so only ids survive).
 	DeletedChatID    string
 	DeletedMessageID string
-	RetryAttempt     int32
-	NextRetryUnix    int64
-	CanReconnect     bool
+	// CallID identifies the call a DaemonEventCallChanged is about.
+	CallID        string
+	RetryAttempt  int32
+	NextRetryUnix int64
+	CanReconnect  bool
 
 	HistorySync     HistorySyncEvent
 	MediaDownload   MediaDownloadEvent
@@ -189,6 +192,13 @@ const (
 	// preferences change (via SetAppPreferences). It carries no payload; the
 	// `preferences` view re-reads GetAppPreferences off it.
 	DaemonEventPreferencesChanged
+	// DaemonEventStatusChanged fires when a contact status (story) arrives or
+	// updates. It carries no payload; the `status` view re-reads the store.
+	DaemonEventStatusChanged
+	// DaemonEventCallChanged fires when a call starts or stops ringing. CallID
+	// + Chat identify the call; the `calls` view re-reads the ringing set off
+	// it (the event itself carries only identity, like MessageReceipt).
+	DaemonEventCallChanged
 	// DaemonEventResync is a synthetic sentinel the broadcaster posts to a
 	// subscriber whose buffer overflowed: rather than silently dropping events
 	// (which permanently desyncs a view that folds events into local state), the
@@ -903,6 +913,47 @@ func (d *Daemon) ActiveMediaDownloads() []MediaDownloadEvent {
 	return out
 }
 
+// RingingCall is one locally-ringing call, for the `calls` view's initial
+// fill. The desktop cannot answer (no media stack upstream); these exist to
+// render, reject, and tombstone as missed.
+type RingingCall struct {
+	CallID      string
+	ChatID      string
+	CallerID    string
+	Video       bool
+	StartedUnix int64
+}
+
+// RingingCalls snapshots the currently ringing calls.
+func (d *Daemon) RingingCalls() []RingingCall {
+	d.subMu.Lock()
+	defer d.subMu.Unlock()
+	out := make([]RingingCall, 0, len(d.ringingCalls))
+	for _, call := range d.ringingCalls {
+		out = append(out, call)
+	}
+	return out
+}
+
+// SetRingingCall records a ringing call; ClearRingingCall forgets it.
+func (d *Daemon) SetRingingCall(call RingingCall) {
+	if call.CallID == "" {
+		return
+	}
+	d.subMu.Lock()
+	defer d.subMu.Unlock()
+	if d.ringingCalls == nil {
+		d.ringingCalls = make(map[string]RingingCall)
+	}
+	d.ringingCalls[call.CallID] = call
+}
+
+func (d *Daemon) ClearRingingCall(callID string) {
+	d.subMu.Lock()
+	defer d.subMu.Unlock()
+	delete(d.ringingCalls, callID)
+}
+
 // ConnectionSnapshot returns the current connection state the subscribe replay's
 // ConnectionChanged carries, for the `connection` view to reload on a resync.
 func (d *Daemon) ConnectionSnapshot() (state State, detail string, attempt int32, nextRetryUnix int64, canReconnect bool) {
@@ -968,6 +1019,22 @@ func (d *Daemon) PublishBlocklistChanged() {
 // changed, so an open `preferences` view re-reads them.
 func (d *Daemon) PublishPreferencesChanged() {
 	d.broadcastDaemonEvent(DaemonEvent{Kind: DaemonEventPreferencesChanged})
+}
+
+// PublishStatusChanged signals a new or updated contact status; the `status`
+// view re-reads the store off it.
+func (d *Daemon) PublishStatusChanged() {
+	d.broadcastDaemonEvent(DaemonEvent{Kind: DaemonEventStatusChanged})
+}
+
+// PublishCallChanged signals a call starting or stopping ringing; the
+// `calls` view re-reads the ringing set off it.
+func (d *Daemon) PublishCallChanged(callID, chatID string) {
+	d.broadcastDaemonEvent(DaemonEvent{
+		Kind:   DaemonEventCallChanged,
+		CallID: callID,
+		Chat:   Chat{ID: chatID},
+	})
 }
 
 // PublishIdentityChanged signals that a contact's WhatsApp identity (security

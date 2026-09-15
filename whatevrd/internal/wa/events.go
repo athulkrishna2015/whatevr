@@ -102,6 +102,14 @@ func (c *Client) handleEvent(eventGen uint64, raw any) {
 		c.daemon.SetStateDetail(app.StateOffline, evt.String())
 	case *events.Message:
 		c.handleMessage(c.backgroundContext(), evt, offlineSync)
+	case *events.CallOffer:
+		c.handleCallOffer(c.backgroundContext(), evt)
+	case *events.CallOfferNotice:
+		c.handleCallOfferNotice(c.backgroundContext(), evt)
+	case *events.CallTerminate:
+		c.handleCallTerminate(c.backgroundContext(), evt)
+	case *events.CallReject:
+		c.handleCallReject(c.backgroundContext(), evt)
 	case *events.UndecryptableMessage:
 		c.handleUndecryptableMessage(c.backgroundContext(), evt)
 	case *events.Receipt:

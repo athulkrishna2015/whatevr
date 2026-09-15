@@ -324,6 +324,9 @@ func (c *Client) ForwardMessage(ctx context.Context, sourceMessageID string, tar
 	if source.IsRevoked {
 		return nil, app.NewCommandError(app.CommandErrorRejected, "deleted messages cannot be forwarded")
 	}
+	if source.IsViewOnce {
+		return nil, app.NewCommandError(app.CommandErrorRejected, "view-once messages cannot be forwarded")
+	}
 	isMedia := source.MediaKind != "" || source.MediaMimeType != "" || source.MediaLocalPath != ""
 	if !isMedia && strings.TrimSpace(source.Text) == "" {
 		return nil, app.NewCommandError(app.CommandErrorRejected, "message has no content to forward")

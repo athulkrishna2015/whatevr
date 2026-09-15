@@ -560,3 +560,42 @@ func appChatFor(t *testing.T, db *store.DB, chatID string) app.Chat {
 	}
 	return toTestAppChat(chat)
 }
+
+// An inbound view-once row keeps its real kind and keys in the store but must
+// render as the unsupported tombstone on the wire, with the view_once flag
+// set so the frontend can offer an explicit save.
+func TestMessagesViewInboundViewOnceRendersTombstone(t *testing.T) {
+	socketPath, _, db := startChatsTestServer(t)
+	chat := "c@s.whatsapp.net"
+	id := "vo-1"
+	if _, err := db.SaveMediaMessage(context.Background(), store.MediaMessageInput{
+		TextMessageInput: store.TextMessageInput{
+			ID:        id,
+			ChatID:    chat,
+			Text:      "View once photo",
+			Timestamp: time.Unix(1_700_000_000, 0),
+			Direction: store.DirectionIncoming,
+		},
+		MediaKind:     store.MediaKindImage,
+		MediaMimeType: "image/jpeg",
+		MediaPayload:  []byte{0x0a, 0x01, 0x61},
+		IsViewOnce:    true,
+	}); err != nil {
+		t.Fatalf("seed view-once: %v", err)
+	}
+
+	c := dialTest(t, socketPath)
+	c.hello()
+	sub := c.subscribe(2, fmt.Sprintf(`{"view":"messages","chat_id":%q}`, chat))
+	item := c.expectUpsert(sub, id)["item"].(map[string]any)
+	if item["kind"] != "unsupported" {
+		t.Fatalf("kind = %v, want unsupported", item["kind"])
+	}
+	if item["fallback"] != "View once photo" {
+		t.Fatalf("fallback = %v, want the tombstone label", item["fallback"])
+	}
+	if item["view_once"] != true {
+		t.Fatalf("view_once = %v, want true", item["view_once"])
+	}
+	c.expectReady(sub, true)
+}

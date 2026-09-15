@@ -378,6 +378,49 @@ CenteredDialog {
             }
         }
 
+        // ---- Group actions ----
+        RowLayout {
+            Layout.alignment: Qt.AlignHCenter
+            spacing: Kirigami.Units.largeSpacing
+            visible: root.isGroup
+
+            QQC2.Button {
+                icon.name: "link-symbolic"
+                text: Whatevr.I18n.i18nc("@action:button copy the group invite link", "Copy invite link")
+                onClicked: Whatevr.ProtocolController.copyGroupInviteLink(root.subjectKey)
+            }
+
+            QQC2.Button {
+                icon.name: "go-previous-symbolic"
+                text: Whatevr.I18n.i18nc("@action:button leave the group", "Leave group")
+                onClicked: leaveConfirmDialog.open()
+            }
+        }
+
+        Kirigami.PromptDialog {
+            id: leaveConfirmDialog
+
+            y: parent ? Math.round((parent.height - implicitHeight) / 2) : 0
+            title: Whatevr.I18n.i18nc("@title:dialog", "Leave group")
+            subtitle: Whatevr.I18n.i18nc("@info leave confirmation",
+                                         "Leave %1? You will stop receiving its messages.",
+                                         root.primaryName)
+            standardButtons: Kirigami.Dialog.Cancel
+            showCloseButton: false
+
+            customFooterActions: [
+                Kirigami.Action {
+                    icon.name: "go-previous-symbolic"
+                    text: Whatevr.I18n.i18nc("@action:button confirm leaving the group", "Leave")
+                    onTriggered: {
+                        Whatevr.ProtocolController.leaveGroup(root.subjectKey)
+                        leaveConfirmDialog.close()
+                        root.close()
+                    }
+                }
+            ]
+        }
+
         // ---- Media, links and documents ----
         // The gallery is per chat, so it only makes sense where the dialog was
         // opened from a chat rather than from a bare contact card.

@@ -299,6 +299,14 @@ func (db *DB) GetChat(ctx context.Context, chatID string) (Chat, error) {
 	return getChatRow(ctx, db.reader(), chatID)
 }
 
+// TotalUnreadCount sums unread badges across chats, for the tray tooltip.
+func (db *DB) TotalUnreadCount(ctx context.Context) (int, error) {
+	defer db.timeOp("TotalUnreadCount", time.Now())
+	var total int
+	err := db.reader().QueryRowContext(ctx, `SELECT COALESCE(SUM(unread_count), 0) FROM chats`).Scan(&total)
+	return total, err
+}
+
 // GetChatForView returns one chat with the same display-name normalization as
 // ListChatsForView and SearchChats. GetChat intentionally preserves the stored
 // WhatsApp push-name fallback for daemon-internal callers.

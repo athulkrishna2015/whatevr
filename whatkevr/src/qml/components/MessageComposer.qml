@@ -30,6 +30,9 @@ Frame {
     property string editingMessageId: ""
     property string editingOriginalText: ""
     readonly property bool editing: editingMessageId.length > 0
+    // View-once arms the next attach only; it resets after every send. The
+    // daemon rejects it for kinds with no view-once form (documents etc.).
+    property bool viewOnceSend: false
 
     // Inline suggestion state, shared by the `:keyword` emoji bar and the `@`
     // mention bar. suggestionMode selects which kind the current results are.
@@ -62,7 +65,7 @@ Frame {
     property var pendingMentions: []
 
     signal sendTextRequested(string text, string replyToMessageId, var mentionedJids)
-    signal sendImageRequested(string fileUrl, string caption, string replyToMessageId)
+    signal sendImageRequested(string fileUrl, string caption, string replyToMessageId, string kind, bool viewOnce)
     signal composingChanged(bool composing)
     signal clearReplyRequested()
     signal replyConsumed()
@@ -789,12 +792,31 @@ Frame {
                 // Attaching media isn't part of an in-place edit (only the
                 // caption/body changes), so hide it while editing.
                 visible: !root.editing
-                icon.name: "image-x-generic-symbolic"
-                text: Whatevr.I18n.i18nc("@action:button", "Attach image")
+                icon.name: "mail-attachment-symbolic"
+                text: Whatevr.I18n.i18nc("@action:button", "Attach file")
                 display: AbstractButton.IconOnly
                 enabled: root.enabledForChat && !root.sending
                 onClicked: imageDialog.open()
                 Layout.alignment: Qt.AlignVCenter
+            }
+
+            ToolButton {
+                // View-once applies to the next photo/video/audio attach only;
+                // it resets after every send. Documents and stickers have no
+                // view-once form, so the daemon rejects those combinations.
+                visible: !root.editing
+                icon.name: "view-hidden-symbolic"
+                text: Whatevr.I18n.i18nc("@action:button send the next attachment view-once", "View once")
+                display: AbstractButton.IconOnly
+                checkable: true
+                checked: root.viewOnceSend
+                enabled: root.enabledForChat && !root.sending
+                onToggled: root.viewOnceSend = checked
+                Layout.alignment: Qt.AlignVCenter
+
+                ToolTip.visible: hovered
+                ToolTip.text: text
+                ToolTip.delay: Kirigami.Units.toolTipDelay
             }
 
             ToolButton {
@@ -962,12 +984,18 @@ Frame {
     Platform.FileDialog {
         id: imageDialog
 
-        title: Whatevr.I18n.i18nc("@title:window", "Attach image")
-        nameFilters: [Whatevr.I18n.i18nc("@item:inlistbox", "Images (*.png *.jpg *.jpeg *.webp)")]
+        title: Whatevr.I18n.i18nc("@title:window", "Attach file")
+        nameFilters: [
+            Whatevr.I18n.i18nc("@item:inlistbox", "Images (*.png *.jpg *.jpeg *.webp)"),
+            Whatevr.I18n.i18nc("@item:inlistbox", "Videos (*.mp4 *.mov *.webm *.3gp)"),
+            Whatevr.I18n.i18nc("@item:inlistbox", "Audio (*.ogg *.oga *.opus *.mp3 *.m4a *.aac *.wav *.flac *.amr)"),
+            Whatevr.I18n.i18nc("@item:inlistbox", "All files (*)")
+        ]
         fileMode: Platform.FileDialog.OpenFile
         onAccepted: {
             root.setComposing(false)
-            root.sendImageRequested(file, root.inputPlainText(), root.replyToMessageId)
+            root.sendImageRequested(file, root.inputPlainText(), root.replyToMessageId, "", root.viewOnceSend)
+            root.viewOnceSend = false
             root.replyConsumed()
             input.clear()
             root.hideSuggestions()
