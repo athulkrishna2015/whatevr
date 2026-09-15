@@ -296,6 +296,8 @@ func (db *DB) migrate(ctx context.Context) error {
 			timestamp INTEGER NOT NULL,
 			kind TEXT NOT NULL DEFAULT 'text',
 			text TEXT NOT NULL DEFAULT '',
+			text_bg INTEGER NOT NULL DEFAULT 0,
+			text_font INTEGER NOT NULL DEFAULT 0,
 			media_mime_type TEXT NOT NULL DEFAULT '',
 			media_kind TEXT NOT NULL DEFAULT '',
 			media_local_path TEXT NOT NULL DEFAULT '',
@@ -306,6 +308,27 @@ func (db *DB) migrate(ctx context.Context) error {
 			is_viewed INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_status_updates_timestamp ON status_updates(timestamp DESC)`,
+		`CREATE TABLE IF NOT EXISTS status_viewers (
+			status_id TEXT NOT NULL,
+			viewer_jid TEXT NOT NULL,
+			viewed_at INTEGER NOT NULL,
+			PRIMARY KEY (status_id, viewer_jid)
+		)`,
+		`CREATE TABLE IF NOT EXISTS poll_votes (
+			message_id TEXT NOT NULL,
+			voter_jid TEXT NOT NULL,
+			option_name TEXT NOT NULL,
+			PRIMARY KEY (message_id, voter_jid, option_name)
+		)`,
+		`CREATE TABLE IF NOT EXISTS channels (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL DEFAULT '',
+			description TEXT NOT NULL DEFAULT '',
+			followers INTEGER NOT NULL DEFAULT 0,
+			verified INTEGER NOT NULL DEFAULT 0,
+			muted INTEGER NOT NULL DEFAULT 0,
+			updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+		)`,
 	}
 
 	for _, statement := range statements {
@@ -371,6 +394,10 @@ func (db *DB) migrate(ctx context.Context) error {
 	}
 
 	if err := db.ensureHistorySyncColumns(ctx); err != nil {
+		return err
+	}
+
+	if err := db.ensureStatusTextColumns(ctx); err != nil {
 		return err
 	}
 
@@ -758,6 +785,48 @@ func (db *DB) ensureChatPinColumns(ctx context.Context) error {
 	return nil
 }
 
+// ensureStatusTextColumns adds text_bg/text_font to status_updates for
+// databases created before text-status styling landed.
+func (db *DB) ensureStatusTextColumns(ctx context.Context) error {
+	rows, err := db.conn.QueryContext(ctx, `PRAGMA table_info(status_updates)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	existing := make(map[string]bool)
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, pk int
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		existing[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	alterations := []struct {
+		col string
+		def string
+	}{
+		{"text_bg", `ALTER TABLE status_updates ADD COLUMN text_bg INTEGER NOT NULL DEFAULT 0`},
+		{"text_font", `ALTER TABLE status_updates ADD COLUMN text_font INTEGER NOT NULL DEFAULT 0`},
+	}
+	for _, a := range alterations {
+		if existing[a.col] {
+			continue
+		}
+		if _, err := db.conn.ExecContext(ctx, a.def); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ensureChatUpdatedAtColumn adds chats.updated_at and keeps it current via
 // triggers, so every existing write path bumps the stamp without changes.
 // Recursive triggers are off by default in SQLite, so the trigger's own
@@ -1026,6 +1095,10 @@ func (db *DB) ensureMediaColumns(ctx context.Context) error {
 		{"media_waveform", `ALTER TABLE messages ADD COLUMN media_waveform BLOB NOT NULL DEFAULT x''`},
 		{"media_played", `ALTER TABLE messages ADD COLUMN media_played INTEGER NOT NULL DEFAULT 0`},
 		{"is_view_once", `ALTER TABLE messages ADD COLUMN is_view_once INTEGER NOT NULL DEFAULT 0`},
+		{"poll_data", `ALTER TABLE messages ADD COLUMN poll_data TEXT NOT NULL DEFAULT ''`},
+		{"poll_tally", `ALTER TABLE messages ADD COLUMN poll_tally TEXT NOT NULL DEFAULT ''`},
+		{"geo_lat", `ALTER TABLE messages ADD COLUMN geo_lat REAL NOT NULL DEFAULT 0`},
+		{"geo_long", `ALTER TABLE messages ADD COLUMN geo_long REAL NOT NULL DEFAULT 0`},
 	}
 	for _, a := range alterations {
 		if existing[a.col] {

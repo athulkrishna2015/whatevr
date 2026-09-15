@@ -199,6 +199,10 @@ const (
 	// + Chat identify the call; the `calls` view re-reads the ringing set off
 	// it (the event itself carries only identity, like MessageReceipt).
 	DaemonEventCallChanged
+	// DaemonEventChannelsChanged fires when the followed-channel directory
+	// refreshes. It carries no payload; the `channels` view re-reads the
+	// store.
+	DaemonEventChannelsChanged
 	// DaemonEventResync is a synthetic sentinel the broadcaster posts to a
 	// subscriber whose buffer overflowed: rather than silently dropping events
 	// (which permanently desyncs a view that folds events into local state), the
@@ -1035,6 +1039,12 @@ func (d *Daemon) PublishCallChanged(callID, chatID string) {
 		CallID: callID,
 		Chat:   Chat{ID: chatID},
 	})
+}
+
+// PublishChannelsChanged signals a refreshed channel directory; the
+// `channels` view re-reads the store off it.
+func (d *Daemon) PublishChannelsChanged() {
+	d.broadcastDaemonEvent(DaemonEvent{Kind: DaemonEventChannelsChanged})
 }
 
 // PublishIdentityChanged signals that a contact's WhatsApp identity (security

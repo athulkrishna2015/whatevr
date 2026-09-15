@@ -358,6 +358,13 @@ func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offline
 		}
 		return
 	}
+	// Poll ballots are updates to their poll, never messages.
+	if evt.Message != nil && evt.Message.GetPollUpdateMessage() != nil {
+		if !offlineSync {
+			c.handlePollVote(ctx, evt)
+		}
+		return
+	}
 	if c.handleManualHistorySyncNotification(ctx, evt) {
 		return
 	}
@@ -718,6 +725,15 @@ func (c *Client) mediaMessageInput(ctx context.Context, evt *events.Message, opt
 	if input, ok := c.documentMessageInput(ctx, evt, opts); ok {
 		return input, true
 	}
+	if input, ok := c.pollCreationInput(ctx, evt, opts); ok {
+		return input, true
+	}
+	if input, ok := c.contactInput(ctx, evt, opts); ok {
+		return input, true
+	}
+	if input, ok := c.locationInput(ctx, evt, opts); ok {
+		return input, true
+	}
 	return c.unsupportedMessageInput(ctx, evt, opts)
 }
 
@@ -1046,11 +1062,10 @@ func (c *Client) stickerMessageInput(ctx context.Context, evt *events.Message, o
 }
 
 // unsupportedMessageInput stores an honest tombstone for real messages whose
-// payload whatevr cannot render yet (documents, voice notes, video, polls,
-// view-once media, ...). The human-readable label rides in the text column so
-// bubbles, chat previews and notifications all pick it up for free. Protocol
-// noise (poll votes, app-state keys, ...) is not on the label whitelist and
-// stays invisible, exactly as before.
+// payload whatevr cannot render yet (view-once media, event messages, ...).
+// The human-readable label rides in the text column so bubbles, chat previews
+// and notifications all pick it up for free. Protocol noise (app-state keys,
+// ...) is not on the label whitelist and stays invisible, exactly as before.
 func (c *Client) unsupportedMessageInput(ctx context.Context, evt *events.Message, opts ingestOptions) (appstore.MediaMessageInput, bool) {
 	if evt == nil || evt.Message == nil {
 		return appstore.MediaMessageInput{}, false

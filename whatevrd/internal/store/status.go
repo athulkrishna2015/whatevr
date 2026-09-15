@@ -10,12 +10,16 @@ import (
 // Statuses arrive from status@broadcast and live outside chats on purpose —
 // storing them as chat messages would materialize a bogus "status" chat row.
 type StatusUpdate struct {
-	ID                string
-	SenderID          string
-	SenderName        string
-	TimestampUnix     int64
-	Kind              string
-	Text              string
+	ID            string
+	SenderID      string
+	SenderName    string
+	TimestampUnix int64
+	Kind          string
+	Text          string
+	// TextBG is the text-status background color as ARGB (0 = default), and
+	// TextFont is the WhatsApp font id (0 = system default).
+	TextBG            uint32
+	TextFont          int32
 	MediaMimeType     string
 	MediaKind         string
 	MediaLocalPath    string
@@ -34,6 +38,8 @@ type StatusUpdateInput struct {
 	Timestamp         time.Time
 	Kind              string
 	Text              string
+	TextBG            uint32
+	TextFont          int32
 	MediaMimeType     string
 	MediaKind         string
 	MediaPayload      []byte
@@ -58,10 +64,10 @@ func (db *DB) SaveStatusUpdate(ctx context.Context, input StatusUpdateInput) (St
 	}
 
 	result, err := db.conn.ExecContext(ctx, `
-		INSERT INTO status_updates (id, sender_id, sender_name, timestamp, kind, text, media_mime_type, media_kind, media_payload, media_duration_secs, media_size_bytes, media_file_name)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO status_updates (id, sender_id, sender_name, timestamp, kind, text, text_bg, text_font, media_mime_type, media_kind, media_payload, media_duration_secs, media_size_bytes, media_file_name)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO NOTHING
-	`, input.ID, input.SenderID, input.SenderName, input.Timestamp.Unix(), input.Kind, input.Text, input.MediaMimeType, input.MediaKind, input.MediaPayload, input.MediaDurationSecs, input.MediaSizeBytes, input.MediaFileName)
+	`, input.ID, input.SenderID, input.SenderName, input.Timestamp.Unix(), input.Kind, input.Text, input.TextBG, input.TextFont, input.MediaMimeType, input.MediaKind, input.MediaPayload, input.MediaDurationSecs, input.MediaSizeBytes, input.MediaFileName)
 	if err != nil {
 		return StatusUpdate{}, false, err
 	}
@@ -99,10 +105,10 @@ func (db *DB) GetStatusUpdate(ctx context.Context, id string) (StatusUpdate, err
 	defer db.timeOp("GetStatusUpdate", time.Now())
 	var s StatusUpdate
 	err := db.reader().QueryRowContext(ctx, `
-		SELECT id, sender_id, sender_name, timestamp, kind, text, media_mime_type, media_kind, media_local_path, media_payload, media_duration_secs, media_size_bytes, media_file_name, is_viewed
+		SELECT id, sender_id, sender_name, timestamp, kind, text, text_bg, text_font, media_mime_type, media_kind, media_local_path, media_payload, media_duration_secs, media_size_bytes, media_file_name, is_viewed
 		FROM status_updates
 		WHERE id = ?
-	`, id).Scan(&s.ID, &s.SenderID, &s.SenderName, &s.TimestampUnix, &s.Kind, &s.Text, &s.MediaMimeType, &s.MediaKind, &s.MediaLocalPath, &s.MediaPayload, &s.MediaDurationSecs, &s.MediaSizeBytes, &s.MediaFileName, &s.Viewed)
+	`, id).Scan(&s.ID, &s.SenderID, &s.SenderName, &s.TimestampUnix, &s.Kind, &s.Text, &s.TextBG, &s.TextFont, &s.MediaMimeType, &s.MediaKind, &s.MediaLocalPath, &s.MediaPayload, &s.MediaDurationSecs, &s.MediaSizeBytes, &s.MediaFileName, &s.Viewed)
 	if err != nil {
 		return StatusUpdate{}, err
 	}
@@ -113,7 +119,7 @@ func (db *DB) GetStatusUpdate(ctx context.Context, id string) (StatusUpdate, err
 func (db *DB) ListStatusUpdates(ctx context.Context, limit int) ([]StatusUpdate, error) {
 	defer db.timeOp("ListStatusUpdates", time.Now())
 	query := `
-		SELECT id, sender_id, sender_name, timestamp, kind, text, media_mime_type, media_kind, media_local_path, media_payload, media_duration_secs, media_size_bytes, media_file_name, is_viewed
+		SELECT id, sender_id, sender_name, timestamp, kind, text, text_bg, text_font, media_mime_type, media_kind, media_local_path, media_payload, media_duration_secs, media_size_bytes, media_file_name, is_viewed
 		FROM status_updates
 		ORDER BY timestamp DESC, rowid DESC
 	`
@@ -130,7 +136,7 @@ func (db *DB) ListStatusUpdates(ctx context.Context, limit int) ([]StatusUpdate,
 	statuses := []StatusUpdate{}
 	for rows.Next() {
 		var s StatusUpdate
-		if err := rows.Scan(&s.ID, &s.SenderID, &s.SenderName, &s.TimestampUnix, &s.Kind, &s.Text, &s.MediaMimeType, &s.MediaKind, &s.MediaLocalPath, &s.MediaPayload, &s.MediaDurationSecs, &s.MediaSizeBytes, &s.MediaFileName, &s.Viewed); err != nil {
+		if err := rows.Scan(&s.ID, &s.SenderID, &s.SenderName, &s.TimestampUnix, &s.Kind, &s.Text, &s.TextBG, &s.TextFont, &s.MediaMimeType, &s.MediaKind, &s.MediaLocalPath, &s.MediaPayload, &s.MediaDurationSecs, &s.MediaSizeBytes, &s.MediaFileName, &s.Viewed); err != nil {
 			return nil, err
 		}
 		statuses = append(statuses, s)
@@ -158,6 +164,14 @@ func (db *DB) SetStatusMediaPath(ctx context.Context, id, localPath string) (Sta
 		return StatusUpdate{}, err
 	}
 	return db.GetStatusUpdate(ctx, id)
+}
+
+// DeleteStatusUpdate drops a status row (after a successful revoke, or for
+// pruning a Tombstoned local post that never left).
+func (db *DB) DeleteStatusUpdate(ctx context.Context, id string) error {
+	defer db.timeOp("DeleteStatusUpdate", time.Now())
+	_, err := db.conn.ExecContext(ctx, `DELETE FROM status_updates WHERE id = ?`, id)
+	return err
 }
 
 // PruneOldStatusUpdates drops statuses older than maxAge; WhatsApp statuses

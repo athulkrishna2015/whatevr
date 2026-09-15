@@ -18,9 +18,11 @@ type StatusLister interface {
 // statusView is the contact-status (stories) feed: a live-edge window over
 // status_updates, newest first. Rows reuse the message media facts where they
 // exist so a photo status renders from the same fields a chat photo would.
+// Sender avatars resolve through the same display-name seam as typing.
 type statusView struct {
-	daemon *app.Daemon
-	lister StatusLister
+	daemon   *app.Daemon
+	lister   StatusLister
+	resolver SenderDisplayer
 }
 
 func (v statusView) Open(_ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
@@ -28,6 +30,7 @@ func (v statusView) Open(_ json.RawMessage, invalidate func()) (ViewSession, map
 	ctx, cancelCtx := context.WithCancel(context.Background())
 	s := &statusSession{
 		lister:       v.lister,
+		resolver:     v.resolver,
 		eventsCancel: cancel,
 		ctx:          ctx,
 		cancelCtx:    cancelCtx,
@@ -39,6 +42,7 @@ func (v statusView) Open(_ json.RawMessage, invalidate func()) (ViewSession, map
 
 type statusSession struct {
 	lister       StatusLister
+	resolver     SenderDisplayer
 	eventsCancel func()
 	ctx          context.Context
 	cancelCtx    context.CancelFunc
@@ -78,10 +82,16 @@ func (s *statusSession) Items(max int) []Item {
 	}
 	items := make([]Item, 0, len(rows))
 	for _, st := range rows {
+		item := statusItemFromStore(st)
+		if s.resolver != nil && st.SenderID != "" && st.SenderID != "me" {
+			if _, avatar, err := s.resolver.SenderDisplay(s.ctx, st.SenderID); err == nil {
+				item.Sender.AvatarPath = avatar
+			}
+		}
 		items = append(items, Item{
 			ID:   st.ID,
 			Sort: newestFirstSort(statusSortSeed(st)),
-			Data: statusItemFromStore(st),
+			Data: item,
 		})
 	}
 	return items
@@ -108,6 +118,8 @@ type statusItem struct {
 	Kind      string        `json:"kind"`
 	Fallback  string        `json:"fallback"`
 	Text      string        `json:"text,omitempty"`
+	TextBG    uint32        `json:"text_bg,omitempty"`
+	TextFont  int32         `json:"text_font,omitempty"`
 	Viewed    bool          `json:"viewed,omitempty"`
 	Media     *messageMedia `json:"media,omitempty"`
 }
@@ -119,6 +131,8 @@ func statusItemFromStore(st store.StatusUpdate) statusItem {
 		Timestamp: st.TimestampUnix,
 		Kind:      st.Kind,
 		Text:      st.Text,
+		TextBG:    st.TextBG,
+		TextFont:  st.TextFont,
 		Viewed:    st.Viewed,
 	}
 	if item.Kind == "" {

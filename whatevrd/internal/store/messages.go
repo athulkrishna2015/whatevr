@@ -27,6 +27,9 @@ const (
 	MediaKindVoice    = "voice"
 	MediaKindAudio    = "audio"
 	MediaKindDocument = "document"
+	MediaKindPoll     = "poll"
+	MediaKindContact  = "contact"
+	MediaKindLocation = "location"
 	// MediaKindUnsupported marks a real message whose payload whatevr cannot
 	// render yet (location, poll, contact card, ...). The text column carries a
 	// human-readable label; there is no downloadable media.
@@ -136,7 +139,14 @@ type Message struct {
 	// IsViewOnce marks an outbound media message sent as view-once. Inbound
 	// view-once media is never stored as media (phone-only tombstone), so this
 	// flag only ever appears on our own sends.
-	IsViewOnce      bool
+	IsViewOnce bool
+	// PollData is the static poll definition JSON {question, options[],
+	// selectable} for kind=poll rows; PollTally is the live tally JSON
+	// {optionName: voterCount}. GeoLat/GeoLong carry kind=location rows.
+	PollData        string
+	PollTally       string
+	GeoLat          float64
+	GeoLong         float64
 	IsRevoked       bool
 	IsForwarded     bool
 	IsEdited        bool
@@ -180,6 +190,10 @@ type MediaMessageInput struct {
 	MediaPageCount          int32
 	MediaWaveform           []byte
 	IsViewOnce              bool
+	PollData                string
+	PollTally               string
+	GeoLat                  float64
+	GeoLong                 float64
 }
 
 type ReadCandidate struct {
@@ -440,12 +454,13 @@ func saveMediaMessageTx(ctx context.Context, tx *sql.Tx, input MediaMessageInput
 	}
 
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO messages (id, chat_id, sender_id, text, timestamp, direction, is_read, status, is_forwarded, mentioned_jids, media_kind, media_mime_type, media_local_path, media_thumbnail_local_path, media_width, media_height, media_animated, media_payload, media_cache_key, media_duration_secs, media_size_bytes, media_file_name, media_page_count, media_waveform, is_view_once, reply_to_message_id, reply_to_sender_id, reply_to_sender_name, reply_to_text, reply_to_media_kind, reply_to_media_mime_type, reply_to_direction)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO messages (id, chat_id, sender_id, text, timestamp, direction, is_read, status, is_forwarded, mentioned_jids, media_kind, media_mime_type, media_local_path, media_thumbnail_local_path, media_width, media_height, media_animated, media_payload, media_cache_key, media_duration_secs, media_size_bytes, media_file_name, media_page_count, media_waveform, is_view_once, poll_data, poll_tally, geo_lat, geo_long, reply_to_message_id, reply_to_sender_id, reply_to_sender_name, reply_to_text, reply_to_media_kind, reply_to_media_mime_type, reply_to_direction)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO NOTHING
 	`, input.ID, input.ChatID, input.SenderID, input.Text, input.Timestamp.Unix(), input.Direction,
 		boolToInt(!input.CountUnread), input.Status, boolToInt(input.IsForwarded), encodeMentions(input.Mentions), input.MediaKind, input.MediaMimeType, input.MediaLocalPath, input.MediaThumbnailLocalPath, input.MediaWidth, input.MediaHeight, boolToInt(input.MediaAnimated), input.MediaPayload, input.MediaCacheKey,
 		input.MediaDurationSecs, input.MediaSizeBytes, input.MediaFileName, input.MediaPageCount, input.MediaWaveform, boolToInt(input.IsViewOnce),
+		input.PollData, input.PollTally, input.GeoLat, input.GeoLong,
 		input.ReplyTo.MessageID, input.ReplyTo.SenderID, input.ReplyTo.SenderName, input.ReplyTo.Text, input.ReplyTo.MediaKind, input.ReplyTo.MediaMimeType, input.ReplyTo.Direction)
 	if err != nil {
 		return SavedTextMessage{}, err
@@ -611,6 +626,21 @@ func messageSummary(text, mediaKind, mediaMimeType, mediaFileName string, viewOn
 			return name
 		}
 		return "[Document]"
+	case MediaKindPoll:
+		if text != "" {
+			return text
+		}
+		return "[Poll]"
+	case MediaKindContact:
+		if text != "" {
+			return text
+		}
+		return "[Contact]"
+	case MediaKindLocation:
+		if text != "" {
+			return text
+		}
+		return "[Location]"
 	}
 	// Older rows predate media_kind carrying anything but image/sticker, so
 	// keep sniffing the mime type for them.
@@ -792,7 +822,7 @@ const messageSelectPrefix = `
 	       COALESCE(NULLIF(s.name, ''), NULLIF(c.name, ''), ''),
 	       COALESCE(NULLIF(sa.local_path, ''), NULLIF(ca.local_path, ''), NULLIF(s.avatar_local_path, ''), NULLIF(c.avatar_local_path, ''), ''),
        m.text, m.timestamp, m.rowid, m.direction, m.is_read, m.status, m.media_kind, m.media_mime_type, m.media_local_path, m.media_thumbnail_local_path, m.media_width, m.media_height, m.media_animated, m.media_download_error,
-       m.media_duration_secs, m.media_size_bytes, m.media_file_name, m.media_page_count, m.media_waveform, m.media_played, m.is_view_once,
+       m.media_duration_secs, m.media_size_bytes, m.media_file_name, m.media_page_count, m.media_waveform, m.media_played, m.is_view_once, m.poll_data, m.poll_tally, m.geo_lat, m.geo_long,
        m.reply_to_message_id, m.reply_to_sender_id, m.reply_to_sender_name, m.reply_to_text, m.reply_to_media_kind, m.reply_to_media_mime_type, m.reply_to_direction,
 	       m.send_attempts, m.last_send_error, m.next_send_attempt, m.is_revoked, m.is_edited, m.is_starred, m.pinned_at, m.pinned_until, m.mentioned_jids
 	FROM messages m
@@ -1051,7 +1081,7 @@ func (db *DB) ListPendingOutgoingMessages(ctx context.Context, limit int, now ti
 	}
 
 	rows, err := db.reader().QueryContext(ctx, `
-		SELECT id, chat_id, sender_id, text, timestamp, direction, is_read, status, media_kind, media_mime_type, media_local_path, media_thumbnail_local_path, media_width, media_height, media_animated, media_payload, media_cache_key, is_view_once,
+		SELECT id, chat_id, sender_id, text, timestamp, direction, is_read, status, media_kind, media_mime_type, media_local_path, media_thumbnail_local_path, media_width, media_height, media_animated, media_payload, media_cache_key, is_view_once, poll_data, poll_tally, geo_lat, geo_long,
 		       reply_to_message_id, reply_to_sender_id, reply_to_sender_name, reply_to_text, reply_to_media_kind, reply_to_media_mime_type, reply_to_direction,
 		       send_attempts, last_send_error, next_send_attempt, is_forwarded, mentioned_jids
 		FROM messages
@@ -1087,6 +1117,10 @@ func (db *DB) ListPendingOutgoingMessages(ctx context.Context, limit int, now ti
 			&message.MediaPayload,
 			&message.MediaCacheKey,
 			&message.IsViewOnce,
+			&message.PollData,
+			&message.PollTally,
+			&message.GeoLat,
+			&message.GeoLong,
 			&message.ReplyTo.MessageID,
 			&message.ReplyTo.SenderID,
 			&message.ReplyTo.SenderName,
@@ -1471,8 +1505,9 @@ func (db *DB) ListPinnedMessages(ctx context.Context, chatID string) ([]Message,
 }
 
 // GalleryMediaKinds are the kinds the per-chat media gallery shows: everything
-// with a visual or playable body, in the order a switch should test them.
-// Stickers and unsupported tombstones are deliberately absent.
+// with a visual or playable body or a card worth browsing, in the order a
+// switch should test them. Stickers and unsupported tombstones are
+// deliberately absent.
 var GalleryMediaKinds = []string{
 	MediaKindImage,
 	MediaKindVideo,
@@ -1481,26 +1516,78 @@ var GalleryMediaKinds = []string{
 	MediaKindVoice,
 	MediaKindAudio,
 	MediaKindDocument,
+	MediaKindPoll,
+	MediaKindContact,
+	MediaKindLocation,
 }
 
 // ListChatMediaMessages returns a chat's media messages newest first, for the
-// media gallery. beforeMessageID is a keyset cursor for paging older results,
+// media gallery. kinds filters to a subset of GalleryMediaKinds (empty means
+// all); beforeMessageID is a keyset cursor for paging older results,
 // matching ListStarredMessages.
-func (db *DB) ListChatMediaMessages(ctx context.Context, chatID string, limit int, beforeMessageID string) ([]Message, error) {
+func (db *DB) ListChatMediaMessages(ctx context.Context, chatID string, limit int, beforeMessageID string, kinds []string) ([]Message, error) {
 	defer db.timeOp("ListChatMediaMessages", time.Now())
 	if limit <= 0 {
 		limit = 50
 	}
+	if len(kinds) == 0 {
+		kinds = GalleryMediaKinds
+	}
 
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(GalleryMediaKinds)), ",")
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(kinds)), ",")
 	query := messageSelectPrefix + `
 		WHERE m.chat_id = ? AND m.is_revoked = 0 AND m.media_kind IN (` + placeholders + `)
 		AND NOT (m.is_view_once != 0 AND m.direction = '` + DirectionIncoming + `')
 	`
 	args := []any{chatID}
-	for _, kind := range GalleryMediaKinds {
+	for _, kind := range kinds {
 		args = append(args, kind)
 	}
+	if beforeMessageID != "" {
+		beforeTimestamp, beforeSeq, err := db.messageCursor(ctx, beforeMessageID)
+		if err != nil {
+			return nil, err
+		}
+		query += ` AND (m.timestamp < ? OR (m.timestamp = ? AND m.rowid < ?))`
+		args = append(args, beforeTimestamp, beforeTimestamp, beforeSeq)
+	}
+	query += `
+		ORDER BY m.timestamp DESC, m.rowid DESC
+		LIMIT ?
+	`
+	args = append(args, limit)
+
+	rows, err := db.reader().QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	messages, err := scanMessageRows(rows, limit)
+	if err != nil {
+		return nil, err
+	}
+	if err := attachReactions(ctx, db.reader(), messages); err != nil {
+		return nil, err
+	}
+	return messages, nil
+}
+
+// ListChatLinkMessages returns a chat's messages containing links, newest
+// first, for the gallery's Links tab. Matching is deliberately narrow
+// (scheme-prefixed or www. URLs): the markup engine linkifies more, but the
+// gallery must not drown in false positives.
+func (db *DB) ListChatLinkMessages(ctx context.Context, chatID string, limit int, beforeMessageID string) ([]Message, error) {
+	defer db.timeOp("ListChatLinkMessages", time.Now())
+	if limit <= 0 {
+		limit = 50
+	}
+
+	query := messageSelectPrefix + `
+		WHERE m.chat_id = ? AND m.is_revoked = 0
+		AND (m.text LIKE '%http://%' ESCAPE '\' OR m.text LIKE '%https://%' ESCAPE '\' OR m.text LIKE '%www.%' ESCAPE '\')
+	`
+	args := []any{chatID}
 	if beforeMessageID != "" {
 		beforeTimestamp, beforeSeq, err := db.messageCursor(ctx, beforeMessageID)
 		if err != nil {
@@ -2236,7 +2323,7 @@ func getMessageRow(ctx context.Context, queryer interface {
 		       COALESCE(NULLIF(s.name, ''), NULLIF(c.name, ''), ''),
 		       COALESCE(NULLIF(sa.local_path, ''), NULLIF(ca.local_path, ''), NULLIF(s.avatar_local_path, ''), NULLIF(c.avatar_local_path, ''), ''),
 		       m.text, m.timestamp, m.rowid, m.direction, m.is_read, m.status, m.media_kind, m.media_mime_type, m.media_local_path, m.media_thumbnail_local_path, m.media_width, m.media_height, m.media_animated, m.media_download_error, m.media_payload, m.media_cache_key,
-	       m.media_duration_secs, m.media_size_bytes, m.media_file_name, m.media_page_count, m.media_waveform, m.media_played, m.is_view_once,
+	       m.media_duration_secs, m.media_size_bytes, m.media_file_name, m.media_page_count, m.media_waveform, m.media_played, m.is_view_once, m.poll_data, m.poll_tally, m.geo_lat, m.geo_long,
 	       m.reply_to_message_id, m.reply_to_sender_id, m.reply_to_sender_name, m.reply_to_text, m.reply_to_media_kind, m.reply_to_media_mime_type, m.reply_to_direction,
 		       m.send_attempts, m.last_send_error, m.next_send_attempt, m.is_revoked, m.is_edited, m.is_starred, m.pinned_at, m.pinned_until, m.mentioned_jids
 		FROM messages m
@@ -2274,6 +2361,10 @@ func getMessageRow(ctx context.Context, queryer interface {
 		&message.MediaWaveform,
 		&message.MediaPlayed,
 		&message.IsViewOnce,
+		&message.PollData,
+		&message.PollTally,
+		&message.GeoLat,
+		&message.GeoLong,
 		&message.ReplyTo.MessageID,
 		&message.ReplyTo.SenderID,
 		&message.ReplyTo.SenderName,
@@ -2454,6 +2545,10 @@ func scanMessageRows(rows *sql.Rows, capacity int) ([]Message, error) {
 			&message.MediaWaveform,
 			&message.MediaPlayed,
 			&message.IsViewOnce,
+			&message.PollData,
+			&message.PollTally,
+			&message.GeoLat,
+			&message.GeoLong,
 			&message.ReplyTo.MessageID,
 			&message.ReplyTo.SenderID,
 			&message.ReplyTo.SenderName,

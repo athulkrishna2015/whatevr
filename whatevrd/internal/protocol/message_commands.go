@@ -56,6 +56,9 @@ type sendMediaParams struct {
 	ViewOnce bool `json:"view_once"`
 	// Filename overrides the document display name.
 	Filename string `json:"filename"`
+	// Quality is "standard" (photos downscaled to 1600px, like official
+	// clients) or "hd" (original bytes). Empty means standard.
+	Quality string `json:"quality"`
 }
 
 func (h commandHandlers) sendMedia(_ *conn, req request) (any, *Error) {
@@ -92,7 +95,133 @@ func mediaSendOptions(p sendMediaParams) app.MediaSendOptions {
 		Kind:     strings.TrimSpace(p.Kind),
 		ViewOnce: p.ViewOnce,
 		Filename: strings.TrimSpace(p.Filename),
+		Quality:  strings.TrimSpace(p.Quality),
 	}
+}
+
+type sendPollParams struct {
+	ChatID   string   `json:"chat_id"`
+	Question string   `json:"question"`
+	Options  []string `json:"options"`
+	Multi    bool     `json:"multi"`
+}
+
+// send.poll creates a single- or multi-select poll (2–12 options).
+func (h commandHandlers) sendPoll(ctx context.Context, _ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p sendPollParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(p.ChatID) == "" {
+		return nil, errorf(CodeInvalidParams, "chat_id is required")
+	}
+	if strings.TrimSpace(p.Question) == "" {
+		return nil, errorf(CodeInvalidParams, "question is required")
+	}
+	if utf8.RuneCountInString(p.Question) > maxCommandCaptionRunes {
+		return nil, errorf(CodeInvalidParams, "question must be <= %d characters", maxCommandCaptionRunes)
+	}
+	options := trimStringSlice(p.Options)
+	if len(options) < 2 {
+		return nil, errorf(CodeInvalidParams, "at least two options are required")
+	}
+	if len(options) > 12 {
+		return nil, errorf(CodeInvalidParams, "at most 12 options per poll")
+	}
+	saved, err := h.actions.SendPoll(ctx, strings.TrimSpace(p.ChatID), strings.TrimSpace(p.Question), options, p.Multi)
+	if perr := mapCommandError(err); perr != nil {
+		return nil, perr
+	}
+	return map[string]any{"message_id": saved.Message.ID}, nil
+}
+
+type messageVoteParams struct {
+	MessageID string   `json:"message_id"`
+	Options   []string `json:"options"`
+}
+
+// message.vote votes option names on a poll; a re-vote replaces the ballot.
+func (h commandHandlers) messageVote(ctx context.Context, _ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p messageVoteParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(p.MessageID) == "" {
+		return nil, errorf(CodeInvalidParams, "message_id is required")
+	}
+	options := trimStringSlice(p.Options)
+	if len(options) == 0 {
+		return nil, errorf(CodeInvalidParams, "at least one option is required")
+	}
+	_, err := h.actions.VotePoll(ctx, strings.TrimSpace(p.MessageID), options)
+	return nil, mapCommandError(err)
+}
+
+type sendContactParams struct {
+	ChatID string `json:"chat_id"`
+	Name   string `json:"name"`
+	Phone  string `json:"phone"`
+}
+
+// send.contact shares a contact card (name + phone) as a vCard message.
+func (h commandHandlers) sendContact(ctx context.Context, _ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p sendContactParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(p.ChatID) == "" {
+		return nil, errorf(CodeInvalidParams, "chat_id is required")
+	}
+	if strings.TrimSpace(p.Name) == "" {
+		return nil, errorf(CodeInvalidParams, "name is required")
+	}
+	if strings.TrimSpace(p.Phone) == "" {
+		return nil, errorf(CodeInvalidParams, "phone is required")
+	}
+	saved, err := h.actions.SendContact(ctx, strings.TrimSpace(p.ChatID), strings.TrimSpace(p.Name), strings.TrimSpace(p.Phone))
+	if perr := mapCommandError(err); perr != nil {
+		return nil, perr
+	}
+	return map[string]any{"message_id": saved.Message.ID}, nil
+}
+
+type sendLocationParams struct {
+	ChatID  string  `json:"chat_id"`
+	Lat     float64 `json:"lat"`
+	Long    float64 `json:"long"`
+	Name    string  `json:"name"`
+	Address string  `json:"address"`
+}
+
+// send.location shares a location pin.
+func (h commandHandlers) sendLocation(ctx context.Context, _ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p sendLocationParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(p.ChatID) == "" {
+		return nil, errorf(CodeInvalidParams, "chat_id is required")
+	}
+	if p.Lat < -90 || p.Lat > 90 || p.Long < -180 || p.Long > 180 {
+		return nil, errorf(CodeInvalidParams, "coordinates out of range")
+	}
+	saved, err := h.actions.SendLocation(ctx, strings.TrimSpace(p.ChatID), p.Lat, p.Long, strings.TrimSpace(p.Name), strings.TrimSpace(p.Address))
+	if perr := mapCommandError(err); perr != nil {
+		return nil, perr
+	}
+	return map[string]any{"message_id": saved.Message.ID}, nil
 }
 
 type sendStickerParams struct {

@@ -89,6 +89,10 @@ type CommandActions interface {
 	SendText(context.Context, string, string, string, []string) (appstore.SavedTextMessage, error)
 	SendMediaWithMentions(context.Context, string, string, string, string, []string) (appstore.SavedTextMessage, error)
 	SendMediaWithOptions(context.Context, string, string, string, string, []string, app.MediaSendOptions) (appstore.SavedTextMessage, error)
+	SendPoll(context.Context, string, string, []string, bool) (appstore.SavedTextMessage, error)
+	VotePoll(context.Context, string, []string) (appstore.Message, error)
+	SendContact(context.Context, string, string, string) (appstore.SavedTextMessage, error)
+	SendLocation(context.Context, string, float64, float64, string, string) (appstore.SavedTextMessage, error)
 	SendSticker(context.Context, string, string, string) (appstore.SavedTextMessage, error)
 	SendReaction(context.Context, string, string) (appstore.Message, error)
 	EditMessage(context.Context, string, string) (appstore.Message, error)
@@ -104,8 +108,11 @@ type CommandActions interface {
 	FetchProfilePicture(context.Context, string) (string, error)
 	SaveMediaToPath(context.Context, string, string, string, string) (string, error)
 	MarkStatusViewed(context.Context, string) (appstore.StatusUpdate, error)
-	PostStatus(context.Context, string, string, string) (appstore.StatusUpdate, error)
+	PostStatus(context.Context, string, string, string, uint32, int32) (appstore.StatusUpdate, error)
 	DownloadStatusMedia(context.Context, string) (appstore.StatusUpdate, error)
+	ReplyToStatus(context.Context, string, string) (appstore.SavedTextMessage, error)
+	DeleteStatus(context.Context, string) error
+	ListStatusViewers(context.Context, string) ([]appstore.StatusViewer, error)
 
 	CreateGroup(context.Context, string, []string, string) (appstore.Chat, error)
 	LeaveGroup(context.Context, string) error
@@ -126,6 +133,13 @@ type CommandActions interface {
 	ListCommunitySubgroups(context.Context, string) ([]app.CommunityGroup, error)
 	LinkCommunityGroup(context.Context, string, string) error
 	UnlinkCommunityGroup(context.Context, string, string) error
+
+	RefreshChannels(context.Context) ([]appstore.Channel, error)
+	FollowChannel(context.Context, string) error
+	FollowChannelByInvite(context.Context, string) (appstore.Channel, error)
+	UnfollowChannel(context.Context, string) error
+	SetChannelMuted(context.Context, string, bool) error
+	MarkChannelViewed(context.Context, string, []int64) error
 
 	SetPrivacySetting(context.Context, string, string, bool) (app.PrivacySettings, error)
 	UpdateAppPreferences(context.Context, func(*app.AppPreferences)) (app.AppPreferences, error)
@@ -163,6 +177,10 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("send.text", cmd.sendText)
 	s.RegisterCommand("send.media", cmd.sendMedia)
 	s.RegisterCommand("send.sticker", backgroundNet(cmd.sendSticker, false))
+	s.RegisterCommand("send.poll", backgroundNet(cmd.sendPoll, false))
+	s.RegisterCommand("send.contact", backgroundNet(cmd.sendContact, false))
+	s.RegisterCommand("send.location", backgroundNet(cmd.sendLocation, false))
+	s.RegisterCommand("message.vote", backgroundNet(cmd.messageVote, false))
 	s.RegisterCommand("message.react", backgroundNet(cmd.messageReact, false))
 	s.RegisterCommand("message.edit", backgroundNet(cmd.messageEdit, false))
 	s.RegisterCommand("message.revoke", backgroundNet(cmd.messageRevoke, false))
@@ -179,6 +197,8 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("status.mark_viewed", backgroundNet(cmd.statusMarkViewed, false))
 	s.RegisterCommand("status.post", backgroundNet(cmd.statusPost, false))
 	s.RegisterCommand("status.download", cmd.statusDownload)
+	s.RegisterCommand("status.reply", backgroundNet(cmd.statusReply, false))
+	s.RegisterCommand("status.delete", backgroundNet(cmd.statusDelete, false))
 	s.RegisterCommand("group.create", backgroundNet(cmd.groupCreate, false))
 	s.RegisterCommand("group.leave", backgroundNet(cmd.groupLeave, false))
 	s.RegisterCommand("group.set_name", backgroundNet(cmd.groupSetName, false))
@@ -196,6 +216,12 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("community.subgroups", backgroundNet(cmd.communitySubgroups, true))
 	s.RegisterCommand("community.link", backgroundNet(cmd.communityLink, false))
 	s.RegisterCommand("community.unlink", backgroundNet(cmd.communityUnlink, false))
+	s.RegisterCommand("channels.refresh", backgroundNet(cmd.channelsRefresh, false))
+	s.RegisterCommand("channel.follow", backgroundNet(cmd.channelFollow, false))
+	s.RegisterCommand("channel.follow_link", backgroundNet(cmd.channelFollowLink, false))
+	s.RegisterCommand("channel.unfollow", backgroundNet(cmd.channelUnfollow, false))
+	s.RegisterCommand("channel.mute", backgroundNet(cmd.channelMute, false))
+	s.RegisterCommand("channel.mark_viewed", backgroundNet(cmd.channelMarkViewed, false))
 	// Phase C3 settings/contact/sticker commands and transient queries.
 	s.RegisterCommand("privacy.set", backgroundNet(cmd.privacySet, false))
 	s.RegisterCommand("preferences.set", cmd.preferencesSet)

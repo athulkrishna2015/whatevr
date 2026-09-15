@@ -112,11 +112,30 @@ func (fixtureCommands) SaveMediaToPath(_ context.Context, messageID, statusID, j
 func (fixtureCommands) MarkStatusViewed(_ context.Context, statusID string) (appstore.StatusUpdate, error) {
 	return appstore.StatusUpdate{ID: statusID}, nil
 }
-func (fixtureCommands) PostStatus(_ context.Context, text, path, caption string) (appstore.StatusUpdate, error) {
+func (fixtureCommands) PostStatus(_ context.Context, text, path, caption string, background uint32, font int32) (appstore.StatusUpdate, error) {
 	return appstore.StatusUpdate{ID: "status:fixture", Text: text}, nil
 }
 func (fixtureCommands) DownloadStatusMedia(_ context.Context, statusID string) (appstore.StatusUpdate, error) {
 	return appstore.StatusUpdate{ID: statusID}, nil
+}
+func (fixtureCommands) ReplyToStatus(_ context.Context, statusID, text string) (appstore.SavedTextMessage, error) {
+	return appstore.SavedTextMessage{Message: appstore.Message{ID: "reply:fixture", Text: text}}, nil
+}
+func (fixtureCommands) DeleteStatus(context.Context, string) error { return nil }
+func (fixtureCommands) ListStatusViewers(context.Context, string) ([]appstore.StatusViewer, error) {
+	return nil, nil
+}
+func (fixtureCommands) SendPoll(_ context.Context, chatID, question string, options []string, multi bool) (appstore.SavedTextMessage, error) {
+	return appstore.SavedTextMessage{Message: appstore.Message{ID: chatID + ":poll", ChatID: chatID, Text: question}}, nil
+}
+func (fixtureCommands) VotePoll(_ context.Context, messageID string, options []string) (appstore.Message, error) {
+	return appstore.Message{ID: messageID}, nil
+}
+func (fixtureCommands) SendContact(_ context.Context, chatID, name, phone string) (appstore.SavedTextMessage, error) {
+	return appstore.SavedTextMessage{Message: appstore.Message{ID: chatID + ":contact", ChatID: chatID, Text: name}}, nil
+}
+func (fixtureCommands) SendLocation(_ context.Context, chatID string, lat, long float64, name, address string) (appstore.SavedTextMessage, error) {
+	return appstore.SavedTextMessage{Message: appstore.Message{ID: chatID + ":location", ChatID: chatID, Text: name}}, nil
 }
 func (fixtureCommands) CreateGroup(_ context.Context, name string, members []string, photo string) (appstore.Chat, error) {
 	return appstore.Chat{ID: "group-fixture@g.us", Name: name}, nil
@@ -152,6 +171,16 @@ func (fixtureCommands) ListCommunitySubgroups(_ context.Context, chatID string) 
 }
 func (fixtureCommands) LinkCommunityGroup(context.Context, string, string) error   { return nil }
 func (fixtureCommands) UnlinkCommunityGroup(context.Context, string, string) error { return nil }
+func (fixtureCommands) RefreshChannels(context.Context) ([]appstore.Channel, error) {
+	return []appstore.Channel{{ID: "chan@newsletter", Name: "Chan"}}, nil
+}
+func (fixtureCommands) FollowChannel(context.Context, string) error { return nil }
+func (fixtureCommands) FollowChannelByInvite(_ context.Context, invite string) (appstore.Channel, error) {
+	return appstore.Channel{ID: "chan@newsletter", Name: "Chan"}, nil
+}
+func (fixtureCommands) UnfollowChannel(context.Context, string) error            { return nil }
+func (fixtureCommands) SetChannelMuted(context.Context, string, bool) error      { return nil }
+func (fixtureCommands) MarkChannelViewed(context.Context, string, []int64) error { return nil }
 func (fixtureCommands) SetPrivacySetting(context.Context, string, string, bool) (app.PrivacySettings, error) {
 	return app.PrivacySettings{}, nil
 }

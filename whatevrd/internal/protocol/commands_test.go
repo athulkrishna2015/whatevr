@@ -52,7 +52,24 @@ type fakeCommandActions struct {
 	postedStatusText    string
 	postedStatusPath    string
 	postedStatusCaption string
+	postedStatusBG      uint32
+	postedStatusFont    int32
 	downloadedStatusID  string
+	repliedStatusID     string
+	repliedStatusText   string
+	deletedStatusID     string
+	sentPollChat        string
+	sentPollQuestion    string
+	sentPollOptions     []string
+	sentPollMulti       bool
+	votedMessage        string
+	votedOptions        []string
+	sentContactChat     string
+	sentContactName     string
+	sentContactPhone    string
+	sentLocationChat    string
+	sentLocationLat     float64
+	sentLocationLong    float64
 	createdGroupName    string
 	createdGroupMembers []string
 	createdGroupPhoto   string
@@ -83,6 +100,14 @@ type fakeCommandActions struct {
 	linkedGroup         string
 	unlinkedCommunity   string
 	unlinkedGroup       string
+	channelsRefreshed   bool
+	followedChannel     string
+	followedInvite      string
+	unfollowedChannel   string
+	mutedChannel        string
+	mutedValue          bool
+	viewedChannel       string
+	viewedServerIDs     []int64
 	sendStickerChat     string
 	sendStickerKey      string
 	sendStickerReply    string
@@ -349,10 +374,11 @@ func (f *fakeCommandActions) MarkStatusViewed(_ context.Context, statusID string
 	f.viewedStatusID = statusID
 	return appstore.StatusUpdate{ID: statusID}, f.err
 }
-func (f *fakeCommandActions) PostStatus(_ context.Context, text, path, caption string) (appstore.StatusUpdate, error) {
+func (f *fakeCommandActions) PostStatus(_ context.Context, text, path, caption string, background uint32, font int32) (appstore.StatusUpdate, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.postedStatusText, f.postedStatusPath, f.postedStatusCaption = text, path, caption
+	f.postedStatusBG, f.postedStatusFont = background, font
 	return appstore.StatusUpdate{ID: "status:9", Text: text}, f.err
 }
 func (f *fakeCommandActions) DownloadStatusMedia(_ context.Context, statusID string) (appstore.StatusUpdate, error) {
@@ -360,6 +386,45 @@ func (f *fakeCommandActions) DownloadStatusMedia(_ context.Context, statusID str
 	defer f.mu.Unlock()
 	f.downloadedStatusID = statusID
 	return appstore.StatusUpdate{ID: statusID}, f.err
+}
+func (f *fakeCommandActions) ReplyToStatus(_ context.Context, statusID, text string) (appstore.SavedTextMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.repliedStatusID, f.repliedStatusText = statusID, text
+	return appstore.SavedTextMessage{Message: appstore.Message{ID: "reply:1"}}, f.err
+}
+func (f *fakeCommandActions) DeleteStatus(_ context.Context, statusID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deletedStatusID = statusID
+	return f.err
+}
+func (f *fakeCommandActions) ListStatusViewers(context.Context, string) ([]appstore.StatusViewer, error) {
+	return []appstore.StatusViewer{{ViewerJID: "viewer@s.whatsapp.net", ViewedAt: 1}}, f.err
+}
+func (f *fakeCommandActions) SendPoll(_ context.Context, chatID, question string, options []string, multi bool) (appstore.SavedTextMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sentPollChat, f.sentPollQuestion, f.sentPollOptions, f.sentPollMulti = chatID, question, append([]string(nil), options...), multi
+	return appstore.SavedTextMessage{Message: appstore.Message{ID: "poll:1", ChatID: chatID}}, f.err
+}
+func (f *fakeCommandActions) VotePoll(_ context.Context, messageID string, options []string) (appstore.Message, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.votedMessage, f.votedOptions = messageID, append([]string(nil), options...)
+	return appstore.Message{ID: messageID}, f.err
+}
+func (f *fakeCommandActions) SendContact(_ context.Context, chatID, name, phone string) (appstore.SavedTextMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sentContactChat, f.sentContactName, f.sentContactPhone = chatID, name, phone
+	return appstore.SavedTextMessage{Message: appstore.Message{ID: "contact:1", ChatID: chatID}}, f.err
+}
+func (f *fakeCommandActions) SendLocation(_ context.Context, chatID string, lat, long float64, name, address string) (appstore.SavedTextMessage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sentLocationChat, f.sentLocationLat, f.sentLocationLong = chatID, lat, long
+	return appstore.SavedTextMessage{Message: appstore.Message{ID: "location:1", ChatID: chatID}}, f.err
 }
 func (f *fakeCommandActions) CreateGroup(_ context.Context, name string, members []string, photo string) (appstore.Chat, error) {
 	f.mu.Lock()
@@ -467,6 +532,42 @@ func (f *fakeCommandActions) UnlinkCommunityGroup(_ context.Context, communityID
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.unlinkedCommunity, f.unlinkedGroup = communityID, groupID
+	return f.err
+}
+func (f *fakeCommandActions) RefreshChannels(_ context.Context) ([]appstore.Channel, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.channelsRefreshed = true
+	return []appstore.Channel{{ID: "chan@newsletter", Name: "Chan"}}, f.err
+}
+func (f *fakeCommandActions) FollowChannel(_ context.Context, channelID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.followedChannel = channelID
+	return f.err
+}
+func (f *fakeCommandActions) FollowChannelByInvite(_ context.Context, invite string) (appstore.Channel, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.followedInvite = invite
+	return appstore.Channel{ID: "chan@newsletter", Name: "Chan"}, f.err
+}
+func (f *fakeCommandActions) UnfollowChannel(_ context.Context, channelID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.unfollowedChannel = channelID
+	return f.err
+}
+func (f *fakeCommandActions) SetChannelMuted(_ context.Context, channelID string, muted bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.mutedChannel, f.mutedValue = channelID, muted
+	return f.err
+}
+func (f *fakeCommandActions) MarkChannelViewed(_ context.Context, channelID string, serverIDs []int64) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.viewedChannel, f.viewedServerIDs = channelID, serverIDs
 	return f.err
 }
 func (f *fakeCommandActions) SetPrivacySetting(_ context.Context, category, audience string, readReceipts bool) (app.PrivacySettings, error) {
@@ -746,6 +847,50 @@ func TestC2MessageAndMediaCommands(t *testing.T) {
 		t.Fatalf("status.post result/action = %v/%+v", result, actions)
 	}
 
+	c.sendLine(`{"id":141,"method":"status.reply","params":{"status_id":"status:9","text":"nice!"}}`)
+	result = c.recv()["result"].(map[string]any)
+	if result["message_id"] != "reply:1" || actions.repliedStatusText != "nice!" {
+		t.Fatalf("status.reply result/action = %v/%+v", result, actions)
+	}
+
+	c.sendLine(`{"id":142,"method":"status.delete","params":{"status_id":"status:9"}}`)
+	if _, ok := c.recv()["result"].(map[string]any); !ok || actions.deletedStatusID != "status:9" {
+		t.Fatalf("status.delete action = %q", actions.deletedStatusID)
+	}
+
+	c.sendLine(`{"id":143,"method":"send.poll","params":{"chat_id":"c@s.whatsapp.net","question":"dinner?","options":["yes","no"],"multi":true}}`)
+	result = c.recv()["result"].(map[string]any)
+	if result["message_id"] != "poll:1" || actions.sentPollQuestion != "dinner?" || !actions.sentPollMulti {
+		t.Fatalf("send.poll result/action = %v/%+v", result, actions)
+	}
+
+	c.sendLine(`{"id":144,"method":"send.poll","params":{"chat_id":"c@s.whatsapp.net","question":"x?","options":["only"]}}`)
+	if _, ok := c.recv()["result"].(map[string]any); ok {
+		t.Fatal("send.poll with one option must fail")
+	}
+
+	c.sendLine(`{"id":145,"method":"message.vote","params":{"message_id":"poll:1","options":["yes"]}}`)
+	if _, ok := c.recv()["result"].(map[string]any); !ok || actions.votedMessage != "poll:1" {
+		t.Fatalf("message.vote action = %+v", actions)
+	}
+
+	c.sendLine(`{"id":146,"method":"send.contact","params":{"chat_id":"c@s.whatsapp.net","name":"Ada","phone":"+123"}}`)
+	result = c.recv()["result"].(map[string]any)
+	if result["message_id"] != "contact:1" || actions.sentContactPhone != "+123" {
+		t.Fatalf("send.contact result/action = %v/%+v", result, actions)
+	}
+
+	c.sendLine(`{"id":147,"method":"send.location","params":{"chat_id":"c@s.whatsapp.net","lat":12.5,"long":77.5,"name":"Park"}}`)
+	result = c.recv()["result"].(map[string]any)
+	if result["message_id"] != "location:1" || actions.sentLocationLat != 12.5 {
+		t.Fatalf("send.location result/action = %v/%+v", result, actions)
+	}
+
+	c.sendLine(`{"id":148,"method":"send.location","params":{"chat_id":"c@s.whatsapp.net","lat":200,"long":0}}`)
+	if _, ok := c.recv()["result"].(map[string]any); ok {
+		t.Fatal("send.location out of range must fail")
+	}
+
 	c.sendLine(`{"id":15,"method":"group.create","params":{"name":"team","members":["a@s.whatsapp.net"]}}`)
 	result = c.recv()["result"].(map[string]any)
 	if result["chat_id"] != "g@g.us" || actions.createdGroupName != "team" || len(actions.createdGroupMembers) != 1 {
@@ -801,6 +946,23 @@ func TestC2MessageAndMediaCommands(t *testing.T) {
 	lines := result["lines"].([]any)
 	if len(lines) != 2 || actions.logsLimit != 50 {
 		t.Fatalf("daemon.logs result/action = %v/%+v", result, actions)
+	}
+
+	c.sendLine(`{"id":25,"method":"channels.refresh","params":{}}`)
+	result = c.recv()["result"].(map[string]any)
+	if result["count"] != float64(1) || !actions.channelsRefreshed {
+		t.Fatalf("channels.refresh result/action = %v/%+v", result, actions)
+	}
+
+	c.sendLine(`{"id":26,"method":"channel.follow_link","params":{"invite":"abc123"}}`)
+	result = c.recv()["result"].(map[string]any)
+	if result["channel_id"] != "chan@newsletter" || actions.followedInvite != "abc123" {
+		t.Fatalf("channel.follow_link result/action = %v/%+v", result, actions)
+	}
+
+	c.sendLine(`{"id":27,"method":"channel.mute","params":{"channel_id":"chan@newsletter","muted":true}}`)
+	if _, ok := c.recv()["result"].(map[string]any); !ok || !actions.mutedValue {
+		t.Fatalf("channel.mute action = %+v", actions)
 	}
 }
 

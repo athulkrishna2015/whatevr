@@ -542,6 +542,12 @@ type messageItem struct {
 	ViewOnce    bool          `json:"view_once,omitempty"`
 	PinnedUntil int64         `json:"pinned_until,omitempty"`
 	Media       *messageMedia `json:"media,omitempty"`
+	// Poll carries a poll-kind row: static definition plus live tally.
+	Poll *messagePoll `json:"poll,omitempty"`
+	// Contact carries a contact-kind row: vCard facts.
+	Contact *messageContact `json:"contact,omitempty"`
+	// Location carries a location-kind row: coordinates plus place name.
+	Location *messageLocation `json:"location,omitempty"`
 }
 
 type messageSender struct {
@@ -595,6 +601,26 @@ type messageMedia struct {
 	Played   bool  `json:"played,omitempty"`
 }
 
+type messagePoll struct {
+	Question   string         `json:"question"`
+	Options    []string       `json:"options"`
+	Selectable int            `json:"selectable"`
+	Votes      map[string]int `json:"votes,omitempty"`
+	Total      int            `json:"total,omitempty"`
+}
+
+type messageContact struct {
+	Name  string `json:"name"`
+	Phone string `json:"phone,omitempty"`
+	VCard string `json:"vcard,omitempty"`
+}
+
+type messageLocation struct {
+	Lat  float64 `json:"lat"`
+	Long float64 `json:"long"`
+	Name string  `json:"name,omitempty"`
+}
+
 func messageItemFromStore(m store.Message) messageItem {
 	kind := messageKind(m)
 	item := messageItem{
@@ -616,6 +642,9 @@ func messageItemFromStore(m store.Message) messageItem {
 		Reactions:   messageReactions(m.Reactions),
 		Mentions:    messageMentions(m.Mentions),
 		Media:       messageMediaFromStore(m),
+		Poll:        messagePollFromStore(m),
+		Contact:     messageContactFromStore(m),
+		Location:    messageLocationFromStore(m),
 	}
 	if r := m.ReplyTo; r.MessageID != "" {
 		item.ReplyTo = &messageReply{
@@ -707,11 +736,40 @@ func messageFallback(m store.Message, kind string) string {
 			return "📄 " + name
 		}
 		return withCaption("📄 Document")
+	case store.MediaKindPoll:
+		if question := pollQuestion(m.PollData); question != "" {
+			return "📊 Poll: " + oneLine(question)
+		}
+		return withCaption("📊 Poll")
+	case store.MediaKindContact:
+		if name := oneLine(m.Text); name != "" {
+			return "👤 " + name
+		}
+		return "👤 Contact"
+	case store.MediaKindLocation:
+		if label := oneLine(m.Text); label != "" {
+			return "📍 " + label
+		}
+		return "📍 Location"
 	case store.MediaKindUnsupported:
 		return withCaption("Unsupported message")
 	default: // text and unknown kinds
 		return caption
 	}
+}
+
+// pollQuestion pulls the question out of a poll_data blob for fallbacks.
+func pollQuestion(pollData string) string {
+	if strings.TrimSpace(pollData) == "" {
+		return ""
+	}
+	var definition struct {
+		Question string `json:"question"`
+	}
+	if err := json.Unmarshal([]byte(pollData), &definition); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(definition.Question)
 }
 
 // durationSuffix renders " (0:12)" for a known duration and nothing for an
@@ -752,6 +810,71 @@ func messageMediaFromStore(m store.Message) *messageMedia {
 		Waveform:      waveformToWire(m.MediaWaveform),
 		Played:        m.MediaPlayed,
 	}
+}
+
+// messagePollFromStore projects a poll-kind row: static definition from
+// poll_data plus the live tally. Malformed definitions yield nil (the
+// fallback still renders the question line).
+func messagePollFromStore(m store.Message) *messagePoll {
+	if m.MediaKind != store.MediaKindPoll || strings.TrimSpace(m.PollData) == "" {
+		return nil
+	}
+	var definition struct {
+		Question   string   `json:"question"`
+		Options    []string `json:"options"`
+		Selectable int      `json:"selectable"`
+	}
+	if err := json.Unmarshal([]byte(m.PollData), &definition); err != nil {
+		return nil
+	}
+	poll := &messagePoll{
+		Question:   definition.Question,
+		Options:    definition.Options,
+		Selectable: definition.Selectable,
+		Votes:      map[string]int{},
+	}
+	if strings.TrimSpace(m.PollTally) != "" && strings.TrimSpace(m.PollTally) != "{}" {
+		var tally map[string]int
+		if err := json.Unmarshal([]byte(m.PollTally), &tally); err == nil {
+			poll.Votes = tally
+			for _, count := range tally {
+				poll.Total += count
+			}
+		}
+	}
+	return poll
+}
+
+// messageContactFromStore projects a contact-kind row: display name plus the
+// first phone out of its vCard.
+func messageContactFromStore(m store.Message) *messageContact {
+	if m.MediaKind != store.MediaKindContact {
+		return nil
+	}
+	name := strings.TrimSpace(m.Text)
+	phone := ""
+	for _, line := range strings.Split(string(m.MediaPayload), "\n") {
+		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+		if idx := strings.Index(line, ":"); idx >= 0 && strings.HasPrefix(strings.ToUpper(line[:idx]), "TEL") {
+			phone = strings.TrimSpace(line[idx+1:])
+			break
+		}
+	}
+	if name == "" {
+		name = phone
+	}
+	if name == "" {
+		name = "Contact"
+	}
+	return &messageContact{Name: name, Phone: phone, VCard: string(m.MediaPayload)}
+}
+
+// messageLocationFromStore projects a location-kind row.
+func messageLocationFromStore(m store.Message) *messageLocation {
+	if m.MediaKind != store.MediaKindLocation {
+		return nil
+	}
+	return &messageLocation{Lat: m.GeoLat, Long: m.GeoLong, Name: strings.TrimSpace(m.Text)}
 }
 
 // waveformToWire widens the stored bytes into JSON numbers. Frontends get a

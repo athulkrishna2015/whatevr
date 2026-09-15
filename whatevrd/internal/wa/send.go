@@ -10,7 +10,7 @@ import (
 	"image/color"
 	_ "image/gif"
 	"image/jpeg"
-	_ "image/png"
+	"image/png"
 	"io"
 	"net/http"
 	"os"
@@ -164,6 +164,21 @@ func (c *Client) SendMediaWithOptions(ctx context.Context, chatID, filePath, cap
 	if opts.ViewOnce && !viewOnceSendable(mediaKind) {
 		return appstore.SavedTextMessage{}, app.NewCommandError(app.CommandErrorInvalidArgument, "view-once is only supported for photo, video and audio messages")
 	}
+	// Standard quality downscales photos the way official clients do; HD (or
+	// any non-image kind) keeps the original bytes.
+	var mediaWidth, mediaHeight int32
+	if mediaKind == appstore.MediaKindImage {
+		if quality := strings.ToLower(strings.TrimSpace(opts.Quality)); quality != "" && quality != "standard" && quality != "hd" {
+			return appstore.SavedTextMessage{}, app.NewCommandError(app.CommandErrorInvalidArgument, "quality must be standard or hd")
+		} else if quality != "hd" {
+			scaledData, scaledMime, scaledExt, scaledW, scaledH := downscaleImageForStandard(data, mimeType)
+			data, mimeType = scaledData, scaledMime
+			if scaledExt != "" {
+				extension = scaledExt
+			}
+			mediaWidth, mediaHeight = scaledW, scaledH
+		}
+	}
 
 	targetJID, err := types.ParseJID(chatID)
 	if err != nil {
@@ -186,8 +201,9 @@ func (c *Client) SendMediaWithOptions(ctx context.Context, chatID, filePath, cap
 		return appstore.SavedTextMessage{}, err
 	}
 
-	var mediaWidth, mediaHeight int32
-	if mediaKind == appstore.MediaKindImage {
+	// Standard-quality images already carry scaled dimensions from the
+	// downscaler; HD keeps the original file, so read its config here.
+	if mediaKind == appstore.MediaKindImage && mediaWidth == 0 {
 		if cfg, _, err := image.DecodeConfig(bytes.NewReader(data)); err == nil {
 			mediaWidth = int32(cfg.Width)
 			mediaHeight = int32(cfg.Height)
@@ -473,6 +489,89 @@ func outboundDocumentName(sourceBase, override string) string {
 }
 
 const outgoingThumbnailMaxDimension = 100
+
+// standardImageMaxSide is the longest side WhatsApp-scale photos are
+// downscaled to in standard quality, matching official clients. HD sends the
+// original bytes untouched.
+const standardImageMaxSide = 1600
+
+// downscaleImageForStandard downsizes data when its longest side exceeds
+// standardImageMaxSide, re-encoding as JPEG (like official clients) except
+// for PNG sources, which stay PNG to preserve transparency. Images already
+// within bounds return untouched. It returns the bytes, MIME type, extension
+// and dimensions to store.
+func downscaleImageForStandard(data []byte, mimeType string) ([]byte, string, string, int32, int32) {
+	src, format, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return data, mimeType, "", 0, 0
+	}
+	bounds := src.Bounds()
+	srcW, srcH := bounds.Dx(), bounds.Dy()
+	if srcW <= 0 || srcH <= 0 {
+		return data, mimeType, "", 0, 0
+	}
+	if srcW <= standardImageMaxSide && srcH <= standardImageMaxSide {
+		extension, ok := outboundImageExtension(mimeType)
+		if !ok {
+			extension = ".jpg"
+		}
+		return data, mimeType, extension, int32(srcW), int32(srcH)
+	}
+	dstW, dstH := thumbnailDimensions(srcW, srcH, standardImageMaxSide)
+	dst := image.NewRGBA(image.Rect(0, 0, dstW, dstH))
+	for dy := 0; dy < dstH; dy++ {
+		y0 := bounds.Min.Y + dy*srcH/dstH
+		y1 := bounds.Min.Y + (dy+1)*srcH/dstH
+		if y1 <= y0 {
+			y1 = y0 + 1
+		}
+		for dx := 0; dx < dstW; dx++ {
+			x0 := bounds.Min.X + dx*srcW/dstW
+			x1 := bounds.Min.X + (dx+1)*srcW/dstW
+			if x1 <= x0 {
+				x1 = x0 + 1
+			}
+			var rSum, gSum, bSum, aSum uint64
+			var count uint64
+			for y := y0; y < y1; y++ {
+				for x := x0; x < x1; x++ {
+					r, g, b, a := src.At(x, y).RGBA()
+					rSum += uint64(r)
+					gSum += uint64(g)
+					bSum += uint64(b)
+					aSum += uint64(a)
+					count++
+				}
+			}
+			if count == 0 {
+				count = 1
+			}
+			dst.SetRGBA(dx, dy, color.RGBA{
+				R: uint8((rSum / count) >> 8),
+				G: uint8((gSum / count) >> 8),
+				B: uint8((bSum / count) >> 8),
+				A: uint8((aSum / count) >> 8),
+			})
+		}
+	}
+	var buf bytes.Buffer
+	outMime := mimeType
+	extension := ".jpg"
+	if format == "png" || mimeType == "image/png" {
+		if err := png.Encode(&buf, dst); err != nil {
+			return data, mimeType, "", 0, 0
+		}
+		outMime = "image/png"
+		extension = ".png"
+	} else {
+		if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 82}); err != nil {
+			return data, mimeType, "", 0, 0
+		}
+		outMime = "image/jpeg"
+		extension = ".jpg"
+	}
+	return buf.Bytes(), outMime, extension, int32(dstW), int32(dstH)
+}
 
 // outgoingImageThumbnail produces a small inline JPEG thumbnail for an outgoing
 // image, matching official-client behaviour. It returns nil when the image
@@ -1318,6 +1417,12 @@ func replyMediaSummary(mediaKind, mediaMimeType string) string {
 		return "[Audio]"
 	case appstore.MediaKindDocument:
 		return "[Document]"
+	case appstore.MediaKindPoll:
+		return "[Poll]"
+	case appstore.MediaKindContact:
+		return "[Contact]"
+	case appstore.MediaKindLocation:
+		return "[Location]"
 	}
 	switch {
 	case mediaKind == appstore.MediaKindImage || strings.HasPrefix(mediaMimeType, "image/"):
@@ -1371,6 +1476,14 @@ func (c *Client) handleReceipt(evt *events.Receipt, offlineSync bool) {
 	normalizedChat := c.normalizeJIDForChat(ctx, evt.Chat)
 	chatID := normalizedChat.String()
 	if chatID == "" {
+		return
+	}
+
+	// Viewed receipts on our statuses record who saw them. The status message
+	// is not a chat row, so nothing below applies; viewers land in the
+	// status_viewers table for the `status.viewers` query.
+	if normalizedChat == types.StatusBroadcastJID {
+		c.recordStatusViewers(ctx, evt)
 		return
 	}
 
