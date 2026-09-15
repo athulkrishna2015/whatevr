@@ -301,12 +301,20 @@ These were already present in the repository and were not reimplemented:
 
 ### Status Frontend
 
+- Status creation picker sheet (Text, Layout, Voice, Camera, Gallery,
+  Mentions).
+- Voice status recording and sharing.
+- Music picker interface for adding background music/stickers.
+- Sticker & element sheet in the status editor (stickers, shapes, GIFs).
+- Text formatting mode (color palette, font options, alignment).
+- Video status trim & edit (timeline trimmer, audio toggle, caption).
+- Text status creation mode (background color editor).
+- Status viewer list UI with names and avatars.
+- Status delete/reply controls in the viewer.
+- Status audience/privacy picker directly in the Status tab.
 - Video playback in the status viewer.
 - Voice-status playback in the status viewer.
 - Status media save dialog improvements.
-- Status audience picker directly in the Status tab.
-- Status viewer list UI with names and avatars.
-- Status delete/reply controls in the viewer.
 - Full status text editor with color/font controls.
 
 ### Sticker and GIF Frontend
@@ -327,11 +335,22 @@ These were already present in the repository and were not reimplemented:
 - Archived-chat button and dedicated archived-chat page/button flow.
 - Status avatars in the status tab.
 - DP/profile-photo save affordance in the profile viewer.
-- Business profile details page using `GetBusinessProfile`.
-- Business catalog/order features where upstream APIs allow them.
-- Username support and username editing. The pinned whatsmeow dependency does
-  not expose a stable username setter or resolver API, so this needs upstream
-  support or reverse engineering.
+
+### Settings, Privacy, and Account
+
+- Username support and editing (blocked by upstream whatsmeow).
+- Account settings: passkeys, password, email, two-step verification,
+  security notifications, change number, request account info, delete account.
+- Privacy settings: last seen, profile photo, about, status visibility,
+  read receipts, disappearing messages, group/live location, call options
+  (silence unknown callers), blocked contacts, app lock, chat lock, camera
+  effects, advanced privacy.
+- Chat settings: theme, default chat theme, "Enter is send", media
+  visibility, font size, sticker suggestions, "keep chats archived".
+- Storage & data settings: storage management, network usage metrics,
+  "use less data for calls", proxy, media upload/download quality,
+  auto-download rules per network.
+- Live SQLite encryption at rest (blocked by SQLCipher).
 
 > The Channels Frontend, Polls Frontend, Contact/Location Sharing, Gallery
 > Filters, Logs Tab, and the chat info filter / location map / contact
@@ -343,8 +362,26 @@ These were already present in the repository and were not reimplemented:
 - Voice-call initiation from a chat header.
 - Video-call initiation from a chat header.
 - Voice/video-call initiation from the Calls tab.
+- Call contact picker (up to 32 people, scheduled calls, keypad dialer).
+- Schedule call form (title/description, start/end times, call type,
+  reminders).
+- In-call audio screen with speaker/video/mute/screen-share/end controls.
+- Ongoing voice chat banner with join button in the Calls tab.
 
 These remain blocked by the upstream media-stack limitation described above.
+
+### Tools / Business Hub Tab
+
+- Business hub landing screen with 7-day performance metrics.
+- Ad creation banners and business growth tools (Catalog, Advertise,
+  Business broadcasts, Payments).
+- Chat organization tools (Lists, Greeting message, Away message,
+  Quick replies).
+- Business account management and tutorial videos.
+
+### Hidden Updates
+
+- Hidden/muted status updates list screen.
 
 ### Miscellaneous
 
