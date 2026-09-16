@@ -43,6 +43,8 @@ type DaemonActions interface {
 	GroupActions
 	SettingsActions
 	StickerActions
+	// LogsTailer feeds the `daemon_logs` view from the process log ring.
+	LogsTailer
 }
 
 // RegisterDaemonViews registers the daemon-owned views from PROTOCOL.md.
@@ -78,6 +80,7 @@ func RegisterDaemonViews(s *Server, daemon *app.Daemon, store DaemonStore, actio
 	s.RegisterView("chat_links", chatLinksView{daemon: daemon, lister: store})
 	s.RegisterView("status", statusView{daemon: daemon, lister: store, resolver: store})
 	s.RegisterView("calls", callsView{daemon: daemon, resolver: store})
+	s.RegisterView("daemon.logs", logsView{tailer: actions})
 	s.RegisterView("stickers", stickersView{daemon: daemon, store: stickerStore})
 	s.RegisterView("sticker_packs", stickerPacksView{daemon: daemon, store: stickerStore, actions: actions})
 	s.RegisterView("sticker_pack", stickerPackView{daemon: daemon, store: stickerStore, actions: actions})

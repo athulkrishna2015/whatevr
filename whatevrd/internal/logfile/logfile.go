@@ -17,6 +17,10 @@ const (
 	maxLines    = 1000
 )
 
+// MaxLines is the ring capacity: the most lines any Tail can serve. Exported
+// for callers sizing subscriptions over the tail.
+const MaxLines = maxLines
+
 var (
 	defaultMu     sync.Mutex
 	defaultHandle *Handle

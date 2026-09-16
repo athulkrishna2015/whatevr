@@ -236,6 +236,7 @@ noted; this inventory fixes the shape of the protocol, not every field name.
 | `status` | none | contact statuses (stories) | one item per status update, newest first: `id`, `sender` (id, name), `timestamp`, `kind` (`text`\|media kinds), `fallback`, `text`, `viewed`, `media` (mime, path once downloaded, duration, filename). Statuses never create chat rows |
 | `calls` | none | ringing calls | one item per locally-ringing call: `id` (call id), `chat_id`, `caller` (id, name), `video`, `started_at`. `remove`d on terminate/reject; missed calls land in their chats as tombstone messages |
 | `notifications` | none | notification records | **Reserved, not served in protocol 1**: subscribing errors `not_found`. What the daemon would notify about, for applets, relays, and headless setups; the daemon's own D-Bus notifier is unaffected. Its shape waits on a real consumer (see *Open questions*) |
+| `daemon.logs` | `limit` (default 200) | log rows, oldest first | the daemon's own process log ring (`daemon.logs` command answers the same lines for a one-shot query). Items carry `time` (`YYYY/MM/DD HH:MM:SS`), `level` (`info`\|`warn`\|`error`\|`debug`), `text`; rows keep stable ids across refreshes so new lines stream in as upserts instead of churning the whole list |
 
 Avatar paths are embedded in chat/message/contact/member rows and refresh via
 ordinary upserts; visibility-driven fetching is automatic (see above).

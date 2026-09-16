@@ -2,6 +2,7 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls as QQC2
+import Qt.labs.platform as Platform
 import org.kde.kirigami as Kirigami
 import Whatevr as Whatevr
 
@@ -73,6 +74,8 @@ QQC2.Popup {
         }
 
         QQC2.ToolButton {
+            id: closeButton
+
             anchors.top: parent.top
             anchors.right: parent.right
             anchors.margins: Kirigami.Units.largeSpacing
@@ -80,6 +83,28 @@ QQC2.Popup {
             text: Whatevr.I18n.i18nc("@action:button", "Close")
             display: QQC2.AbstractButton.IconOnly
             onClicked: root.close()
+        }
+
+        // Save the picture the viewer was opened with. The daemon already
+        // fetched it to its avatar cache; copying it out is a local file
+        // operation, so a plain save dialog beats a media.save round trip.
+        QQC2.ToolButton {
+            anchors.top: closeButton.top
+            anchors.right: closeButton.left
+            anchors.rightMargin: Kirigami.Units.smallSpacing
+            icon.name: "document-save-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button save the profile picture", "Save as…")
+            display: QQC2.AbstractButton.IconOnly
+            enabled: root.localPath.length > 0
+            onClicked: saveDialog.open()
+        }
+
+        Platform.FileDialog {
+            id: saveDialog
+
+            title: Whatevr.I18n.i18nc("@title:window save the profile picture", "Save profile picture")
+            fileMode: Platform.FileDialog.SaveFile
+            onAccepted: Whatevr.ProtocolController.saveMediaAs(root.localPath, file)
         }
     }
 }

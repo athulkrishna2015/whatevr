@@ -5,6 +5,41 @@ PROTOCOL.md (stable at version 1: additive changes only).
 
 ## Unreleased
 
+### Fixed
+
+- The Logs tab was always empty: the frontend subscribed to the `daemon.logs`
+  view, but the daemon only ever registered a `daemon.logs` *command* — the
+  subscription failed with `not_found` and the page stayed blank. The view now
+  exists (`whatevrd/internal/protocol/logs_view.go`): it serves the newest
+  `limit` lines from the in-memory log ring, refreshes on a 500 ms ticker, and
+  keys rows by content-assigned stable sequence numbers so new lines stream in
+  as ordinary upserts (no churn, duplicate lines each keep a row). Items carry
+  the parsed `time`/`level`/`text` the page renders. Documented in the
+  PROTOCOL.md view inventory.
+- Statuses did not load automatically on opening the Status tab: the page
+  rebuilt its contact groups only on the controller's `statusChanged`, which
+  fires on subscribe/unsubscribe — not when the subscription's rows actually
+  land in the model. It now also rebuilds on the status model's `countChanged`
+  / `readyChanged`.
+- Status rows carried no sender avatar, so the stories list showed initials
+  only: `rebuildGroups()` dropped `sender.avatarPath`. The group now keeps it
+  (preferring the freshest non-empty value) and binds it to `AvatarImage`.
+- The profile-picture viewer had no way to save the picture it was showing; a
+  Save-as button (local copy via `saveMediaAs`, reusing the daemon's fetched
+  avatar cache) now sits next to Close.
+- The daemon log spammed `connection read error: ... connection reset by peer`
+  for every frontend that quit without a clean socket close (including every
+  crash); `ECONNRESET` is now recognized as routine churn.
+
+### Updated
+
+- whatsmeow pinned to the latest commit
+  (`v0.0.0-20260915134308-320ff7ebf928`, 2026-09-15); no API changes.
+- The service now runs the daemon from `~/.local/bin/whatevrd` (systemd user
+  drop-in), which is built with `sqlite_fts5` — the previously running
+  `/usr/bin/whatevrd` predates FTS5 and logged `no such module: fts5` on
+  message search.
+
 ## 0.8.0 — 2026-09-15
 
 ### Fixed

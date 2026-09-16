@@ -48,6 +48,7 @@ Kirigami.ScrollablePage {
                 group = {
                     "senderId": senderId,
                     "senderName": sender.name || senderId,
+                    "avatarPath": sender.avatarPath || "",
                     "latest": 0,
                     "total": 0,
                     "unviewed": 0,
@@ -55,6 +56,11 @@ Kirigami.ScrollablePage {
                 }
                 bySender[senderId] = group
                 groups.push(group)
+            }
+            // A later row of the same sender may carry an avatar the first one
+            // lacked; keep the freshest non-empty value.
+            if (!group.avatarPath && sender.avatarPath) {
+                group.avatarPath = sender.avatarPath
             }
             group.statusIds.push(item.id)
             group.total += 1
@@ -93,6 +99,22 @@ Kirigami.ScrollablePage {
         target: Whatevr.ProtocolController
 
         function onStatusChanged() {
+            root.rebuildGroups()
+        }
+    }
+
+    // The status subscription delivers rows through CollectionViewModel after
+    // openStatus() resolves; row churn only raises the model's own signals, so
+    // a rebuild keyed on statusChanged alone left the page showing whatever
+    // was there on the last explicit event (often nothing, right after open).
+    Connections {
+        target: Whatevr.ProtocolController.statusModel
+
+        function onCountChanged() {
+            root.rebuildGroups()
+        }
+
+        function onReadyChanged() {
             root.rebuildGroups()
         }
     }
@@ -165,6 +187,7 @@ Kirigami.ScrollablePage {
                     AvatarImage {
                         anchors.fill: parent
                         anchors.margins: parent.border.width + 1
+                        avatarLocalPath: statusDelegate.group.avatarPath
                         initials: root.initialsFor(statusDelegate.group.senderName)
                         backgroundColor: Qt.alpha(Kirigami.Theme.highlightColor, 0.18)
                     }
