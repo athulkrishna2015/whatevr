@@ -19,6 +19,20 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.8.1" date="2026-09-16">
+      <description>
+        <p><em>Whatevr 0.8.1</em></p>
+        <p>Fix release on top of 0.8.0: the Logs tab, status thumbnails, and the tray icon all work now.</p>
+        <ul>
+          <li>The Logs tab was always empty because only the command existed, not the view. The <code>daemon.logs</code> view now streams recent log lines into the page.</li>
+          <li>Statuses render thumbnail-first: sender thumbnails are cached at ingest, and opening a status auto-downloads the full media.</li>
+          <li>Tray left-click raises the window; right-click shows a menu with Open, a Notifications toggle, and Quit. The icon pulses only while unread chats exist.</li>
+          <li>Status rows show sender avatars instead of initials-only, and the profile-picture viewer gained a Save button.</li>
+          <li>Fixed a non-idempotent database migration, a missing import, and the chat-bubble performance test's properties and budgets.</li>
+          <li>whatsmeow pinned to the 2026-09-15 commit; no API changes.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.8.0" date="2026-09-15">
       <description>
         <p><em>GUI fixed and stickers un-stuck</em></p>
