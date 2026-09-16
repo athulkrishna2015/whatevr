@@ -10,49 +10,49 @@ import (
 // Statuses arrive from status@broadcast and live outside chats on purpose —
 // storing them as chat messages would materialize a bogus "status" chat row.
 type StatusUpdate struct {
-	ID                string
-	SenderID          string
-	SenderName        string
-	TimestampUnix     int64
-	Kind              string
-	Text              string
+	ID            string
+	SenderID      string
+	SenderName    string
+	TimestampUnix int64
+	Kind          string
+	Text          string
 	// TextBG is the text-status background color as ARGB (0 = default), and
 	// TextFont is the WhatsApp font id (0 = system default).
-	TextBG            uint32
-	TextFont          int32
-	MediaMimeType     string
-	MediaKind         string
-	MediaLocalPath    string
+	TextBG                  uint32
+	TextFont                int32
+	MediaMimeType           string
+	MediaKind               string
+	MediaLocalPath          string
 	MediaThumbnailLocalPath string
-	MediaWidth        int32
-	MediaHeight       int32
-	MediaPayload      []byte
-	MediaDurationSecs int32
-	MediaSizeBytes    int64
-	MediaFileName     string
-	Viewed            bool
+	MediaWidth              int32
+	MediaHeight             int32
+	MediaPayload            []byte
+	MediaDurationSecs       int32
+	MediaSizeBytes          int64
+	MediaFileName           string
+	Viewed                  bool
 }
 
 // StatusUpdateInput is the ingest form of a StatusUpdate.
 type StatusUpdateInput struct {
-	ID                string
-	SenderID          string
-	SenderName        string
-	Timestamp         time.Time
-	Kind              string
-	Text              string
-	TextBG            uint32
-	TextFont          int32
-	MediaMimeType     string
-	MediaKind         string
-	MediaLocalPath    string
+	ID                      string
+	SenderID                string
+	SenderName              string
+	Timestamp               time.Time
+	Kind                    string
+	Text                    string
+	TextBG                  uint32
+	TextFont                int32
+	MediaMimeType           string
+	MediaKind               string
+	MediaLocalPath          string
 	MediaThumbnailLocalPath string
-	MediaWidth        int32
-	MediaHeight       int32
-	MediaPayload      []byte
-	MediaDurationSecs int32
-	MediaSizeBytes    int64
-	MediaFileName     string
+	MediaWidth              int32
+	MediaHeight             int32
+	MediaPayload            []byte
+	MediaDurationSecs       int32
+	MediaSizeBytes          int64
+	MediaFileName           string
 }
 
 func (db *DB) SaveStatusUpdate(ctx context.Context, input StatusUpdateInput) (StatusUpdate, bool, error) {
@@ -91,23 +91,23 @@ func (db *DB) SaveStatusUpdate(ctx context.Context, input StatusUpdateInput) (St
 
 func statusUpdateFromRow(id, senderID, senderName string, timestampUnix int64, kind, text, mediaMimeType, mediaKind, mediaLocalPath, mediaThumbnailLocalPath string, mediaWidth, mediaHeight, mediaDurationSecs int32, mediaSizeBytes int64, mediaFileName string, mediaPayload []byte, viewed bool) StatusUpdate {
 	return StatusUpdate{
-		ID:                        id,
-		SenderID:                  senderID,
-		SenderName:                senderName,
-		TimestampUnix:             timestampUnix,
-		Kind:                      kind,
-		Text:                      text,
-		MediaMimeType:             mediaMimeType,
-		MediaKind:                 mediaKind,
-		MediaLocalPath:            mediaLocalPath,
-		MediaThumbnailLocalPath:   mediaThumbnailLocalPath,
-		MediaWidth:                mediaWidth,
-		MediaHeight:               mediaHeight,
-		MediaPayload:              mediaPayload,
-		MediaDurationSecs:         mediaDurationSecs,
-		MediaSizeBytes:            mediaSizeBytes,
-		MediaFileName:             mediaFileName,
-		Viewed:                    viewed,
+		ID:                      id,
+		SenderID:                senderID,
+		SenderName:              senderName,
+		TimestampUnix:           timestampUnix,
+		Kind:                    kind,
+		Text:                    text,
+		MediaMimeType:           mediaMimeType,
+		MediaKind:               mediaKind,
+		MediaLocalPath:          mediaLocalPath,
+		MediaThumbnailLocalPath: mediaThumbnailLocalPath,
+		MediaWidth:              mediaWidth,
+		MediaHeight:             mediaHeight,
+		MediaPayload:            mediaPayload,
+		MediaDurationSecs:       mediaDurationSecs,
+		MediaSizeBytes:          mediaSizeBytes,
+		MediaFileName:           mediaFileName,
+		Viewed:                  viewed,
 	}
 }
 

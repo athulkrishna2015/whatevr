@@ -45,9 +45,9 @@ func Start(ctx context.Context, daemon *app.Daemon, db *store.DB, activator Wind
 		return
 	}
 	item := &statusItem{
-		conn:     conn,
-		daemon:   daemon,
-		db:       db,
+		conn:      conn,
+		daemon:    daemon,
+		db:        db,
 		activator: activator,
 	}
 	name := fmt.Sprintf("org.kde.StatusNotifierItem-%d-1", os.Getpid())
@@ -150,7 +150,7 @@ func (s *statusItem) GetAll(iface string) (map[string]dbus.Variant, *dbus.Error)
 		"Status":     dbus.MakeVariant(status),
 		"WindowId":   dbus.MakeVariant(int32(0)),
 		"IconName":   dbus.MakeVariant("in.codelif.Whatevr"),
-				"ItemIsMenu": dbus.MakeVariant(true),
+		"ItemIsMenu": dbus.MakeVariant(true),
 		"ToolTip":    dbus.MakeVariant([]any{"in.codelif.Whatevr", title, ""}),
 	}, nil
 }
