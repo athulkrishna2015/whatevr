@@ -34,10 +34,10 @@ func (c *conn) enqueueOpenChat(line []byte) {
 }
 
 // OpenChat implements notify.ChatOpener for protocol frontends. It sends the
-// connection-directed open_chat event to the most recently updated focused
-// frontend session; if no focused protocol frontend exists, it falls back to the
-// most recently updated live protocol session so a notification click can raise
-// an existing (currently unfocused) window instead of cold-starting a duplicate.
+// connection-directed open_chat event to the most recently updated active
+// frontend session (focusing preferred, all-active as fallback) so a
+// notification click can raise an existing window instead of cold-starting
+// a duplicate.
 func (s *Server) OpenChat(chatID string) bool {
 	chatID = strings.TrimSpace(chatID)
 	if chatID == "" {
@@ -47,43 +47,5 @@ func (s *Server) OpenChat(chatID string) bool {
 	if err != nil {
 		return false
 	}
-
-	s.mu.Lock()
-	conns := make([]*conn, 0, len(s.conns))
-	for c := range s.conns {
-		conns = append(conns, c)
-	}
-	s.mu.Unlock()
-
-	var focused *conn
-	var focusedAt time.Time
-	var fallback *conn
-	var fallbackAt time.Time
-	for _, c := range conns {
-		state := c.routeState()
-		if !state.active {
-			continue
-		}
-		if state.focused {
-			if focused == nil || state.updatedAt.After(focusedAt) {
-				focused = c
-				focusedAt = state.updatedAt
-			}
-			continue
-		}
-		if fallback == nil || state.updatedAt.After(fallbackAt) {
-			fallback = c
-			fallbackAt = state.updatedAt
-		}
-	}
-
-	target := focused
-	if target == nil {
-		target = fallback
-	}
-	if target == nil {
-		return false
-	}
-	target.enqueueOpenChat(line)
-	return true
+	return s.dispatchConnectionDirected(line)
 }

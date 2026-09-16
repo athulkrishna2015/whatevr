@@ -10,12 +10,12 @@ import (
 // Statuses arrive from status@broadcast and live outside chats on purpose —
 // storing them as chat messages would materialize a bogus "status" chat row.
 type StatusUpdate struct {
-	ID            string
-	SenderID      string
-	SenderName    string
-	TimestampUnix int64
-	Kind          string
-	Text          string
+	ID                string
+	SenderID          string
+	SenderName        string
+	TimestampUnix     int64
+	Kind              string
+	Text              string
 	// TextBG is the text-status background color as ARGB (0 = default), and
 	// TextFont is the WhatsApp font id (0 = system default).
 	TextBG            uint32
@@ -23,6 +23,9 @@ type StatusUpdate struct {
 	MediaMimeType     string
 	MediaKind         string
 	MediaLocalPath    string
+	MediaThumbnailLocalPath string
+	MediaWidth        int32
+	MediaHeight       int32
 	MediaPayload      []byte
 	MediaDurationSecs int32
 	MediaSizeBytes    int64
@@ -42,6 +45,10 @@ type StatusUpdateInput struct {
 	TextFont          int32
 	MediaMimeType     string
 	MediaKind         string
+	MediaLocalPath    string
+	MediaThumbnailLocalPath string
+	MediaWidth        int32
+	MediaHeight       int32
 	MediaPayload      []byte
 	MediaDurationSecs int32
 	MediaSizeBytes    int64
@@ -82,22 +89,25 @@ func (db *DB) SaveStatusUpdate(ctx context.Context, input StatusUpdateInput) (St
 	return status, rowsAffected > 0, nil
 }
 
-func statusUpdateFromRow(id, senderID, senderName string, timestampUnix int64, kind, text, mediaMimeType, mediaKind, mediaLocalPath string, mediaPayload []byte, durationSecs int32, sizeBytes int64, fileName string, viewed bool) StatusUpdate {
+func statusUpdateFromRow(id, senderID, senderName string, timestampUnix int64, kind, text, mediaMimeType, mediaKind, mediaLocalPath, mediaThumbnailLocalPath string, mediaWidth, mediaHeight, mediaDurationSecs int32, mediaSizeBytes int64, mediaFileName string, mediaPayload []byte, viewed bool) StatusUpdate {
 	return StatusUpdate{
-		ID:                id,
-		SenderID:          senderID,
-		SenderName:        senderName,
-		TimestampUnix:     timestampUnix,
-		Kind:              kind,
-		Text:              text,
-		MediaMimeType:     mediaMimeType,
-		MediaKind:         mediaKind,
-		MediaLocalPath:    mediaLocalPath,
-		MediaPayload:      mediaPayload,
-		MediaDurationSecs: durationSecs,
-		MediaSizeBytes:    sizeBytes,
-		MediaFileName:     fileName,
-		Viewed:            viewed,
+		ID:                        id,
+		SenderID:                  senderID,
+		SenderName:                senderName,
+		TimestampUnix:             timestampUnix,
+		Kind:                      kind,
+		Text:                      text,
+		MediaMimeType:             mediaMimeType,
+		MediaKind:                 mediaKind,
+		MediaLocalPath:            mediaLocalPath,
+		MediaThumbnailLocalPath:   mediaThumbnailLocalPath,
+		MediaWidth:                mediaWidth,
+		MediaHeight:               mediaHeight,
+		MediaPayload:              mediaPayload,
+		MediaDurationSecs:         mediaDurationSecs,
+		MediaSizeBytes:            mediaSizeBytes,
+		MediaFileName:             mediaFileName,
+		Viewed:                    viewed,
 	}
 }
 
@@ -105,10 +115,10 @@ func (db *DB) GetStatusUpdate(ctx context.Context, id string) (StatusUpdate, err
 	defer db.timeOp("GetStatusUpdate", time.Now())
 	var s StatusUpdate
 	err := db.reader().QueryRowContext(ctx, `
-		SELECT id, sender_id, sender_name, timestamp, kind, text, text_bg, text_font, media_mime_type, media_kind, media_local_path, media_payload, media_duration_secs, media_size_bytes, media_file_name, is_viewed
+		SELECT id, sender_id, sender_name, timestamp, kind, text, text_bg, text_font, media_mime_type, media_kind, media_local_path, media_thumbnail_local_path, media_width, media_height, media_payload, media_duration_secs, media_size_bytes, media_file_name, is_viewed
 		FROM status_updates
 		WHERE id = ?
-	`, id).Scan(&s.ID, &s.SenderID, &s.SenderName, &s.TimestampUnix, &s.Kind, &s.Text, &s.TextBG, &s.TextFont, &s.MediaMimeType, &s.MediaKind, &s.MediaLocalPath, &s.MediaPayload, &s.MediaDurationSecs, &s.MediaSizeBytes, &s.MediaFileName, &s.Viewed)
+	`, id).Scan(&s.ID, &s.SenderID, &s.SenderName, &s.TimestampUnix, &s.Kind, &s.Text, &s.TextBG, &s.TextFont, &s.MediaMimeType, &s.MediaKind, &s.MediaLocalPath, &s.MediaThumbnailLocalPath, &s.MediaWidth, &s.MediaHeight, &s.MediaPayload, &s.MediaDurationSecs, &s.MediaSizeBytes, &s.MediaFileName, &s.Viewed)
 	if err != nil {
 		return StatusUpdate{}, err
 	}
@@ -119,7 +129,7 @@ func (db *DB) GetStatusUpdate(ctx context.Context, id string) (StatusUpdate, err
 func (db *DB) ListStatusUpdates(ctx context.Context, limit int) ([]StatusUpdate, error) {
 	defer db.timeOp("ListStatusUpdates", time.Now())
 	query := `
-		SELECT id, sender_id, sender_name, timestamp, kind, text, text_bg, text_font, media_mime_type, media_kind, media_local_path, media_payload, media_duration_secs, media_size_bytes, media_file_name, is_viewed
+		SELECT id, sender_id, sender_name, timestamp, kind, text, text_bg, text_font, media_mime_type, media_kind, media_local_path, media_thumbnail_local_path, media_width, media_height, media_payload, media_duration_secs, media_size_bytes, media_file_name, is_viewed
 		FROM status_updates
 		ORDER BY timestamp DESC, rowid DESC
 	`
@@ -136,7 +146,7 @@ func (db *DB) ListStatusUpdates(ctx context.Context, limit int) ([]StatusUpdate,
 	statuses := []StatusUpdate{}
 	for rows.Next() {
 		var s StatusUpdate
-		if err := rows.Scan(&s.ID, &s.SenderID, &s.SenderName, &s.TimestampUnix, &s.Kind, &s.Text, &s.TextBG, &s.TextFont, &s.MediaMimeType, &s.MediaKind, &s.MediaLocalPath, &s.MediaPayload, &s.MediaDurationSecs, &s.MediaSizeBytes, &s.MediaFileName, &s.Viewed); err != nil {
+		if err := rows.Scan(&s.ID, &s.SenderID, &s.SenderName, &s.TimestampUnix, &s.Kind, &s.Text, &s.TextBG, &s.TextFont, &s.MediaMimeType, &s.MediaKind, &s.MediaLocalPath, &s.MediaThumbnailLocalPath, &s.MediaWidth, &s.MediaHeight, &s.MediaPayload, &s.MediaDurationSecs, &s.MediaSizeBytes, &s.MediaFileName, &s.Viewed); err != nil {
 			return nil, err
 		}
 		statuses = append(statuses, s)
@@ -157,10 +167,14 @@ func (db *DB) MarkStatusViewed(ctx context.Context, id string) (StatusUpdate, er
 	return db.GetStatusUpdate(ctx, id)
 }
 
-// SetStatusMediaPath records a downloaded status payload's cache path.
-func (db *DB) SetStatusMediaPath(ctx context.Context, id, localPath string) (StatusUpdate, error) {
+// SetStatusMediaPath records a downloaded status payload's cache path plus
+// its derived thumbnail path and dimensions (image media only). Text and audio
+// statuses leave the thumbnail/dimension fields at their zero values.
+func (db *DB) SetStatusMediaPath(ctx context.Context, id, localPath, thumbnailPath string, width, height int32) (StatusUpdate, error) {
 	defer db.timeOp("SetStatusMediaPath", time.Now())
-	if _, err := db.conn.ExecContext(ctx, `UPDATE status_updates SET media_local_path = ? WHERE id = ?`, localPath, id); err != nil {
+	if _, err := db.conn.ExecContext(ctx,
+		`UPDATE status_updates SET media_local_path = ?, media_thumbnail_local_path = ?, media_width = ?, media_height = ? WHERE id = ?`,
+		localPath, thumbnailPath, width, height, id); err != nil {
 		return StatusUpdate{}, err
 	}
 	return db.GetStatusUpdate(ctx, id)

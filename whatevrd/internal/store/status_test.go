@@ -53,9 +53,12 @@ func TestStatusUpdateRoundTrip(t *testing.T) {
 	if err != nil || !viewed.Viewed {
 		t.Fatalf("mark viewed = %+v, %v; want viewed", viewed, err)
 	}
-	saved, err := db.SetStatusMediaPath(ctx, "status:m1", "/cache/status/m1.jpg")
+	saved, err := db.SetStatusMediaPath(ctx, "status:m1", "/cache/status/m1.jpg", "/cache/status/m1.thumb.jpg", 1280, 720)
 	if err != nil || saved.MediaLocalPath != "/cache/status/m1.jpg" {
 		t.Fatalf("set media path = %+v, %v", saved, err)
+	}
+	if saved.MediaThumbnailLocalPath != "/cache/status/m1.thumb.jpg" || saved.MediaWidth != 1280 || saved.MediaHeight != 720 {
+		t.Fatalf("set media thumb/dims = %+v; want thumb + 1280x720", saved)
 	}
 
 	pruned, err := db.PruneOldStatusUpdates(ctx, 0)

@@ -10,6 +10,7 @@ import (
 	"github.com/godbus/dbus/v5"
 
 	"whatevrd/internal/app"
+	"whatevrd/internal/protocol"
 	"whatevrd/internal/store"
 )
 
@@ -22,21 +23,32 @@ const (
 	propsIface = "org.freedesktop.DBus.Properties"
 )
 
+// WindowActivator is the daemon-side seam the tray uses to reach a connected
+// frontend: the protocol Server satisfies it. The tray never holds a window
+// itself (it is headless), so activation and menus are forwarded to the most
+// recently used live frontend; when none is connected the tray cold-starts one
+// via xdg-open so a click is never silently dropped.
+type WindowActivator interface {
+	ActivateWindow() bool
+	ShowTrayMenu(x, y int32) bool
+}
+
 // Start registers a StatusNotifierItem for the daemon and keeps its
 // state/tooltip in sync with the connection state and unread total. It is
 // strictly best-effort: no session bus, no watcher, or any D-Bus error only
-// logs. There is no menu (ItemIsMenu=false); the item is a state + unread
-// indicator, which is all a headless daemon can honestly offer.
-func Start(ctx context.Context, daemon *app.Daemon, db *store.DB) {
+// logs. Clicking the item raises the frontend window (or cold-starts one);
+// right-clicking asks the frontend to show a context menu.
+func Start(ctx context.Context, daemon *app.Daemon, db *store.DB, activator WindowActivator) {
 	conn, err := dbus.SessionBus()
 	if err != nil {
 		log.Printf("tray disabled: no session bus: %v", err)
 		return
 	}
 	item := &statusItem{
-		conn:   conn,
-		daemon: daemon,
-		db:     db,
+		conn:     conn,
+		daemon:   daemon,
+		db:       db,
+		activator: activator,
 	}
 	name := fmt.Sprintf("org.kde.StatusNotifierItem-%d-1", os.Getpid())
 	if call := conn.BusObject().Call("org.freedesktop.DBus.RequestName", 0, name, uint32(0)); call.Err != nil {
@@ -75,19 +87,23 @@ func Start(ctx context.Context, daemon *app.Daemon, db *store.DB) {
 }
 
 type statusItem struct {
-	conn   *dbus.Conn
-	daemon *app.Daemon
-	db     *store.DB
+	conn      *dbus.Conn
+	daemon    *app.Daemon
+	db        *store.DB
+	activator WindowActivator
 
 	mu     sync.Mutex
 	status string
 	title  string
 }
 
-// Activate has no window to raise in a daemon; it only logs. The item's job
-// is showing state, not launching UI (frontends own pixels).
+// Activate forwards a left-click to the frontend: if a frontend is connected
+// it receives an activate_window event, otherwise xdg-open launches one.
 func (s *statusItem) Activate(x, y int32) *dbus.Error {
-	log.Print("tray: activated (no window in daemon mode)")
+	if s.activator != nil && s.activator.ActivateWindow() {
+		return nil
+	}
+	protocol.ColdStartApp()
 	return nil
 }
 
@@ -95,7 +111,16 @@ func (s *statusItem) SecondaryActivate(x, y int32) *dbus.Error { return nil }
 func (s *statusItem) Scroll(delta int32, orientation string) *dbus.Error {
 	return nil
 }
-func (s *statusItem) ContextMenu(x, y int32) *dbus.Error { return nil }
+
+// ContextMenu forwards a right-click to the frontend so it can show its
+// tray menu. If no frontend is connected, cold-start one so the menu appears.
+func (s *statusItem) ContextMenu(x, y int32) *dbus.Error {
+	if s.activator != nil && s.activator.ShowTrayMenu(x, y) {
+		return nil
+	}
+	protocol.ColdStartApp()
+	return nil
+}
 
 // Get implements org.freedesktop.DBus.Properties.Get for the item interface.
 func (s *statusItem) Get(iface, property string) (dbus.Variant, *dbus.Error) {
@@ -125,7 +150,7 @@ func (s *statusItem) GetAll(iface string) (map[string]dbus.Variant, *dbus.Error)
 		"Status":     dbus.MakeVariant(status),
 		"WindowId":   dbus.MakeVariant(int32(0)),
 		"IconName":   dbus.MakeVariant("in.codelif.Whatevr"),
-		"ItemIsMenu": dbus.MakeVariant(false),
+				"ItemIsMenu": dbus.MakeVariant(true),
 		"ToolTip":    dbus.MakeVariant([]any{"in.codelif.Whatevr", title, ""}),
 	}, nil
 }

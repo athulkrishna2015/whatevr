@@ -215,6 +215,10 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
     connect(m_client, &ProtocolClient::ready, this, &ProtocolController::onClientReady);
     connect(m_client, &ProtocolClient::disconnected, this, &ProtocolController::onClientDisconnected);
     connect(m_client, &ProtocolClient::openChatRequested, this, &ProtocolController::openChatRequested);
+    connect(m_client, &ProtocolClient::activateWindowRequested, this,
+            &ProtocolController::activateWindowRequested);
+    connect(m_client, &ProtocolClient::showTrayMenuRequested, this,
+            &ProtocolController::showTrayMenuRequested);
     connect(m_client, &ProtocolClient::mediaStreamUpdated, this,
             [this](const QString &streamId,
                    const QString &messageId,

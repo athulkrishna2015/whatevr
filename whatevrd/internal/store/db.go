@@ -10,7 +10,7 @@ import (
 	"github.com/mattn/go-sqlite3"
 )
 
-const schemaVersion = 7
+const schemaVersion = 8
 const SQLiteDriverName = "whatevrd-sqlite"
 
 // SQLiteReadDriverName backs the read-only connection pool. Its ConnectHook
@@ -301,6 +301,9 @@ func (db *DB) migrate(ctx context.Context) error {
 			media_mime_type TEXT NOT NULL DEFAULT '',
 			media_kind TEXT NOT NULL DEFAULT '',
 			media_local_path TEXT NOT NULL DEFAULT '',
+			media_thumbnail_local_path TEXT NOT NULL DEFAULT '',
+			media_width INTEGER NOT NULL DEFAULT 0,
+			media_height INTEGER NOT NULL DEFAULT 0,
 			media_payload BLOB NOT NULL DEFAULT x'',
 			media_duration_secs INTEGER NOT NULL DEFAULT 0,
 			media_size_bytes INTEGER NOT NULL DEFAULT 0,
@@ -434,6 +437,15 @@ func (db *DB) migrate(ctx context.Context) error {
 		// mark-read only ever looks at is_read=0 rows and found none. Needs the
 		// is_revoked column, hence its position after every ensure* step.
 		if err := db.repairChatUnreadState(ctx); err != nil {
+			return err
+		}
+	}
+
+	if version < 8 {
+		// v8: status thumbnail/width/height columns so status media carries
+		// the same rendering facts as chat media (image dimensions, derived
+		// thumbnail path). Idempotent: fresh schemas already have them.
+		if err := db.ensureStatusMediaColumns(ctx); err != nil {
 			return err
 		}
 	}
@@ -815,6 +827,50 @@ func (db *DB) ensureStatusTextColumns(ctx context.Context) error {
 	}{
 		{"text_bg", `ALTER TABLE status_updates ADD COLUMN text_bg INTEGER NOT NULL DEFAULT 0`},
 		{"text_font", `ALTER TABLE status_updates ADD COLUMN text_font INTEGER NOT NULL DEFAULT 0`},
+	}
+	for _, a := range alterations {
+		if existing[a.col] {
+			continue
+		}
+		if _, err := db.conn.ExecContext(ctx, a.def); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ensureStatusMediaColumns adds thumbnail/dimension columns to status_updates
+// for databases created before status media carried chat-like rendering facts.
+// Idempotent: skips columns that already exist (fresh schemas have them).
+func (db *DB) ensureStatusMediaColumns(ctx context.Context) error {
+	rows, err := db.conn.QueryContext(ctx, `PRAGMA table_info(status_updates)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	existing := make(map[string]bool)
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, pk int
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		existing[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	alterations := []struct {
+		col string
+		def string
+	}{
+		{"media_thumbnail_local_path", `ALTER TABLE status_updates ADD COLUMN media_thumbnail_local_path TEXT NOT NULL DEFAULT ''`},
+		{"media_width", `ALTER TABLE status_updates ADD COLUMN media_width INTEGER NOT NULL DEFAULT 0`},
+		{"media_height", `ALTER TABLE status_updates ADD COLUMN media_height INTEGER NOT NULL DEFAULT 0`},
 	}
 	for _, a := range alterations {
 		if existing[a.col] {

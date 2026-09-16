@@ -9,8 +9,9 @@ import Whatevr as Whatevr
 
 // One contact's statuses, newest first, stepped with back/next. The first
 // shown status is marked viewed on arrival (and each one as it appears), so
-// the contact's ring clears as you watch. Photo statuses render full-bleed
-// once downloaded (a "Load" button fetches on demand); text statuses render
+// the contact's ring clears as you watch. Photo statuses render
+// thumbnail-first, then full-bleed once the auto-download lands (a "Load"
+// button retries a failed fetch); text statuses render
 // centered; anything else shows its fallback line with a Save action.
 Kirigami.ScrollablePage {
     id: root
@@ -76,6 +77,7 @@ Kirigami.ScrollablePage {
         function onStatusChanged() {
             root.collectStatuses()
             root.markCurrentViewed()
+            root.ensureDownloaded()
         }
     }
 
@@ -127,13 +129,27 @@ Kirigami.ScrollablePage {
             font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.4
         }
 
-        // Photo status: full-bleed image once downloaded, Load button before.
+        // Photo status: thumbnail-first — the sender thumbnail cached at
+        // ingest renders instantly; the full image replaces it once the
+        // auto-download (ensureDownloaded) lands. Load button stays for
+        // retrying a failed fetch.
         Image {
             Layout.fillWidth: true
             Layout.preferredHeight: Math.min(implicitHeight > 0 ? implicitHeight : 0, root.height * 0.6)
+            readonly property var statusMedia: root.currentItem ? root.currentItem.media : null
+            readonly property string fullPath: statusMedia ? (statusMedia.path ?? "") : ""
+            readonly property string thumbPath: statusMedia ? (statusMedia.thumbnail_path ?? "") : ""
             visible: root.currentItem && (root.currentItem.kind === "image" || root.currentItem.kind === "gif")
-                      && root.currentItem.media && root.currentItem.media.path
-            source: visible ? Whatevr.ProtocolController.localFileUrl(root.currentItem.media.path) : ""
+                      && (fullPath.length > 0 || thumbPath.length > 0)
+            source: {
+                if (fullPath.length > 0) {
+                    return Whatevr.ProtocolController.localFileUrl(fullPath)
+                }
+                if (thumbPath.length > 0) {
+                    return Whatevr.ProtocolController.localFileUrl(thumbPath)
+                }
+                return ""
+            }
             fillMode: Image.PreserveAspectFit
             asynchronous: true
         }

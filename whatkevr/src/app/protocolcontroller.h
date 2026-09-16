@@ -749,6 +749,9 @@ Q_SIGNALS:
     // Raise and focus the window: a second launch, or a deep link arriving
     // before the chat shell exists.
     void activateWindowRequested();
+    // Tray right-click: show the tray context menu at (x, y); coordinates may
+    // be 0,0 when the platform did not supply them.
+    void showTrayMenuRequested(int x, int y);
 
 private:
     // Transport reachability, independent of the daemon-reported WhatsApp state.

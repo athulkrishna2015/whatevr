@@ -95,7 +95,7 @@ func main() {
 
 	// Daemon tray icon (StatusNotifierItem): connection state + unread count.
 	// Best-effort — a missing session bus or watcher only logs.
-	go tray.Start(ctx, daemon, db)
+	go tray.Start(ctx, daemon, db, protocolServer)
 
 	waClient, err := wa.New(ctx, paths, daemon, db, notificationWorker)
 	if err != nil {

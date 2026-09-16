@@ -30,6 +30,28 @@ PROTOCOL.md (stable at version 1: additive changes only).
 - The daemon log spammed `connection read error: ... connection reset by peer`
   for every frontend that quit without a clean socket close (including every
   crash); `ECONNRESET` is now recognized as routine churn.
+- Status thumbnails never appeared and opened statuses did not auto-download
+  reliably: the feed carried no thumbnail until a full download completed, and
+  the viewer had no thumbnail-first render. Image/video statuses now cache the
+  sender thumbnail plus dimensions at ingest
+  (`status_updates.media_thumbnail_local_path/media_width/media_height`,
+  exposed as `thumbnail_path`/`width`/`height` on the `status` view); the
+  viewer renders the thumbnail instantly, swaps in the full image when
+  `status.download` lands, and triggers the download on open, page change, and
+  feed update.
+- Tray-icon clicks did nothing: the released daemon called `tray.Start`
+  without the protocol-server activator, so Activate/ContextMenu went nowhere,
+  and the frontend had no handlers for the `activate_window`/`show_tray_menu`
+  events. Left-click now raises the frontend window; right-click shows a tray
+  menu (Open, Notifications toggle, Quit).
+- The v8 `status_updates` migration was nested inside the v7 block and not
+  idempotent, so reopening a database whose `user_version` had been rewound
+  failed with `duplicate column name`. It is un-nested now, the fresh schema
+  carries the columns, and migration goes through an idempotent
+  `ensureStatusMediaColumns` check.
+- `tst_chatbubbleperf` failed on the new required poll/contact/location
+  properties and then on stale object budgets; the test props were completed
+  and the budgets raised deliberately to the new measured ceilings.
 
 ### Updated
 

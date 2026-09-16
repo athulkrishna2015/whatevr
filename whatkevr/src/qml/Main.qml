@@ -44,6 +44,33 @@ Kirigami.ApplicationWindow {
         window: root
     }
 
+    // Tray right-click menu (daemon `show_tray_menu` event). popup() opens at
+    // the cursor, which is where the click happened; the daemon-supplied
+    // coordinates are ignored (0,0 when the platform did not supply them).
+    QQC2.Menu {
+        id: trayMenu
+
+        onAboutToShow: {
+            notificationsItem.checked = Whatevr.ProtocolController.appPreferences.notifications_enabled ?? true
+        }
+
+        QQC2.MenuItem {
+            text: Whatevr.I18n.i18nc("@action:inmenu open the main window", "Open Whatevr")
+            onTriggered: root.activateWindow()
+        }
+        QQC2.MenuItem {
+            id: notificationsItem
+            checkable: true
+            text: Whatevr.I18n.i18nc("@action:inmenu toggle desktop notifications", "Notifications")
+            onTriggered: Whatevr.ProtocolController.setAppPreference("notifications_enabled", checked)
+        }
+        QQC2.MenuSeparator {}
+        QQC2.MenuItem {
+            text: Whatevr.I18n.i18nc("@action:inmenu quit the application", "Quit")
+            onTriggered: Qt.quit()
+        }
+    }
+
     // Ctrl+, — the KDE-standard accelerator for opening preferences. Lives at
     // window scope so it fires regardless of which column has focus.
     Shortcut {
@@ -414,6 +441,12 @@ Kirigami.ApplicationWindow {
 
         function onActivateWindowRequested() {
             root.activateWindow()
+        }
+
+        // Tray right-click: show the tray menu at the cursor.
+        function onShowTrayMenuRequested(x, y) {
+            root.activateWindow()
+            trayMenu.popup()
         }
 
         // The daemon's `open_chat` (notification click, whatevr:// URL) and the

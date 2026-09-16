@@ -141,11 +141,14 @@ func statusItemFromStore(st store.StatusUpdate) statusItem {
 	item.Fallback = statusFallback(st)
 	if st.MediaKind != "" {
 		item.Media = &messageMedia{
-			Mime:         st.MediaMimeType,
-			Path:         st.MediaLocalPath,
-			SizeBytes:    st.MediaSizeBytes,
-			DurationSecs: st.MediaDurationSecs,
-			Filename:     st.MediaFileName,
+			Mime:               st.MediaMimeType,
+			Path:               st.MediaLocalPath,
+			SizeBytes:          st.MediaSizeBytes,
+			DurationSecs:       st.MediaDurationSecs,
+			Filename:           st.MediaFileName,
+			ThumbnailPath:      st.MediaThumbnailLocalPath,
+			Width:              st.MediaWidth,
+			Height:             st.MediaHeight,
 		}
 	}
 	return item

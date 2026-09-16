@@ -43,6 +43,16 @@ func (c *Client) DownloadStatusMedia(ctx context.Context, statusID string) (apps
 	return c.downloadStatusMedia(ctx, status)
 }
 
+// statusImageDimensions decodes image dimensions for own image posts so the
+// status feed carries the same rendering facts as chat media. Non-image kinds
+// stay zero (video dims need a container parser we don't have).
+func statusImageDimensions(mediaKind string, data []byte) (width, height int32) {
+	if mediaKind == appstore.MediaKindImage {
+		return decodedImageDimensions(data)
+	}
+	return 0, 0
+}
+
 // defaultStatusBackground is the text-status backdrop when the caller picks
 // none: WhatsApp's dark outgoing green.
 const defaultStatusBackground = 0xFF075E54
@@ -209,7 +219,8 @@ func (c *Client) PostStatus(ctx context.Context, text, path, caption string, bac
 	if err != nil {
 		return appstore.StatusUpdate{}, err
 	}
-	updated, err := c.store.SetStatusMediaPath(ctx, stored.ID, localPath)
+	thumbW, thumbH := statusImageDimensions(mediaKind, data)
+	updated, err := c.store.SetStatusMediaPath(ctx, stored.ID, localPath, "", thumbW, thumbH)
 	if err != nil {
 		return appstore.StatusUpdate{}, err
 	}
@@ -390,11 +401,50 @@ func (c *Client) ingestStatusUpdate(ctx context.Context, evt *events.Message) {
 		input.SenderName = senderName
 	}
 
-	if _, inserted, err := c.store.SaveStatusUpdate(ctx, input); err != nil {
+	if stored, inserted, err := c.store.SaveStatusUpdate(ctx, input); err != nil {
 		c.log.Warnf("Failed to store status %s: %v", input.ID, err)
 		return
 	} else if inserted {
+		// Thumbnail-first: cache the sender's thumbnail (and image dims) at
+		// ingest so the feed renders something before any full download.
+		c.attachIngestedStatusThumb(ctx, stored.ID, stored.MediaKind, stored.MediaPayload)
 		c.daemon.PublishStatusChanged()
+	}
+}
+
+// attachIngestedStatusThumb persists a freshly ingested status's sender
+// thumbnail + image dimensions. Best-effort: ingest must never fail because
+// a thumbnail could not be cached.
+func (c *Client) attachIngestedStatusThumb(ctx context.Context, id, mediaKind string, payload []byte) {
+	if len(payload) == 0 {
+		return
+	}
+	var thumb []byte
+	switch mediaKind {
+	case appstore.MediaKindImage:
+		img := &waE2E.ImageMessage{}
+		if err := proto.Unmarshal(payload, img); err != nil {
+			return
+		}
+		thumb = img.GetJPEGThumbnail()
+	case appstore.MediaKindVideo, appstore.MediaKindGIF:
+		video := &waE2E.VideoMessage{}
+		if err := proto.Unmarshal(payload, video); err != nil {
+			return
+		}
+		thumb = video.GetJPEGThumbnail()
+	default:
+		return
+	}
+	if len(thumb) == 0 {
+		return
+	}
+	var width, height int32
+	if mediaKind == appstore.MediaKindImage {
+		width, height = decodedImageDimensions(thumb)
+	}
+	if _, err := c.store.SetStatusMediaPath(ctx, id, "", c.saveStatusThumbnail(id, thumb), width, height); err != nil {
+		c.log.Warnf("Failed to cache status thumbnail for %s: %v", id, err)
 	}
 }
 

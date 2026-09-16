@@ -130,6 +130,7 @@ func (c *Client) downloadStatusMedia(ctx context.Context, status appstore.Status
 		return appstore.StatusUpdate{}, app.NewCommandError(app.CommandErrorNotConnected, "WhatsApp is not connected")
 	}
 	var downloadable whatsmeow.DownloadableMessage
+	var senderThumb []byte
 	switch status.MediaKind {
 	case appstore.MediaKindVideo, appstore.MediaKindGIF:
 		video := &waE2E.VideoMessage{}
@@ -137,6 +138,7 @@ func (c *Client) downloadStatusMedia(ctx context.Context, status appstore.Status
 			return appstore.StatusUpdate{}, app.NewCommandError(app.CommandErrorRejected, "status media is no longer available")
 		}
 		downloadable = video
+		senderThumb = video.GetJPEGThumbnail()
 	case appstore.MediaKindVoice, appstore.MediaKindAudio:
 		audio := &waE2E.AudioMessage{}
 		if err := proto.Unmarshal(status.MediaPayload, audio); err != nil || audio.GetDirectPath() == "" {
@@ -149,6 +151,7 @@ func (c *Client) downloadStatusMedia(ctx context.Context, status appstore.Status
 			return appstore.StatusUpdate{}, app.NewCommandError(app.CommandErrorRejected, "status media is no longer available")
 		}
 		downloadable = img
+		senderThumb = img.GetJPEGThumbnail()
 	}
 
 	data, err := client.Download(ctx, downloadable)
@@ -167,12 +170,35 @@ func (c *Client) downloadStatusMedia(ctx context.Context, status appstore.Status
 	if err := writeFileAtomic(localPath, data, 0o600); err != nil {
 		return appstore.StatusUpdate{}, err
 	}
-	updated, err := c.store.SetStatusMediaPath(ctx, status.ID, localPath)
+	var mediaWidth, mediaHeight int32
+	if status.MediaKind == appstore.MediaKindImage {
+		mediaWidth, mediaHeight = decodedImageDimensions(data)
+	}
+	updated, err := c.store.SetStatusMediaPath(ctx, status.ID, localPath, c.saveStatusThumbnail(status.ID, senderThumb), mediaWidth, mediaHeight)
 	if err != nil {
 		return appstore.StatusUpdate{}, err
 	}
 	c.daemon.PublishStatusChanged()
 	return updated, nil
+}
+
+// saveStatusThumbnail caches a status sender thumbnail (image/video only).
+// Empty input returns "" so text/audio rows keep zero values.
+func (c *Client) saveStatusThumbnail(statusID string, thumbnail []byte) string {
+	if len(thumbnail) == 0 {
+		return ""
+	}
+	mediaDir := filepath.Join(c.paths.MediaCacheDir, "status")
+	if err := os.MkdirAll(mediaDir, 0o700); err != nil {
+		c.log.Warnf("Failed to create status thumbnail dir for %s: %v", statusID, err)
+		return ""
+	}
+	localPath := filepath.Join(mediaDir, safeMediaFileName(statusID, ".thumb.jpg"))
+	if err := writeFileAtomic(localPath, thumbnail, 0o600); err != nil {
+		c.log.Warnf("Failed to cache status thumbnail for %s: %v", statusID, err)
+		return ""
+	}
+	return localPath
 }
 
 // copyFileToDestination streams src to dest through a temp file + rename, so
