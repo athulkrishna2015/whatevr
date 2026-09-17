@@ -7,6 +7,12 @@ PROTOCOL.md (stable at version 1: additive changes only).
 
 ### Fixed
 
+- Tray menu is a top-level popup window at the click point; the icon never
+  pulses.
+- Channel message pages load older history on scroll (directional window).
+- Status viewer refreshes the moment a download lands (row updates now fan
+  out).
+- `scripts/verify_features.py` checks every README feature row locally.
 - Multi-file sends only delivered the first file: the frontend's single
   in-flight guard dropped the rest. `send.media_batch` serializes them
   daemon-side (attach dialogs, both drag-drop halves).
@@ -14,6 +20,8 @@ PROTOCOL.md (stable at version 1: additive changes only).
 - Tray menu opens at the click point without a focus-stealing raise.
 - Log rows are partially selectable, copy works, and the log folder opens.
 - Edit history survives same-millisecond edits (autoincrement key).
+
+## 0.8.4 — 2026-09-17
 
 ## 0.8.3 — 2026-09-17
 
