@@ -1083,12 +1083,7 @@ Frame {
         ]
         fileMode: Platform.FileDialog.OpenFiles
         onAccepted: {
-            root.setComposing(false)
-            root.sendMediaBatchRequested(files, root.inputPlainText(), root.replyToMessageId, "", root.viewOnceSend)
-            root.viewOnceSend = false
-            root.replyConsumed()
-            input.clear()
-            root.hideSuggestions()
+            attachConfirmDialog.stage(files, "", root.viewOnceSend)
         }
     }
 
@@ -1101,12 +1096,7 @@ Frame {
         ]
         fileMode: Platform.FileDialog.OpenFiles
         onAccepted: {
-            root.setComposing(false)
-            root.sendMediaBatchRequested(files, root.inputPlainText(), root.replyToMessageId, "document", root.viewOnceSend)
-            root.viewOnceSend = false
-            root.replyConsumed()
-            input.clear()
-            root.hideSuggestions()
+            attachConfirmDialog.stage(files, "document", root.viewOnceSend)
         }
     }
 
@@ -1120,8 +1110,25 @@ Frame {
         ]
         fileMode: Platform.FileDialog.OpenFiles
         onAccepted: {
+            attachConfirmDialog.stage(files, "audio", root.viewOnceSend)
+        }
+    }
+
+    // Drops from the conversation's two drop halves land here: same staging
+    // dialog as picked files, minus view-once (a drop is never armed).
+    function stageDrop(urls, kind) {
+        attachConfirmDialog.stage(urls, kind, false)
+    }
+
+    // Staging gate: every pick lands here first; Send fires the batch with
+    // the dialog's caption (not the composer's half-typed text — the files
+    // send as their own messages, exactly like the old direct path did).
+    AttachConfirmDialog {
+        id: attachConfirmDialog
+
+        onConfirmed: (fileUrls, caption, kind, viewOnce) => {
             root.setComposing(false)
-            root.sendMediaBatchRequested(files, root.inputPlainText(), root.replyToMessageId, "audio", root.viewOnceSend)
+            root.sendMediaBatchRequested(fileUrls, caption, root.replyToMessageId, kind, viewOnce)
             root.viewOnceSend = false
             root.replyConsumed()
             input.clear()

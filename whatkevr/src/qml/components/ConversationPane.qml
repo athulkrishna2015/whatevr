@@ -864,9 +864,9 @@ Kirigami.Page {
         id: contactInfoDialog
     }
 
-    // Drag-and-drop send in two halves: the upper half sends as documents,
-    // the lower half as photos/video (kind auto-classified daemon-side). Both
-    // go through the batch path so multi-file drops arrive whole.
+    // Drag-and-drop in two halves: upper stages as documents, lower as
+    // photos/video. Drops land in the staging dialog (caption + Send/Cancel),
+    // never straight onto the wire.
     DropArea {
         id: documentDropArea
 
@@ -877,7 +877,7 @@ Kirigami.Page {
         enabled: Whatevr.ProtocolController.hasSelectedChat && Whatevr.ProtocolController.composerEnabled
         onDropped: drop => {
             if (drop.hasUrls) {
-                Whatevr.ProtocolController.sendMediaBatch(drop.urls, "", "", "document", false)
+                composer.stageDrop(drop.urls, "document")
             }
         }
     }
@@ -892,7 +892,7 @@ Kirigami.Page {
         enabled: documentDropArea.enabled
         onDropped: drop => {
             if (drop.hasUrls) {
-                Whatevr.ProtocolController.sendMediaBatch(drop.urls, "", "", "", false)
+                composer.stageDrop(drop.urls, "")
             }
         }
     }
