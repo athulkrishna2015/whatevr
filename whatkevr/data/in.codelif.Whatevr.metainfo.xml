@@ -19,6 +19,17 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.8.5" date="2026-09-17">
+      <description>
+        <p><em>Whatevr 0.8.5</em></p>
+        <ul>
+          <li>Tray menu is a real popup window at the click point; the icon never pulses.</li>
+          <li>Channel pages load older messages on scroll.</li>
+          <li>Status viewer refreshes the moment downloads land.</li>
+          <li><code>scripts/verify_features.py</code>: local checks for every README feature row.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.8.4" date="2026-09-17">
       <description>
         <p><em>Whatevr 0.8.3</em></p>
