@@ -19,6 +19,19 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.8.2" date="2026-09-17">
+      <description>
+        <p><em>Whatevr 0.8.2</em></p>
+        <p>Statuses, tray follow-ups, and everyday sending improvements on top of 0.8.1.</p>
+        <ul>
+          <li>The <code>status@broadcast</code> chat is back: statuses are filed there as ordinary messages alongside the Status tab, silently — no unread bump, no notification. Disable it in Settings, Chats, Status.</li>
+          <li>Old statuses gain their thumbnails automatically on connect, and video statuses now play in the viewer.</li>
+          <li>Drop files onto a conversation to send them.</li>
+          <li>Saving a profile picture prefills the chat or contact name.</li>
+          <li>The Logs page reports load failures instead of staying blank.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.8.1" date="2026-09-16">
       <description>
         <p><em>Whatevr 0.8.1</em></p>
