@@ -19,6 +19,19 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.8.4" date="2026-09-17">
+      <description>
+        <p><em>Whatevr 0.8.3</em></p>
+        <p>Screenshot-driven fixes plus the tray/status/notification follow-through.</p>
+        <ul>
+          <li>Logs tab actually fills now (rows carry ids), with copy actions and an open-log-folder button.</li>
+          <li>Chat media gallery filters work again, and Channels refreshes on open.</li>
+          <li>Status rings on chat avatars with tap-to-view, thumbnail avatars in the status list, and auto-download when a status opens.</li>
+          <li>Tray right-click menu fixed, unread tooltip corrected, channel posts notify, misfiled newsletter chats purged and blocked from returning.</li>
+          <li>Plus the extra-features batch: anti-delete, edit history, status keep and archive, sender client indicator, unread filter, pop-out windows, typing toggle, multi-file attach, markup shortcuts, @admins, and a new <code>doc/</code> folder with build, safety, and troubleshooting guides.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.8.3" date="2026-09-17">
       <description>
         <p><em>Whatevr 0.8.3</em></p>
