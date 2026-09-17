@@ -252,6 +252,7 @@ Kirigami.Page {
                         lastMessageDirection: root.directionToInt(String(chat.last_message_direction || ""))
                         lastMessageStatus: root.statusToInt(String(chat.last_message_status || ""))
                         avatarLocalPath: String(chat.avatar_path || "")
+                        statusState: String(chat.status_state || "")
                         initials: root.initialsFor(String(chat.name || ""))
                         unreadCount: Number(chat.unread || 0)
                         isPinned: Boolean(chat.pinned || false)
@@ -273,6 +274,12 @@ Kirigami.Page {
                             root.chatSelected(id)
                         }
                         onOpenInNewWindowRequested: id => Whatevr.ProtocolController.openChatInNewWindow(id)
+                        onOpenStatusRequested: id => {
+                            applicationWindow().pageStack.layers.push(Qt.resolvedUrl("StatusViewerPage.qml"), {
+                                "senderId": id,
+                                "senderName": chatDelegate.name
+                            })
+                        }
                         onPinToggled: (id, pinned) => Whatevr.ProtocolController.setChatPinned(id, pinned)
                         onContextMenuRequested: (id, pinned, archived, muted, x, y) => {
                             chatList.contextChatId = id

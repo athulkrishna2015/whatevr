@@ -17,6 +17,31 @@ Kirigami.ScrollablePage {
     Component.onCompleted: Whatevr.ProtocolController.openLogs()
     Component.onDestruction: Whatevr.ProtocolController.closeLogs()
 
+    actions: [
+        Kirigami.Action {
+            icon.name: "edit-copy-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button copy all visible log lines", "Copy all")
+            onTriggered: {
+                const lines = []
+                const count = logsList.count
+                for (let i = 0; i < count; ++i) {
+                    const entry = logsList.model.itemById(logsList.model.idAt(i))
+                    if (entry) {
+                        lines.push(((entry.time || "") + " " + (entry.level || "") + " " + (entry.text || "")).trim())
+                    }
+                }
+                if (lines.length > 0) {
+                    Whatevr.ProtocolController.copyToClipboard(lines.join("\n"))
+                }
+            }
+        },
+        Kirigami.Action {
+            icon.name: "folder-open-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button open the daemon log folder", "Open log folder")
+            onTriggered: Whatevr.ProtocolController.openLogDirectory()
+        }
+    ]
+
     ListView {
         id: logsList
 
@@ -51,6 +76,25 @@ Kirigami.ScrollablePage {
 
             width: ListView.view.width
             hoverEnabled: false
+
+            // Long-press copies the row (time + level + text).
+            onPressAndHold: {
+                const parts = []
+                if (logDelegate.item) {
+                    if (logDelegate.item.time) {
+                        parts.push(logDelegate.item.time)
+                    }
+                    if (logDelegate.level) {
+                        parts.push(logDelegate.level.toUpperCase())
+                    }
+                    if (logDelegate.item.text) {
+                        parts.push(logDelegate.item.text)
+                    }
+                }
+                if (parts.length > 0) {
+                    Whatevr.ProtocolController.copyToClipboard(parts.join(" "))
+                }
+            }
 
             readonly property string level: (item && item.level) ? item.level : ""
             readonly property bool isError: level === "error" || level === "fatal" || level === "panic"

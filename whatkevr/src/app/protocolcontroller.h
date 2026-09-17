@@ -607,6 +607,8 @@ public:
     Q_INVOKABLE void markMessagePlayed(const QString &messageId);
     /// Hands a downloaded file to the system's default application.
     Q_INVOKABLE bool openLocalFile(const QString &localPath);
+    // Opens the daemon's log directory in the file manager.
+    Q_INVOKABLE bool openLogDirectory();
     /// A local path as a properly encoded file URL. QML used to concatenate
     /// "file://" + path, which breaks on any path containing '#', '?' or '%'.
     Q_INVOKABLE QUrl localFileUrl(const QString &localPath) const;

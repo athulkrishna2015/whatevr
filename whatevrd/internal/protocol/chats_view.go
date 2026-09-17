@@ -9,9 +9,18 @@ import (
 	"log"
 	"math"
 	"sync"
+	"time"
 
 	"whatevrd/internal/app"
 	"whatevrd/internal/store"
+)
+
+const (
+	// statusRingScanLimit bounds the status scan backing chat-list rings:
+	// rings only ever need recent senders.
+	statusRingScanLimit = 300
+	// statusRingMaxAge is the status lifetime; older rows never ring.
+	statusRingMaxAge = 24 * time.Hour
 )
 
 // ChatLister supplies the `chats` and `chat` views their rows. *store.DB
@@ -32,8 +41,9 @@ const chatSortTimeMax = int64(1) << 62
 // from subscribe params; windowing, diffing and remove-on-fall-out are the
 // engine's job — the session only produces ordered rows.
 type chatsView struct {
-	daemon *app.Daemon
-	lister ChatLister
+	daemon   *app.Daemon
+	lister   ChatLister
+	statuses StatusLister
 }
 
 type chatsParams struct {
@@ -101,6 +111,7 @@ func (v chatsView) Open(params json.RawMessage, invalidate func()) (ViewSession,
 	ctx, cancelCtx := context.WithCancel(context.Background())
 	s := &chatsSession{
 		lister:       v.lister,
+		statuses:     v.statuses,
 		filter:       store.ChatListFilter{Kind: kind, Archived: p.Archived},
 		eventsCancel: cancel,
 		ctx:          ctx,
@@ -128,6 +139,7 @@ func normalizeChatFilter(filter string) (string, bool) {
 
 type chatsSession struct {
 	lister       ChatLister
+	statuses     StatusLister
 	filter       store.ChatListFilter
 	eventsCancel func()
 	ctx          context.Context
@@ -183,6 +195,10 @@ type chatItem struct {
 	MuteEndTimestamp     int64  `json:"mute_end_timestamp,omitempty"`
 	HistoryExhausted     bool   `json:"history_exhausted"`
 	AvatarPath           string `json:"avatar_path,omitempty"`
+	// StatusState is "unviewed"/"viewed" when the chat's DM sender has an
+	// unexpired status, absent otherwise. Drives the status ring on the
+	// avatar; tapping it opens the status viewer.
+	StatusState string `json:"status_state,omitempty"`
 }
 
 // run invalidates the window whenever a daemon event may have changed a chat
@@ -227,7 +243,8 @@ func chatEventAffectsList(kind app.DaemonEventKind) bool {
 		app.DaemonEventChatCleared,
 		app.DaemonEventMessageUpdated,
 		app.DaemonEventMessageDeleted,
-		app.DaemonEventAvatarUpdated:
+		app.DaemonEventAvatarUpdated,
+		app.DaemonEventStatusChanged:
 		return true
 	default:
 		return false
@@ -251,11 +268,45 @@ func (s *chatsSession) Items(max int) []Item {
 		return nil
 	}
 	s.noteWindow(chats)
+	statusStates := s.statusStates()
 	items := make([]Item, 0, len(chats))
 	for _, c := range chats {
-		items = append(items, Item{ID: c.ID, Sort: chatSort(c), Data: chatItemFromStore(c)})
+		item := chatItemFromStore(c)
+		if state, ok := statusStates[c.ID]; ok {
+			item.StatusState = state
+		}
+		items = append(items, Item{ID: c.ID, Sort: chatSort(c), Data: item})
 	}
 	return items
+}
+
+// statusStates maps DM sender ids to their unexpired-status state
+// ("unviewed" wins over "viewed"). Only statuses newer than 24h ring; the
+// window is capped because rings only ever need the recent senders.
+func (s *chatsSession) statusStates() map[string]string {
+	states := map[string]string{}
+	if s.statuses == nil {
+		return states
+	}
+	rows, err := s.statuses.ListStatusUpdates(s.ctx, statusRingScanLimit)
+	if err != nil {
+		log.Printf("protocol: list statuses for chat rings: %v", err)
+		return states
+	}
+	cutoff := time.Now().Add(-statusRingMaxAge).Unix()
+	for _, st := range rows {
+		if st.TimestampUnix < cutoff || st.SenderID == "" || st.SenderID == "me" {
+			continue
+		}
+		if st.Viewed {
+			if _, ok := states[st.SenderID]; !ok {
+				states[st.SenderID] = "viewed"
+			}
+			continue
+		}
+		states[st.SenderID] = "unviewed"
+	}
+	return states
 }
 
 func (s *chatsSession) Close() {

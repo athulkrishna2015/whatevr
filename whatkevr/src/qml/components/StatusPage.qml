@@ -64,6 +64,7 @@ Kirigami.ScrollablePage {
                     "senderId": senderId,
                     "senderName": sender.name || senderId,
                     "avatarPath": sender.avatarPath || "",
+                    "thumbPath": "",
                     "latest": 0,
                     "total": 0,
                     "unviewed": 0,
@@ -76,6 +77,11 @@ Kirigami.ScrollablePage {
             // lacked; keep the freshest non-empty value.
             if (!group.avatarPath && sender.avatarPath) {
                 group.avatarPath = sender.avatarPath
+            }
+            // Rows arrive newest-first, so the first media thumbnail seen is
+            // the latest status's: it becomes the ring's picture.
+            if (!group.thumbPath && item.media && item.media.thumbnail_path) {
+                group.thumbPath = item.media.thumbnail_path
             }
             group.statusIds.push(item.id)
             group.total += 1
@@ -231,7 +237,9 @@ Kirigami.ScrollablePage {
                     AvatarImage {
                         anchors.fill: parent
                         anchors.margins: parent.border.width + 1
-                        avatarLocalPath: statusDelegate.group.avatarPath
+                        // Newest status thumbnail first (low-res by nature),
+                        // profile avatar as fallback.
+                        avatarLocalPath: statusDelegate.group.thumbPath || statusDelegate.group.avatarPath
                         initials: root.initialsFor(statusDelegate.group.senderName)
                         backgroundColor: Qt.alpha(Kirigami.Theme.highlightColor, 0.18)
                     }

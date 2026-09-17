@@ -71,6 +71,23 @@ PROTOCOL.md (stable at version 1: additive changes only).
 - The Logs page shows subscribe failures instead of staying blank, the Go tree
   is gofmt-clean again, and the AUR `.SRCINFO` files match their PKGBUILDs
   (missing `qt6-multimedia`, `mpv`, `ffmpeg` entries).
+- The Logs tab stayed empty because log rows carried no `id` in their data
+  and the model drops keyless rows; the id now rides along (with a regression
+  test). Opening a status also triggers its download daemon-side, so a missed
+  frontend trigger cannot leave it unloaded.
+- The gallery kind filter never applied (frontend sent `kind`, daemon reads
+  `kinds`); the frontend sends the array and the daemon also tolerates the
+  singular.
+- The Channels tab never refreshed its directory on open; it does now.
+- Chat-list status rings: DM senders with unexpired statuses ring the avatar
+  (highlighted while unviewed); tapping opens their status viewer.
+- Misfiled newsletter chats are purged on connect (content lives server-side
+  behind Channels); the tray tooltip counts messages, labeled as such.
+- Tray right-click menu no longer raises the window first (the focus move
+  dismissed the menu before it was seen).
+- New channel posts notify like chat messages (fresh, unmuted, globally
+  enabled); the tray tooltip counts messages, labeled as such; misfiled
+  newsletter chats (with their stale badges) are purged.
 
 ### Updated
 

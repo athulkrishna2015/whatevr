@@ -3,10 +3,12 @@ package wa
 import (
 	"context"
 	"strings"
+	"time"
 
 	"go.mau.fi/whatsmeow"
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
+	waEvents "go.mau.fi/whatsmeow/types/events"
 
 	"whatevrd/internal/app"
 	appstore "whatevrd/internal/store"
@@ -213,7 +215,54 @@ func (c *Client) GetChannelMessages(ctx context.Context, channelID string, count
 	return out, nil
 }
 
-// channelMessageKind maps a channel message to a coarse kind for the feed.
+// notifyChannelPost notifies a new channel post like a chat message: fresh,
+// globally enabled, channel unmuted, and no frontend viewing it. Channel
+// posts are browsed, but unlike statuses they push: followers expect to hear
+// about new broadcasts.
+func (c *Client) notifyChannelPost(ctx context.Context, evt *waEvents.Message) {
+	if c.notifier == nil || evt == nil || evt.Message == nil {
+		return
+	}
+	if !notificationTimestampFresh(evt.Info.Timestamp.Unix(), time.Now()) {
+		return
+	}
+	opts, enabled := c.notificationOptions()
+	if !enabled {
+		return
+	}
+	chatID := evt.Info.Chat.String()
+	name, muted := c.channelDisplay(ctx, chatID)
+	if muted || !c.ShouldNotifyChat(chatID) {
+		return
+	}
+	text := strings.TrimSpace(textFromMessage(evt.Message))
+	if text == "" {
+		kind := channelMessageKind(evt.Message)
+		text = channelMessageFallback(evt.Message, kind)
+	}
+	c.notifier.NotifyMessage(ctx, app.Message{
+		ID:            string(evt.Info.ID),
+		ChatID:        chatID,
+		Text:          text,
+		TimestampUnix: evt.Info.Timestamp.Unix(),
+		Direction:     appstore.DirectionIncoming,
+	}, app.Chat{ID: chatID, Name: name}, opts)
+}
+
+// channelDisplay resolves a channel's directory name and mute flag; unknown
+// channels fall back to the bare JID, unmuted.
+func (c *Client) channelDisplay(ctx context.Context, chatID string) (string, bool) {
+	channels, err := c.store.ListChannels(ctx)
+	if err != nil {
+		return "", false
+	}
+	for _, channel := range channels {
+		if channel.ID == chatID {
+			return channel.Name, channel.Muted
+		}
+	}
+	return "", false
+}
 func channelMessageKind(msg *waE2E.Message) string {
 	switch {
 	case msg.GetImageMessage() != nil:

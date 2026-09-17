@@ -59,7 +59,7 @@ func RegisterDaemonViews(s *Server, daemon *app.Daemon, store DaemonStore, actio
 	s.RegisterView("connection", connectionView{daemon: daemon, pending: store})
 	s.RegisterView("sync", syncView{daemon: daemon})
 	s.RegisterView("login", loginView{daemon: daemon})
-	s.RegisterView("chats", chatsView{daemon: daemon, lister: store})
+	s.RegisterView("chats", chatsView{daemon: daemon, lister: store, statuses: store})
 	s.RegisterView("chat", chatView{daemon: daemon, lister: store})
 	s.RegisterView("messages", messagesView{daemon: daemon, lister: store})
 	s.RegisterView("typing", typingView{daemon: daemon, resolver: store})

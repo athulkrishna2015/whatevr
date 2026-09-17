@@ -104,11 +104,11 @@ func MentionJIDs(mentions []MessageMention) []string {
 }
 
 type Message struct {
-	ID                      string
-	ChatID                  string
-	SenderID                string
-	SenderName              string
-	SenderAvatarLocalPath   string
+	ID                    string
+	ChatID                string
+	SenderID              string
+	SenderName            string
+	SenderAvatarLocalPath string
 	// SenderDevice is the sender's device id from the message envelope: 0 is
 	// the primary phone app, anything else a linked device (Web/Desktop or
 	// another companion). Powers the "sent from" indicator.

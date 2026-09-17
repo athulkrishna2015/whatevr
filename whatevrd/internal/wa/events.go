@@ -58,6 +58,7 @@ func (c *Client) handleEvent(eventGen uint64, raw any) {
 		go c.backfillAnimatedWebPFlags(c.backgroundContext())
 		go c.backfillStatusThumbs(c.backgroundContext())
 		go c.pruneStatusBroadcastMirror(c.backgroundContext())
+		go c.pruneMisfiledNewsletterChats(c.backgroundContext())
 	case *events.AppStateSyncComplete:
 		c.syncPresence(c.backgroundContext(), true)
 	case *events.AppState:

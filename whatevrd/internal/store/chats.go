@@ -166,10 +166,10 @@ const (
 
 // ChatListFilter selects which chats ListChatsForView returns.
 type ChatListFilter struct {
-	Kind      string // ChatFilterAll | ChatFilterDirect | ChatFilterGroups
-	Archived  bool   // archived tab (true) vs the main list (false)
-	UnreadOnly bool  // only chats with a non-zero unread badge
-	Limit     int    // <= 0 means no limit (whole filtered list)
+	Kind       string // ChatFilterAll | ChatFilterDirect | ChatFilterGroups
+	Archived   bool   // archived tab (true) vs the main list (false)
+	UnreadOnly bool   // only chats with a non-zero unread badge
+	Limit      int    // <= 0 means no limit (whole filtered list)
 }
 
 // ListChatsForView returns chats matching filter in list order (pinned first,
@@ -331,6 +331,12 @@ func (db *DB) EnsureChatWithNameSource(ctx context.Context, chatID, name, nameSo
 	if chatID == "" {
 		return Chat{}, nil
 	}
+	// Newsletters live in the channels directory and statuses in the status
+	// store; neither may materialize as chat rows (app-state sync at connect
+	// would otherwise resurrect purged rows).
+	if strings.HasSuffix(chatID, "@newsletter") || chatID == "status@broadcast" {
+		return Chat{}, nil
+	}
 	name = strings.TrimSpace(name)
 	nameSource = normalizeChatNameSource(nameSource)
 	insertName := name
@@ -390,6 +396,29 @@ func (db *DB) DeleteChat(ctx context.Context, chatID string) (bool, error) {
 		return false, err
 	}
 	return affected > 0, nil
+}
+
+// ChatIDsWithServer lists the chat ids living on one server suffix (e.g. all
+// newsletter rows). Used once to retire chats the old ingest misfiled.
+func (db *DB) ChatIDsWithServer(ctx context.Context, server string) ([]string, error) {
+	defer db.timeOp("ChatIDsWithServer", time.Now())
+	rows, err := db.reader().QueryContext(ctx, `SELECT id FROM chats WHERE id LIKE '%@' || ?`, server)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
 // ClearChatMessages wipes a chat's transcript but keeps the chat row.

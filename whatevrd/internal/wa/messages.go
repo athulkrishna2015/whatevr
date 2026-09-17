@@ -364,9 +364,17 @@ func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offline
 	// filing them as chats would put every followed channel's feed in the
 	// chat list. The channel_messages view fetches live and never stores, so
 	// there is nothing to file — just nudge open channel views to refetch.
+	// Any chat row the old ingest filed (or a racing writer recreated) is
+	// retired on the spot.
 	if evt.Info.Chat.Server == types.NewsletterServer {
 		if !offlineSync {
 			c.daemon.PublishChannelsChanged()
+			c.notifyChannelPost(ctx, evt)
+			if existed, err := c.store.DeleteChat(ctx, evt.Info.Chat.String()); err != nil {
+				c.log.Warnf("Failed to retire newsletter chat %s: %v", evt.Info.Chat.String(), err)
+			} else if existed {
+				c.daemon.PublishChatDeleted(evt.Info.Chat.String())
+			}
 		}
 		return
 	}

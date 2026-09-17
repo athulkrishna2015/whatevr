@@ -443,9 +443,12 @@ Kirigami.ApplicationWindow {
             root.activateWindow()
         }
 
-        // Tray right-click: show the tray menu at the cursor.
+        // Tray right-click: show the tray menu at the cursor. Deliberately no
+        // activateWindow(): raising + focusing the window first dismisses the
+        // menu as focus moves, so the menu would never be seen. show() alone
+        // unhides a hidden window without stealing focus.
         function onShowTrayMenuRequested(x, y) {
-            root.activateWindow()
+            root.show()
             trayMenu.popup()
         }
 

@@ -2017,6 +2017,16 @@ bool ProtocolController::openLocalFile(const QString &localPath)
     return QDesktopServices::openUrl(QUrl::fromLocalFile(localPath));
 }
 
+bool ProtocolController::openLogDirectory()
+{
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation)
+        + QStringLiteral("/whatevrd");
+    if (!QFileInfo::exists(dir)) {
+        return false;
+    }
+    return QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
+}
+
 QUrl ProtocolController::localFileUrl(const QString &localPath) const
 {
     return localPath.isEmpty() ? QUrl() : QUrl::fromLocalFile(localPath);
@@ -2736,6 +2746,10 @@ void ProtocolController::openChannels()
     m_channelsModel->onReset();
 
     m_channelsSub = m_client->subscribe(QStringLiteral("channels"), {}, m_channelsModel);
+    // The directory is server state: refresh on every open so follows made on
+    // the phone (or in another window) appear. The view refreshes off the
+    // ChannelsChanged event the command publishes.
+    m_client->request(QStringLiteral("channels.refresh"), {});
     Q_EMIT channelsChanged();
 }
 
@@ -2862,7 +2876,7 @@ void ProtocolController::openChatMedia(const QString &chatId, const QString &kin
         {QStringLiteral("chat_id"), chatId},
         {QStringLiteral("limit"), kChatMediaPageSize}};
     if (!kind.isEmpty())
-        params[QStringLiteral("kind")] = kind;
+        params[QStringLiteral("kinds")] = QJsonArray{kind};
 
     m_chatMediaSub = m_client->subscribe(QStringLiteral("chat_media"), params, m_chatMediaModel);
     Q_EMIT chatMediaChanged();

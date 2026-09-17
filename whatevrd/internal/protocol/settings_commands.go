@@ -83,7 +83,7 @@ type preferencesSetParams struct {
 	AutoDownloadStickers  *bool  `json:"auto_download_stickers"`
 	AutoDownloadMaxBytes  *int64 `json:"auto_download_max_bytes"`
 	AntiDelete            *bool  `json:"anti_delete"`
-	SendTypingIndicators *bool `json:"send_typing_indicators"`
+	SendTypingIndicators  *bool  `json:"send_typing_indicators"`
 }
 
 func (h commandHandlers) preferencesSet(_ *conn, req request) (any, *Error) {

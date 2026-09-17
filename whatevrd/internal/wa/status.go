@@ -446,6 +446,11 @@ func (c *Client) ingestStatusUpdate(ctx context.Context, evt *events.Message) {
 // chat row the retired mirror experiment created.
 const statusMirrorCleanupKey = "status_mirror_cleanup_v1"
 
+// misfiledChatsCleanupKey marks the one-time purge of newsletter rows the old
+// ingest filed as chats. Channel posts live server-side (the Channels tab
+// fetches them live), so nothing of value is lost.
+const misfiledChatsCleanupKey = "misfilled_chats_cleanup_v1"
+
 // pruneStatusBroadcastMirror drops the status@broadcast chat the retired
 // mirror experiment filed statuses into. Its messages duplicate the Status
 // tab, so nothing of value is lost; statuses keep living in status_updates.
@@ -464,6 +469,33 @@ func (c *Client) pruneStatusBroadcastMirror(ctx context.Context) {
 	}
 	if existed {
 		c.daemon.PublishChatDeleted(types.StatusBroadcastJID.String())
+	}
+}
+
+// pruneMisfiledNewsletterChats drops newsletter rows the old ingest filed as
+// chats (with their stale unread badges). Content stays on the server behind
+// the Channels tab. One-time via an app_state marker.
+func (c *Client) pruneMisfiledNewsletterChats(ctx context.Context) {
+	if done, err := c.store.GetAppStateValue(ctx, misfiledChatsCleanupKey); err == nil && done != "" {
+		return
+	}
+	ids, err := c.store.ChatIDsWithServer(ctx, types.NewsletterServer)
+	if err != nil {
+		c.log.Warnf("Failed to list newsletter chats for purge: %v", err)
+		return
+	}
+	for _, id := range ids {
+		if ctx.Err() != nil {
+			return
+		}
+		if existed, err := c.store.DeleteChat(ctx, id); err != nil {
+			c.log.Warnf("Failed to purge newsletter chat %s: %v", id, err)
+		} else if existed {
+			c.daemon.PublishChatDeleted(id)
+		}
+	}
+	if err := c.store.SetAppStateValue(ctx, misfiledChatsCleanupKey, "1"); err != nil {
+		c.log.Warnf("Failed to record newsletter purge: %v", err)
 	}
 }
 

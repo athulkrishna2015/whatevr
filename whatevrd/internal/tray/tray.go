@@ -188,9 +188,9 @@ func (s *statusItem) refresh() {
 	if unread > 0 {
 		status = "NeedsAttention"
 		if unread == 1 {
-			title += ", 1 unread chat"
+			title += ", 1 unread message"
 		} else {
-			title += fmt.Sprintf(", %d unread chats", unread)
+			title += fmt.Sprintf(", %d unread messages", unread)
 		}
 	}
 

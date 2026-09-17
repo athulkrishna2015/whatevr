@@ -32,6 +32,10 @@ type chatMediaView struct {
 type chatMediaParams struct {
 	ChatID string   `json:"chat_id"`
 	Kinds  []string `json:"kinds"`
+	// Kind is the legacy singular filter; Kinds wins when both are set.
+	// Tolerated so a singular sender degrades to unfiltered rather than
+	// silently showing everything.
+	Kind string `json:"kind"`
 }
 
 func (v chatMediaView) Open(params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
@@ -47,6 +51,12 @@ func (v chatMediaView) Open(params json.RawMessage, invalidate func()) (ViewSess
 	kinds, err := filterGalleryKinds(p.Kinds)
 	if err != nil {
 		return nil, nil, err
+	}
+	if len(kinds) == 0 && strings.TrimSpace(p.Kind) != "" {
+		kinds, err = filterGalleryKinds([]string{p.Kind})
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 	events, cancel := v.daemon.SubscribeDaemonEvents()
 	ctx, cancelCtx := context.WithCancel(context.Background())
