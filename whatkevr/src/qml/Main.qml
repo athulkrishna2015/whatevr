@@ -1,5 +1,7 @@
 import QtQuick
 import QtQuick.Controls as QQC2
+import QtQuick.Layouts
+import QtQuick.Window
 import org.kde.kirigami as Kirigami
 import Whatevr as Whatevr
 
@@ -44,30 +46,77 @@ Kirigami.ApplicationWindow {
         window: root
     }
 
-    // Tray right-click menu (daemon `show_tray_menu` event). popup() opens at
-    // the cursor, which is where the click happened; the daemon-supplied
-    // coordinates are ignored (0,0 when the platform did not supply them).
-    QQC2.Menu {
-        id: trayMenu
+    // Tray right-click menu (daemon `show_tray_menu` event). A top-level
+    // Popup-flag window, not an in-window Menu: only a separate window can
+    // render over the system panel where the click happened. It opens upward
+    // from the click point like a native tray menu and dismisses on outside
+    // click. Coordinates are screen space (0,0 when the platform supplies
+    // none → bottom-right of the screen, where trays usually live).
+    Window {
+        id: trayMenuWindow
 
-        onAboutToShow: {
+        flags: Qt.Popup | Qt.FramelessWindowHint
+        color: "transparent"
+        visible: false
+
+        width: Math.max(1, trayMenuCard.implicitWidth)
+        height: Math.max(1, trayMenuCard.implicitHeight)
+
+        Rectangle {
+            id: trayMenuCard
+
+            anchors.fill: parent
+            radius: Kirigami.Units.cornerRadius
+            color: Kirigami.Theme.backgroundColor
+            border.width: 1
+            border.color: Qt.alpha(Kirigami.Theme.textColor, 0.2)
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: Kirigami.Units.smallSpacing
+                spacing: 0
+
+                QQC2.Button {
+                    flat: true
+                    Layout.fillWidth: true
+                    text: Whatevr.I18n.i18nc("@action:inmenu open the main window", "Open Whatevr")
+                    onClicked: {
+                        trayMenuWindow.visible = false
+                        root.activateWindow()
+                    }
+                }
+
+                QQC2.CheckBox {
+                    id: notificationsItem
+
+                    Layout.fillWidth: true
+                    text: Whatevr.I18n.i18nc("@action:inmenu toggle desktop notifications", "Notifications")
+                    onToggled: Whatevr.ProtocolController.setAppPreference("notifications_enabled", checked)
+                }
+
+                Kirigami.Separator {
+                    Layout.fillWidth: true
+                }
+
+                QQC2.Button {
+                    flat: true
+                    Layout.fillWidth: true
+                    text: Whatevr.I18n.i18nc("@action:inmenu quit the application", "Quit")
+                    onClicked: Qt.quit()
+                }
+            }
+        }
+
+        function showAt(sx, sy) {
             notificationsItem.checked = Whatevr.ProtocolController.appPreferences.notifications_enabled ?? true
-        }
-
-        QQC2.MenuItem {
-            text: Whatevr.I18n.i18nc("@action:inmenu open the main window", "Open Whatevr")
-            onTriggered: root.activateWindow()
-        }
-        QQC2.MenuItem {
-            id: notificationsItem
-            checkable: true
-            text: Whatevr.I18n.i18nc("@action:inmenu toggle desktop notifications", "Notifications")
-            onTriggered: Whatevr.ProtocolController.setAppPreference("notifications_enabled", checked)
-        }
-        QQC2.MenuSeparator {}
-        QQC2.MenuItem {
-            text: Whatevr.I18n.i18nc("@action:inmenu quit the application", "Quit")
-            onTriggered: Qt.quit()
+            const screenW = Screen.desktopAvailableWidth > 0 ? Screen.desktopAvailableWidth : Screen.width
+            const screenH = Screen.desktopAvailableHeight > 0 ? Screen.desktopAvailableHeight : Screen.height
+            const w = trayMenuWindow.width
+            const h = trayMenuWindow.height
+            trayMenuWindow.x = sx > 0 ? Math.max(0, Math.min(sx - w / 2, screenW - w)) : screenW - w
+            // Open upward from the click: panel trays sit at a screen edge.
+            trayMenuWindow.y = sy > 0 ? Math.max(0, sy - h) : Math.max(0, screenH - h)
+            trayMenuWindow.visible = true
         }
     }
 
@@ -443,22 +492,12 @@ Kirigami.ApplicationWindow {
             root.activateWindow()
         }
 
-        // Tray right-click: show the tray menu at the click point. Deliberately
-        // no activateWindow(): raising + focusing the window first dismisses
-        // the menu as focus moves, so the menu would never be seen. show()
-        // alone unhides a hidden window without stealing focus. The daemon
-        // passes screen coordinates (0,0 when the platform supplies none),
-        // translated into window space here.
+        // Tray right-click: show the tray menu window at the click point (see
+        // above). show() alone unhides a hidden main window without stealing
+        // focus; the menu positions itself.
         function onShowTrayMenuRequested(x, y) {
             root.show()
-            if (x > 0 || y > 0) {
-                trayMenu.x = Math.max(0, x - root.x)
-                trayMenu.y = Math.max(0, y - root.y)
-            } else {
-                trayMenu.x = Math.max(0, root.width - trayMenu.implicitWidth - Kirigami.Units.largeSpacing)
-                trayMenu.y = Math.max(0, root.height - trayMenu.implicitHeight - Kirigami.Units.largeSpacing)
-            }
-            trayMenu.open()
+            trayMenuWindow.showAt(x, y)
         }
 
         // The daemon's `open_chat` (notification click, whatevr:// URL) and the

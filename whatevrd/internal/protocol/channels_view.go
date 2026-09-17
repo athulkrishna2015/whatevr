@@ -175,7 +175,20 @@ type channelMessagesSession struct {
 	cancelCtx    context.CancelFunc
 	done         chan struct{}
 	closeOnce    sync.Once
+
+	// Own-window state (DirectionalSession): rows newest-first across every
+	// page fetched so far, keyed by server id; oldest is the paging cursor
+	// (0 until the first fill). Live-edge refreshes merge by id so an
+	// invalidate never loses scrolled-back rows.
+	mu        sync.Mutex
+	window    []Item
+	byID      map[string]bool
+	oldest    int64
+	exhausted bool
+	filled    bool
 }
+
+const channelMessagesPageSize = 30
 
 func (s *channelMessagesSession) run(events <-chan app.DaemonEvent, invalidate func()) {
 	for {
@@ -185,45 +198,42 @@ func (s *channelMessagesSession) run(events <-chan app.DaemonEvent, invalidate f
 		case evt := <-events:
 			switch evt.Kind {
 			case app.DaemonEventChannelsChanged, app.DaemonEventResync:
+				s.refreshLiveEdge()
 				invalidate()
 			}
 		}
 	}
 }
 
-type channelMessageItem struct {
-	ID        string `json:"id"`
-	ChannelID string `json:"channel_id"`
-	Timestamp int64  `json:"timestamp"`
-	Kind      string `json:"kind"`
-	Text      string `json:"text,omitempty"`
-	Fallback  string `json:"fallback"`
-	Views     int    `json:"views,omitempty"`
+// refreshLiveEdge merges the newest page into the window (new posts appear on
+// top; everything already held stays where it is).
+func (s *channelMessagesSession) refreshLiveEdge() {
+	if s.actions == nil {
+		return
+	}
+	rows, err := s.actions.GetChannelMessages(s.ctx, s.channelID, channelMessagesPageSize, 0)
+	if err != nil {
+		log.Printf("protocol: refresh channel messages for view: %v", err)
+		return
+	}
+	s.merge(rows)
 }
 
-// Items fetches the newest `max` messages live. Server ids order the feed;
-// the sort key pads them so bytewise order matches numeric order.
-func (s *channelMessagesSession) Items(max int) []Item {
-	if s.actions == nil {
-		return nil
+// merge folds fetched rows into the window, newest-first, deduplicating by
+// id and tracking the oldest server id held.
+func (s *channelMessagesSession) merge(rows []app.ChannelMessage) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.byID == nil {
+		s.byID = make(map[string]bool)
 	}
-	limit := max
-	if limit <= 0 {
-		limit = 30
-	}
-	rows, err := s.actions.GetChannelMessages(s.ctx, s.channelID, limit, 0)
-	if err != nil {
-		log.Printf("protocol: list channel messages for view: %v", err)
-		return nil
-	}
-	sort.Slice(rows, func(i, j int) bool { return rows[i].ServerID > rows[j].ServerID })
-	if len(rows) > limit {
-		rows = rows[:limit]
-	}
-	items := make([]Item, 0, len(rows))
 	for _, msg := range rows {
 		id := channelMessageID(s.channelID, msg.ServerID)
-		items = append(items, Item{
+		if s.byID[id] {
+			continue
+		}
+		s.byID[id] = true
+		s.window = append(s.window, Item{
 			ID:   id,
 			Sort: channelMessageSort(msg.ServerID),
 			Data: channelMessageItem{
@@ -236,8 +246,73 @@ func (s *channelMessagesSession) Items(max int) []Item {
 				Views:     msg.Views,
 			},
 		})
+		if s.oldest == 0 || msg.ServerID < s.oldest {
+			s.oldest = msg.ServerID
+		}
 	}
-	return items
+	sort.Slice(s.window, func(i, j int) bool { return s.window[i].Sort > s.window[j].Sort })
+	s.filled = true
+}
+
+// ExtendWindow pages older messages behind the cursor. Newer is a no-op:
+// the live edge refreshes on channel events instead.
+func (s *channelMessagesSession) ExtendWindow(direction string, count int) {
+	if direction != "older" || s.actions == nil {
+		return
+	}
+	s.mu.Lock()
+	if s.exhausted || !s.filled {
+		s.mu.Unlock()
+		return
+	}
+	before := s.oldest
+	s.mu.Unlock()
+	if count <= 0 || count > 100 {
+		count = channelMessagesPageSize
+	}
+	rows, err := s.actions.GetChannelMessages(s.ctx, s.channelID, count, before)
+	if err != nil {
+		log.Printf("protocol: page channel messages for view: %v", err)
+		return
+	}
+	if len(rows) < count {
+		s.mu.Lock()
+		s.exhausted = true
+		s.mu.Unlock()
+	}
+	s.merge(rows)
+}
+
+// Exhausted reports whether the older frontier is spent.
+func (s *channelMessagesSession) Exhausted() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.exhausted
+}
+
+// Items reports the whole held window; the first call fills the live edge.
+func (s *channelMessagesSession) Items(max int) []Item {
+	s.mu.Lock()
+	filled := s.filled
+	s.mu.Unlock()
+	if !filled {
+		s.refreshLiveEdge()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]Item, len(s.window))
+	copy(out, s.window)
+	return out
+}
+
+type channelMessageItem struct {
+	ID        string `json:"id"`
+	ChannelID string `json:"channel_id"`
+	Timestamp int64  `json:"timestamp"`
+	Kind      string `json:"kind"`
+	Text      string `json:"text,omitempty"`
+	Fallback  string `json:"fallback"`
+	Views     int    `json:"views,omitempty"`
 }
 
 func (s *channelMessagesSession) Close() {

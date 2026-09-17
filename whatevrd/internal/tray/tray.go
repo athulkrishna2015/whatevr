@@ -174,6 +174,9 @@ func (s *statusItem) refresh() {
 	title := "Whatevr"
 	switch state {
 	case app.StateOnline:
+		// Always Active, never NeedsAttention: the attention pulse reads as a
+		// stuck/broken icon, and the unread count in the tooltip already
+		// carries the information.
 		status = "Active"
 		title = "Whatevr — online"
 	case app.StateConnecting, app.StateReconnecting, app.StateStarting:
@@ -186,7 +189,8 @@ func (s *statusItem) refresh() {
 		title = "Whatevr — offline"
 	}
 	if unread > 0 {
-		status = "NeedsAttention"
+		// Stays Active: the NeedsAttention pulse reads as a stuck/broken
+		// icon. The unread count in the tooltip carries the information.
 		if unread == 1 {
 			title += ", 1 unread message"
 		} else {

@@ -395,6 +395,10 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
     connect(m_statusModel, &CollectionViewModel::countChanged, this, &ProtocolController::statusChanged);
     connect(m_statusModel, &CollectionViewModel::readyChanged, this, &ProtocolController::statusChanged);
     connect(m_statusModel, &CollectionViewModel::modelReset, this, &ProtocolController::statusChanged);
+    // Row content changes (viewed flags, downloaded paths) carry no count or
+    // ready edge but must still refresh pages holding snapshots — notably the
+    // status viewer, which otherwise keeps showing Load after the bytes land.
+    connect(m_statusModel, &CollectionViewModel::dataChanged, this, &ProtocolController::statusChanged);
     // Kept senders ride the status tab's lifetime; any churn rebuilds groups.
     m_keptStatusModel = new CollectionViewModel(this);
     connect(m_keptStatusModel, &CollectionViewModel::countChanged, this, &ProtocolController::statusChanged);
