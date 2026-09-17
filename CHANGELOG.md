@@ -7,6 +7,16 @@ PROTOCOL.md (stable at version 1: additive changes only).
 
 ### Fixed
 
+- Multi-file sends only delivered the first file: the frontend's single
+  in-flight guard dropped the rest. `send.media_batch` serializes them
+  daemon-side (attach dialogs, both drag-drop halves).
+- New `chat.mark_all_read` clears every badge with upstream receipts.
+- Tray menu opens at the click point without a focus-stealing raise.
+- Log rows are partially selectable, copy works, and the log folder opens.
+- Edit history survives same-millisecond edits (autoincrement key).
+
+## 0.8.3 — 2026-09-17
+
 - The Logs tab was always empty: the frontend subscribed to the `daemon.logs`
   view, but the daemon only ever registered a `daemon.logs` *command* — the
   subscription failed with `not_found` and the page stayed blank. The view now
