@@ -58,6 +58,8 @@ type fakeCommandActions struct {
 	repliedStatusID     string
 	repliedStatusText   string
 	deletedStatusID     string
+	keptStatusSender    string
+	keptStatusValue     bool
 	sentPollChat        string
 	sentPollQuestion    string
 	sentPollOptions     []string
@@ -278,6 +280,9 @@ func (f *fakeCommandActions) RevokeMessage(_ context.Context, messageID string) 
 	f.revokeMessage = messageID
 	return appstore.Message{ID: messageID}, f.err
 }
+func (f *fakeCommandActions) ListMessageEdits(_ context.Context, messageID string) ([]appstore.MessageEdit, error) {
+	return []appstore.MessageEdit{{MessageID: messageID, EditedAtMillis: 7, Text: "v1"}}, f.err
+}
 func (f *fakeCommandActions) DeleteMessageForMe(_ context.Context, messageID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -401,6 +406,15 @@ func (f *fakeCommandActions) DeleteStatus(_ context.Context, statusID string) er
 }
 func (f *fakeCommandActions) ListStatusViewers(context.Context, string) ([]appstore.StatusViewer, error) {
 	return []appstore.StatusViewer{{ViewerJID: "viewer@s.whatsapp.net", ViewedAt: 1}}, f.err
+}
+func (f *fakeCommandActions) SetStatusKeepSender(_ context.Context, senderID string, kept bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.keptStatusSender, f.keptStatusValue = senderID, kept
+	return f.err
+}
+func (f *fakeCommandActions) ListKeptStatusSenders(context.Context) ([]string, error) {
+	return []string{"kept@s.whatsapp.net"}, f.err
 }
 func (f *fakeCommandActions) SendPoll(_ context.Context, chatID, question string, options []string, multi bool) (appstore.SavedTextMessage, error) {
 	f.mu.Lock()
@@ -856,6 +870,18 @@ func TestC2MessageAndMediaCommands(t *testing.T) {
 	c.sendLine(`{"id":142,"method":"status.delete","params":{"status_id":"status:9"}}`)
 	if _, ok := c.recv()["result"].(map[string]any); !ok || actions.deletedStatusID != "status:9" {
 		t.Fatalf("status.delete action = %q", actions.deletedStatusID)
+	}
+
+	c.sendLine(`{"id":1421,"method":"status.keep_sender","params":{"sender_id":"k@s.whatsapp.net","kept":true}}`)
+	if _, ok := c.recv()["result"].(map[string]any); !ok || actions.keptStatusSender != "k@s.whatsapp.net" || !actions.keptStatusValue {
+		t.Fatalf("status.keep_sender action = %+v", actions)
+	}
+
+	c.sendLine(`{"id":1422,"method":"message.edit_history","params":{"message_id":"m1"}}`)
+	result = c.recv()["result"].(map[string]any)
+	edits, ok := result["edits"].([]any)
+	if !ok || len(edits) != 1 || edits[0].(map[string]any)["text"] != "v1" {
+		t.Fatalf("message.edit_history result = %v", result)
 	}
 
 	c.sendLine(`{"id":143,"method":"send.poll","params":{"chat_id":"c@s.whatsapp.net","question":"dinner?","options":["yes","no"],"multi":true}}`)

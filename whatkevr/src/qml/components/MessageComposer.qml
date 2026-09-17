@@ -98,6 +98,35 @@ Frame {
         return input.getText(0, input.length).trim()
     }
 
+    // Wrap the selection (or the word under a collapsed cursor) in a markup
+    // marker, toggling it off when already wrapped.
+    function wrapSelectionWith(mark) {
+        let start = input.selectionStart
+        let end = input.selectionEnd
+        if (start === end) {
+            const text = input.getText(0, input.length)
+            start = end
+            while (start > 0 && /[^\s]/.test(text.charAt(start - 1))) {
+                start -= 1
+            }
+            while (end < text.length && /[^\s]/.test(text.charAt(end))) {
+                end += 1
+            }
+            if (start === end) {
+                return
+            }
+        }
+        const text = input.getText(0, input.length)
+        const inner = text.substring(start, end)
+        if (inner.length >= 2 && inner.startsWith(mark) && inner.endsWith(mark)) {
+            input.remove(start, start + 1)
+            input.remove(end - 2, end - 1)
+            return
+        }
+        input.insert(end, mark)
+        input.insert(start, mark)
+    }
+
     Kirigami.Theme.colorSet: Kirigami.Theme.View
 
     background: Rectangle {
@@ -274,6 +303,10 @@ Frame {
         if (q.length === 0 || "everyone".indexOf(q) === 0 || "all".indexOf(q) === 0) {
             results.push({ jid: "", displayName: "all", label: "Everyone", avatar: "", isAll: true })
         }
+        // "Admins" (@admins) mentions just the group's admins.
+        if (q.length === 0 || "admins".indexOf(q) === 0) {
+            results.push({ jid: "", displayName: "admins", label: "Admins", avatar: "", isAll: false, isAdmins: true })
+        }
         for (const member of root.mentionMembers) {
             const name = member.display_name || member.phone || member.jid
             if (q.length === 0 || name.toLowerCase().indexOf(q) >= 0) {
@@ -313,7 +346,7 @@ Frame {
         input.remove(start, end)
         input.insert(start, inserted)
         const updated = root.pendingMentions.slice()
-        updated.push({ jid: item.jid, displayName: item.displayName, isAll: item.isAll === true })
+        updated.push({ jid: item.jid, displayName: item.displayName, isAll: item.isAll === true, isAdmins: item.isAdmins === true })
         root.pendingMentions = updated
         root.hideSuggestions()
     }
@@ -334,6 +367,14 @@ Frame {
             if (mention.isAll) {
                 for (const member of root.mentionMembers) {
                     if (member.jid && jids.indexOf(member.jid) < 0) {
+                        jids.push(member.jid)
+                    }
+                }
+                continue
+            }
+            if (mention.isAdmins) {
+                for (const member of root.mentionMembers) {
+                    if ((member.role === "admin" || member.role === "superadmin") && member.jid && jids.indexOf(member.jid) < 0) {
                         jids.push(member.jid)
                     }
                 }
@@ -758,6 +799,18 @@ Frame {
                             return
                         }
 
+                        // *bold*, _italic_, ~strike~: wrap the selection (or
+                        // the word under the cursor) like WhatsApp Desktop.
+                        if ((event.modifiers & Qt.ControlModifier) || (event.modifiers & Qt.MetaModifier)) {
+                            const mark = event.key === Qt.Key_B ? "*"
+                                : event.key === Qt.Key_I ? "_"
+                                : event.key === Qt.Key_U ? "~" : ""
+                            if (mark.length > 0) {
+                                root.wrapSelectionWith(mark)
+                                event.accepted = true
+                                return
+                            }
+                        }
                         if ((event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab)
                                 && root.suggestionsActive) {
                             root.cycleSuggestion(event.key === Qt.Key_Backtab ? -1 : 1)
@@ -1027,10 +1080,15 @@ Frame {
             Whatevr.I18n.i18nc("@item:inlistbox", "Videos (*.mp4 *.mov *.webm *.3gp)"),
             Whatevr.I18n.i18nc("@item:inlistbox", "All files (*)")
         ]
-        fileMode: Platform.FileDialog.OpenFile
+        fileMode: Platform.FileDialog.OpenFiles
         onAccepted: {
             root.setComposing(false)
-            root.sendImageRequested(file, root.inputPlainText(), root.replyToMessageId, "", root.viewOnceSend)
+            const caption = root.inputPlainText()
+            const replyTo = root.replyToMessageId
+            const once = root.viewOnceSend
+            for (let i = 0; i < files.length; ++i) {
+                root.sendImageRequested(files[i], i === 0 ? caption : "", replyTo, "", once)
+            }
             root.viewOnceSend = false
             root.replyConsumed()
             input.clear()
@@ -1045,10 +1103,15 @@ Frame {
         nameFilters: [
             Whatevr.I18n.i18nc("@item:inlistbox", "All files (*)")
         ]
-        fileMode: Platform.FileDialog.OpenFile
+        fileMode: Platform.FileDialog.OpenFiles
         onAccepted: {
             root.setComposing(false)
-            root.sendImageRequested(file, root.inputPlainText(), root.replyToMessageId, "document", root.viewOnceSend)
+            const caption = root.inputPlainText()
+            const replyTo = root.replyToMessageId
+            const once = root.viewOnceSend
+            for (let i = 0; i < files.length; ++i) {
+                root.sendImageRequested(files[i], i === 0 ? caption : "", replyTo, "document", once)
+            }
             root.viewOnceSend = false
             root.replyConsumed()
             input.clear()
@@ -1064,10 +1127,15 @@ Frame {
             Whatevr.I18n.i18nc("@item:inlistbox", "Audio (*.ogg *.oga *.opus *.mp3 *.m4a *.aac *.wav *.flac *.amr)"),
             Whatevr.I18n.i18nc("@item:inlistbox", "All files (*)")
         ]
-        fileMode: Platform.FileDialog.OpenFile
+        fileMode: Platform.FileDialog.OpenFiles
         onAccepted: {
             root.setComposing(false)
-            root.sendImageRequested(file, root.inputPlainText(), root.replyToMessageId, "audio", root.viewOnceSend)
+            const caption = root.inputPlainText()
+            const replyTo = root.replyToMessageId
+            const once = root.viewOnceSend
+            for (let i = 0; i < files.length; ++i) {
+                root.sendImageRequested(files[i], i === 0 ? caption : "", replyTo, "audio", once)
+            }
             root.viewOnceSend = false
             root.replyConsumed()
             input.clear()

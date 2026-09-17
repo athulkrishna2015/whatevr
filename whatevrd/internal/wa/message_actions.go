@@ -241,7 +241,7 @@ func (c *Client) RevokeMessage(ctx context.Context, messageID string) (appstore.
 		return appstore.Message{}, app.NewCommandError(app.CommandErrorRejected, "delete for everyone failed: %v", err)
 	}
 
-	updated, chat, changed, err := c.store.MarkMessageRevoked(ctx, message.ID)
+	updated, chat, changed, err := c.store.MarkMessageRevoked(ctx, message.ID, c.appPreferences().AntiDelete)
 	if err != nil {
 		return appstore.Message{}, err
 	}
@@ -302,6 +302,17 @@ func (c *Client) EditMessage(ctx context.Context, messageID, newText string) (ap
 		c.daemon.PublishChatUpdated(toDaemonChat(chat))
 	}
 	return updated, nil
+}
+
+// ListMessageEdits returns a message's superseded bodies, oldest first. The
+// live row holds the current version; the frontend appends it as "current"
+// when rendering the history dialog.
+func (c *Client) ListMessageEdits(ctx context.Context, messageID string) ([]appstore.MessageEdit, error) {
+	messageID = strings.TrimSpace(messageID)
+	if messageID == "" {
+		return nil, app.NewCommandError(app.CommandErrorInvalidArgument, "message_id is required")
+	}
+	return c.store.ListMessageEdits(ctx, messageID)
 }
 
 // ForwardMessage queues copies of a stored message to the target chats via

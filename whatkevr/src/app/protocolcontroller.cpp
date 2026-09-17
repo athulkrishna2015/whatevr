@@ -395,6 +395,11 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
     connect(m_statusModel, &CollectionViewModel::countChanged, this, &ProtocolController::statusChanged);
     connect(m_statusModel, &CollectionViewModel::readyChanged, this, &ProtocolController::statusChanged);
     connect(m_statusModel, &CollectionViewModel::modelReset, this, &ProtocolController::statusChanged);
+    // Kept senders ride the status tab's lifetime; any churn rebuilds groups.
+    m_keptStatusModel = new CollectionViewModel(this);
+    connect(m_keptStatusModel, &CollectionViewModel::countChanged, this, &ProtocolController::statusChanged);
+    connect(m_keptStatusModel, &CollectionViewModel::readyChanged, this, &ProtocolController::statusChanged);
+    connect(m_keptStatusModel, &CollectionViewModel::modelReset, this, &ProtocolController::statusChanged);
     m_callsModel = new CollectionViewModel(this);
     connect(m_callsModel, &CollectionViewModel::countChanged, this, &ProtocolController::callsChanged);
     connect(m_callsModel, &CollectionViewModel::readyChanged, this, &ProtocolController::callsChanged);
@@ -649,6 +654,8 @@ QString ProtocolController::chatFilterName() const
         return QStringLiteral("direct");
     case 2:
         return QStringLiteral("groups");
+    case 3:
+        return QStringLiteral("unread");
     default:
         return QStringLiteral("all");
     }
@@ -757,7 +764,7 @@ bool ProtocolController::chatTyping(const QString &chatId) const
 
 void ProtocolController::setChatFilter(int filter)
 {
-    if (filter < 0 || filter > 2) {
+    if (filter < 0 || filter > 3) {
         filter = 0;
     }
     if (filter == m_chatFilter) {
@@ -2454,6 +2461,40 @@ void ProtocolController::openStatus()
     Q_EMIT statusChanged();
 }
 
+QAbstractItemModel *ProtocolController::keptStatusModel() const
+{
+    return m_keptStatusModel;
+}
+
+void ProtocolController::setStatusKeepSender(const QString &senderId, bool kept)
+{
+    if (senderId.isEmpty()) {
+        return;
+    }
+    // Ack-then-lifecycle like markStatusViewed: the `status.kept` view (and
+    // the `status` view) refresh off the StatusChanged event the command
+    // publishes.
+    sendMessageCommand(QStringLiteral("status.keep_sender"),
+                       {{QStringLiteral("sender_id"), senderId}, {QStringLiteral("kept"), kept}},
+                       i18nc("@info", "Unable to update the keep setting"));
+}
+
+void ProtocolController::requestEditHistory(const QString &messageId)
+{
+    if (messageId.isEmpty()) {
+        return;
+    }
+    m_client->request(QStringLiteral("message.edit_history"), {{QStringLiteral("message_id"), messageId}},
+                      [this, messageId](const QJsonObject &result, const ProtocolError &error) {
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(error.message.isEmpty() ? i18nc("@info", "Unable to load edit history")
+                                                                                 : error.message);
+                              return;
+                          }
+                          Q_EMIT editHistoryReady(messageId, result.value(QStringLiteral("edits")).toArray().toVariantList());
+                      });
+}
+
 void ProtocolController::closeStatus()
 {
     if (!m_statusSub) {
@@ -2462,6 +2503,9 @@ void ProtocolController::closeStatus()
     delete m_statusSub;
     m_statusSub = nullptr;
     m_statusModel->onReset();
+    delete m_keptStatusSub;
+    m_keptStatusSub = nullptr;
+    m_keptStatusModel->onReset();
     Q_EMIT statusChanged();
 }
 
@@ -3256,7 +3300,8 @@ void ProtocolController::setAppPreference(const QString &key, bool value)
         QStringLiteral("notifications_enabled"), QStringLiteral("notification_sound"),
         QStringLiteral("notification_preview"), QStringLiteral("auto_download_photos"),
         QStringLiteral("auto_download_videos"), QStringLiteral("auto_download_audio"),
-        QStringLiteral("auto_download_documents"), QStringLiteral("auto_download_stickers")};
+        QStringLiteral("auto_download_documents"), QStringLiteral("auto_download_stickers"),
+        QStringLiteral("anti_delete"), QStringLiteral("send_typing_indicators")};
     if (!keys.contains(key)) {
         return;
     }
@@ -3791,8 +3836,7 @@ int ProtocolController::previousGraphemeBoundary(const QString &text, int cursor
 }
 
 void ProtocolController::handleCommandLine(const QStringList &arguments)
-{
-    QString uri;
+{    QString uri;
     for (const QString &arg : arguments) {
         if (arg.startsWith(QStringLiteral("whatevr:"), Qt::CaseInsensitive)) {
             uri = arg;
@@ -3804,6 +3848,20 @@ void ProtocolController::handleCommandLine(const QStringList &arguments)
         return;
     }
     openChatFromUri(uri);
+}
+
+void ProtocolController::openChatInNewWindow(const QString &chatId)
+{
+    if (chatId.isEmpty()) {
+        return;
+    }
+    // A second process with its own controller and daemon connection; the
+    // deep link selects the chat once its shell is up (same path as a
+    // notification cold-start).
+    const QString link = QStringLiteral("whatevr://chat/")
+        + QString::fromUtf8(QUrl::toPercentEncoding(chatId));
+    QProcess::startDetached(QCoreApplication::applicationFilePath(),
+                            {QStringLiteral("--new-window"), link});
 }
 
 void ProtocolController::openChatFromUri(const QString &uri)

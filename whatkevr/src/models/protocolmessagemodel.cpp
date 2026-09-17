@@ -323,6 +323,8 @@ QVariant ProtocolMessageModel::data(const QModelIndex &index, int role) const
         return senderData().value(QStringLiteral("avatar_path")).toString();
     case SenderInitialsRole:
         return initialsForName(senderDisplayName(item));
+    case SenderDeviceRole:
+        return senderData().value(QStringLiteral("device")).toInt();
     case TextRole:
         return displayText(item);
     case LayoutTextRole: {
@@ -496,6 +498,7 @@ QHash<int, QByteArray> ProtocolMessageModel::roleNames() const
         {SenderNameRole, "senderName"},
         {SenderAvatarLocalPathRole, "senderAvatarLocalPath"},
         {SenderInitialsRole, "senderInitials"},
+        {SenderDeviceRole, "senderDevice"},
         {TextRole, "text"},
         {LayoutTextRole, "layoutText"},
         {EmojiOnlyCountRole, "emojiOnlyCount"},
@@ -924,6 +927,7 @@ QVariantMap ProtocolMessageModel::messageSnapshot(const QString &messageId) cons
         {QStringLiteral("richText"), presentation.fullMarkup.richText},
         {QStringLiteral("links"), presentation.links},
         {QStringLiteral("senderName"), senderDisplayName(item)},
+        {QStringLiteral("senderDevice"), data(index(row, 0), SenderDeviceRole)},
         {QStringLiteral("isOutgoing"), item.value(QStringLiteral("direction")).toString() == QLatin1String("outgoing")},
         {QStringLiteral("timestampUnix"), item.value(QStringLiteral("timestamp"))},
         {QStringLiteral("mediaKind"), mediaKind(item)},

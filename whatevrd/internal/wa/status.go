@@ -116,6 +116,8 @@ func (c *Client) recordStatusViewers(ctx context.Context, evt *events.Receipt) {
 
 // MarkStatusViewed flags a status as seen locally and publishes it. Viewed
 // receipts to the sender are not sent yet; this only drives local state.
+// Opening a status marks it viewed, so this also kicks off its media download
+// (best-effort, background): viewed-but-never-downloaded rows cannot linger.
 func (c *Client) MarkStatusViewed(ctx context.Context, statusID string) (appstore.StatusUpdate, error) {
 	statusID = strings.TrimSpace(statusID)
 	if statusID == "" {
@@ -126,6 +128,14 @@ func (c *Client) MarkStatusViewed(ctx context.Context, statusID string) (appstor
 		return appstore.StatusUpdate{}, err
 	}
 	c.daemon.PublishStatusChanged()
+	if updated.MediaKind != "" && updated.Kind != "text" && strings.TrimSpace(updated.MediaLocalPath) == "" {
+		id := updated.ID
+		go func() {
+			if _, err := c.DownloadStatusMedia(c.backgroundContext(), id); err != nil {
+				c.log.Warnf("Auto-download on viewed status %s: %v", id, err)
+			}
+		}()
+	}
 	return updated, nil
 }
 
@@ -259,6 +269,26 @@ func (c *Client) DeleteStatus(ctx context.Context, statusID string) error {
 
 func (c *Client) ListStatusViewers(ctx context.Context, statusID string) ([]appstore.StatusViewer, error) {
 	return c.store.ListStatusViewers(ctx, strings.TrimSpace(statusID))
+}
+
+// SetStatusKeepSender pins (or unpins) a contact's expired statuses: kept
+// senders grow an archived section in the Status tab instead of having their
+// older statuses hidden once past 24h.
+func (c *Client) SetStatusKeepSender(ctx context.Context, senderID string, kept bool) error {
+	senderID = strings.TrimSpace(senderID)
+	if senderID == "" {
+		return app.NewCommandError(app.CommandErrorInvalidArgument, "sender_id is required")
+	}
+	if err := c.store.SetStatusKeepSender(ctx, senderID, kept); err != nil {
+		return err
+	}
+	c.daemon.PublishStatusChanged()
+	return nil
+}
+
+// ListKeptStatusSenders returns the sender ids with status keep enabled.
+func (c *Client) ListKeptStatusSenders(ctx context.Context) ([]string, error) {
+	return c.store.ListKeptStatusSenders(ctx)
 }
 
 // ReplyToStatus sends a chat message to the status author quoting their

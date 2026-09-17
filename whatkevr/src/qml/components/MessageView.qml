@@ -472,10 +472,9 @@ Item {
         editMessageRequested(String(snapshot.messageId), String(snapshot.text || ""))
     }
 
-    function openMessageInfo(messageId) {
-        messageInfoDialog.openFor(messageId)
+    function openMessageInfo(messageId, senderDevice) {
+        messageInfoDialog.openFor(messageId, senderDevice || 0)
     }
-
     function confirmDeleteSelection(forEveryone) {
         if (selectedCount > 0) {
             deleteConfirmDialog.openFor(selectedMessageIdList(), forEveryone)
@@ -2129,6 +2128,7 @@ Item {
         readonly property real ctxTimestampUnix: ctxValid ? Number(ctx.timestampUnix || 0) : 0
         readonly property bool ctxMediaDownloading: ctxValid && Boolean(ctx.mediaDownloading)
         readonly property string ctxMediaDownloadError: ctxValid ? String(ctx.mediaDownloadError || "") : ""
+        readonly property int ctxSenderDevice: ctxValid ? Number(ctx.senderDevice || 0) : 0
         // Anything with media that is not on disk and not already coming down.
         readonly property bool ctxCanDownload: !ctxIsRevoked
                                                && !ctxHasMediaFile
@@ -2138,6 +2138,7 @@ Item {
         readonly property bool ctxHasText: ctxText.length > 0 && !ctxIsRevoked
         readonly property bool ctxIsStarred: ctxValid && Boolean(ctx.isStarred)
         readonly property bool ctxIsPinned: ctxValid && Boolean(ctx.isPinned)
+        readonly property bool ctxIsEdited: ctxValid && Boolean(ctx.isEdited)
         readonly property bool ctxCanReply: root.canReplyToSnapshot(ctx)
         readonly property bool ctxCanRevoke: root.canRevokeSnapshot(ctx)
         readonly property bool ctxCanEdit: root.canEditSnapshot(ctx)
@@ -2281,6 +2282,13 @@ Item {
             text: Whatevr.I18n.i18nc("@action:inmenu", "Edit")
             visible: messageContextMenu.ctxCanEdit
             onTriggered: root.editSnapshot(messageContextMenu.ctx)
+        }
+
+        MenuItem {
+            icon.name: "view-history-symbolic"
+            text: Whatevr.I18n.i18nc("@action:inmenu show previous versions of an edited message", "Edit history")
+            visible: messageContextMenu.ctxIsEdited
+            onTriggered: editHistoryDialog.openFor(messageContextMenu.ctxMessageId, messageContextMenu.ctxText)
         }
 
         MenuItem {
@@ -2533,7 +2541,7 @@ Item {
             icon.name: "documentinfo-symbolic"
             text: Whatevr.I18n.i18nc("@action:inmenu delivery/read details", "Info")
             visible: messageContextMenu.ctxOutgoing
-            onTriggered: root.openMessageInfo(messageContextMenu.ctxMessageId)
+            onTriggered: root.openMessageInfo(messageContextMenu.ctxMessageId, messageContextMenu.ctxSenderDevice)
         }
 
         MenuSeparator {}
@@ -2701,6 +2709,10 @@ Item {
 
     ReactionDetailsDialog {
         id: reactionDetailsDialog
+    }
+
+    EditHistoryDialog {
+        id: editHistoryDialog
     }
 
     MessageContentDialog {

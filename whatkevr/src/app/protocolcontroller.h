@@ -202,6 +202,10 @@ class ProtocolController final : public QObject
     Q_PROPERTY(QAbstractItemModel *statusModel READ statusModel CONSTANT FINAL)
     Q_PROPERTY(bool statusLoading READ statusLoading NOTIFY statusChanged FINAL)
     Q_PROPERTY(bool statusExhausted READ statusExhausted NOTIFY statusChanged FINAL)
+    // Status keep: the `status.kept` view, subscribed alongside the status
+    // page. One row per keep-enabled sender id; the page archives those
+    // contacts' expired statuses instead of hiding them.
+    Q_PROPERTY(QAbstractItemModel *keptStatusModel READ keptStatusModel CONSTANT FINAL)
 
     // Calls tab: the `calls` view, subscribed while the calls page is on
     // screen. One item per ringing call; callsRingingCount drives the rail
@@ -454,6 +458,9 @@ public:
     Q_INVOKABLE void postStatusMedia(const QString &fileUrl, const QString &caption);
     // Maps to `status.download`; the row upserts with media.path on success.
     Q_INVOKABLE void downloadStatus(const QString &statusId);
+    // Maps to `status.keep_sender`; kept contacts grow an archived section.
+    Q_INVOKABLE void setStatusKeepSender(const QString &senderId, bool kept);
+    [[nodiscard]] QAbstractItemModel *keptStatusModel() const;
     // Subscribe/drop the `calls` view for the calls tab's lifetime.
     Q_INVOKABLE void openCalls();
     Q_INVOKABLE void closeCalls();
@@ -606,6 +613,9 @@ public:
 
     Q_INVOKABLE void sendReaction(const QString &messageId, const QString &emoji);
     Q_INVOKABLE void editMessage(const QString &messageId, const QString &newText);
+    // Maps to `message.edit_history`; answers through editHistoryReady with
+    // the superseded bodies, oldest first (the live row is the current one).
+    Q_INVOKABLE void requestEditHistory(const QString &messageId);
     Q_INVOKABLE void revokeMessage(const QString &messageId);
     Q_INVOKABLE void deleteMessageForMe(const QString &messageId);
     Q_INVOKABLE void setMessageStarred(const QString &messageId, bool starred);
@@ -682,6 +692,9 @@ public:
     // `whatevr://chat/<id>` URL selects that chat once the shell is up;
     // anything else just raises the window.
     void handleCommandLine(const QStringList &arguments);
+    // Pop a conversation into its own window: launches a second whatkevr
+    // process showing this chat (deep link applied once its shell is up).
+    Q_INVOKABLE void openChatInNewWindow(const QString &chatId);
 
     // The daemon's protocol socket, `$XDG_RUNTIME_DIR/whatevr/whatevrd.sock`.
     // Empty if XDG_RUNTIME_DIR is unset.
@@ -741,6 +754,9 @@ Q_SIGNALS:
     void messageForwarded(int chatCount);
     void messageJumpReady(const QString &messageId);
     void messageJumpUnavailable(const QString &messageId);
+    // Answer to requestEditHistory: edits are {text, edited_at} maps, oldest
+    // first; failures surface through messageActionFailed instead.
+    void editHistoryReady(const QString &messageId, const QVariantList &edits);
     // The user put a message into the open chat's timeline (text, media or
     // sticker — not a reaction). The timeline uses it to follow the live edge
     // again when Settings.snapToBottomOnSend is set. Emitted when the command
@@ -794,7 +810,7 @@ private:
     // Clears the models first so a filter switch never briefly shows the old
     // filter's rows.
     void subscribeChats();
-    // "all" / "direct" / "groups" for the current m_chatFilter (0/1/2).
+    // "all" / "direct" / "groups" / "unread" for the current m_chatFilter (0/1/2/3).
     [[nodiscard]] QString chatFilterName() const;
 
     // Recompute the derived history-sync strip state from the `sync` view item.
@@ -866,6 +882,7 @@ private:
     whatevr::proto::CollectionViewModel *m_starredModel = nullptr;
     whatevr::proto::CollectionViewModel *m_chatMediaModel = nullptr;
     whatevr::proto::CollectionViewModel *m_statusModel = nullptr;
+    whatevr::proto::CollectionViewModel *m_keptStatusModel = nullptr;
     whatevr::proto::CollectionViewModel *m_callsModel = nullptr;
     whatevr::proto::CollectionViewModel *m_channelsModel = nullptr;
     whatevr::proto::CollectionViewModel *m_channelMessagesModel = nullptr;
@@ -897,6 +914,7 @@ private:
     whatevr::proto::Subscription *m_starredSub = nullptr;
     whatevr::proto::Subscription *m_chatMediaSub = nullptr;
     whatevr::proto::Subscription *m_statusSub = nullptr;
+    whatevr::proto::Subscription *m_keptStatusSub = nullptr;
     whatevr::proto::Subscription *m_callsSub = nullptr;
     whatevr::proto::Subscription *m_channelsSub = nullptr;
     whatevr::proto::Subscription *m_channelMessagesSub = nullptr;
@@ -908,7 +926,7 @@ private:
     whatevr::proto::Subscription *m_privacySub = nullptr;
     whatevr::proto::Subscription *m_preferencesSub = nullptr;
     whatevr::proto::Subscription *m_selfSub = nullptr;
-    int m_chatFilter = 0; // 0 = all, 1 = direct, 2 = groups
+    int m_chatFilter = 0; // 0 = all, 1 = direct, 2 = groups, 3 = unread
     int m_typingRevision = 0;
 
     // Derived history-sync strip state (see recomputeHistorySync).

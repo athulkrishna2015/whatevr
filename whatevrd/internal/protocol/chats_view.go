@@ -94,7 +94,7 @@ func (v chatsView) Open(params json.RawMessage, invalidate func()) (ViewSession,
 	}
 	kind, ok := normalizeChatFilter(p.Filter)
 	if !ok {
-		return nil, nil, errorf(CodeInvalidParams, "filter must be one of all, direct, groups")
+		return nil, nil, errorf(CodeInvalidParams, "filter must be one of all, direct, groups, unread")
 	}
 
 	events, cancel := v.daemon.SubscribeDaemonEvents()
@@ -119,6 +119,8 @@ func normalizeChatFilter(filter string) (string, bool) {
 		return store.ChatFilterDirect, true
 	case store.ChatFilterGroups:
 		return store.ChatFilterGroups, true
+	case store.ChatFilterUnread:
+		return store.ChatFilterUnread, true
 	default:
 		return "", false
 	}

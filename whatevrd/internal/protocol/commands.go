@@ -97,6 +97,7 @@ type CommandActions interface {
 	SendReaction(context.Context, string, string) (appstore.Message, error)
 	EditMessage(context.Context, string, string) (appstore.Message, error)
 	RevokeMessage(context.Context, string) (appstore.Message, error)
+	ListMessageEdits(context.Context, string) ([]appstore.MessageEdit, error)
 	DeleteMessageForMe(context.Context, string) error
 	SetMessageStarred(context.Context, string, bool) (appstore.Message, error)
 	PinMessage(context.Context, string, bool, uint32) (appstore.Message, error)
@@ -113,6 +114,8 @@ type CommandActions interface {
 	ReplyToStatus(context.Context, string, string) (appstore.SavedTextMessage, error)
 	DeleteStatus(context.Context, string) error
 	ListStatusViewers(context.Context, string) ([]appstore.StatusViewer, error)
+	SetStatusKeepSender(context.Context, string, bool) error
+	ListKeptStatusSenders(context.Context) ([]string, error)
 
 	CreateGroup(context.Context, string, []string, string) (appstore.Chat, error)
 	LeaveGroup(context.Context, string) error
@@ -183,6 +186,7 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("message.vote", backgroundNet(cmd.messageVote, false))
 	s.RegisterCommand("message.react", backgroundNet(cmd.messageReact, false))
 	s.RegisterCommand("message.edit", backgroundNet(cmd.messageEdit, false))
+	s.RegisterCommand("message.edit_history", cmd.messageEditHistory)
 	s.RegisterCommand("message.revoke", backgroundNet(cmd.messageRevoke, false))
 	s.RegisterCommand("message.delete", cmd.messageDelete)
 	s.RegisterCommand("message.star", backgroundNet(cmd.messageStar, false))
@@ -198,6 +202,7 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("status.post", backgroundNet(cmd.statusPost, false))
 	s.RegisterCommand("status.download", cmd.statusDownload)
 	s.RegisterCommand("status.reply", backgroundNet(cmd.statusReply, false))
+	s.RegisterCommand("status.keep_sender", cmd.statusKeepSender)
 	s.RegisterCommand("status.delete", backgroundNet(cmd.statusDelete, false))
 	s.RegisterCommand("group.create", backgroundNet(cmd.groupCreate, false))
 	s.RegisterCommand("group.leave", backgroundNet(cmd.groupLeave, false))

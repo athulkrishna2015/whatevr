@@ -15,9 +15,9 @@ Kirigami.Page {
     // default. Hiding it clears any active query.
     property bool searchBarVisible: false
 
-    // Sidebar chat-type filter: 0 = Home (all), 1 = DMs, 2 = Groups. This is a
-    // daemon-side `chats` subscribe param, so changing it re-subscribes — the
-    // frontend never filters the list itself.
+    // Sidebar chat-type filter: 0 = Home (all), 1 = DMs, 2 = Groups,
+    // 3 = Unread. A daemon-side `chats` subscribe param, so changing it
+    // re-subscribes — the frontend never filters the list itself.
     property int activeFilter: 0
     onActiveFilterChanged: Whatevr.ProtocolController.chatFilter = activeFilter
     Component.onCompleted: Whatevr.ProtocolController.chatFilter = activeFilter
@@ -272,6 +272,7 @@ Kirigami.Page {
                             Whatevr.ProtocolController.selectChat(id)
                             root.chatSelected(id)
                         }
+                        onOpenInNewWindowRequested: id => Whatevr.ProtocolController.openChatInNewWindow(id)
                         onPinToggled: (id, pinned) => Whatevr.ProtocolController.setChatPinned(id, pinned)
                         onContextMenuRequested: (id, pinned, archived, muted, x, y) => {
                             chatList.contextChatId = id

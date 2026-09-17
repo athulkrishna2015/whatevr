@@ -125,6 +125,11 @@ func (fixtureCommands) DeleteStatus(context.Context, string) error { return nil 
 func (fixtureCommands) ListStatusViewers(context.Context, string) ([]appstore.StatusViewer, error) {
 	return nil, nil
 }
+func (fixtureCommands) ListMessageEdits(_ context.Context, messageID string) ([]appstore.MessageEdit, error) {
+	return []appstore.MessageEdit{{MessageID: messageID}}, nil
+}
+func (fixtureCommands) SetStatusKeepSender(context.Context, string, bool) error { return nil }
+func (fixtureCommands) ListKeptStatusSenders(context.Context) ([]string, error) { return nil, nil }
 func (fixtureCommands) SendPoll(_ context.Context, chatID, question string, options []string, multi bool) (appstore.SavedTextMessage, error) {
 	return appstore.SavedTextMessage{Message: appstore.Message{ID: chatID + ":poll", ChatID: chatID, Text: question}}, nil
 }

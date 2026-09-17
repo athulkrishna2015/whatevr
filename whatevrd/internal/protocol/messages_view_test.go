@@ -114,7 +114,7 @@ func TestMessagesViewRevokeAsUpsert(t *testing.T) {
 	c.expectUpsert(sub, id)
 	c.expectReady(sub, true)
 
-	if _, _, _, err := db.MarkMessageRevoked(ctx, id); err != nil {
+	if _, _, _, err := db.MarkMessageRevoked(ctx, id, false); err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
 	daemon.PublishMessageUpdated(app.Message{ID: id, ChatID: chat, IsRevoked: true})

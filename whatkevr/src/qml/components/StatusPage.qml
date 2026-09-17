@@ -25,10 +25,25 @@ Kirigami.ScrollablePage {
 
     // Contact groups rebuilt from the flat model: newest status first, so the
     // first time a sender appears is its recency rank. Each entry: {senderId,
-    // senderName, latest, total, unviewed, statusIds}.
+    // senderName, latest, total, unviewed, statusIds, section, kept}. Recent
+    // contacts (anything newer than 24h) sort under "Recent"; kept contacts
+    // whose statuses all expired move to "Archived" instead of vanishing.
     property var contactGroups: []
+    // Keep-enabled sender ids from the `status.kept` view, as a lookup map.
+    property var keptSenders: ({})
+
+    // WhatsApp statuses live 24 hours; older rows are archive material.
+    readonly property int statusExpirySecs: 24 * 60 * 60
 
     function rebuildGroups() {
+        const kept = {}
+        const kmodel = Whatevr.ProtocolController.keptStatusModel
+        const kcount = kmodel ? kmodel.count : 0
+        for (let i = 0; i < kcount; ++i) {
+            kept[kmodel.idAt(i)] = true
+        }
+        root.keptSenders = kept
+
         const model = Whatevr.ProtocolController.statusModel
         const groups = []
         const bySender = {}
@@ -71,7 +86,25 @@ Kirigami.ScrollablePage {
                 group.latest = item.timestamp
             }
         }
-        root.contactGroups = groups
+        const now = Math.floor(Date.now() / 1000)
+        const recent = []
+        const archived = []
+        for (let i = 0; i < groups.length; ++i) {
+            const group = groups[i]
+            const expired = (now - group.latest) > root.statusExpirySecs
+            group.kept = Boolean(kept[group.senderId])
+            if (expired && !group.kept) {
+                continue
+            }
+            if (expired) {
+                group.section = Whatevr.I18n.i18nc("@title:section expired kept statuses", "Archived")
+                archived.push(group)
+            } else {
+                group.section = Whatevr.I18n.i18nc("@title:section recent statuses", "Recent")
+                recent.push(group)
+            }
+        }
+        root.contactGroups = recent.concat(archived)
     }
 
     function contactLabel(group) {
@@ -133,6 +166,17 @@ Kirigami.ScrollablePage {
         model: root.contactGroups
         currentIndex: -1
         reuseItems: true
+
+        section.property: "section"
+        section.delegate: QQC2.Label {
+            required property string section
+
+            text: section
+            font.weight: Font.DemiBold
+            color: Kirigami.Theme.disabledTextColor
+            leftPadding: Kirigami.Units.largeSpacing
+            topPadding: Kirigami.Units.largeSpacing
+        }
 
         onAtYEndChanged: if (atYEnd) {
             Whatevr.ProtocolController.loadMoreStatus()
@@ -212,6 +256,17 @@ Kirigami.ScrollablePage {
                         color: Kirigami.Theme.disabledTextColor
                         elide: Text.ElideRight
                     }
+                }
+
+                // Per-contact keep: expired statuses of kept contacts collect
+                // under Archived instead of vanishing after 24 hours.
+                QQC2.ToolButton {
+                    icon.name: statusDelegate.group.kept ? "bookmark-symbolic" : "bookmark-new-symbolic"
+                    text: Whatevr.I18n.i18nc("@action:button keep a contact's expired statuses", "Keep")
+                    display: QQC2.AbstractButton.IconOnly
+                    checkable: true
+                    checked: statusDelegate.group.kept
+                    onToggled: Whatevr.ProtocolController.setStatusKeepSender(statusDelegate.group.senderId, checked)
                 }
             }
         }

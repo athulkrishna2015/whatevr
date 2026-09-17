@@ -93,6 +93,7 @@ public:
         LocationLngRole,
         LocationNameRole,
         LocationAddressRole,
+        SenderDeviceRole,
     };
     Q_ENUM(Role)
 

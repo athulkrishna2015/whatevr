@@ -53,6 +53,9 @@ Item {
     required property bool mediaPlayed
     required property bool isRevoked
     required property bool isEdited
+    // Sender device id: 0 is the primary phone app, anything else a linked
+    // device (Web/Desktop or another companion). Drives the footer mark.
+    required property int senderDevice
     required property bool isStarred
     required property bool isPinned
     required property bool mediaDownloading
@@ -515,6 +518,17 @@ Item {
     readonly property bool showEditMark: isEdited && !isRevoked
     readonly property real editMarkSize: Math.max(1, Math.round(footerMetrics.height * 0.92))
     readonly property real editMarkReserve: showEditMark ? editMarkSize + tntSpacing : 0
+    // A small trash shown for a deleted message whose content was kept
+    // (anti-delete): the body stays readable, so the mark is what tells it
+    // apart from an ordinary message.
+    readonly property bool showDeletedMark: isRevoked && hasBody
+    readonly property real deletedMarkSize: Math.max(1, Math.round(footerMetrics.height * 0.92))
+    readonly property real deletedMarkReserve: showDeletedMark ? deletedMarkSize + tntSpacing : 0
+    // A small device shown when the sender wrote from a linked device rather
+    // than their primary phone app (senderDevice > 0).
+    readonly property bool showLinkedMark: senderDevice > 0
+    readonly property real linkedMarkSize: Math.max(1, Math.round(footerMetrics.height * 0.92))
+    readonly property real linkedMarkReserve: showLinkedMark ? linkedMarkSize + tntSpacing : 0
     // A small star shown left of the edit mark / timestamp when the message is
     // starred (mirrors the edit-mark reserve so the footer width stays correct).
     readonly property bool showStarMark: isStarred && !isRevoked
@@ -526,11 +540,15 @@ Item {
     readonly property real pinMarkReserve: showPinMark ? pinMarkSize + tntSpacing : 0
     readonly property real tntWidth: Math.ceil(footerMetrics.advanceWidth
                                                + editMarkReserve
+                                               + deletedMarkReserve
+                                               + linkedMarkReserve
                                                + starMarkReserve
                                                + pinMarkReserve
                                                + (showStatusIcon ? statusAreaWidth + tntSpacing : 0))
     readonly property real tntHeight: Math.ceil(Math.max(footerMetrics.height, showStatusIcon ? statusIconSize : 0,
                                                          showEditMark ? editMarkSize : 0,
+                                                         showDeletedMark ? deletedMarkSize : 0,
+                                                         showLinkedMark ? linkedMarkSize : 0,
                                                          showStarMark ? starMarkSize : 0,
                                                          showPinMark ? pinMarkSize : 0))
     readonly property bool hasBody: body.length > 0
@@ -1851,7 +1869,7 @@ Item {
                 // together) are built only when at least one applies; the Row
                 // drops the ones that do not, so ordering stays automatic.
                 Loader {
-                    active: root.showPinMark || root.showStarMark || root.showEditMark
+                    active: root.showPinMark || root.showStarMark || root.showEditMark || root.showDeletedMark || root.showLinkedMark
                     anchors.right: timeLabel.left
                     anchors.rightMargin: root.tntSpacing
                     anchors.verticalCenter: parent.verticalCenter
@@ -1882,6 +1900,24 @@ Item {
                             source: "document-edit-symbolic"
                             width: root.editMarkSize
                             height: root.editMarkSize
+                            color: root.footerTextColor
+                            isMask: true
+                        }
+
+                        Kirigami.Icon {
+                            visible: root.showDeletedMark
+                            source: "edit-delete-remove-symbolic"
+                            width: root.deletedMarkSize
+                            height: root.deletedMarkSize
+                            color: root.footerTextColor
+                            isMask: true
+                        }
+
+                        Kirigami.Icon {
+                            visible: root.showLinkedMark
+                            source: "computer-symbolic"
+                            width: root.linkedMarkSize
+                            height: root.linkedMarkSize
                             color: root.footerTextColor
                             isMask: true
                         }

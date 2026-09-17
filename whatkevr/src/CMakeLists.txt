@@ -151,6 +151,7 @@ set(WHATKEVR_QML_FILES
         qml/components/MessageComposer.qml
         qml/components/CenteredDialog.qml
         qml/components/MessageInfoDialog.qml
+        qml/components/EditHistoryDialog.qml
         qml/components/MessageContentDialog.qml
         qml/components/ForwardChatPickerDialog.qml
         qml/components/ChatListSidebar.qml

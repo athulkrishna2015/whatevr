@@ -62,6 +62,7 @@ QVariantMap baseProps()
         {QStringLiteral("senderName"), QStringLiteral("Aditi")},
         {QStringLiteral("senderAvatarLocalPath"), QString()},
         {QStringLiteral("senderInitials"), QStringLiteral("A")},
+        {QStringLiteral("senderDevice"), 0},
         {QStringLiteral("showSenderHeader"), false},
         {QStringLiteral("showSenderAvatar"), false},
         {QStringLiteral("showSenderGutter"), false},

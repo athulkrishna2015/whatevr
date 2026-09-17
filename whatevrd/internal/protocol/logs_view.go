@@ -141,7 +141,7 @@ func (s *logsSession) assign(lines []string) []Item {
 		items = append(items, Item{
 			ID:   fmt.Sprintf("l:%d", seq),
 			Sort: fmt.Sprintf("%020d", seq),
-			Data: parseLogLine(line),
+			Data: withLogID(parseLogLine(line), fmt.Sprintf("l:%d", seq)),
 		})
 	}
 
@@ -159,6 +159,12 @@ func (s *logsSession) assign(lines []string) []Item {
 		}
 	}
 	return items
+}
+
+// withLogID stamps the envelope id into the row data (see logsItem).
+func withLogID(item logsItem, id string) logsItem {
+	item.ID = id
+	return item
 }
 
 // parseLogLine splits a std-log line ("2006/01/02 15:04:05 text") into the
@@ -189,9 +195,12 @@ func (s *logsSession) Close() {
 	s.closeOnce.Do(func() { close(s.done) })
 }
 
-// logsItem is one log row: the std-log timestamp, a best-effort severity, and
-// the message text.
+// logsItem is one log row: the daemon-assigned stable id plus the std-log
+// timestamp, a best-effort severity, and the message text. The id inside Data
+// is what CollectionViewModel keys rows by (rule 3): without it every row is
+// dropped and the Logs tab stays empty.
 type logsItem struct {
+	ID    string `json:"id"`
 	Time  string `json:"time"`
 	Level string `json:"level"`
 	Text  string `json:"text"`

@@ -188,6 +188,48 @@ func (db *DB) DeleteStatusUpdate(ctx context.Context, id string) error {
 	return err
 }
 
+// SetStatusKeepSender pins (or unpins) a contact's expired statuses: kept
+// senders grow an archived section in the Status tab instead of having their
+// older statuses hidden once past 24h.
+func (db *DB) SetStatusKeepSender(ctx context.Context, senderID string, kept bool) error {
+	defer db.timeOp("SetStatusKeepSender", time.Now())
+	if kept {
+		_, err := db.conn.ExecContext(ctx, `
+			INSERT INTO status_keep_senders (sender_id, kept_at)
+			VALUES (?, unixepoch())
+			ON CONFLICT(sender_id) DO UPDATE SET kept_at = unixepoch()
+		`, senderID)
+		return err
+	}
+	_, err := db.conn.ExecContext(ctx, `DELETE FROM status_keep_senders WHERE sender_id = ?`, senderID)
+	return err
+}
+
+// ListKeptStatusSenders returns the sender ids with status keep enabled,
+// oldest-kept first.
+func (db *DB) ListKeptStatusSenders(ctx context.Context) ([]string, error) {
+	defer db.timeOp("ListKeptStatusSenders", time.Now())
+	rows, err := db.reader().QueryContext(ctx, `
+		SELECT sender_id FROM status_keep_senders ORDER BY kept_at ASC, sender_id ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	kept := []string{}
+	for rows.Next() {
+		var senderID string
+		if err := rows.Scan(&senderID); err != nil {
+			return nil, err
+		}
+		kept = append(kept, senderID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return kept, nil
+}
+
 // PruneOldStatusUpdates drops statuses older than maxAge; WhatsApp statuses
 // expire after 24h, so anything older is dead weight.
 func (db *DB) PruneOldStatusUpdates(ctx context.Context, maxAge time.Duration) (int64, error) {

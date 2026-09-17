@@ -53,3 +53,21 @@ func TestStatusViewServesStoredStatuses(t *testing.T) {
 	}
 	c.expectReady(sub, true)
 }
+
+// The kept view lists one row per keep-enabled sender for the Status tab's
+// archived sections.
+func TestStatusKeptViewListsSenders(t *testing.T) {
+	socketPath, _, db := startChatsTestServer(t)
+	if err := db.SetStatusKeepSender(context.Background(), "peer@s.whatsapp.net", true); err != nil {
+		t.Fatalf("keep sender: %v", err)
+	}
+
+	c := dialTest(t, socketPath)
+	c.hello()
+	sub := c.subscribe(2, `{"view":"status.kept"}`)
+	first := c.expectUpsert(sub, "peer@s.whatsapp.net")["item"].(map[string]any)
+	if first["id"] != "peer@s.whatsapp.net" {
+		t.Fatalf("kept item = %v, want the sender id", first)
+	}
+	c.expectReady(sub, true)
+}

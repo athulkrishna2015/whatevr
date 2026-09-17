@@ -493,7 +493,7 @@ func TestMarkMessageRevokedClearsReplyContext(t *testing.T) {
 		t.Fatalf("save reply message: %v", err)
 	}
 
-	if _, _, changed, err := db.MarkMessageRevoked(ctx, "chat-1:reply-1"); err != nil {
+	if _, _, changed, err := db.MarkMessageRevoked(ctx, "chat-1:reply-1", false); err != nil {
 		t.Fatalf("mark revoked: %v", err)
 	} else if !changed {
 		t.Fatal("expected revoke to change the message")

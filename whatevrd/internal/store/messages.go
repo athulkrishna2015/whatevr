@@ -109,6 +109,10 @@ type Message struct {
 	SenderID                string
 	SenderName              string
 	SenderAvatarLocalPath   string
+	// SenderDevice is the sender's device id from the message envelope: 0 is
+	// the primary phone app, anything else a linked device (Web/Desktop or
+	// another companion). Powers the "sent from" indicator.
+	SenderDevice            uint16
 	Text                    string
 	TimestampUnix           int64
 	SortSeq                 int64
@@ -212,6 +216,7 @@ type TextMessageInput struct {
 	ChatNameSource string
 	SenderID       string
 	SenderName     string
+	SenderDevice   uint16
 	Text           string
 	Timestamp      time.Time
 	Direction      string
@@ -293,10 +298,10 @@ func saveTextMessageTx(ctx context.Context, tx *sql.Tx, input TextMessageInput) 
 	}
 
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO messages (id, chat_id, sender_id, text, timestamp, direction, is_read, status, is_forwarded, mentioned_jids, reply_to_message_id, reply_to_sender_id, reply_to_sender_name, reply_to_text, reply_to_media_kind, reply_to_media_mime_type, reply_to_direction)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO messages (id, chat_id, sender_id, sender_device, text, timestamp, direction, is_read, status, is_forwarded, mentioned_jids, reply_to_message_id, reply_to_sender_id, reply_to_sender_name, reply_to_text, reply_to_media_kind, reply_to_media_mime_type, reply_to_direction)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO NOTHING
-	`, input.ID, input.ChatID, input.SenderID, input.Text, input.Timestamp.Unix(), input.Direction, boolToInt(!input.CountUnread), input.Status, boolToInt(input.IsForwarded), encodeMentions(input.Mentions),
+	`, input.ID, input.ChatID, input.SenderID, input.SenderDevice, input.Text, input.Timestamp.Unix(), input.Direction, boolToInt(!input.CountUnread), input.Status, boolToInt(input.IsForwarded), encodeMentions(input.Mentions),
 		input.ReplyTo.MessageID, input.ReplyTo.SenderID, input.ReplyTo.SenderName, input.ReplyTo.Text, input.ReplyTo.MediaKind, input.ReplyTo.MediaMimeType, input.ReplyTo.Direction)
 	if err != nil {
 		return SavedTextMessage{}, err
@@ -454,10 +459,10 @@ func saveMediaMessageTx(ctx context.Context, tx *sql.Tx, input MediaMessageInput
 	}
 
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO messages (id, chat_id, sender_id, text, timestamp, direction, is_read, status, is_forwarded, mentioned_jids, media_kind, media_mime_type, media_local_path, media_thumbnail_local_path, media_width, media_height, media_animated, media_payload, media_cache_key, media_duration_secs, media_size_bytes, media_file_name, media_page_count, media_waveform, is_view_once, poll_data, poll_tally, geo_lat, geo_long, reply_to_message_id, reply_to_sender_id, reply_to_sender_name, reply_to_text, reply_to_media_kind, reply_to_media_mime_type, reply_to_direction)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO messages (id, chat_id, sender_id, sender_device, text, timestamp, direction, is_read, status, is_forwarded, mentioned_jids, media_kind, media_mime_type, media_local_path, media_thumbnail_local_path, media_width, media_height, media_animated, media_payload, media_cache_key, media_duration_secs, media_size_bytes, media_file_name, media_page_count, media_waveform, is_view_once, poll_data, poll_tally, geo_lat, geo_long, reply_to_message_id, reply_to_sender_id, reply_to_sender_name, reply_to_text, reply_to_media_kind, reply_to_media_mime_type, reply_to_direction)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO NOTHING
-	`, input.ID, input.ChatID, input.SenderID, input.Text, input.Timestamp.Unix(), input.Direction,
+	`, input.ID, input.ChatID, input.SenderID, input.SenderDevice, input.Text, input.Timestamp.Unix(), input.Direction,
 		boolToInt(!input.CountUnread), input.Status, boolToInt(input.IsForwarded), encodeMentions(input.Mentions), input.MediaKind, input.MediaMimeType, input.MediaLocalPath, input.MediaThumbnailLocalPath, input.MediaWidth, input.MediaHeight, boolToInt(input.MediaAnimated), input.MediaPayload, input.MediaCacheKey,
 		input.MediaDurationSecs, input.MediaSizeBytes, input.MediaFileName, input.MediaPageCount, input.MediaWaveform, boolToInt(input.IsViewOnce),
 		input.PollData, input.PollTally, input.GeoLat, input.GeoLong,
@@ -793,7 +798,9 @@ func recomputeChatSummaryTx(ctx context.Context, tx *sql.Tx, chatID string) erro
 	}
 
 	summary := "This message was deleted"
-	if !latest.IsRevoked {
+	// A revoked row whose content was kept (anti-delete) previews like any
+	// other message; only a true tombstone shows the deleted line.
+	if !latest.IsRevoked || latest.Text != "" || latest.MediaKind != "" {
 		chat, err := getChatTx(ctx, tx, chatID)
 		if err != nil {
 			return err
@@ -821,6 +828,7 @@ const messageSelectPrefix = `
 	SELECT m.id, m.chat_id, m.sender_id,
 	       COALESCE(NULLIF(s.name, ''), NULLIF(c.name, ''), ''),
 	       COALESCE(NULLIF(sa.local_path, ''), NULLIF(ca.local_path, ''), NULLIF(s.avatar_local_path, ''), NULLIF(c.avatar_local_path, ''), ''),
+	       m.sender_device,
        m.text, m.timestamp, m.rowid, m.direction, m.is_read, m.status, m.media_kind, m.media_mime_type, m.media_local_path, m.media_thumbnail_local_path, m.media_width, m.media_height, m.media_animated, m.media_download_error,
        m.media_duration_secs, m.media_size_bytes, m.media_file_name, m.media_page_count, m.media_waveform, m.media_played, m.is_view_once, m.poll_data, m.poll_tally, m.geo_lat, m.geo_long,
        m.reply_to_message_id, m.reply_to_sender_id, m.reply_to_sender_name, m.reply_to_text, m.reply_to_media_kind, m.reply_to_media_mime_type, m.reply_to_direction,
@@ -1225,9 +1233,11 @@ func (db *DB) updateMessageStatus(ctx context.Context, id, status string, nextSt
 
 // MarkMessageRevoked tombstones a message that was deleted for everyone:
 // the row survives (so ordering and reply previews keep working) but its
-// content is cleared. Returns the refreshed message and chat, and whether
-// anything changed (false when the message was already revoked).
-func (db *DB) MarkMessageRevoked(ctx context.Context, id string) (Message, Chat, bool, error) {
+// content is cleared — unless keepContent (anti-delete) is set, in which case
+// the content stays and only the revoked flag is raised. Returns the refreshed
+// message and chat, and whether anything changed (false when the message was
+// already revoked).
+func (db *DB) MarkMessageRevoked(ctx context.Context, id string, keepContent bool) (Message, Chat, bool, error) {
 	tx, err := db.conn.BeginTx(ctx, nil)
 	if err != nil {
 		return Message{}, Chat{}, false, err
@@ -1246,41 +1256,49 @@ func (db *DB) MarkMessageRevoked(ctx context.Context, id string) (Message, Chat,
 		return message, chat, false, nil
 	}
 
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE messages
-		SET is_revoked = 1,
-			text = '',
-			media_kind = '',
-			media_mime_type = '',
-			media_local_path = '',
-			media_thumbnail_local_path = '',
-			media_width = 0,
-			media_height = 0,
-			media_animated = 0,
-			media_download_error = '',
-			media_payload = x'',
-			media_cache_key = '',
-			media_duration_secs = 0,
-			media_size_bytes = 0,
-			media_file_name = '',
-			media_page_count = 0,
-			media_waveform = x'',
-			media_played = 0,
-			reply_to_message_id = '',
-			reply_to_sender_id = '',
-			reply_to_sender_name = '',
-			reply_to_text = '',
-			reply_to_media_kind = '',
-			reply_to_media_mime_type = '',
-			reply_to_direction = ''
-		WHERE id = ?
-	`, id); err != nil {
-		return Message{}, Chat{}, false, err
-	}
+	if keepContent {
+		// Anti-delete: raise the flag but keep everything. The frontend
+		// renders the original content with a Deleted mark.
+		if _, err := tx.ExecContext(ctx, `UPDATE messages SET is_revoked = 1 WHERE id = ?`, id); err != nil {
+			return Message{}, Chat{}, false, err
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE messages
+			SET is_revoked = 1,
+				text = '',
+				media_kind = '',
+				media_mime_type = '',
+				media_local_path = '',
+				media_thumbnail_local_path = '',
+				media_width = 0,
+				media_height = 0,
+				media_animated = 0,
+				media_download_error = '',
+				media_payload = x'',
+				media_cache_key = '',
+				media_duration_secs = 0,
+				media_size_bytes = 0,
+				media_file_name = '',
+				media_page_count = 0,
+				media_waveform = x'',
+				media_played = 0,
+				reply_to_message_id = '',
+				reply_to_sender_id = '',
+				reply_to_sender_name = '',
+				reply_to_text = '',
+				reply_to_media_kind = '',
+				reply_to_media_mime_type = '',
+				reply_to_direction = ''
+			WHERE id = ?
+		`, id); err != nil {
+			return Message{}, Chat{}, false, err
+		}
 
-	// A deleted-for-everyone message drops its reactions along with its content.
-	if _, err := tx.ExecContext(ctx, `DELETE FROM message_reactions WHERE message_id = ?`, id); err != nil {
-		return Message{}, Chat{}, false, err
+		// A deleted-for-everyone message drops its reactions along with its content.
+		if _, err := tx.ExecContext(ctx, `DELETE FROM message_reactions WHERE message_id = ?`, id); err != nil {
+			return Message{}, Chat{}, false, err
+		}
 	}
 
 	// A revoked unread message no longer counts toward the badge.
@@ -1319,6 +1337,43 @@ func (db *DB) MarkMessageRevoked(ctx context.Context, id string) (Message, Chat,
 	return updated, chat, true, nil
 }
 
+// MessageEdit is one superseded body version of an edited message.
+// EditedAtMillis is a unix-millisecond timestamp (millis, not seconds, so
+// two quick successive edits keep distinct, ordered rows).
+type MessageEdit struct {
+	MessageID      string
+	EditedAtMillis int64
+	Text           string
+}
+
+// ListMessageEdits returns a message's superseded bodies, oldest first. The
+// live row itself holds the current version and is not included.
+func (db *DB) ListMessageEdits(ctx context.Context, messageID string) ([]MessageEdit, error) {
+	defer db.timeOp("ListMessageEdits", time.Now())
+	rows, err := db.reader().QueryContext(ctx, `
+		SELECT message_id, edited_at, text
+		FROM message_edits
+		WHERE message_id = ?
+		ORDER BY edited_at ASC, rowid ASC
+	`, messageID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	edits := []MessageEdit{}
+	for rows.Next() {
+		var e MessageEdit
+		if err := rows.Scan(&e.MessageID, &e.EditedAtMillis, &e.Text); err != nil {
+			return nil, err
+		}
+		edits = append(edits, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return edits, nil
+}
+
 // UpdateMessageText replaces a message's body (the caption for media messages)
 // with newText and flags it as edited, then recomputes the chat summary so the
 // chat list preview reflects the new content. It returns the reloaded message
@@ -1346,6 +1401,18 @@ func (db *DB) UpdateMessageText(ctx context.Context, id, newText string, mention
 			return Message{}, Chat{}, false, err
 		}
 		return message, chat, false, nil
+	}
+
+	// File the superseded body in the edit history before it is replaced.
+	// Empty originals (e.g. a caption added later) carry no information.
+	if message.Text != "" && message.Text != newText {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO message_edits (message_id, edited_at, text)
+			VALUES (?, ?, ?)
+			ON CONFLICT(message_id, edited_at) DO NOTHING
+		`, id, time.Now().UnixMilli(), message.Text); err != nil {
+			return Message{}, Chat{}, false, err
+		}
 	}
 
 	if mentions == nil {
@@ -2322,6 +2389,7 @@ func getMessageRow(ctx context.Context, queryer interface {
 		SELECT m.id, m.chat_id, m.sender_id,
 		       COALESCE(NULLIF(s.name, ''), NULLIF(c.name, ''), ''),
 		       COALESCE(NULLIF(sa.local_path, ''), NULLIF(ca.local_path, ''), NULLIF(s.avatar_local_path, ''), NULLIF(c.avatar_local_path, ''), ''),
+		       m.sender_device,
 		       m.text, m.timestamp, m.rowid, m.direction, m.is_read, m.status, m.media_kind, m.media_mime_type, m.media_local_path, m.media_thumbnail_local_path, m.media_width, m.media_height, m.media_animated, m.media_download_error, m.media_payload, m.media_cache_key,
 	       m.media_duration_secs, m.media_size_bytes, m.media_file_name, m.media_page_count, m.media_waveform, m.media_played, m.is_view_once, m.poll_data, m.poll_tally, m.geo_lat, m.geo_long,
 	       m.reply_to_message_id, m.reply_to_sender_id, m.reply_to_sender_name, m.reply_to_text, m.reply_to_media_kind, m.reply_to_media_mime_type, m.reply_to_direction,
@@ -2338,6 +2406,7 @@ func getMessageRow(ctx context.Context, queryer interface {
 		&message.SenderID,
 		&message.SenderName,
 		&message.SenderAvatarLocalPath,
+		&message.SenderDevice,
 		&message.Text,
 		&message.TimestampUnix,
 		&message.SortSeq,
@@ -2524,6 +2593,7 @@ func scanMessageRows(rows *sql.Rows, capacity int) ([]Message, error) {
 			&message.SenderID,
 			&message.SenderName,
 			&message.SenderAvatarLocalPath,
+			&message.SenderDevice,
 			&message.Text,
 			&message.TimestampUnix,
 			&message.SortSeq,

@@ -63,6 +63,7 @@ ItemDelegate {
     }
 
     signal selected(string chatId)
+    signal openInNewWindowRequested(string chatId)
     signal pinToggled(string chatId, bool pinned)
     signal contextMenuRequested(string chatId, bool pinned, bool archived, bool muted, real x, real y)
 
@@ -94,13 +95,22 @@ ItemDelegate {
 
     MouseArea {
         anchors.fill: parent
-        acceptedButtons: Qt.RightButton
+        acceptedButtons: Qt.LeftButton | Qt.RightButton
         hoverEnabled: false
         z: 1
 
         onPressed: mouse => {
-            root.contextMenuRequested(root.chatId, root.isPinned, root.isArchived, root.isMuted, mouse.x, mouse.y)
-            mouse.accepted = true
+            if (mouse.button === Qt.RightButton) {
+                root.contextMenuRequested(root.chatId, root.isPinned, root.isArchived, root.isMuted, mouse.x, mouse.y)
+                mouse.accepted = true
+            } else if ((mouse.modifiers & Qt.ControlModifier) && mouse.button === Qt.LeftButton) {
+                // Ctrl+click pops the conversation into its own window.
+                root.openInNewWindowRequested(root.chatId)
+                mouse.accepted = true
+            } else {
+                // Ordinary click: let the delegate handle selection itself.
+                mouse.accepted = false
+            }
         }
     }
 

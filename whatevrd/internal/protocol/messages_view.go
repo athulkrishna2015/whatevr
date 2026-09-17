@@ -554,6 +554,10 @@ type messageSender struct {
 	ID         string `json:"id"`
 	Name       string `json:"name,omitempty"`
 	AvatarPath string `json:"avatar_path,omitempty"`
+	// Device is the sender's device id: 0 is the primary phone app, anything
+	// else a linked device. Omitted for phone senders (and rows stored before
+	// the indicator existed); the frontend reads that as "Phone".
+	Device uint16 `json:"device,omitempty"`
 }
 
 type messageReply struct {
@@ -629,7 +633,7 @@ func messageItemFromStore(m store.Message) messageItem {
 		Kind:        kind,
 		Fallback:    messageFallback(m, kind),
 		Text:        m.Text,
-		Sender:      messageSender{ID: m.SenderID, Name: m.SenderName, AvatarPath: m.SenderAvatarLocalPath},
+		Sender:      messageSender{ID: m.SenderID, Name: m.SenderName, AvatarPath: m.SenderAvatarLocalPath, Device: m.SenderDevice},
 		Timestamp:   m.TimestampUnix,
 		Direction:   m.Direction,
 		Status:      m.Status,
@@ -689,7 +693,9 @@ func mediaKindToWire(mediaKind string) string {
 // messageFallback is the one-line human rendering a frontend shows for any kind
 // it does not implement (and the natural preview for the ones it does).
 func messageFallback(m store.Message, kind string) string {
-	if m.IsRevoked {
+	// Only a true tombstone (revoked AND wiped) shows the deleted line; rows
+	// whose content was kept (anti-delete) preview like any other message.
+	if m.IsRevoked && m.Text == "" && m.MediaKind == "" {
 		return "This message was deleted"
 	}
 	caption := oneLine(m.Text)

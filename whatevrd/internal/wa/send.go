@@ -101,6 +101,12 @@ func (c *Client) SetChatPresence(ctx context.Context, chatID string, composing b
 		return nil
 	}
 
+	// Typing indicators are passive: with the toggle off the client simply
+	// never announces composing (indistinguishable from an idle client).
+	if composing && !c.appPreferences().SendTypingIndicators {
+		return nil
+	}
+
 	jid, err := types.ParseJID(chatID)
 	if err != nil {
 		return app.NewCommandError(app.CommandErrorInvalidArgument, "invalid chat_id: %v", err)

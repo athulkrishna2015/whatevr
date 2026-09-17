@@ -287,6 +287,34 @@ type messageEditParams struct {
 	Text      string `json:"text"`
 }
 
+// message.edit_history returns a message's superseded bodies, oldest first.
+// The live row holds the current version; the frontend appends it as such.
+// Synchronous: a local index read, no network.
+func (h commandHandlers) messageEditHistory(_ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p messageIDParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if err := p.valid(); err != nil {
+		return nil, err
+	}
+	edits, err := h.actions.ListMessageEdits(context.Background(), strings.TrimSpace(p.MessageID))
+	if perr := mapCommandError(err); perr != nil {
+		return nil, perr
+	}
+	out := make([]map[string]any, 0, len(edits))
+	for _, e := range edits {
+		out = append(out, map[string]any{
+			"text":      e.Text,
+			"edited_at": e.EditedAtMillis,
+		})
+	}
+	return map[string]any{"edits": out}, nil
+}
+
 func (h commandHandlers) messageEdit(ctx context.Context, _ *conn, req request) (any, *Error) {
 	if err := h.requireActions(); err != nil {
 		return nil, err

@@ -15,6 +15,10 @@ CenteredDialog {
     id: root
 
     property string messageId: ""
+    // Sender device id for the message being inspected (0 = primary phone
+    // app, anything else a linked device). Passed in by the opener, which has
+    // the row snapshot; the receipts view carries no sender facts.
+    property int senderDevice: 0
 
     // Always-active highlight so the read ticks stay vivid when the window is
     // unfocused (Kirigami.Theme.highlightColor greys out on focus loss).
@@ -43,14 +47,16 @@ CenteredDialog {
     preferredWidth: Kirigami.Units.gridUnit * 22
     maximumHeight: Kirigami.Units.gridUnit * 28
 
-    function openFor(id) {
+    function openFor(id, device) {
         messageId = id
+        senderDevice = device || 0
         Whatevr.ProtocolController.openMessageReceipts(id)
         open()
     }
 
     onClosed: {
         messageId = ""
+        senderDevice = 0
         Whatevr.ProtocolController.closeMessageReceipts()
     }
 
@@ -244,6 +250,15 @@ CenteredDialog {
             iconName: "qrc:/data/icons/checkmark-bold.svg"
             label: Whatevr.I18n.i18nc("@label time the message was sent", "Sent")
             value: root.formatTimestamp(Whatevr.ProtocolController.messageReceiptsSentTimestamp)
+        }
+
+        StatusRow {
+            visible: !root.loading && root.errorText.length === 0
+            iconName: root.senderDevice > 0 ? "computer-symbolic" : "smartphone-symbolic"
+            label: Whatevr.I18n.i18nc("@label which client sent the message", "Sent from")
+            value: root.senderDevice > 0
+                   ? Whatevr.I18n.i18nc("@info sender client", "Linked device")
+                   : Whatevr.I18n.i18nc("@info sender client", "Phone app")
         }
 
         StatusRow {

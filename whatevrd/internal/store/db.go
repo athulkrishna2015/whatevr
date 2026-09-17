@@ -332,6 +332,23 @@ func (db *DB) migrate(ctx context.Context) error {
 			muted INTEGER NOT NULL DEFAULT 0,
 			updated_at INTEGER NOT NULL DEFAULT (unixepoch())
 		)`,
+		// Previous bodies of edited messages, oldest first. The live row
+		// always holds the current version; this table is the edit history
+		// (anti-delete's counterpart for edits: nothing is ever lost).
+		`CREATE TABLE IF NOT EXISTS message_edits (
+			message_id TEXT NOT NULL,
+			edited_at INTEGER NOT NULL,
+			text TEXT NOT NULL DEFAULT '',
+			PRIMARY KEY (message_id, edited_at)
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_message_edits_message ON message_edits(message_id, edited_at)`,
+		// Contacts whose expired statuses are kept instead of hidden: the
+		// Status tab shows only unexpired statuses by default, and kept
+		// contacts grow an archived section with their older ones.
+		`CREATE TABLE IF NOT EXISTS status_keep_senders (
+			sender_id TEXT PRIMARY KEY,
+			kept_at INTEGER NOT NULL DEFAULT (unixepoch())
+		)`,
 	}
 
 	for _, statement := range statements {
@@ -386,6 +403,10 @@ func (db *DB) migrate(ctx context.Context) error {
 	}
 
 	if err := db.ensureMediaColumns(ctx); err != nil {
+		return err
+	}
+
+	if err := db.ensureSenderDeviceColumn(ctx); err != nil {
 		return err
 	}
 
@@ -1163,6 +1184,37 @@ func (db *DB) ensureMediaColumns(ctx context.Context) error {
 		if _, err := db.conn.ExecContext(ctx, a.def); err != nil {
 			return fmt.Errorf("add messages.%s: %w", a.col, err)
 		}
+	}
+	return nil
+}
+
+// ensureSenderDeviceColumn adds messages.sender_device (0 = primary phone
+// app, >0 = linked device) for databases created before the sender-client
+// indicator existed.
+func (db *DB) ensureSenderDeviceColumn(ctx context.Context) error {
+	rows, err := db.conn.QueryContext(ctx, `PRAGMA table_info(messages)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, pk int
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if name == "sender_device" {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if _, err := db.conn.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN sender_device INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("add messages.sender_device: %w", err)
 	}
 	return nil
 }

@@ -24,6 +24,15 @@ func TestLogsAssignStableIDs(t *testing.T) {
 				first[i].ID, first[i].Sort, second[i].ID, second[i].Sort)
 		}
 	}
+	// Rule 3: the id must also ride inside Data — CollectionViewModel keys
+	// rows by item["id"], so a keyless row is dropped and the Logs tab stays
+	// empty.
+	for _, it := range first {
+		data, ok := it.Data.(logsItem)
+		if !ok || data.ID != it.ID {
+			t.Fatalf("row data id = %+v; want %q inside", it.Data, it.ID)
+		}
+	}
 	// Ring slides: the oldest line leaves, a new one appends. Survivors keep
 	// their identity — "b" (the second row) and "a" (now the first copy, so
 	// it reclaims the raw-line key) — and the new line appends after them.

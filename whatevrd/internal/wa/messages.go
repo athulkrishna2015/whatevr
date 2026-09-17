@@ -195,6 +195,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 			}
 			if textInput, ok := c.textMessageInput(ctx, parsedEvt, opts); ok {
 				input := textInput
+				input.SenderDevice = parsedEvt.Info.Sender.Device
 				pending = append(pending, historySaveItem{
 					item:          appstore.MessageSaveItem{Text: &input},
 					id:            input.ID,
@@ -203,6 +204,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 				})
 			} else if mediaInput, ok := c.mediaMessageInput(ctx, parsedEvt, opts); ok {
 				input := mediaInput
+				input.SenderDevice = parsedEvt.Info.Sender.Device
 				pending = append(pending, historySaveItem{
 					item:          appstore.MessageSaveItem{Media: &input},
 					id:            input.ID,
@@ -440,7 +442,7 @@ func (c *Client) handleRevokeMessage(ctx context.Context, evt *events.Message, o
 	}
 
 	internalID := internalMessageIDForChat(chatID, types.MessageID(targetID))
-	message, chat, changed, err := c.store.MarkMessageRevoked(ctx, internalID)
+	message, chat, changed, err := c.store.MarkMessageRevoked(ctx, internalID, c.appPreferences().AntiDelete)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
 			c.log.Warnf("Failed to mark message %s revoked: %v", internalID, err)
@@ -612,6 +614,7 @@ func (c *Client) refreshLiveMessageAvatars(ctx context.Context, evt *events.Mess
 // events once the conversation has been processed.
 func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts ingestOptions) (appstore.SavedTextMessage, bool) {
 	if textInput, ok := c.textMessageInput(ctx, evt, opts); ok {
+		textInput.SenderDevice = evt.Info.Sender.Device
 		saved, err := c.store.SaveTextMessage(ctx, textInput)
 		if err != nil {
 			c.log.Errorf("Failed to store text message %s: %v", textInput.ID, err)
@@ -648,6 +651,7 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 	}
 
 	if mediaInput, ok := c.mediaMessageInput(ctx, evt, opts); ok {
+		mediaInput.SenderDevice = evt.Info.Sender.Device
 		saved, err := c.store.SaveMediaMessage(ctx, mediaInput)
 		if err != nil {
 			c.log.Errorf("Failed to store media message %s: %v", mediaInput.ID, err)

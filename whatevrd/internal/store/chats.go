@@ -161,13 +161,15 @@ const (
 	ChatFilterAll    = ""
 	ChatFilterDirect = "direct"
 	ChatFilterGroups = "groups"
+	ChatFilterUnread = "unread"
 )
 
 // ChatListFilter selects which chats ListChatsForView returns.
 type ChatListFilter struct {
-	Kind     string // ChatFilterAll | ChatFilterDirect | ChatFilterGroups
-	Archived bool   // archived tab (true) vs the main list (false)
-	Limit    int    // <= 0 means no limit (whole filtered list)
+	Kind      string // ChatFilterAll | ChatFilterDirect | ChatFilterGroups
+	Archived  bool   // archived tab (true) vs the main list (false)
+	UnreadOnly bool  // only chats with a non-zero unread badge
+	Limit     int    // <= 0 means no limit (whole filtered list)
 }
 
 // ListChatsForView returns chats matching filter in list order (pinned first,
@@ -192,6 +194,9 @@ func (db *DB) ListChatsForView(ctx context.Context, filter ChatListFilter) ([]Ch
 		query += ` AND c.is_group = 0`
 	case ChatFilterGroups:
 		query += ` AND c.is_group = 1`
+	}
+	if filter.UnreadOnly || filter.Kind == ChatFilterUnread {
+		query += ` AND c.unread_count > 0`
 	}
 
 	query += `

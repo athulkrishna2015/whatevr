@@ -528,6 +528,14 @@ type AppPreferences struct {
 	// means no limit. It exists so a 200 MB video is a decision rather than a
 	// side effect of scrolling past it.
 	AutoDownloadMaxBytes int64
+	// AntiDelete keeps the content of messages deleted for everyone and shows
+	// it with a Deleted mark instead of a tombstone. Local-only display: it
+	// changes nothing on the wire, so it cannot get the account flagged.
+	AntiDelete bool
+	// SendTypingIndicators announces composing presence while typing.
+	// Turning it off just omits the announcement (passive); it changes no
+	// message content or timing.
+	SendTypingIndicators bool
 }
 
 // DefaultAppPreferences are applied the first time the daemon runs, before the
@@ -539,6 +547,8 @@ func DefaultAppPreferences() AppPreferences {
 		NotificationSound:    false,
 		NotificationPreview:  true,
 		AutoDownloadMaxBytes: 16 * 1024 * 1024,
+		AntiDelete:           true,
+		SendTypingIndicators: true,
 	}
 }
 

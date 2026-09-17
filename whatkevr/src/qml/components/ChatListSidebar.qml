@@ -11,7 +11,7 @@ import Whatevr as Whatevr
 Item {
     id: root
 
-    // 0 = Home (all), 1 = DMs, 2 = Groups. Two-way bound to the pane.
+    // 0 = Home (all), 1 = DMs, 2 = Groups, 3 = Unread. Two-way bound to the pane.
     property int activeFilter: 0
 
     readonly property string userName: Whatevr.ProtocolController.currentUserName
@@ -99,6 +99,22 @@ Item {
             checkable: true
             checked: root.activeFilter === 2
             onClicked: root.activeFilter = 2
+
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.text: text
+            QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+        }
+
+        QQC2.ToolButton {
+            Layout.alignment: Qt.AlignHCenter
+            icon.name: "mail-unread-symbolic"
+            display: QQC2.AbstractButton.IconOnly
+            icon.width: root.railIconSize
+            icon.height: root.railIconSize
+            text: Whatevr.I18n.i18nc("@action:button chat filter", "Unread")
+            checkable: true
+            checked: root.activeFilter === 3
+            onClicked: root.activeFilter = 3
 
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.text: text
