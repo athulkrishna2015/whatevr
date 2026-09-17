@@ -52,6 +52,18 @@ PROTOCOL.md (stable at version 1: additive changes only).
 - `tst_chatbubbleperf` failed on the new required poll/contact/location
   properties and then on stale object budgets; the test props were completed
   and the budgets raised deliberately to the new measured ceilings.
+- The `status@broadcast` chat is back: incoming statuses are filed there as
+  ordinary messages (in addition to the Status tab), silently — no unread
+  bump, no notification — under the `status_mirror_to_chat` preference
+  (default on), toggleable in Settings → Chats → Status.
+- Statuses stored before ingest-time thumbnails now get them on connect via a
+  backfill sweep, and video statuses play in the viewer (thumbnail poster with
+  Play opening the shared MediaViewer).
+- Dropping files onto a conversation sends them through `sendMedia`, and the
+  profile-picture Save dialog prefills the chat/contact name.
+- The Logs page shows subscribe failures instead of staying blank, the Go tree
+  is gofmt-clean again, and the AUR `.SRCINFO` files match their PKGBUILDs
+  (missing `qt6-multimedia`, `mpv`, `ffmpeg` entries).
 
 ### Updated
 

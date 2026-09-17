@@ -9,6 +9,7 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
 
+	"whatevrd/internal/app"
 	appstore "whatevrd/internal/store"
 )
 
@@ -21,8 +22,10 @@ func statusIngestEvent(id, sender string, message *waE2E.Message) *events.Messag
 }
 
 // TestStatusBroadcastBypassesChats locks in that status traffic lands in the
-// status store (never as a chat message) for text and photo payloads, and
-// that protocol noise is ignored.
+// status store for text and photo payloads, and that protocol noise is
+// ignored. By default statuses are also mirrored into the status@broadcast
+// chat (restored pre-tab behavior) without unread; disabling the mirror
+// preference keeps them out of chats entirely.
 func TestStatusBroadcastBypassesChats(t *testing.T) {
 	client := newMediaIngestClient(t)
 	ctx := context.Background()
@@ -62,8 +65,26 @@ func TestStatusBroadcastBypassesChats(t *testing.T) {
 		t.Fatalf("text status = %+v, want text/morning", statuses[1])
 	}
 
+	// Default: mirrored into status@broadcast, silently (no unread bump).
 	chat, err := client.store.GetChat(ctx, types.StatusBroadcastJID.String())
-	if err == nil {
-		t.Fatalf("status@broadcast materialized as chat %+v; statuses must never create chats", chat)
+	if err != nil {
+		t.Fatalf("status@broadcast chat missing with mirror enabled: %v", err)
+	}
+	if chat.UnreadCount != 0 {
+		t.Fatalf("mirrored status bumped unread to %d, want 0", chat.UnreadCount)
+	}
+
+	// Mirror disabled: statuses stay out of chats entirely.
+	quiet := newMediaIngestClient(t)
+	if _, err := quiet.UpdateAppPreferences(ctx, func(prefs *app.AppPreferences) {
+		prefs.StatusMirrorToChat = false
+	}); err != nil {
+		t.Fatalf("disable status mirror: %v", err)
+	}
+	quiet.handleMessage(ctx, statusIngestEvent("S9", "5551234", &waE2E.Message{
+		Conversation: proto.String("hello"),
+	}), false)
+	if mirrored, err := quiet.store.GetChat(ctx, types.StatusBroadcastJID.String()); err == nil {
+		t.Fatalf("status@broadcast materialized as chat %+v with mirror disabled", mirrored)
 	}
 }

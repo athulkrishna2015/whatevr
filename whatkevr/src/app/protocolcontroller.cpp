@@ -2603,6 +2603,7 @@ void ProtocolController::openLogs()
         return;
     }
     m_logsLoading = true;
+    m_logsErrorText.clear();
     Q_EMIT logsLoadingChanged();
 
     delete m_logsSub;
@@ -2613,6 +2614,14 @@ void ProtocolController::openLogs()
         QStringLiteral("daemon.logs"),
         {{QStringLiteral("limit"), 200}},
         m_logsModel);
+    connect(m_logsSub, &Subscription::failed, this,
+            [this](const QString &code, const QString &message) {
+                m_logsLoading = false;
+                m_logsErrorText = message.isEmpty()
+                    ? i18nc("@info", "Could not load daemon logs (%1)", code)
+                    : message;
+                Q_EMIT logsLoadingChanged();
+            });
     connect(m_logsModel, &CollectionViewModel::readyChanged, this, [this] {
         if (m_logsLoading && m_logsModel->isReady()) {
             m_logsLoading = false;
@@ -3247,7 +3256,8 @@ void ProtocolController::setAppPreference(const QString &key, bool value)
         QStringLiteral("notifications_enabled"), QStringLiteral("notification_sound"),
         QStringLiteral("notification_preview"), QStringLiteral("auto_download_photos"),
         QStringLiteral("auto_download_videos"), QStringLiteral("auto_download_audio"),
-        QStringLiteral("auto_download_documents"), QStringLiteral("auto_download_stickers")};
+        QStringLiteral("auto_download_documents"), QStringLiteral("auto_download_stickers"),
+        QStringLiteral("status_mirror_to_chat")};
     if (!keys.contains(key)) {
         return;
     }

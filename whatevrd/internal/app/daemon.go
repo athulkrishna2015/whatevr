@@ -528,6 +528,11 @@ type AppPreferences struct {
 	// means no limit. It exists so a 200 MB video is a decision rather than a
 	// side effect of scrolling past it.
 	AutoDownloadMaxBytes int64
+	// StatusMirrorToChat files every incoming status update as an ordinary
+	// message in the status@broadcast chat as well as the Status tab. It
+	// restores the pre-tab behavior; mirrored rows never bump unread and never
+	// notify.
+	StatusMirrorToChat bool
 }
 
 // DefaultAppPreferences are applied the first time the daemon runs, before the
@@ -539,6 +544,7 @@ func DefaultAppPreferences() AppPreferences {
 		NotificationSound:    false,
 		NotificationPreview:  true,
 		AutoDownloadMaxBytes: 16 * 1024 * 1024,
+		StatusMirrorToChat:   true,
 	}
 }
 

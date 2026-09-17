@@ -30,8 +30,12 @@ Kirigami.ScrollablePage {
             width: parent.width - Kirigami.Units.gridUnit * 4
             visible: !Whatevr.ProtocolController.logsLoading && logsList.count === 0
             icon.name: "document-properties-symbolic"
-            text: Whatevr.I18n.i18nc("@info placeholder for the logs list", "No log entries")
-            explanation: Whatevr.I18n.i18nc("@info:placeholder", "Daemon log entries will appear here when available.")
+            text: Whatevr.ProtocolController.logsErrorText.length > 0
+                  ? Whatevr.I18n.i18nc("@info placeholder for the logs list", "Could not load logs")
+                  : Whatevr.I18n.i18nc("@info placeholder for the logs list", "No log entries")
+            explanation: Whatevr.ProtocolController.logsErrorText.length > 0
+                         ? Whatevr.ProtocolController.logsErrorText
+                         : Whatevr.I18n.i18nc("@info:placeholder", "Daemon log entries will appear here when available.")
         }
 
         QQC2.BusyIndicator {

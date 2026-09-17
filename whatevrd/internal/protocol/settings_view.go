@@ -185,6 +185,7 @@ type preferencesItem struct {
 	AutoDownloadDocuments bool   `json:"auto_download_documents"`
 	AutoDownloadStickers  bool   `json:"auto_download_stickers"`
 	AutoDownloadMaxBytes  int64  `json:"auto_download_max_bytes"`
+	StatusMirrorToChat    bool   `json:"status_mirror_to_chat"`
 }
 
 func (v preferencesView) Open(_ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
@@ -301,6 +302,7 @@ func (s *preferencesSession) Items(max int) []Item {
 		AutoDownloadDocuments: p.AutoDownloadDocuments,
 		AutoDownloadStickers:  p.AutoDownloadStickers,
 		AutoDownloadMaxBytes:  p.AutoDownloadMaxBytes,
+		StatusMirrorToChat:    p.StatusMirrorToChat,
 	}
 	return []Item{{ID: "self", Sort: objectViewSort, Data: item}}
 }

@@ -16,6 +16,7 @@ SettingsPage {
         audioSwitch.checked = Qt.binding(() => Whatevr.ProtocolController.appPreferences.auto_download_audio ?? false)
         documentsSwitch.checked = Qt.binding(() => Whatevr.ProtocolController.appPreferences.auto_download_documents ?? false)
         stickersSwitch.checked = Qt.binding(() => Whatevr.ProtocolController.appPreferences.auto_download_stickers ?? false)
+        mirrorSwitch.checked = Qt.binding(() => Whatevr.ProtocolController.appPreferences.status_mirror_to_chat ?? true)
     }
 
     Connections {
@@ -59,6 +60,21 @@ SettingsPage {
             out.push({ value: presets[i].value, label: presets[i].label, bg: presets[i].bg });
         }
         return out;
+    }
+
+    FormCard.FormHeader {
+        title: Whatevr.I18n.i18nc("@title:group", "Status")
+    }
+
+    FormCard.FormCard {
+        FormCard.FormSwitchDelegate {
+            id: mirrorSwitch
+            objectName: "chats.statusMirror"
+            text: Whatevr.I18n.i18nc("@option:check", "Show statuses as a chat")
+            description: Whatevr.I18n.i18nc("@info", "Also file status updates as messages in a status@broadcast chat. They never bump unread or notify.")
+            checked: Whatevr.ProtocolController.appPreferences.status_mirror_to_chat ?? true
+            onToggled: Whatevr.ProtocolController.setAppPreference("status_mirror_to_chat", checked)
+        }
     }
 
     FormCard.FormHeader {

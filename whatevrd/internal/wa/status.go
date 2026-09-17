@@ -412,6 +412,32 @@ func (c *Client) ingestStatusUpdate(ctx context.Context, evt *events.Message) {
 	}
 }
 
+// backfillStatusThumbs attaches sender thumbnails to statuses stored before
+// ingest-time thumbnails existed. Rows already carrying a thumbnail, a
+// downloaded file, or no payload are skipped, so reruns are cheap; statuses
+// expire after 24h, keeping the set small.
+func (c *Client) backfillStatusThumbs(ctx context.Context) {
+	statuses, err := c.store.ListStatusUpdates(ctx, 0)
+	if err != nil {
+		c.log.Warnf("Failed to list statuses for thumbnail backfill: %v", err)
+		return
+	}
+	changed := false
+	for _, st := range statuses {
+		if ctx.Err() != nil {
+			return
+		}
+		if st.MediaThumbnailLocalPath != "" || st.MediaLocalPath != "" || len(st.MediaPayload) == 0 {
+			continue
+		}
+		c.attachIngestedStatusThumb(ctx, st.ID, st.MediaKind, st.MediaPayload)
+		changed = true
+	}
+	if changed {
+		c.daemon.PublishStatusChanged()
+	}
+}
+
 // attachIngestedStatusThumb persists a freshly ingested status's sender
 // thumbnail + image dimensions. Best-effort: ingest must never fail because
 // a thumbnail could not be cached.

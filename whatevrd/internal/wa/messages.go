@@ -355,6 +355,12 @@ func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offline
 	if isStatusBroadcast(evt) {
 		if !offlineSync {
 			c.ingestStatusUpdate(ctx, evt)
+			// Optional pre-tab behavior: mirror the update as an ordinary
+			// message in the status@broadcast chat. Mirrored rows never bump
+			// unread and never notify (forceRead).
+			if c.appPreferences().StatusMirrorToChat {
+				c.ingestMessage(ctx, evt, ingestOptions{source: sourceLive, forceRead: true})
+			}
 		}
 		return
 	}

@@ -863,4 +863,39 @@ Kirigami.Page {
         id: contactInfoDialog
     }
 
+    // Drag-and-drop send: dropping files anywhere on the conversation sends
+    // each through the same sendMedia path as the attach dialogs (kind
+    // auto-classified daemon-side). Disabled without a writable composer so a
+    // stray drop onto a read-only chat cannot send.
+    DropArea {
+        id: dropArea
+
+        anchors.fill: parent
+        enabled: Whatevr.ProtocolController.hasSelectedChat && Whatevr.ProtocolController.composerEnabled
+        onDropped: drop => {
+            if (!drop.hasUrls) {
+                return
+            }
+            for (let i = 0; i < drop.urls.length; ++i) {
+                Whatevr.ProtocolController.sendMedia(drop.urls[i], "", "", "", false)
+            }
+        }
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        visible: dropArea.containsDrag
+        color: Qt.alpha(Kirigami.Theme.highlightColor, 0.10)
+        border.color: Kirigami.Theme.highlightColor
+        border.width: 2
+        radius: Kirigami.Units.cornerRadius
+        z: 1000
+
+        Label {
+            anchors.centerIn: parent
+            text: Whatevr.I18n.i18nc("@info drag-and-drop hint", "Drop files to send")
+            font.weight: Font.Bold
+        }
+    }
+
 }

@@ -13,10 +13,13 @@ QQC2.Popup {
     id: root
 
     property string localPath: ""
+    // Chat/contact name for the save dialog's suggested filename.
+    property string suggestedName: ""
     readonly property url imageSource: Whatevr.ProtocolController.localFileUrl(localPath)
 
-    function showImage(path) {
+    function showImage(path, name) {
         localPath = path
+        suggestedName = name ?? ""
         open()
     }
 
@@ -96,7 +99,7 @@ QQC2.Popup {
             text: Whatevr.I18n.i18nc("@action:button save the profile picture", "Save as…")
             display: QQC2.AbstractButton.IconOnly
             enabled: root.localPath.length > 0
-            onClicked: saveDialog.open()
+            onClicked: saveDialog.openFor()
         }
 
         Platform.FileDialog {
@@ -104,6 +107,25 @@ QQC2.Popup {
 
             title: Whatevr.I18n.i18nc("@title:window save the profile picture", "Save profile picture")
             fileMode: Platform.FileDialog.SaveFile
+
+            // Prefill the chat/contact name (MessageView.saveMediaDialog
+            // pattern): the cache filename is an id, useless in a file
+            // manager.
+            function openFor() {
+                let base = root.suggestedName.trim().replace(/\//g, "_")
+                if (base.length === 0) {
+                    base = Whatevr.I18n.i18nc("@info default profile picture filename", "profile-picture")
+                }
+                const dot = root.localPath.lastIndexOf(".")
+                const extension = dot > 0 ? root.localPath.substring(dot) : ".jpg"
+                const preferred = Whatevr.Settings.mediaSaveDirectory
+                const directory = preferred.length > 0
+                    ? preferred
+                    : Platform.StandardPaths.writableLocation(Platform.StandardPaths.PicturesLocation)
+                currentFile = directory + "/" + base + extension
+                open()
+            }
+
             onAccepted: Whatevr.ProtocolController.saveMediaAs(root.localPath, file)
         }
     }

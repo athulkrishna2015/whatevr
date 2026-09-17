@@ -214,6 +214,7 @@ class ProtocolController final : public QObject
     // screen. Rows are log entries with time, level, and text.
     Q_PROPERTY(QAbstractItemModel *logsModel READ logsModel CONSTANT FINAL)
     Q_PROPERTY(bool logsLoading READ logsLoading NOTIFY logsLoadingChanged FINAL)
+    Q_PROPERTY(QString logsErrorText READ logsErrorText NOTIFY logsLoadingChanged FINAL)
 
     // Channels tab: the `channels` view, subscribed while the channels page is
     // on screen. One item per followed channel; tapping opens its messages.
@@ -426,6 +427,7 @@ public:
     [[nodiscard]] int callsRingingCount() const;
      [[nodiscard]] QAbstractItemModel *logsModel() const;
     [[nodiscard]] bool logsLoading() const { return m_logsLoading; }
+    [[nodiscard]] QString logsErrorText() const { return m_logsErrorText; }
     [[nodiscard]] QAbstractItemModel *channelsModel() const;
     [[nodiscard]] bool channelsLoading() const;
     [[nodiscard]] QAbstractItemModel *channelMessagesModel() const;
@@ -1024,6 +1026,7 @@ private:
     // Set once the mention picker asks for the roster; cleared on chat change.
     bool m_chatMembersWanted = false;
     bool m_logsLoading = false;
+    QString m_logsErrorText;
 
     // Channels tab state.
     bool m_channelsLoading = false;

@@ -162,12 +162,48 @@ Kirigami.ScrollablePage {
             onClicked: root.ensureDownloaded()
         }
 
-        // Anything else (video, audio, document): fallback line + Save.
+        // Video status: thumbnail-first poster with a play button; the full
+        // clip plays in the shared MediaViewer popup once downloaded.
+        Item {
+            Layout.fillWidth: true
+            Layout.preferredHeight: root.height * 0.6
+            readonly property var videoMedia: root.currentItem ? root.currentItem.media : null
+            readonly property string videoPath: videoMedia ? (videoMedia.path ?? "") : ""
+            readonly property string videoThumb: videoMedia ? (videoMedia.thumbnail_path ?? "") : ""
+            visible: root.currentItem && root.currentItem.kind === "video"
+                      && (videoPath.length > 0 || videoThumb.length > 0)
+
+            Image {
+                anchors.fill: parent
+                source: parent.videoPath.length > 0
+                        ? Whatevr.ProtocolController.localFileUrl(parent.videoPath)
+                        : (parent.videoThumb.length > 0
+                           ? Whatevr.ProtocolController.localFileUrl(parent.videoThumb) : "")
+                fillMode: Image.PreserveAspectFit
+                asynchronous: true
+            }
+
+            QQC2.Button {
+                anchors.centerIn: parent
+                enabled: parent.videoPath.length > 0
+                text: Whatevr.I18n.i18nc("@action:button play the status video", "Play")
+                icon.name: "media-playback-start-symbolic"
+                onClicked: {
+                    const item = root.currentItem
+                    statusMediaViewer.showVideo(item.id, parent.videoPath, "", "",
+                                                "video", item.media.duration_secs ?? 0, 0,
+                                                "", item.timestamp ?? 0)
+                }
+            }
+        }
+
+        // Anything else (audio, voice, document): fallback line + Save.
         QQC2.Label {
             Layout.fillWidth: true
             Layout.topMargin: Kirigami.Units.gridUnit * 2
             visible: root.currentItem && root.currentItem.kind !== "text"
                       && root.currentItem.kind !== "image" && root.currentItem.kind !== "gif"
+                      && root.currentItem.kind !== "video"
             text: root.currentItem ? (root.currentItem.fallback || "") : ""
             wrapMode: Text.WordWrap
             horizontalAlignment: Text.AlignHCenter
@@ -201,6 +237,14 @@ Kirigami.ScrollablePage {
                 Whatevr.ProtocolController.saveRemoteMedia("", root.currentItem.id, "", file)
             }
         }
+    }
+
+    // Full-screen player for downloaded video statuses (shared component,
+    // also used by chat bubbles and the media gallery).
+    MediaViewer {
+        id: statusMediaViewer
+
+        onSaveRequested: (localPath, kind, fileName, timestampUnix) => saveDialog.open()
     }
 
     Shortcut {

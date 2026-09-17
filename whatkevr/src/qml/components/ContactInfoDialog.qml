@@ -189,7 +189,7 @@ CenteredDialog {
 
         function onProfilePictureReady(jid, localPath) {
             if (jid === root.subjectKey) {
-                pictureViewer.showImage(localPath)
+                pictureViewer.showImage(localPath, root.primaryName)
             }
         }
     }

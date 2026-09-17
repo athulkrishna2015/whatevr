@@ -82,6 +82,7 @@ type preferencesSetParams struct {
 	AutoDownloadDocuments *bool  `json:"auto_download_documents"`
 	AutoDownloadStickers  *bool  `json:"auto_download_stickers"`
 	AutoDownloadMaxBytes  *int64 `json:"auto_download_max_bytes"`
+	StatusMirrorToChat    *bool  `json:"status_mirror_to_chat"`
 }
 
 func (h commandHandlers) preferencesSet(_ *conn, req request) (any, *Error) {
@@ -128,6 +129,9 @@ func applyPreferencesPatch(prefs *app.AppPreferences, p preferencesSetParams) {
 	}
 	if p.AutoDownloadMaxBytes != nil {
 		prefs.AutoDownloadMaxBytes = max(0, *p.AutoDownloadMaxBytes)
+	}
+	if p.StatusMirrorToChat != nil {
+		prefs.StatusMirrorToChat = *p.StatusMirrorToChat
 	}
 }
 
