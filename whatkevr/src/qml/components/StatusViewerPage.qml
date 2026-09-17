@@ -197,13 +197,54 @@ Kirigami.ScrollablePage {
             }
         }
 
-        // Anything else (audio, voice, document): fallback line + Save.
+        // Voice/audio status: play through the shared AudioPlayer singleton
+        // (same one the chat bubbles use, so playback is exclusive). The row
+        // auto-downloads on open like every other kind.
+        RowLayout {
+            Layout.alignment: Qt.AlignHCenter
+            Layout.topMargin: Kirigami.Units.gridUnit * 2
+            readonly property var audioMedia: root.currentItem ? root.currentItem.media : null
+            readonly property string audioPath: audioMedia ? (audioMedia.path ?? "") : ""
+            readonly property bool isCurrent: Whatevr.AudioPlayer.messageId.length > 0
+                                              && root.currentItem
+                                              && Whatevr.AudioPlayer.messageId === root.currentItem.id
+            readonly property real totalSecs: isCurrent && Whatevr.AudioPlayer.duration > 0
+                                              ? Whatevr.AudioPlayer.duration
+                                              : (root.currentItem && root.currentItem.media
+                                                 ? (root.currentItem.media.duration_secs ?? 0) : 0)
+            readonly property real elapsedSecs: isCurrent ? Whatevr.AudioPlayer.position : 0
+            visible: root.currentItem && (root.currentItem.kind === "voice" || root.currentItem.kind === "audio")
+
+            QQC2.Button {
+                icon.name: parent.isCurrent && Whatevr.AudioPlayer.playing
+                           ? "media-playback-pause-symbolic" : "media-playback-start-symbolic"
+                text: Whatevr.I18n.i18nc("@action:button play the status audio", "Play")
+                display: QQC2.AbstractButton.IconOnly
+                enabled: parent.audioPath.length > 0 && Whatevr.AudioPlayer.available
+                onClicked: {
+                    if (root.currentItem) {
+                        Whatevr.AudioPlayer.toggle(root.currentItem.id,
+                                                   Whatevr.ProtocolController.localFileUrl(parent.audioPath),
+                                                   parent.totalSecs)
+                    }
+                }
+            }
+
+            QQC2.Label {
+                text: MediaFormat.clockTime(parent.elapsedSecs) + " / " + MediaFormat.clockTime(parent.totalSecs)
+                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                color: Kirigami.Theme.disabledTextColor
+            }
+        }
+
+        // Anything left (document and the unknown): fallback line + Save.
         QQC2.Label {
             Layout.fillWidth: true
             Layout.topMargin: Kirigami.Units.gridUnit * 2
             visible: root.currentItem && root.currentItem.kind !== "text"
                       && root.currentItem.kind !== "image" && root.currentItem.kind !== "gif"
                       && root.currentItem.kind !== "video"
+                      && root.currentItem.kind !== "voice" && root.currentItem.kind !== "audio"
             text: root.currentItem ? (root.currentItem.fallback || "") : ""
             wrapMode: Text.WordWrap
             horizontalAlignment: Text.AlignHCenter

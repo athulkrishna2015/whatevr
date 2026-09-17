@@ -412,6 +412,31 @@ func (c *Client) ingestStatusUpdate(ctx context.Context, evt *events.Message) {
 	}
 }
 
+// statusMirrorCleanupKey marks the one-time purge of the status@broadcast
+// chat row the retired mirror experiment created.
+const statusMirrorCleanupKey = "status_mirror_cleanup_v1"
+
+// pruneStatusBroadcastMirror drops the status@broadcast chat the retired
+// mirror experiment filed statuses into. Its messages duplicate the Status
+// tab, so nothing of value is lost; statuses keep living in status_updates.
+// One-time via an app_state marker; statuses routed to chats never return.
+func (c *Client) pruneStatusBroadcastMirror(ctx context.Context) {
+	if done, err := c.store.GetAppStateValue(ctx, statusMirrorCleanupKey); err == nil && done != "" {
+		return
+	}
+	existed, err := c.store.DeleteChat(ctx, types.StatusBroadcastJID.String())
+	if err != nil {
+		c.log.Warnf("Failed to prune status@broadcast mirror chat: %v", err)
+		return
+	}
+	if err := c.store.SetAppStateValue(ctx, statusMirrorCleanupKey, "1"); err != nil {
+		c.log.Warnf("Failed to record status mirror cleanup: %v", err)
+	}
+	if existed {
+		c.daemon.PublishChatDeleted(types.StatusBroadcastJID.String())
+	}
+}
+
 // backfillStatusThumbs attaches sender thumbnails to statuses stored before
 // ingest-time thumbnails existed. Rows already carrying a thumbnail, a
 // downloaded file, or no payload are skipped, so reruns are cheap; statuses

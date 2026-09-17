@@ -57,6 +57,7 @@ func (c *Client) handleEvent(eventGen uint64, raw any) {
 		go c.migrateLIDChats(ctx)
 		go c.backfillAnimatedWebPFlags(c.backgroundContext())
 		go c.backfillStatusThumbs(c.backgroundContext())
+		go c.pruneStatusBroadcastMirror(c.backgroundContext())
 	case *events.AppStateSyncComplete:
 		c.syncPresence(c.backgroundContext(), true)
 	case *events.AppState:

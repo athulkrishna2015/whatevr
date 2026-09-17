@@ -3256,8 +3256,7 @@ void ProtocolController::setAppPreference(const QString &key, bool value)
         QStringLiteral("notifications_enabled"), QStringLiteral("notification_sound"),
         QStringLiteral("notification_preview"), QStringLiteral("auto_download_photos"),
         QStringLiteral("auto_download_videos"), QStringLiteral("auto_download_audio"),
-        QStringLiteral("auto_download_documents"), QStringLiteral("auto_download_stickers"),
-        QStringLiteral("status_mirror_to_chat")};
+        QStringLiteral("auto_download_documents"), QStringLiteral("auto_download_stickers")};
     if (!keys.contains(key)) {
         return;
     }

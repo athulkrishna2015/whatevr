@@ -355,12 +355,16 @@ func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offline
 	if isStatusBroadcast(evt) {
 		if !offlineSync {
 			c.ingestStatusUpdate(ctx, evt)
-			// Optional pre-tab behavior: mirror the update as an ordinary
-			// message in the status@broadcast chat. Mirrored rows never bump
-			// unread and never notify (forceRead).
-			if c.appPreferences().StatusMirrorToChat {
-				c.ingestMessage(ctx, evt, ingestOptions{source: sourceLive, forceRead: true})
-			}
+		}
+		return
+	}
+	// Channel posts ride the same event too but belong to the Channels tab;
+	// filing them as chats would put every followed channel's feed in the
+	// chat list. The channel_messages view fetches live and never stores, so
+	// there is nothing to file — just nudge open channel views to refetch.
+	if evt.Info.Chat.Server == types.NewsletterServer {
+		if !offlineSync {
+			c.daemon.PublishChannelsChanged()
 		}
 		return
 	}

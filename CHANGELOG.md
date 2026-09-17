@@ -55,10 +55,17 @@ PROTOCOL.md (stable at version 1: additive changes only).
 - The `status@broadcast` chat is back: incoming statuses are filed there as
   ordinary messages (in addition to the Status tab), silently — no unread
   bump, no notification — under the `status_mirror_to_chat` preference
-  (default on), toggleable in Settings → Chats → Status.
+  (default on), toggleable in Settings → Chats → Status. (Reverted before
+  release: separate tabs stay the behavior; the one-day mirror's chat row is
+  purged automatically on connect.)
+- Channel posts (`*@newsletter`) no longer materialize as chats: they route to
+  the Channels tab like statuses route to the Status tab (the
+  `channel_messages` view fetches live, so open channel pages refresh on
+  arrival).
 - Statuses stored before ingest-time thumbnails now get them on connect via a
   backfill sweep, and video statuses play in the viewer (thumbnail poster with
-  Play opening the shared MediaViewer).
+  Play opening the shared MediaViewer). Voice/audio statuses play through the
+  shared AudioPlayer, so every status kind loads something on open.
 - Dropping files onto a conversation sends them through `sendMedia`, and the
   profile-picture Save dialog prefills the chat/contact name.
 - The Logs page shows subscribe failures instead of staying blank, the Go tree
