@@ -98,6 +98,12 @@ Kirigami.Page {
                     root.searchBarVisible = true
                 }
             }
+        },
+        Kirigami.Action {
+            icon.name: "mail-mark-read-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button mark every chat read", "Mark all as read")
+            displayHint: Kirigami.DisplayHint.IconOnly
+            onTriggered: Whatevr.ProtocolController.markAllChatsRead()
         }
     ]
 

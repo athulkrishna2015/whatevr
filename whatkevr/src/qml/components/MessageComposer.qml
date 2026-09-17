@@ -66,6 +66,7 @@ Frame {
 
     signal sendTextRequested(string text, string replyToMessageId, var mentionedJids)
     signal sendImageRequested(string fileUrl, string caption, string replyToMessageId, string kind, bool viewOnce)
+    signal sendMediaBatchRequested(var fileUrls, string caption, string replyToMessageId, string kind, bool viewOnce)
     signal composingChanged(bool composing)
     signal clearReplyRequested()
     signal replyConsumed()
@@ -1083,12 +1084,7 @@ Frame {
         fileMode: Platform.FileDialog.OpenFiles
         onAccepted: {
             root.setComposing(false)
-            const caption = root.inputPlainText()
-            const replyTo = root.replyToMessageId
-            const once = root.viewOnceSend
-            for (let i = 0; i < files.length; ++i) {
-                root.sendImageRequested(files[i], i === 0 ? caption : "", replyTo, "", once)
-            }
+            root.sendMediaBatchRequested(files, root.inputPlainText(), root.replyToMessageId, "", root.viewOnceSend)
             root.viewOnceSend = false
             root.replyConsumed()
             input.clear()
@@ -1106,12 +1102,7 @@ Frame {
         fileMode: Platform.FileDialog.OpenFiles
         onAccepted: {
             root.setComposing(false)
-            const caption = root.inputPlainText()
-            const replyTo = root.replyToMessageId
-            const once = root.viewOnceSend
-            for (let i = 0; i < files.length; ++i) {
-                root.sendImageRequested(files[i], i === 0 ? caption : "", replyTo, "document", once)
-            }
+            root.sendMediaBatchRequested(files, root.inputPlainText(), root.replyToMessageId, "document", root.viewOnceSend)
             root.viewOnceSend = false
             root.replyConsumed()
             input.clear()
@@ -1130,12 +1121,7 @@ Frame {
         fileMode: Platform.FileDialog.OpenFiles
         onAccepted: {
             root.setComposing(false)
-            const caption = root.inputPlainText()
-            const replyTo = root.replyToMessageId
-            const once = root.viewOnceSend
-            for (let i = 0; i < files.length; ++i) {
-                root.sendImageRequested(files[i], i === 0 ? caption : "", replyTo, "audio", once)
-            }
+            root.sendMediaBatchRequested(files, root.inputPlainText(), root.replyToMessageId, "audio", root.viewOnceSend)
             root.viewOnceSend = false
             root.replyConsumed()
             input.clear()

@@ -88,6 +88,63 @@ func (h commandHandlers) sendMedia(_ *conn, req request) (any, *Error) {
 	return map[string]any{"message_id": saved.Message.ID}, nil
 }
 
+type sendMediaBatchParams struct {
+	ChatID   string `json:"chat_id"`
+	ReplyTo  string `json:"reply_to"`
+	Kind     string `json:"kind"`
+	ViewOnce bool   `json:"view_once"`
+	Files    []struct {
+		Path    string `json:"path"`
+		Caption string `json:"caption"`
+	} `json:"files"`
+}
+
+// send.media_batch sends several files as individual messages through the
+// daemon's serialized send path. The frontend can only hold one in-flight
+// send, so looping send.media client-side drops every file after the first.
+// Per-file failures come back as {index, error} entries without stopping the
+// rest.
+func (h commandHandlers) sendMediaBatch(_ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p sendMediaBatchParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(p.ChatID) == "" {
+		return nil, errorf(CodeInvalidParams, "chat_id is required")
+	}
+	if len(p.Files) == 0 || len(p.Files) > 30 {
+		return nil, errorf(CodeInvalidParams, "files must hold 1-30 entries")
+	}
+	files := make([]app.MediaBatchFile, 0, len(p.Files))
+	for _, f := range p.Files {
+		path := strings.TrimSpace(f.Path)
+		if path == "" {
+			return nil, errorf(CodeInvalidParams, "every file needs a path")
+		}
+		if utf8.RuneCountInString(f.Caption) > maxCommandCaptionRunes {
+			return nil, errorf(CodeInvalidParams, "caption must be <= %d characters", maxCommandCaptionRunes)
+		}
+		files = append(files, app.MediaBatchFile{Path: path, Caption: f.Caption})
+	}
+	opts := app.MediaSendOptions{
+		Kind:     strings.TrimSpace(p.Kind),
+		ViewOnce: p.ViewOnce,
+	}
+	saved, failed := h.actions.SendMediaBatch(context.Background(), strings.TrimSpace(p.ChatID), files, strings.TrimSpace(p.ReplyTo), opts)
+	ids := make([]string, 0, len(saved))
+	for _, s := range saved {
+		ids = append(ids, s.Message.ID)
+	}
+	out := make([]map[string]any, 0, len(failed))
+	for _, f := range failed {
+		out = append(out, map[string]any{"index": f.Index, "error": f.Message})
+	}
+	return map[string]any{"message_ids": ids, "errors": out}, nil
+}
+
 // mediaSendOptions converts send.media params to the daemon's media options.
 // It lives in this file (rather than inline) so the mapping is unit-testable.
 func mediaSendOptions(p sendMediaParams) app.MediaSendOptions {

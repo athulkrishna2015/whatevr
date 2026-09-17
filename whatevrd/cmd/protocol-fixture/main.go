@@ -34,6 +34,7 @@ func (fixtureCommands) Logout(context.Context) error                     { retur
 func (fixtureCommands) MarkChatReadUpTo(context.Context, string, string) (appstore.Chat, error) {
 	return appstore.Chat{}, nil
 }
+func (fixtureCommands) MarkAllChatsRead(context.Context) (int, error) { return 0, nil }
 func (fixtureCommands) SetChatPinned(context.Context, string, bool) (appstore.Chat, error) {
 	return appstore.Chat{}, nil
 }
@@ -58,6 +59,13 @@ func (fixtureCommands) SendMediaWithMentions(_ context.Context, chatID, path, ca
 }
 func (fixtureCommands) SendMediaWithOptions(_ context.Context, chatID, path, caption, _ string, _ []string, _ app.MediaSendOptions) (appstore.SavedTextMessage, error) {
 	return appstore.SavedTextMessage{Message: appstore.Message{ID: chatID + ":fixture-media", ChatID: chatID, Text: caption, MediaLocalPath: path}}, nil
+}
+func (fixtureCommands) SendMediaBatch(_ context.Context, chatID string, files []app.MediaBatchFile, _ string, _ app.MediaSendOptions) ([]appstore.SavedTextMessage, []app.MediaBatchError) {
+	out := make([]appstore.SavedTextMessage, 0, len(files))
+	for _, file := range files {
+		out = append(out, appstore.SavedTextMessage{Message: appstore.Message{ID: chatID + ":fixture-batch", ChatID: chatID, Text: file.Caption}})
+	}
+	return out, nil
 }
 func (fixtureCommands) SendSticker(_ context.Context, chatID, cacheKey, _ string) (appstore.SavedTextMessage, error) {
 	return appstore.SavedTextMessage{Message: appstore.Message{ID: chatID + ":fixture-sticker", ChatID: chatID, MediaCacheKey: cacheKey}}, nil

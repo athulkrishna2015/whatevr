@@ -1406,6 +1406,19 @@ void ProtocolController::markSelectedChatViewed(const QString &upToMessageId)
     m_readTimer->start();
 }
 
+void ProtocolController::markAllChatsRead()
+{
+    // Ack-then-lifecycle like its siblings: badges clear through the `chats`
+    // view, failures surface as a transient message action error.
+    m_client->request(QStringLiteral("chat.mark_all_read"), {},
+                      [this](const QJsonObject &, const ProtocolError &error) {
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(error.message.isEmpty() ? i18nc("@info", "Unable to mark all chats read")
+                                                                                 : error.message);
+                          }
+                      });
+}
+
 void ProtocolController::setConversationVisible(bool visible)
 {
     if (visible == m_conversationVisible) {
@@ -1662,6 +1675,67 @@ void ProtocolController::sendMedia(const QString &fileUrl, const QString &captio
         m_composerErrorText = error.isError()
             ? (error.message.isEmpty() ? i18nc("@info", "Unable to send media") : error.message)
             : QString();
+        Q_EMIT composerChanged();
+    });
+}
+
+// Batch twin of sendMedia: the daemon serializes the files, so a multi-pick
+// (or a multi-file drop) goes out as one request instead of N racing ones
+// that the single in-flight guard would drop after the first.
+void ProtocolController::sendMediaBatch(const QVariantList &fileUrls, const QString &caption, const QString &replyToMessageId, const QString &kind, bool viewOnce)
+{
+    if (m_selectedChatId.isEmpty() || fileUrls.isEmpty() || m_sendInFlight) {
+        return;
+    }
+    QJsonArray files;
+    bool first = true;
+    for (const QVariant &entry : fileUrls) {
+        const QUrl url(entry.toString());
+        const QString filePath = url.isLocalFile() ? url.toLocalFile() : entry.toString();
+        if (filePath.isEmpty()) {
+            continue;
+        }
+        QJsonObject file;
+        file.insert(QStringLiteral("path"), filePath);
+        // The shared caption rides on the first file only.
+        file.insert(QStringLiteral("caption"), first ? plainTextFromQtRichText(caption).trimmed() : QString());
+        files.append(file);
+        first = false;
+    }
+    if (files.isEmpty()) {
+        return;
+    }
+
+    setSelectedChatComposing(false);
+    dismissUnreadAnchor();
+    Q_EMIT messageSent();
+
+    QJsonObject params{{QStringLiteral("chat_id"), m_selectedChatId},
+                       {QStringLiteral("files"), files}};
+    if (const QString reply = replyToMessageId.trimmed(); !reply.isEmpty()) {
+        params.insert(QStringLiteral("reply_to"), reply);
+    }
+    if (!kind.trimmed().isEmpty()) {
+        params.insert(QStringLiteral("kind"), kind.trimmed());
+    }
+    if (viewOnce) {
+        params.insert(QStringLiteral("view_once"), true);
+    }
+
+    m_sendInFlight = true;
+    m_composerErrorText.clear();
+    Q_EMIT composerChanged();
+
+    m_client->request(QStringLiteral("send.media_batch"), params, [this](const QJsonObject &result, const ProtocolError &error) {
+        m_sendInFlight = false;
+        if (error.isError()) {
+            m_composerErrorText = error.message.isEmpty() ? i18nc("@info", "Unable to send media") : error.message;
+        } else {
+            const QVariantList failures = result.value(QStringLiteral("errors")).toArray().toVariantList();
+            if (!failures.isEmpty()) {
+                m_composerErrorText = i18nc("@info", "Some files could not be sent");
+            }
+        }
         Q_EMIT composerChanged();
     });
 }

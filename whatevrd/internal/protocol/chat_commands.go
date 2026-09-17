@@ -40,6 +40,23 @@ func (h commandHandlers) chatMarkRead(ctx context.Context, _ *conn, req request)
 	return nil, mapCommandError(err)
 }
 
+// chat.mark_all_read marks every unread message read in every chat (local
+// rows, badges, and upstream read receipts), returning how many chats had
+// unread.
+func (h commandHandlers) chatMarkAllRead(ctx context.Context, _ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	if err := rejectNonEmptyParams(req.Params); err != nil {
+		return nil, err
+	}
+	marked, err := h.actions.MarkAllChatsRead(ctx)
+	if perr := mapCommandError(err); perr != nil {
+		return nil, perr
+	}
+	return map[string]any{"marked_chats": marked}, nil
+}
+
 type chatPinParams struct {
 	ChatID string `json:"chat_id"`
 	Pinned *bool  `json:"pinned"`

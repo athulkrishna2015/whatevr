@@ -119,3 +119,51 @@ func TestStatusKeepSenders(t *testing.T) {
 		t.Fatalf("kept = %v; want [b@s.whatsapp.net]", kept)
 	}
 }
+
+// TestMarkAllChatsRead locks in that one call clears every badge and every
+// unread row, reporting the touched chats.
+func TestMarkAllChatsRead(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	seed := func(chat, id string, unread bool) {
+		if _, err := db.SaveTextMessage(ctx, TextMessageInput{
+			ID:          id,
+			ChatID:      chat,
+			ChatName:    chat,
+			SenderID:    "peer",
+			Text:        "hi",
+			Timestamp:   time.Unix(100, 0),
+			Direction:   DirectionIncoming,
+			Status:      StatusDelivered,
+			CountUnread: unread,
+		}); err != nil {
+			t.Fatalf("seed %s: %v", id, err)
+		}
+	}
+	seed("chat-1", "chat-1:m1", true)
+	seed("chat-1", "chat-1:m2", true)
+	seed("chat-2", "chat-2:m1", true)
+	seed("chat-3", "chat-3:m1", false)
+
+	ids, err := db.MarkAllChatsRead(ctx)
+	if err != nil {
+		t.Fatalf("mark all read: %v", err)
+	}
+	if len(ids) != 2 {
+		t.Fatalf("touched = %v; want 2 chats", ids)
+	}
+	for _, chatID := range []string{"chat-1", "chat-2", "chat-3"} {
+		chat, err := db.GetChat(ctx, chatID)
+		if err != nil {
+			t.Fatalf("get %s: %v", chatID, err)
+		}
+		if chat.UnreadCount != 0 {
+			t.Fatalf("%s unread = %d; want 0", chatID, chat.UnreadCount)
+		}
+	}
+}

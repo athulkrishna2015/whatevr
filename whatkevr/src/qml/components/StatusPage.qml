@@ -275,6 +275,12 @@ Kirigami.ScrollablePage {
                     checkable: true
                     checked: statusDelegate.group.kept
                     onToggled: Whatevr.ProtocolController.setStatusKeepSender(statusDelegate.group.senderId, checked)
+
+                    QQC2.ToolTip.visible: hovered
+                    QQC2.ToolTip.text: statusDelegate.group.kept
+                        ? Whatevr.I18n.i18nc("@info:tooltip kept statuses", "Kept: expired statuses stay archived here")
+                        : text
+                    QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
                 }
             }
         }

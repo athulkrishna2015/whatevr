@@ -334,14 +334,16 @@ func (db *DB) migrate(ctx context.Context) error {
 		)`,
 		// Previous bodies of edited messages, oldest first. The live row
 		// always holds the current version; this table is the edit history
-		// (anti-delete's counterpart for edits: nothing is ever lost).
+		// (anti-delete's counterpart for edits: nothing is ever lost). The
+		// generated id orders versions: two edits in the same millisecond
+		// must both survive.
 		`CREATE TABLE IF NOT EXISTS message_edits (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			message_id TEXT NOT NULL,
-			edited_at INTEGER NOT NULL,
-			text TEXT NOT NULL DEFAULT '',
-			PRIMARY KEY (message_id, edited_at)
+			edited_at_millis INTEGER NOT NULL,
+			text TEXT NOT NULL DEFAULT ''
 		)`,
-		`CREATE INDEX IF NOT EXISTS idx_message_edits_message ON message_edits(message_id, edited_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_message_edits_message ON message_edits(message_id, id)`,
 		// Contacts whose expired statuses are kept instead of hidden: the
 		// Status tab shows only unexpired statuses by default, and kept
 		// contacts grow an archived section with their older ones.
@@ -407,6 +409,10 @@ func (db *DB) migrate(ctx context.Context) error {
 	}
 
 	if err := db.ensureSenderDeviceColumn(ctx); err != nil {
+		return err
+	}
+
+	if err := db.ensureMessageEditsTable(ctx); err != nil {
 		return err
 	}
 
@@ -1186,6 +1192,63 @@ func (db *DB) ensureMediaColumns(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// ensureMessageEditsTable rebuilds message_edits with an autoincrement id
+// when it still has the first-run schema keyed by (message_id, edited_at),
+// under which two edits in the same millisecond collided and lost one.
+// Fresh databases already get the new schema from the CREATE TABLE above.
+func (db *DB) ensureMessageEditsTable(ctx context.Context) error {
+	rows, err := db.conn.QueryContext(ctx, `PRAGMA table_info(message_edits)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	exists, hasID := false, false
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, pk int
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		exists = true
+		if name == "id" {
+			hasID = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if !exists || hasID {
+		return nil
+	}
+
+	tx, err := db.conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, statement := range []string{
+		`CREATE TABLE message_edits_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			message_id TEXT NOT NULL,
+			edited_at_millis INTEGER NOT NULL,
+			text TEXT NOT NULL DEFAULT ''
+		)`,
+		`INSERT INTO message_edits_new (message_id, edited_at_millis, text)
+			SELECT message_id, edited_at, text FROM message_edits`,
+		`DROP TABLE message_edits`,
+		`ALTER TABLE message_edits_new RENAME TO message_edits`,
+		`CREATE INDEX IF NOT EXISTS idx_message_edits_message ON message_edits(message_id, id)`,
+	} {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("rebuild message_edits: %w", err)
+		}
+	}
+	return tx.Commit()
 }
 
 // ensureSenderDeviceColumn adds messages.sender_device (0 = primary phone

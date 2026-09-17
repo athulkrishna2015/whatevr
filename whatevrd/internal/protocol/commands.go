@@ -79,6 +79,7 @@ type CommandActions interface {
 	Logout(context.Context) error
 
 	MarkChatReadUpTo(context.Context, string, string) (appstore.Chat, error)
+	MarkAllChatsRead(context.Context) (int, error)
 	SetChatPinned(context.Context, string, bool) (appstore.Chat, error)
 	SetChatArchived(context.Context, string, bool) (appstore.Chat, error)
 	SetChatMuted(context.Context, string, bool, time.Duration) (appstore.Chat, error)
@@ -93,6 +94,7 @@ type CommandActions interface {
 	VotePoll(context.Context, string, []string) (appstore.Message, error)
 	SendContact(context.Context, string, string, string) (appstore.SavedTextMessage, error)
 	SendLocation(context.Context, string, float64, float64, string, string) (appstore.SavedTextMessage, error)
+	SendMediaBatch(context.Context, string, []app.MediaBatchFile, string, app.MediaSendOptions) ([]appstore.SavedTextMessage, []app.MediaBatchError)
 	SendSticker(context.Context, string, string, string) (appstore.SavedTextMessage, error)
 	SendReaction(context.Context, string, string) (appstore.Message, error)
 	EditMessage(context.Context, string, string) (appstore.Message, error)
@@ -171,6 +173,7 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("daemon.reconnect", cmd.daemonReconnect)
 	s.RegisterCommand("account.logout", backgroundNet(cmd.accountLogout, false))
 	s.RegisterCommand("chat.mark_read", backgroundNet(cmd.chatMarkRead, false))
+	s.RegisterCommand("chat.mark_all_read", backgroundNet(cmd.chatMarkAllRead, false))
 	s.RegisterCommand("chat.pin", backgroundNet(cmd.chatPin, false))
 	s.RegisterCommand("chat.archive", backgroundNet(cmd.chatArchive, false))
 	s.RegisterCommand("chat.mute", backgroundNet(cmd.chatMute, false))
@@ -179,6 +182,7 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("chat.ensure_direct", cmd.chatEnsureDirect)
 	s.RegisterCommand("send.text", cmd.sendText)
 	s.RegisterCommand("send.media", cmd.sendMedia)
+	s.RegisterCommand("send.media_batch", cmd.sendMediaBatch)
 	s.RegisterCommand("send.sticker", backgroundNet(cmd.sendSticker, false))
 	s.RegisterCommand("send.poll", backgroundNet(cmd.sendPoll, false))
 	s.RegisterCommand("send.contact", backgroundNet(cmd.sendContact, false))

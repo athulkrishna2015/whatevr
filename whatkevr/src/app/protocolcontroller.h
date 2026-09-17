@@ -565,6 +565,7 @@ public:
     // from the file); viewOnce sends photo/video/audio view-once. QML may keep
     // calling with three arguments — the defaults preserve the old behavior.
     Q_INVOKABLE void sendMedia(const QString &fileUrl, const QString &caption, const QString &replyToMessageId, const QString &kind = {}, bool viewOnce = false);
+    Q_INVOKABLE void sendMediaBatch(const QVariantList &fileUrls, const QString &caption, const QString &replyToMessageId, const QString &kind = {}, bool viewOnce = false);
     // Sends whatever image the clipboard currently holds (pasted bitmap or a
     // local image file URL), same as sendMedia. Returns false when the
     // clipboard had nothing sendable, so the caller can fall back to a normal
@@ -652,6 +653,8 @@ public:
     Q_INVOKABLE void jumpToBottom();
     Q_INVOKABLE void showMessageInChat(const QString &chatId, const QString &messageId);
     Q_INVOKABLE void markSelectedChatViewed(const QString &upToMessageId);
+    // Maps to `chat.mark_all_read`; clears every badge at once.
+    Q_INVOKABLE void markAllChatsRead();
     Q_INVOKABLE void setConversationVisible(bool visible);
 
     // Subscribe/drop the `receipts` view for one message: the dialog's lifetime is

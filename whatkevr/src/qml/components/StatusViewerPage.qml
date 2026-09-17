@@ -95,6 +95,10 @@ Kirigami.ScrollablePage {
             display: QQC2.AbstractButton.IconOnly
             enabled: root.currentIndex > 0
             onClicked: root.currentIndex -= 1
+
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.text: text
+            QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
         }
 
         QQC2.Label {
@@ -111,6 +115,10 @@ Kirigami.ScrollablePage {
             display: QQC2.AbstractButton.IconOnly
             enabled: root.currentIndex >= 0 && root.currentIndex < root.statusIds.length - 1
             onClicked: root.currentIndex += 1
+
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.text: text
+            QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
         }
     }
 
@@ -221,6 +229,11 @@ Kirigami.ScrollablePage {
                 text: Whatevr.I18n.i18nc("@action:button play the status audio", "Play")
                 display: QQC2.AbstractButton.IconOnly
                 enabled: parent.audioPath.length > 0 && Whatevr.AudioPlayer.available
+
+                QQC2.ToolTip.visible: hovered
+                QQC2.ToolTip.text: text
+                QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+
                 onClicked: {
                     if (root.currentItem) {
                         Whatevr.AudioPlayer.toggle(root.currentItem.id,

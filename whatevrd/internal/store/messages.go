@@ -1351,10 +1351,10 @@ type MessageEdit struct {
 func (db *DB) ListMessageEdits(ctx context.Context, messageID string) ([]MessageEdit, error) {
 	defer db.timeOp("ListMessageEdits", time.Now())
 	rows, err := db.reader().QueryContext(ctx, `
-		SELECT message_id, edited_at, text
+		SELECT message_id, edited_at_millis, text
 		FROM message_edits
 		WHERE message_id = ?
-		ORDER BY edited_at ASC, rowid ASC
+		ORDER BY id ASC
 	`, messageID)
 	if err != nil {
 		return nil, err
@@ -1405,11 +1405,12 @@ func (db *DB) UpdateMessageText(ctx context.Context, id, newText string, mention
 
 	// File the superseded body in the edit history before it is replaced.
 	// Empty originals (e.g. a caption added later) carry no information.
+	// The generated row id orders versions, so back-to-back edits in the
+	// same millisecond both survive.
 	if message.Text != "" && message.Text != newText {
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO message_edits (message_id, edited_at, text)
+			INSERT INTO message_edits (message_id, edited_at_millis, text)
 			VALUES (?, ?, ?)
-			ON CONFLICT(message_id, edited_at) DO NOTHING
 		`, id, time.Now().UnixMilli(), message.Text); err != nil {
 			return Message{}, Chat{}, false, err
 		}
@@ -2263,6 +2264,54 @@ func (db *DB) MarkChatReadUpTo(ctx context.Context, chatID string, uptoUnix int6
 		return Chat{}, false, err
 	}
 	return chat, changed || messagesChanged > 0, nil
+}
+
+// MarkAllChatsRead marks every unread incoming message read and zeroes all
+// badges, returning the touched chat ids for fan-out. One transaction: the
+// badge counts always match the rows.
+func (db *DB) MarkAllChatsRead(ctx context.Context) ([]string, error) {
+	defer db.timeOp("MarkAllChatsRead", time.Now())
+	tx, err := db.conn.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.QueryContext(ctx, `
+		SELECT DISTINCT chat_id FROM messages
+		WHERE direction = ? AND is_read = 0
+	`, DirectionIncoming)
+	if err != nil {
+		return nil, err
+	}
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	rows.Close()
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE messages SET is_read = 1
+		WHERE direction = ? AND is_read = 0
+	`, DirectionIncoming); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE chats SET unread_count = 0 WHERE unread_count > 0`); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return ids, nil
 }
 
 // MarkMessagesReadByIDs marks the given incoming messages as read (self read

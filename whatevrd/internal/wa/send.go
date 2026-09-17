@@ -253,6 +253,26 @@ func (c *Client) SendMediaWithOptions(ctx context.Context, chatID, filePath, cap
 	return saved, nil
 }
 
+// SendMediaBatch sends several files as individual messages through the same
+// path as single sends (the daemon's send queue serializes them). It exists
+// because the frontend can only hold one in-flight send at a time; looping
+// send.media client-side drops every file after the first. Per-file results
+// come back in order; a failure records {index, error} and continues with the
+// rest so one bad file does not eat the batch.
+func (c *Client) SendMediaBatch(ctx context.Context, chatID string, files []app.MediaBatchFile, replyToMessageID string, opts MediaSendOptions) ([]appstore.SavedTextMessage, []app.MediaBatchError) {
+	saved := make([]appstore.SavedTextMessage, 0, len(files))
+	var failed []app.MediaBatchError
+	for i, file := range files {
+		one, err := c.SendMediaWithOptions(ctx, chatID, file.Path, file.Caption, replyToMessageID, nil, opts)
+		if err != nil {
+			failed = append(failed, app.MediaBatchError{Index: i, Message: err.Error()})
+			continue
+		}
+		saved = append(saved, one)
+	}
+	return saved, failed
+}
+
 func (c *Client) replySnapshotForSend(ctx context.Context, chatID, replyToMessageID string) (appstore.MessageReply, error) {
 	replyToMessageID = strings.TrimSpace(replyToMessageID)
 	if replyToMessageID == "" {
@@ -1756,6 +1776,50 @@ func (c *Client) MarkChatReadUpTo(ctx context.Context, chatID, upToMessageID str
 		c.daemon.PublishChatUpdated(toDaemonChat(updatedChat))
 	}
 	return updatedChat, nil
+}
+
+// MarkAllChatsRead marks every unread message read everywhere: local rows
+// and badges first, then upstream read receipts per touched chat (the same
+// receipts single-chat mark-read sends), then one ChatUpdated per chat.
+// Returns the number of chats that had unread.
+func (c *Client) MarkAllChatsRead(ctx context.Context) (int, error) {
+	type pending struct {
+		chatID     string
+		jid        types.JID
+		candidates []appstore.ReadCandidate
+	}
+	var pendingChats []pending
+	if chats, err := c.store.ListChatsForView(ctx, appstore.ChatListFilter{UnreadOnly: true}); err == nil {
+		for _, chat := range chats {
+			if chat.UnreadCount <= 0 {
+				continue
+			}
+			jid, err := types.ParseJID(chat.ID)
+			if err != nil {
+				continue
+			}
+			candidates, err := c.store.ReadCandidatesForChat(ctx, chat.ID)
+			if err != nil || len(candidates) == 0 {
+				continue
+			}
+			pendingChats = append(pendingChats, pending{
+				chatID:     chat.ID,
+				jid:        c.normalizeJIDForChat(ctx, jid),
+				candidates: candidates,
+			})
+		}
+	}
+	ids, err := c.store.MarkAllChatsRead(ctx)
+	if err != nil {
+		return 0, err
+	}
+	for _, entry := range pendingChats {
+		c.sendReadReceipts(ctx, entry.jid, entry.chatID, entry.candidates)
+		if chat, err := c.store.GetChat(ctx, entry.chatID); err == nil {
+			c.daemon.PublishChatUpdated(toDaemonChat(chat))
+		}
+	}
+	return len(ids), nil
 }
 
 // MarkMessagePlayed reports that the user listened to an inbound voice note.

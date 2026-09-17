@@ -32,106 +32,111 @@ type fakeCommandActions struct {
 	requested    bool
 	ensuredJID   string
 
-	sendTextChat        string
-	sendTextText        string
-	sendTextReply       string
-	sendTextMentions    []string
-	sendMediaChat       string
-	sendMediaPath       string
-	sendMediaCaption    string
-	sendMediaReply      string
-	sendMediaMentions   []string
-	sendMediaKind       string
-	sendMediaViewOnce   bool
-	sendMediaFilename   string
-	saveMessageID       string
-	saveStatusID        string
-	saveJID             string
-	saveDest            string
-	viewedStatusID      string
-	postedStatusText    string
-	postedStatusPath    string
-	postedStatusCaption string
-	postedStatusBG      uint32
-	postedStatusFont    int32
-	downloadedStatusID  string
-	repliedStatusID     string
-	repliedStatusText   string
-	deletedStatusID     string
-	keptStatusSender    string
-	keptStatusValue     bool
-	sentPollChat        string
-	sentPollQuestion    string
-	sentPollOptions     []string
-	sentPollMulti       bool
-	votedMessage        string
-	votedOptions        []string
-	sentContactChat     string
-	sentContactName     string
-	sentContactPhone    string
-	sentLocationChat    string
-	sentLocationLat     float64
-	sentLocationLong    float64
-	createdGroupName    string
-	createdGroupMembers []string
-	createdGroupPhoto   string
-	leftGroup           string
-	groupNameChat       string
-	groupName           string
-	groupTopicChat      string
-	groupTopic          string
-	groupPhotoChat      string
-	groupPhotoPath      string
-	inviteChat          string
-	inviteReset         bool
-	joinedLink          string
-	groupMembersChat    string
-	groupMembersAction  string
-	groupMembersList    []string
-	groupAnnounceChat   string
-	groupAnnounce       bool
-	groupLockedChat     string
-	groupLocked         bool
-	rejectedCallChat    string
-	backupDest          string
-	backupUseKeyring    bool
-	backupPassphrase    string
-	logsLimit           int
-	communityChat       string
-	linkedCommunity     string
-	linkedGroup         string
-	unlinkedCommunity   string
-	unlinkedGroup       string
-	channelsRefreshed   bool
-	followedChannel     string
-	followedInvite      string
-	unfollowedChannel   string
-	mutedChannel        string
-	mutedValue          bool
-	viewedChannel       string
-	viewedServerIDs     []int64
-	sendStickerChat     string
-	sendStickerKey      string
-	sendStickerReply    string
-	reactMessage        string
-	reactEmoji          string
-	editMessage         string
-	editText            string
-	revokeMessage       string
-	deleteMessage       string
-	starMessage         string
-	starred             bool
-	pinMessage          string
-	messagePinned       bool
-	pinDuration         uint32
-	forwardMessage      string
-	forwardChats        []string
-	downloadMessage     string
-	streamMessage       string
-	streamUpdate        func(app.MediaStreamUpdate)
-	cancelledMessage    string
-	playedMessage       string
-	fetchJID            string
+	sendTextChat           string
+	sendTextText           string
+	sendTextReply          string
+	sendTextMentions       []string
+	sendMediaChat          string
+	sendMediaPath          string
+	sendMediaCaption       string
+	sendMediaReply         string
+	sendMediaMentions      []string
+	sendMediaKind          string
+	sendMediaViewOnce      bool
+	sendMediaFilename      string
+	sendMediaBatchChat     string
+	sendMediaBatchFiles    []app.MediaBatchFile
+	sendMediaBatchReply    string
+	sendMediaBatchKind     string
+	sendMediaBatchViewOnce bool
+	saveMessageID          string
+	saveStatusID           string
+	saveJID                string
+	saveDest               string
+	viewedStatusID         string
+	postedStatusText       string
+	postedStatusPath       string
+	postedStatusCaption    string
+	postedStatusBG         uint32
+	postedStatusFont       int32
+	downloadedStatusID     string
+	repliedStatusID        string
+	repliedStatusText      string
+	deletedStatusID        string
+	keptStatusSender       string
+	keptStatusValue        bool
+	sentPollChat           string
+	sentPollQuestion       string
+	sentPollOptions        []string
+	sentPollMulti          bool
+	votedMessage           string
+	votedOptions           []string
+	sentContactChat        string
+	sentContactName        string
+	sentContactPhone       string
+	sentLocationChat       string
+	sentLocationLat        float64
+	sentLocationLong       float64
+	createdGroupName       string
+	createdGroupMembers    []string
+	createdGroupPhoto      string
+	leftGroup              string
+	groupNameChat          string
+	groupName              string
+	groupTopicChat         string
+	groupTopic             string
+	groupPhotoChat         string
+	groupPhotoPath         string
+	inviteChat             string
+	inviteReset            bool
+	joinedLink             string
+	groupMembersChat       string
+	groupMembersAction     string
+	groupMembersList       []string
+	groupAnnounceChat      string
+	groupAnnounce          bool
+	groupLockedChat        string
+	groupLocked            bool
+	rejectedCallChat       string
+	backupDest             string
+	backupUseKeyring       bool
+	backupPassphrase       string
+	logsLimit              int
+	communityChat          string
+	linkedCommunity        string
+	linkedGroup            string
+	unlinkedCommunity      string
+	unlinkedGroup          string
+	channelsRefreshed      bool
+	followedChannel        string
+	followedInvite         string
+	unfollowedChannel      string
+	mutedChannel           string
+	mutedValue             bool
+	viewedChannel          string
+	viewedServerIDs        []int64
+	sendStickerChat        string
+	sendStickerKey         string
+	sendStickerReply       string
+	reactMessage           string
+	reactEmoji             string
+	editMessage            string
+	editText               string
+	revokeMessage          string
+	deleteMessage          string
+	starMessage            string
+	starred                bool
+	pinMessage             string
+	messagePinned          bool
+	pinDuration            uint32
+	forwardMessage         string
+	forwardChats           []string
+	downloadMessage        string
+	streamMessage          string
+	streamUpdate           func(app.MediaStreamUpdate)
+	cancelledMessage       string
+	playedMessage          string
+	fetchJID               string
 
 	privacyCategory    string
 	privacyAudience    string
@@ -198,6 +203,9 @@ func (f *fakeCommandActions) MarkChatReadUpTo(_ context.Context, chatID, upTo st
 	f.markReadChat, f.markReadUpTo = chatID, upTo
 	return appstore.Chat{ID: chatID}, f.err
 }
+func (f *fakeCommandActions) MarkAllChatsRead(context.Context) (int, error) {
+	return 3, f.err
+}
 func (f *fakeCommandActions) SetChatPinned(_ context.Context, chatID string, pinned bool) (appstore.Chat, error) {
 	if f.pinGate != nil {
 		<-f.pinGate
@@ -255,6 +263,18 @@ func (f *fakeCommandActions) SendMediaWithOptions(_ context.Context, chatID, pat
 	f.sendMediaChat, f.sendMediaPath, f.sendMediaCaption, f.sendMediaReply, f.sendMediaMentions = chatID, path, caption, reply, append([]string(nil), mentions...)
 	f.sendMediaKind, f.sendMediaViewOnce, f.sendMediaFilename = opts.Kind, opts.ViewOnce, opts.Filename
 	return appstore.SavedTextMessage{Message: appstore.Message{ID: "media-id", ChatID: chatID}}, f.err
+}
+func (f *fakeCommandActions) SendMediaBatch(_ context.Context, chatID string, files []app.MediaBatchFile, reply string, opts app.MediaSendOptions) ([]appstore.SavedTextMessage, []app.MediaBatchError) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sendMediaBatchChat, f.sendMediaBatchFiles, f.sendMediaBatchReply = chatID, files, reply
+	f.sendMediaBatchKind, f.sendMediaBatchViewOnce = opts.Kind, opts.ViewOnce
+	out := make([]appstore.SavedTextMessage, 0, len(files))
+	for i := range files {
+		out = append(out, appstore.SavedTextMessage{Message: appstore.Message{ID: "media-batch", ChatID: chatID}})
+		_ = i
+	}
+	return out, nil
 }
 func (f *fakeCommandActions) SendSticker(_ context.Context, chatID, cacheKey, reply string) (appstore.SavedTextMessage, error) {
 	f.mu.Lock()
@@ -767,6 +787,18 @@ func TestC2SendCommands(t *testing.T) {
 	result = c.recv()["result"].(map[string]any)
 	if result["message_id"] != "sticker-id" || actions.sendStickerKey != "ck" || actions.sendStickerReply != "r3" {
 		t.Fatalf("send.sticker result/action = %v/%+v", result, actions)
+	}
+
+	c.sendLine(`{"id":41,"method":"send.media_batch","params":{"chat_id":"chat@s.whatsapp.net","reply_to":"r2","kind":"document","files":[{"path":"/tmp/a.pdf","caption":"first"},{"path":"/tmp/b.pdf"}]}}`)
+	result = c.recv()["result"].(map[string]any)
+	ids, ok := result["message_ids"].([]any)
+	if !ok || len(ids) != 2 || actions.sendMediaBatchChat != "chat@s.whatsapp.net" || len(actions.sendMediaBatchFiles) != 2 || actions.sendMediaBatchFiles[0].Caption != "first" || actions.sendMediaBatchKind != "document" {
+		t.Fatalf("send.media_batch result/action = %v/%+v", result, actions)
+	}
+
+	c.sendLine(`{"id":42,"method":"send.media_batch","params":{"chat_id":"chat@s.whatsapp.net","files":[]}}`)
+	if msg := c.recv(); msg["error"] == nil {
+		t.Fatalf("send.media_batch without files must fail, got %v", msg)
 	}
 }
 
@@ -1293,6 +1325,12 @@ func TestCommandValidationAndErrors(t *testing.T) {
 	c.sendLine(`{"id":2,"method":"chat.mark_read","params":{"chat_id":"chat@s.whatsapp.net"}}`)
 	if got := errorCode(t, c.recv()); got != CodeInvalidParams {
 		t.Fatalf("missing up_to error = %s", got)
+	}
+
+	c.sendLine(`{"id":21,"method":"chat.mark_all_read","params":{}}`)
+	result := c.recv()["result"].(map[string]any)
+	if result["marked_chats"] != float64(3) {
+		t.Fatalf("chat.mark_all_read result = %v", result)
 	}
 
 	actions.err = sql.ErrNoRows

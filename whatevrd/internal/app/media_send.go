@@ -14,6 +14,19 @@ type MediaSendOptions struct {
 	Quality  string
 }
 
+// MediaBatchFile is one file in a send.media_batch call. Caption applies per
+// file (the frontend puts the shared caption on the first one only).
+type MediaBatchFile struct {
+	Path    string
+	Caption string
+}
+
+// MediaBatchError records one failed file in a batch, by index.
+type MediaBatchError struct {
+	Index   int
+	Message string
+}
+
 // CommunityGroup is one sub-group linked under a community: its JID plus the
 // best-effort display name. Shared between wa and protocol for the same
 // import-cycle reason as MediaSendOptions.

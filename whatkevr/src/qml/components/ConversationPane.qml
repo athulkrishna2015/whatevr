@@ -850,6 +850,7 @@ Kirigami.Page {
             editingOriginalText: root.editingOriginalText
             onSendTextRequested: (text, replyToMessageId, mentionedJids) => Whatevr.ProtocolController.sendText(text, replyToMessageId, mentionedJids)
             onSendImageRequested: (fileUrl, caption, replyToMessageId, kind, viewOnce) => Whatevr.ProtocolController.sendMedia(fileUrl, caption, replyToMessageId, kind, viewOnce)
+            onSendMediaBatchRequested: (fileUrls, caption, replyToMessageId, kind, viewOnce) => Whatevr.ProtocolController.sendMediaBatch(fileUrls, caption, replyToMessageId, kind, viewOnce)
             onComposingChanged: composing => Whatevr.ProtocolController.setSelectedChatComposing(composing)
             onClearReplyRequested: root.clearReplyTarget()
             onReplyConsumed: root.clearReplyTarget()
@@ -863,38 +864,77 @@ Kirigami.Page {
         id: contactInfoDialog
     }
 
-    // Drag-and-drop send: dropping files anywhere on the conversation sends
-    // each through the same sendMedia path as the attach dialogs (kind
-    // auto-classified daemon-side). Disabled without a writable composer so a
-    // stray drop onto a read-only chat cannot send.
+    // Drag-and-drop send in two halves: the upper half sends as documents,
+    // the lower half as photos/video (kind auto-classified daemon-side). Both
+    // go through the batch path so multi-file drops arrive whole.
     DropArea {
-        id: dropArea
+        id: documentDropArea
 
-        anchors.fill: parent
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: parent.height / 2
         enabled: Whatevr.ProtocolController.hasSelectedChat && Whatevr.ProtocolController.composerEnabled
         onDropped: drop => {
-            if (!drop.hasUrls) {
-                return
+            if (drop.hasUrls) {
+                Whatevr.ProtocolController.sendMediaBatch(drop.urls, "", "", "document", false)
             }
-            for (let i = 0; i < drop.urls.length; ++i) {
-                Whatevr.ProtocolController.sendMedia(drop.urls[i], "", "", "", false)
+        }
+    }
+
+    DropArea {
+        id: mediaDropArea
+
+        anchors.bottom: parent.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        height: parent.height / 2
+        enabled: documentDropArea.enabled
+        onDropped: drop => {
+            if (drop.hasUrls) {
+                Whatevr.ProtocolController.sendMediaBatch(drop.urls, "", "", "", false)
             }
         }
     }
 
     Rectangle {
         anchors.fill: parent
-        visible: dropArea.containsDrag
+        visible: documentDropArea.containsDrag || mediaDropArea.containsDrag
         color: Qt.alpha(Kirigami.Theme.highlightColor, 0.10)
         border.color: Kirigami.Theme.highlightColor
         border.width: 2
         radius: Kirigami.Units.cornerRadius
         z: 1000
 
+        // Divider between the document (top) and media (bottom) halves.
+        Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            height: 1
+            color: Kirigami.Theme.highlightColor
+        }
+
         Label {
-            anchors.centerIn: parent
-            text: Whatevr.I18n.i18nc("@info drag-and-drop hint", "Drop files to send")
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            anchors.topMargin: parent.height / 4
+            horizontalAlignment: Text.AlignHCenter
+            text: Whatevr.I18n.i18nc("@info drag-and-drop hint", "Drop here to send as documents")
             font.weight: Font.Bold
+            color: documentDropArea.containsDrag ? Kirigami.Theme.highlightColor : Kirigami.Theme.textColor
+        }
+
+        Label {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: parent.height / 4
+            horizontalAlignment: Text.AlignHCenter
+            text: Whatevr.I18n.i18nc("@info drag-and-drop hint", "Drop here to send as photos or video")
+            font.weight: Font.Bold
+            color: mediaDropArea.containsDrag ? Kirigami.Theme.highlightColor : Kirigami.Theme.textColor
         }
     }
 

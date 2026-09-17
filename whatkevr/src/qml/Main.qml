@@ -443,13 +443,22 @@ Kirigami.ApplicationWindow {
             root.activateWindow()
         }
 
-        // Tray right-click: show the tray menu at the cursor. Deliberately no
-        // activateWindow(): raising + focusing the window first dismisses the
-        // menu as focus moves, so the menu would never be seen. show() alone
-        // unhides a hidden window without stealing focus.
+        // Tray right-click: show the tray menu at the click point. Deliberately
+        // no activateWindow(): raising + focusing the window first dismisses
+        // the menu as focus moves, so the menu would never be seen. show()
+        // alone unhides a hidden window without stealing focus. The daemon
+        // passes screen coordinates (0,0 when the platform supplies none),
+        // translated into window space here.
         function onShowTrayMenuRequested(x, y) {
             root.show()
-            trayMenu.popup()
+            if (x > 0 || y > 0) {
+                trayMenu.x = Math.max(0, x - root.x)
+                trayMenu.y = Math.max(0, y - root.y)
+            } else {
+                trayMenu.x = Math.max(0, root.width - trayMenu.implicitWidth - Kirigami.Units.largeSpacing)
+                trayMenu.y = Math.max(0, root.height - trayMenu.implicitHeight - Kirigami.Units.largeSpacing)
+            }
+            trayMenu.open()
         }
 
         // The daemon's `open_chat` (notification click, whatevr:// URL) and the
