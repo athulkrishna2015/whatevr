@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -21,7 +22,14 @@ const (
 	connBackoffBase = 5 * time.Second
 	connBackoffMax  = 60 * time.Second
 	qrRetryDelay    = 300 * time.Millisecond
+
+	waVersionTimeout  = 10 * time.Second
+	waVersionInterval = 6 * time.Hour
 )
+
+// http.DefaultClient has no timeout, so a black-holed route after sleep used to
+// hang the supervisor for minutes before backoff even started.
+var waVersionClient = &http.Client{Timeout: waVersionTimeout}
 
 var errQRLoginRetry = errors.New("retry QR login")
 
@@ -30,6 +38,7 @@ var errQRLoginRetry = errors.New("retry QR login")
 // exponential backoff on any failure.
 func (c *Client) runConnectionSupervisor(ctx context.Context) {
 	attempt := 0
+	var lastVersionFetch time.Time
 
 	for {
 		if ctx.Err() != nil {
@@ -42,6 +51,16 @@ func (c *Client) runConnectionSupervisor(ctx context.Context) {
 		default:
 		}
 		c.closeForReconnectIfRequested()
+
+		// store.SetWAVersion writes unsynchronized globals that connect reads,
+		// so this has to stay on the supervisor goroutine. It is refreshed on an
+		// interval rather than per attempt: a failed fetch must never cost a
+		// connect.
+		if time.Since(lastVersionFetch) >= waVersionInterval {
+			if c.refreshWAVersion(ctx) {
+				lastVersionFetch = time.Now()
+			}
+		}
 
 		err := c.connectOnce(ctx)
 		if ctx.Err() != nil {
@@ -139,16 +158,25 @@ func (c *Client) desiredPresence() types.Presence {
 	return types.PresenceUnavailable
 }
 
+// refreshWAVersion updates the advertised client version, reporting whether it
+// succeeded. Callers must be on the supervisor goroutine.
+func (c *Client) refreshWAVersion(ctx context.Context) bool {
+	fetchCtx, cancel := context.WithTimeout(ctx, waVersionTimeout)
+	defer cancel()
+
+	latest, err := whatsmeow.GetLatestVersion(fetchCtx, waVersionClient)
+	if err != nil {
+		c.log.Warnf("Failed to fetch latest WhatsApp version: %v", err)
+		return false
+	}
+	store.SetWAVersion(*latest)
+	return true
+}
+
 // connectOnce performs a single connection attempt. For QR-login sessions it
 // blocks until the QR flow concludes (success or failure). Returns nil on a
 // successful connect; the supervisor will then park until signalled.
 func (c *Client) connectOnce(ctx context.Context) error {
-	if latestVer, err := whatsmeow.GetLatestVersion(ctx, nil); err != nil {
-		c.log.Warnf("Failed to fetch latest WhatsApp version: %v", err)
-	} else {
-		store.SetWAVersion(*latestVer)
-	}
-
 	client := c.currentClient()
 	if client == nil {
 		return fmt.Errorf("WhatsApp client is not initialized")
