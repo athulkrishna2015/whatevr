@@ -15,6 +15,7 @@ Item {
     // 0 = Home, 1 = DMs, 2 = Groups, 3 = Unread, 4 = Favorites.
     property int activeFilter: 0
     property int activeFolder: 0
+    readonly property string activeWorkspace: applicationWindow()?.workspacePageItem?.workspaceName ?? "conversation"
 
     readonly property string userName: Whatevr.ProtocolController.currentUserName
 
@@ -158,6 +159,8 @@ Item {
             icon.width: root.railIconSize
             icon.height: root.railIconSize
             text: Whatevr.I18n.i18nc("@action:button open the starred-messages view", "Starred messages")
+            checkable: true
+            checked: root.activeWorkspace === "starred"
             onClicked: {
                 // The page owns its own `starred` subscription for as long as
                 // it is on screen; pushing it is all this has to do.
@@ -176,6 +179,8 @@ Item {
             icon.width: root.railIconSize
             icon.height: root.railIconSize
             text: Whatevr.I18n.i18nc("@action:button open the status tab", "Status")
+            checkable: true
+            checked: root.activeWorkspace === "status"
             onClicked: {
                 // Like starred: the page owns its `status` subscription while
                 // on screen, grouped per contact inside the page itself.
@@ -198,6 +203,8 @@ Item {
             text: Whatevr.ProtocolController.callsRingingCount > 0
                 ? Whatevr.I18n.i18nc("@action:button open the calls tab", "Calls (%1 ringing)", Whatevr.ProtocolController.callsRingingCount)
                 : Whatevr.I18n.i18nc("@action:button open the calls tab", "Calls")
+            checkable: true
+            checked: root.activeWorkspace === "calls"
             onClicked: {
                 // The page owns its `calls` subscription while on screen.
                 applicationWindow().openWorkspace("calls")
@@ -228,6 +235,8 @@ Item {
             icon.width: root.railIconSize
             icon.height: root.railIconSize
             text: Whatevr.I18n.i18nc("@action:button open the channels tab", "Channels")
+            checkable: true
+            checked: root.activeWorkspace === "channels"
             onClicked: {
                 applicationWindow().openWorkspace("channels")
             }
@@ -262,6 +271,8 @@ Item {
             icon.width: root.railIconSize
             icon.height: root.railIconSize
             text: Whatevr.I18n.i18nc("@action:button open the daemon logs view", "Logs")
+            checkable: true
+            checked: root.activeWorkspace === "logs"
             onClicked: {
                 applicationWindow().openWorkspace("logs")
             }

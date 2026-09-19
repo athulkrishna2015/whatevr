@@ -11,6 +11,7 @@ Kirigami.Page {
     signal closeChatRequested()
     readonly property Item conversationPane: conversation
     property int workspaceIndex: 0
+    property string workspaceName: "conversation"
 
     padding: 0
     title: stack.currentIndex === 0
@@ -36,10 +37,15 @@ Kirigami.Page {
         }
     }
 
-    function openConversation() { root.workspaceIndex = 0 }
+    function openConversation() {
+        root.workspaceIndex = 0
+        root.workspaceName = "conversation"
+    }
     function openTab(name) {
         const indexes = {status: 1, calls: 2, channels: 3, logs: 4, starred: 5}
-        if (indexes[name] !== undefined)
+        if (indexes[name] !== undefined) {
             root.workspaceIndex = indexes[name]
+            root.workspaceName = name
+        }
     }
 }
