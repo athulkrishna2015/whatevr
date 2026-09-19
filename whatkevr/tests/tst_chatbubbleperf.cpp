@@ -256,6 +256,7 @@ private Q_SLOTS:
     void theNewestMessageIsDrawnAtTheBottomAndHistoryClimbsAwayFromIt();
     void aHiddenTranscriptKeepsItsRowsSoComingBackToItIsFree();
     void flingingThroughAMediaHeavyChatReusesItsRows();
+    void aDownloadedStickerIsActuallyDrawn();
 
 private:
     QQuickWindow *m_window = nullptr;
@@ -2422,6 +2423,62 @@ void ChatBubblePerf::aHiddenTranscriptKeepsItsRowsSoComingBackToItIsFree()
 
     m_window->hide();
     viewItem->setParentItem(nullptr);
+}
+
+// A downloaded sticker has to appear. Nothing in the suite checked that: the
+// delegate budget counts objects, and an empty slot costs the same as a full
+// one, so a sticker that drew nothing at all passed every existing test.
+//
+// It drew nothing because the flag gating both sticker renderers was
+// `isSticker && isImage`, and isImage excludes stickers by construction. The
+// predicate was therefore false for every sticker ever rendered.
+void ChatBubblePerf::aDownloadedStickerIsActuallyDrawn()
+{
+    QTemporaryDir cache;
+    QVERIFY(cache.isValid());
+    const QString stickerPath = cache.filePath(QStringLiteral("sticker.png"));
+    QImage art(256, 256, QImage::Format_ARGB32);
+    art.fill(QColor(240, 90, 40));
+    QVERIFY(art.save(stickerPath));
+
+    const QVariantMap props = withProps(
+        baseProps(), {{QStringLiteral("messageId"), QStringLiteral("sticker-1")},
+                      {QStringLiteral("mediaKind"), QStringLiteral("sticker")},
+                      {QStringLiteral("hasMedia"), true},
+                      {QStringLiteral("mediaMimeType"), QStringLiteral("image/webp")},
+                      {QStringLiteral("mediaLocalPath"), stickerPath}});
+
+    QQmlComponent component(
+        m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/ChatBubble.qml")));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> bubble(component.createWithInitialProperties(props));
+    QVERIFY2(bubble, qPrintable(component.errorString()));
+    auto *bubbleItem = qobject_cast<QQuickItem *>(bubble.get());
+    bubbleItem->setParentItem(m_window->contentItem());
+    m_window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_window));
+
+    QVERIFY(bubbleItem->property("isSticker").toBool());
+    QVERIFY(bubbleItem->property("frameless").toBool());
+    QVERIFY2(bubbleItem->property("hasLocalSticker").toBool(),
+             "the row does not believe it has the file it was given");
+    QVERIFY2(bubbleItem->property("isRenderableStickerImage").toBool(),
+             "a plain webp sticker is not considered renderable, so nothing draws it");
+
+    QQuickItem *drawn = findVisualChild(bubbleItem, QStringLiteral("sticker.static"));
+    QVERIFY2(drawn, "no static sticker renderer was built");
+    QVERIFY2(drawn->isVisible(), "the sticker renderer was built but left invisible");
+    // Visible is not enough: it must have loaded its file and have real size.
+    constexpr int kImageReady = 1; // Image.Ready
+    QTRY_COMPARE(drawn->property("status").toInt(), kImageReady);
+    QVERIFY2(drawn->width() > 0 && drawn->height() > 0,
+             "the sticker decoded but was laid out with no area");
+
+    // And the slot the row reserved is not an empty hole.
+    QVERIFY(bubbleItem->property("stickerDisplayWidth").toReal() > 0);
+
+    m_window->hide();
+    bubbleItem->setParentItem(nullptr);
 }
 
 // What a fast scroll through a chat full of pictures, video and voice notes

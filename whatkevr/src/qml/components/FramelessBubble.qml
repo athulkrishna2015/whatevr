@@ -165,6 +165,8 @@ Item {
         Image {
             id: staticSticker
 
+            objectName: "sticker.static"
+
             // Latched readiness, set from onStatusChanged rather than read off
             // `status` inside the source binding (which would make source depend
             // on its own load state and loop). Reset when the underlying file
@@ -191,6 +193,8 @@ Item {
 
         AnimatedImage {
             id: animatedSticker
+
+            objectName: "sticker.animated"
 
             // Same latch as staticSticker: keeps `status` out of the source
             // binding so it cannot loop on its own load state.

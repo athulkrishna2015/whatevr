@@ -354,9 +354,15 @@ Item {
         * (displayEmojiOnlyCount === 1 ? 2.8 : displayEmojiOnlyCount === 2 ? 2.2 : 1.8)
     readonly property bool isAnimatedSticker: isSticker && (mediaAnimated || mediaMimeType === "image/gif")
     readonly property bool isLottieSticker: isSticker && mediaMimeType === "application/was"
-    readonly property bool isRenderableStickerImage: isSticker && isImage && !isLottieSticker
+    // Every sticker that is not a Lottie animation draws through Image or
+    // AnimatedImage. Deliberately not `&& isImage`: that flag excludes stickers
+    // by construction, so requiring it made this false for every sticker there
+    // has ever been, and the renderers it gates never drew anything.
+    readonly property bool isRenderableStickerImage: isSticker && !isLottieSticker
     readonly property bool hasLocalImage: isImage && mediaLocalPath.length > 0
-    readonly property bool hasThumbnailImage: isImage && mediaThumbnailLocalPath.length > 0
+    // Stickers included, for the same reason: their placeholder is the one thing
+    // on screen until the sticker itself decodes.
+    readonly property bool hasThumbnailImage: (isImage || isSticker) && mediaThumbnailLocalPath.length > 0
     readonly property bool hasLocalSticker: isSticker
                                                && mediaLocalPath.length > 0
                                                && (!isLottieSticker || mediaLocalPath.endsWith(".json"))
