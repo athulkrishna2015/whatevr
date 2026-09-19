@@ -5,6 +5,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import Whatevr as Whatevr
+import "Initials.js" as Initials
 import "Wallpapers.js" as Wallpapers
 
 Kirigami.Page {
@@ -110,20 +111,6 @@ Kirigami.Page {
     padding: 0
     focus: true
     Kirigami.Theme.colorSet: Kirigami.Theme.Window
-
-    function initialsForName(name) {
-        const parts = name.trim().split(/\s+/)
-        let initials = ""
-        for (const part of parts) {
-            if (part.length > 0) {
-                initials += part.charAt(0).toUpperCase()
-            }
-            if (initials.length >= 2) {
-                break
-            }
-        }
-        return initials.length > 0 ? initials : "?"
-    }
 
     // Opens the contact/group info page for the currently selected chat. Group
     // JIDs end with "@g.us"; everything else is a 1:1 user.
@@ -360,7 +347,7 @@ Kirigami.Page {
             Layout.preferredWidth: headerTitle.avatarSize
             Layout.preferredHeight: headerTitle.avatarSize
             avatarLocalPath: Whatevr.ProtocolController.selectedChatAvatarLocalPath
-            initials: root.initialsForName(Whatevr.ProtocolController.selectedChatName)
+            initials: Initials.firstTwo(Whatevr.ProtocolController.selectedChatName)
 
             TapHandler {
                 enabled: Whatevr.ProtocolController.hasSelectedChat

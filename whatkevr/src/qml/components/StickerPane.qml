@@ -489,12 +489,6 @@ Item {
                     running: stickerGrid.count === 0 && (pane.stickers.loading || pane.stickers.downloading)
                 }
             }
-
-            KineticWheelScroller {
-                anchors.fill: stickerGrid
-                target: stickerGrid
-                wheelStep: Kirigami.Units.gridUnit * 4
-            }
             }
 
             // Page 1: store browser.
@@ -626,12 +620,6 @@ Item {
                         anchors.centerIn: parent
                         running: packList.count === 0 && pane.stickers.packsLoading
                     }
-                }
-
-                KineticWheelScroller {
-                    anchors.fill: packList
-                    target: packList
-                    wheelStep: Kirigami.Units.gridUnit * 4
                 }
                 }
             }

@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"errors"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -228,6 +230,82 @@ func (db *DB) ListKeptStatusSenders(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	return kept, nil
+}
+
+// SetStatusMutedSender hides (or unhides) a contact's statuses: muted
+// senders collect under the Status tab's Muted section instead of the main
+// list. Silent upsert — callers publish.
+func (db *DB) SetStatusMutedSender(ctx context.Context, senderID string, muted bool) error {
+	defer db.timeOp("SetStatusMutedSender", time.Now())
+	if muted {
+		_, err := db.conn.ExecContext(ctx, `
+			INSERT INTO status_muted_senders (sender_id, muted_at)
+			VALUES (?, unixepoch())
+			ON CONFLICT(sender_id) DO UPDATE SET muted_at = unixepoch()
+		`, senderID)
+		return err
+	}
+	_, err := db.conn.ExecContext(ctx, `DELETE FROM status_muted_senders WHERE sender_id = ?`, senderID)
+	return err
+}
+
+// ListMutedStatusSenders returns the sender ids with status mute enabled,
+// oldest-muted first.
+func (db *DB) ListMutedStatusSenders(ctx context.Context) ([]string, error) {
+	defer db.timeOp("ListMutedStatusSenders", time.Now())
+	rows, err := db.reader().QueryContext(ctx, `
+		SELECT sender_id FROM status_muted_senders ORDER BY muted_at ASC, sender_id ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	muted := []string{}
+	for rows.Next() {
+		var senderID string
+		if err := rows.Scan(&senderID); err != nil {
+			return nil, err
+		}
+		muted = append(muted, senderID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return muted, nil
+}
+
+// ReplaceMutedStatusSenders reconciles the muted set to exactly ids (phone
+// snapshot wins): unlisted senders are unmuted, missing ones muted. Empty ids
+// clears the set.
+func (db *DB) ReplaceMutedStatusSenders(ctx context.Context, ids []string) error {
+	defer db.timeOp("ReplaceMutedStatusSenders", time.Now())
+	tx, err := db.conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM status_muted_senders`); err != nil {
+		return err
+	}
+	// Sorted insert: muted_at ties break on insert order, so a fixed order
+	// keeps ListMutedStatusSenders deterministic across syncs. Upsert, not
+	// plain insert: a snapshot can repeat an id. Sorted on a copy — the
+	// caller's slice order is not ours to change.
+	sorted := append([]string(nil), ids...)
+	sort.Strings(sorted)
+	for _, id := range sorted {
+		if strings.TrimSpace(id) == "" {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO status_muted_senders (sender_id, muted_at)
+			VALUES (?, unixepoch())
+			ON CONFLICT(sender_id) DO NOTHING
+		`, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 // PruneOldStatusUpdates drops statuses older than maxAge; WhatsApp statuses

@@ -65,25 +65,121 @@ Kirigami.ScrollablePage {
         }
     }
 
-    Component.onCompleted: {
+    // Id of the status already autoplayed: media.path arriving later (or a
+    // rebuild) must not restart playback from the top.
+    property string autoplayedId: ""
+
+    function playCurrentVideo() {
+        const item = root.currentItem
+        const media = item ? item.media : null
+        const path = media ? (media.path ?? "") : ""
+        if (!item || !item.id || path.length === 0) {
+            return
+        }
+        statusMediaViewer.showVideo(item.id, path, "", "",
+                                    "video", item.media.duration_secs ?? 0, 0,
+                                    "", item.timestamp ?? 0)
+    }
+
+    function playCurrentAudio() {
+        const item = root.currentItem
+        const media = item ? item.media : null
+        const path = media ? (media.path ?? "") : ""
+        if (!item || !item.id || path.length === 0 || !Whatevr.AudioPlayer.available) {
+            return
+        }
+        const secs = item.media.duration_secs ?? 0
+        Whatevr.AudioPlayer.play(item.id,
+                                 Whatevr.ProtocolController.localFileUrl(path),
+                                 secs)
+    }
+
+    // Start playback as soon as a playable status has local bytes: opening a
+    // status (or landing on it while stepping) plays it with no taps. Runs
+    // on every refresh path; the autoplayedId guard makes it once-per-status.
+    // Stepping away stops the previous status's audio first, so voice notes
+    // never overlap; the guard is only set when playback actually starts, so
+    // a missing audio backend retries instead of marking the id played.
+    function maybeAutoplay() {
+        const item = root.currentItem
+        if (!item || !item.id || item.id === root.autoplayedId) {
+            return
+        }
+        const media = item.media
+        if (!media || !media.path) {
+            return
+        }
+        if (item.kind !== "video" && item.kind !== "voice" && item.kind !== "audio") {
+            return
+        }
+        if (item.kind !== "video" && !Whatevr.AudioPlayer.available) {
+            return
+        }
+        if (Whatevr.AudioPlayer.messageId.length > 0 && Whatevr.AudioPlayer.messageId !== item.id) {
+            Whatevr.AudioPlayer.stop()
+        }
+        root.autoplayedId = item.id
+        if (item.kind === "video") {
+            root.playCurrentVideo()
+        } else {
+            root.playCurrentAudio()
+        }
+    }
+
+    function stopStaleAudio() {
+        const item = root.currentItem
+        const currentId = item && item.id ? item.id : ""
+        if (Whatevr.AudioPlayer.messageId.length > 0 && Whatevr.AudioPlayer.messageId !== currentId) {
+            Whatevr.AudioPlayer.stop()
+        }
+    }
+
+    function refreshCurrent() {
         root.collectStatuses()
+        root.stopStaleAudio()
         root.markCurrentViewed()
         root.ensureDownloaded()
+        root.maybeAutoplay()
+    }
+
+    Component.onCompleted: {
+        root.refreshCurrent()
+    }
+
+    Component.onDestruction: {
+        // Don't leave this sender's audio running behind a closed viewer —
+        // whether it started via autoplay or the manual Play button.
+        if (Whatevr.AudioPlayer.messageId.length > 0
+                && root.statusIds.indexOf(Whatevr.AudioPlayer.messageId) >= 0) {
+            Whatevr.AudioPlayer.stop()
+        }
     }
 
     Connections {
         target: Whatevr.ProtocolController
 
         function onStatusChanged() {
-            root.collectStatuses()
-            root.markCurrentViewed()
-            root.ensureDownloaded()
+            root.refreshCurrent()
+        }
+    }
+
+    // A download landing (or a viewed flag) is an in-place row update: only
+    // dataChanged fires, not count/ready. Without this the viewer keeps
+    // showing Load after the bytes arrive.
+    Connections {
+        target: Whatevr.ProtocolController.statusModel
+        ignoreUnknownSignals: true
+
+        function onDataChanged() {
+            root.refreshCurrent()
         }
     }
 
     onCurrentIndexChanged: {
+        root.stopStaleAudio()
         root.markCurrentViewed()
         root.ensureDownloaded()
+        root.maybeAutoplay()
     }
 
     header: RowLayout {
@@ -196,12 +292,7 @@ Kirigami.ScrollablePage {
                 enabled: parent.videoPath.length > 0
                 text: Whatevr.I18n.i18nc("@action:button play the status video", "Play")
                 icon.name: "media-playback-start-symbolic"
-                onClicked: {
-                    const item = root.currentItem
-                    statusMediaViewer.showVideo(item.id, parent.videoPath, "", "",
-                                                "video", item.media.duration_secs ?? 0, 0,
-                                                "", item.timestamp ?? 0)
-                }
+                onClicked: root.playCurrentVideo()
             }
         }
 

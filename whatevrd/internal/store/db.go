@@ -351,6 +351,14 @@ func (db *DB) migrate(ctx context.Context) error {
 			sender_id TEXT PRIMARY KEY,
 			kept_at INTEGER NOT NULL DEFAULT (unixepoch())
 		)`,
+		// Contacts whose statuses are hidden from the main Status tab into a
+		// collapsed Muted section. Mirrors the phone's muted-status list,
+		// synced from appstate (see wa status mute handling); local mutes
+		// are stored the same way but never pushed back.
+		`CREATE TABLE IF NOT EXISTS status_muted_senders (
+			sender_id TEXT PRIMARY KEY,
+			muted_at INTEGER NOT NULL DEFAULT (unixepoch())
+		)`,
 	}
 
 	for _, statement := range statements {

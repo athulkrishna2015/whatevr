@@ -27,7 +27,7 @@ type DaemonStore interface {
 	StarredPinnedLister
 	ChatMediaLister
 	StatusLister
-	KeptStatusLister
+	StatusSenderLister
 	ChannelLister
 	SenderDisplayer
 }
@@ -81,6 +81,7 @@ func RegisterDaemonViews(s *Server, daemon *app.Daemon, store DaemonStore, actio
 	s.RegisterView("chat_links", chatLinksView{daemon: daemon, lister: store})
 	s.RegisterView("status", statusView{daemon: daemon, lister: store, resolver: store})
 	s.RegisterView("status.kept", statusKeptView{daemon: daemon, lister: store})
+	s.RegisterView("status.muted", statusMutedView{daemon: daemon, lister: store})
 	s.RegisterView("calls", callsView{daemon: daemon, resolver: store})
 	s.RegisterView("daemon.logs", logsView{tailer: actions})
 	s.RegisterView("stickers", stickersView{daemon: daemon, store: stickerStore})

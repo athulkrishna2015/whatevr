@@ -87,6 +87,10 @@ func (f *fakePendingCounter) ListKeptStatusSenders(context.Context) ([]string, e
 	return nil, nil
 }
 
+func (f *fakePendingCounter) ListMutedStatusSenders(context.Context) ([]string, error) {
+	return nil, nil
+}
+
 func (f *fakePendingCounter) set(count int) {
 	f.mu.Lock()
 	f.count = count

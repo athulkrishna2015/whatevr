@@ -404,6 +404,13 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
     connect(m_keptStatusModel, &CollectionViewModel::countChanged, this, &ProtocolController::statusChanged);
     connect(m_keptStatusModel, &CollectionViewModel::readyChanged, this, &ProtocolController::statusChanged);
     connect(m_keptStatusModel, &CollectionViewModel::modelReset, this, &ProtocolController::statusChanged);
+    connect(m_keptStatusModel, &CollectionViewModel::dataChanged, this, &ProtocolController::statusChanged);
+    // Muted senders ride the same lifetime into the page's Muted section.
+    m_mutedStatusModel = new CollectionViewModel(this);
+    connect(m_mutedStatusModel, &CollectionViewModel::countChanged, this, &ProtocolController::statusChanged);
+    connect(m_mutedStatusModel, &CollectionViewModel::readyChanged, this, &ProtocolController::statusChanged);
+    connect(m_mutedStatusModel, &CollectionViewModel::modelReset, this, &ProtocolController::statusChanged);
+    connect(m_mutedStatusModel, &CollectionViewModel::dataChanged, this, &ProtocolController::statusChanged);
     m_callsModel = new CollectionViewModel(this);
     connect(m_callsModel, &CollectionViewModel::countChanged, this, &ProtocolController::callsChanged);
     connect(m_callsModel, &CollectionViewModel::readyChanged, this, &ProtocolController::callsChanged);
@@ -757,6 +764,11 @@ int ProtocolController::archivedCount() const
 bool ProtocolController::archivedExhausted() const
 {
     return m_archivedSub == nullptr || m_archivedModel->isExhausted();
+}
+
+bool ProtocolController::archivedLoading() const
+{
+    return m_archivedSub != nullptr && !m_archivedModel->isReady();
 }
 
 bool ProtocolController::chatTyping(const QString &chatId) const
@@ -2530,7 +2542,10 @@ QAbstractItemModel *ProtocolController::statusModel() const
 
 bool ProtocolController::statusLoading() const
 {
-    return m_statusSub != nullptr && !m_statusModel->isReady();
+    // The page groups over three views; a rebuild with any of them unready
+    // flashes contacts in the wrong section before settling.
+    return m_statusSub != nullptr
+        && (!m_statusModel->isReady() || !m_keptStatusModel->isReady() || !m_mutedStatusModel->isReady());
 }
 
 bool ProtocolController::statusExhausted() const
@@ -2543,9 +2558,17 @@ void ProtocolController::openStatus()
     delete m_statusSub;
     m_statusSub = nullptr;
     m_statusModel->onReset();
+    delete m_keptStatusSub;
+    m_keptStatusSub = nullptr;
+    m_keptStatusModel->onReset();
+    delete m_mutedStatusSub;
+    m_mutedStatusSub = nullptr;
+    m_mutedStatusModel->onReset();
 
     QJsonObject params{{QStringLiteral("limit"), kStatusPageSize}};
     m_statusSub = m_client->subscribe(QStringLiteral("status"), params, m_statusModel);
+    m_keptStatusSub = m_client->subscribe(QStringLiteral("status.kept"), {}, m_keptStatusModel);
+    m_mutedStatusSub = m_client->subscribe(QStringLiteral("status.muted"), {}, m_mutedStatusModel);
     Q_EMIT statusChanged();
 }
 
@@ -2583,9 +2606,27 @@ void ProtocolController::requestEditHistory(const QString &messageId)
                       });
 }
 
+QAbstractItemModel *ProtocolController::mutedStatusModel() const
+{
+    return m_mutedStatusModel;
+}
+
+void ProtocolController::setStatusMuteSender(const QString &senderId, bool muted)
+{
+    if (senderId.isEmpty()) {
+        return;
+    }
+    // Ack-then-lifecycle like setStatusKeepSender: the `status.muted` view
+    // (and the `status` view) refresh off the StatusChanged event the
+    // command publishes.
+    sendMessageCommand(QStringLiteral("status.mute_sender"),
+                       {{QStringLiteral("sender_id"), senderId}, {QStringLiteral("muted"), muted}},
+                       i18nc("@info", "Unable to update the mute setting"));
+}
+
 void ProtocolController::closeStatus()
 {
-    if (!m_statusSub) {
+    if (!m_statusSub && !m_keptStatusSub && !m_mutedStatusSub) {
         return;
     }
     delete m_statusSub;
@@ -2594,6 +2635,9 @@ void ProtocolController::closeStatus()
     delete m_keptStatusSub;
     m_keptStatusSub = nullptr;
     m_keptStatusModel->onReset();
+    delete m_mutedStatusSub;
+    m_mutedStatusSub = nullptr;
+    m_mutedStatusModel->onReset();
     Q_EMIT statusChanged();
 }
 

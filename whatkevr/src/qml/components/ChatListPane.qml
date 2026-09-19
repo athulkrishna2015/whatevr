@@ -5,6 +5,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import Whatevr as Whatevr
+import "Initials.js" as Initials
 
 Kirigami.Page {
     id: root
@@ -25,18 +26,6 @@ Kirigami.Page {
     function hideSearch() {
         searchBarVisible = false
         Whatevr.ProtocolController.clearSearch()
-    }
-
-    // Two-letter initials from a display name, for avatar fallbacks (the daemon
-    // `chats` row carries no precomputed initials — pure presentation).
-    function initialsFor(name) {
-        const parts = (name || "").trim().split(/\s+/).filter(p => p.length > 0)
-        if (parts.length === 0)
-            return "?"
-        let initials = parts[0].charAt(0)
-        if (parts.length > 1)
-            initials += parts[parts.length - 1].charAt(0)
-        return initials.toUpperCase()
     }
 
     // Map the daemon `chats` row's string status/direction onto the delegate's
@@ -259,7 +248,7 @@ Kirigami.Page {
                         lastMessageStatus: root.statusToInt(String(chat.last_message_status || ""))
                         avatarLocalPath: String(chat.avatar_path || "")
                         statusState: String(chat.status_state || "")
-                        initials: root.initialsFor(String(chat.name || ""))
+                        initials: Initials.firstLast(String(chat.name || ""))
                         unreadCount: Number(chat.unread || 0)
                         isPinned: Boolean(chat.pinned || false)
                         isArchived: Boolean(chat.archived || false)
@@ -501,6 +490,9 @@ Kirigami.Page {
                     width: Math.min(parent.width - Kirigami.Units.largeSpacing * 4,
                                     Kirigami.Units.gridUnit * 16)
                     visible: !Whatevr.ProtocolController.chatsLoading && Whatevr.ProtocolController.chatsEmpty
+                             && !(chatList.archivedExpanded
+                                  && (Whatevr.ProtocolController.archivedCount > 0
+                                      || Whatevr.ProtocolController.archivedLoading))
                     text: Whatevr.ProtocolController.historySyncVisible
                           ? Whatevr.I18n.i18nc("@info", "Syncing your messages…")
                           : Whatevr.I18n.i18nc("@info", "No chats yet")
@@ -508,16 +500,6 @@ Kirigami.Page {
                                  ? Whatevr.I18n.i18nc("@info", "Your chats will appear here in a moment. You can start using them as they arrive.")
                                  : Whatevr.I18n.i18nc("@info", "Chats will appear here as history sync stores them locally.")
                 }
-            }
-
-            KineticWheelScroller {
-                anchors.fill: chatList
-                target: chatList
-                // Only the visible list's scroller may be live; a disabled Item
-                // lets wheel events fall through to the sibling beneath it, so
-                // the hidden one never intercepts scrolling.
-                enabled: chatList.visible
-                wheelStep: Kirigami.Units.gridUnit * 4
             }
 
             // Search results replace the chat list while a query is active.
@@ -602,13 +584,6 @@ Kirigami.Page {
                     text: Whatevr.I18n.i18nc("@info", "No results")
                     explanation: Whatevr.I18n.i18nc("@info", "No chats or messages match your search.")
                 }
-            }
-
-            KineticWheelScroller {
-                anchors.fill: searchList
-                target: searchList
-                enabled: searchList.visible
-                wheelStep: Kirigami.Units.gridUnit * 4
             }
         }
         }

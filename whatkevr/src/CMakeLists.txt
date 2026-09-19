@@ -157,8 +157,8 @@ set(WHATKEVR_QML_FILES
         qml/components/ForwardChatPickerDialog.qml
         qml/components/ChatListSidebar.qml
         qml/components/Wallpapers.js
+        qml/components/Initials.js
         qml/pages/LoginPage.qml
-        qml/pages/StatusPage.qml
         qml/settings/SettingsSearch.js
         qml/settings/SettingsView.qml
         qml/settings/SettingsWindow.qml

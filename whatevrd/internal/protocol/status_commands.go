@@ -49,6 +49,27 @@ func (h commandHandlers) statusKeepSender(_ *conn, req request) (any, *Error) {
 	return nil, mapCommandError(err)
 }
 
+// status.mute_sender hides (or unhides) a contact's statuses: muted senders
+// collect under the Status tab's Muted section instead of the main list.
+// Synchronous: a local flag flip.
+func (h commandHandlers) statusMuteSender(_ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p struct {
+		SenderID string `json:"sender_id"`
+		Muted    bool   `json:"muted"`
+	}
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(p.SenderID) == "" {
+		return nil, errorf(CodeInvalidParams, "sender_id is required")
+	}
+	err := h.actions.SetStatusMutedSender(context.Background(), strings.TrimSpace(p.SenderID), p.Muted)
+	return nil, mapCommandError(err)
+}
+
 // status.viewers lists who viewed one of our statuses, most recent first,
 // with display names resolved. Only our own statuses ever have viewers.
 func (h commandHandlers) statusViewers(ctx context.Context, _ *conn, req request) (any, *Error) {

@@ -71,3 +71,21 @@ func TestStatusKeptViewListsSenders(t *testing.T) {
 	}
 	c.expectReady(sub, true)
 }
+
+// The muted view lists one row per muted sender for the Status tab's Muted
+// section.
+func TestStatusMutedViewListsSenders(t *testing.T) {
+	socketPath, _, db := startChatsTestServer(t)
+	if err := db.SetStatusMutedSender(context.Background(), "peer@s.whatsapp.net", true); err != nil {
+		t.Fatalf("mute sender: %v", err)
+	}
+
+	c := dialTest(t, socketPath)
+	c.hello()
+	sub := c.subscribe(2, `{"view":"status.muted"}`)
+	first := c.expectUpsert(sub, "peer@s.whatsapp.net")["item"].(map[string]any)
+	if first["id"] != "peer@s.whatsapp.net" {
+		t.Fatalf("muted item = %v, want the sender id", first)
+	}
+	c.expectReady(sub, true)
+}

@@ -291,6 +291,137 @@ func (c *Client) ListKeptStatusSenders(ctx context.Context) ([]string, error) {
 	return c.store.ListKeptStatusSenders(ctx)
 }
 
+// SetStatusMutedSender hides (or unhides) a contact's statuses: muted
+// senders collect under the Status tab's Muted section instead of the main
+// list. Local toggles apply immediately; the phone remains the source of
+// truth and overwrites this set on the next full appstate sync.
+func (c *Client) SetStatusMutedSender(ctx context.Context, senderID string, muted bool) error {
+	senderID = strings.TrimSpace(senderID)
+	if senderID == "" {
+		return app.NewCommandError(app.CommandErrorInvalidArgument, "sender_id is required")
+	}
+	// Normalize to every store key for this sender (bare + LID/PN-resolved
+	// canonical, see statusMuteKeys): unmuting must clear the same rows a
+	// phone-side mute wrote, or an orphan row keeps the contact muted.
+	// Unparseable input falls through as-is — ids like "me" are not JIDs
+	// but are valid sender keys the tab reads back verbatim.
+	keys := []string{senderID}
+	if jid, err := types.ParseJID(senderID); err == nil && !jid.IsEmpty() {
+		keys = c.statusMuteKeys(ctx, jid)
+	}
+	for _, key := range keys {
+		if err := c.store.SetStatusMutedSender(ctx, key, muted); err != nil {
+			return err
+		}
+	}
+	c.daemon.PublishStatusChanged()
+	return nil
+}
+
+// ListMutedStatusSenders returns the sender ids with status mute enabled.
+func (c *Client) ListMutedStatusSenders(ctx context.Context) ([]string, error) {
+	return c.store.ListMutedStatusSenders(ctx)
+}
+
+// statusMuteKeys returns every store key a status mute for jid must touch:
+// the bare JID (the form status rows store their sender in) plus the
+// LID→PN-resolved canonical form when it differs. Status senders keep
+// whichever form the message arrived in while appstate events may use the
+// other; keying both means the tab's mute lookup matches either way.
+func (c *Client) statusMuteKeys(ctx context.Context, jid types.JID) []string {
+	bare := bareAvatarJID(jid).String()
+	if bare == "" {
+		return nil
+	}
+	keys := []string{bare}
+	if canonical := c.canonicalParticipantJID(ctx, jid); canonical != "" && canonical != bare {
+		keys = append(keys, canonical)
+	}
+	return keys
+}
+
+// handleUserStatusMuteEvent mirrors a status mute/unmute made on the phone
+// (or another linked device) into the local muted set.
+func (c *Client) handleUserStatusMuteEvent(ctx context.Context, evt *events.UserStatusMute) {
+	if evt == nil || evt.JID.IsEmpty() || evt.Action == nil {
+		return
+	}
+	keys := c.statusMuteKeys(ctx, evt.JID)
+	if len(keys) == 0 {
+		return
+	}
+	for _, sender := range keys {
+		if err := c.store.SetStatusMutedSender(ctx, sender, evt.Action.GetMuted()); err != nil {
+			c.log.Warnf("Failed to apply status mute for %s: %v", sender, err)
+			return
+		}
+	}
+	c.daemon.PublishStatusChanged()
+}
+
+// sameStringSet reports whether a and b hold the same ids, ignoring order
+// and blanks (ReplaceMutedStatusSenders skips blanks too, so they must not
+// count toward a difference).
+func sameStringSet(a, b []string) bool {
+	set := make(map[string]struct{}, len(a))
+	for _, id := range a {
+		if strings.TrimSpace(id) == "" {
+			continue
+		}
+		set[id] = struct{}{}
+	}
+	count := 0
+	for _, id := range b {
+		if strings.TrimSpace(id) == "" {
+			continue
+		}
+		if _, ok := set[id]; !ok {
+			return false
+		}
+		count++
+	}
+	return count == len(set)
+}
+
+// reconcileMutedStatusesFromEvents replaces the local muted set with the
+// phone's full-snapshot state: unlisted senders are unmuted. Runs on every
+// Connected via reconcileRegularAppState, so the tab matches the phone
+// within seconds of connecting.
+func (c *Client) reconcileMutedStatusesFromEvents(ctx context.Context, eventsToDispatch []any) {
+	muted := make(map[string]struct{})
+	for _, raw := range eventsToDispatch {
+		evt, ok := raw.(*events.UserStatusMute)
+		if !ok || evt.JID.IsEmpty() || evt.Action == nil {
+			continue
+		}
+		keys := c.statusMuteKeys(ctx, evt.JID)
+		if len(keys) == 0 {
+			continue
+		}
+		for _, sender := range keys {
+			if evt.Action.GetMuted() {
+				muted[sender] = struct{}{}
+			} else {
+				delete(muted, sender)
+			}
+		}
+	}
+	ids := make([]string, 0, len(muted))
+	for id := range muted {
+		ids = append(ids, id)
+	}
+	// Skip the write (and the invalidation storm) when the snapshot matches
+	// what is already stored — the common case on every connect.
+	if current, err := c.store.ListMutedStatusSenders(ctx); err == nil && sameStringSet(current, ids) {
+		return
+	}
+	if err := c.store.ReplaceMutedStatusSenders(ctx, ids); err != nil {
+		c.log.Warnf("Failed to reconcile muted statuses from app state: %v", err)
+		return
+	}
+	c.daemon.PublishStatusChanged()
+}
+
 // ReplyToStatus sends a chat message to the status author quoting their
 // status, the way official clients reply to stories: the reply lands as an
 // ordinary DM carrying the status as its quote context.

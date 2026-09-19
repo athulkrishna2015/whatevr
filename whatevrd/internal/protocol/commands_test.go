@@ -67,6 +67,8 @@ type fakeCommandActions struct {
 	deletedStatusID        string
 	keptStatusSender       string
 	keptStatusValue        bool
+	mutedStatusSender      string
+	mutedStatusValue       bool
 	sentPollChat           string
 	sentPollQuestion       string
 	sentPollOptions        []string
@@ -446,6 +448,15 @@ func (f *fakeCommandActions) SetStatusKeepSender(_ context.Context, senderID str
 }
 func (f *fakeCommandActions) ListKeptStatusSenders(context.Context) ([]string, error) {
 	return []string{"kept@s.whatsapp.net"}, f.err
+}
+func (f *fakeCommandActions) SetStatusMutedSender(_ context.Context, senderID string, muted bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.mutedStatusSender, f.mutedStatusValue = senderID, muted
+	return f.err
+}
+func (f *fakeCommandActions) ListMutedStatusSenders(context.Context) ([]string, error) {
+	return []string{"muted@s.whatsapp.net"}, f.err
 }
 func (f *fakeCommandActions) SendPoll(_ context.Context, chatID, question string, options []string, multi bool) (appstore.SavedTextMessage, error) {
 	f.mu.Lock()
@@ -931,6 +942,11 @@ func TestC2MessageAndMediaCommands(t *testing.T) {
 	c.sendLine(`{"id":1421,"method":"status.keep_sender","params":{"sender_id":"k@s.whatsapp.net","kept":true}}`)
 	if _, ok := c.recv()["result"].(map[string]any); !ok || actions.keptStatusSender != "k@s.whatsapp.net" || !actions.keptStatusValue {
 		t.Fatalf("status.keep_sender action = %+v", actions)
+	}
+
+	c.sendLine(`{"id":14211,"method":"status.mute_sender","params":{"sender_id":"m@s.whatsapp.net","muted":true}}`)
+	if _, ok := c.recv()["result"].(map[string]any); !ok || actions.mutedStatusSender != "m@s.whatsapp.net" || !actions.mutedStatusValue {
+		t.Fatalf("status.mute_sender action = %+v", actions)
 	}
 
 	c.sendLine(`{"id":1422,"method":"message.edit_history","params":{"message_id":"m1"}}`)

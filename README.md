@@ -15,13 +15,6 @@ talk over a documented protocol on a unix socket, and writing one is a fun weeke
 ![whatkevr](https://github.com/user-attachments/assets/46f96ee9-32a7-4e1d-8cae-1d0e82371f8f)
 
 
-<details>
-    <summary>Other Frontends</summary>
-    
-### WhatGevr
-![whatgevr](https://github.com/user-attachments/assets/785ed14e-77e5-48c2-a7da-ba2f61b1f951)
-</details>
-
 ## Getting it
 On Arch-based systems, Whatevr is available on the AUR:
 ```sh
@@ -136,18 +129,6 @@ update-desktop-database ~/.local/share/applications
 xdg-mime default in.codelif.Whatevr.desktop x-scheme-handler/whatevr
 ```
 
-#### Other frontends: whatgevr (unmaintained)
-
-The GTK4/libadwaita frontend is not actively maintained and is excluded from the
-main build and packaging. Build it manually if you want to hack on it:
-
-```sh
-# deps: rust, gtk4, libadwaita, pkg-config
-cd whatgevr
-cargo build --release
-install -Dm755 target/release/whatevr ~/.local/bin/whatevr
-```
-
 </details>
 
 
@@ -228,9 +209,8 @@ and never keep durable state of their own; several can run at once against the
 same daemon, and each sees the same rows in the same order because the daemon
 computed that order.
 
-The daemon is Go (`whatevrd/`); the flagship frontend is `whatkevr`, in
-C++20/QML on Qt 6 and Kirigami. `whatgevr`, a primitive GTK4/libadwaita
-frontend, is unmaintained and excluded from the build. A TUI and a scriptable
+The daemon is Go (`whatevrd/`); the frontend is `whatkevr`, in
+C++20/QML on Qt 6 and Kirigami. A TUI and a scriptable
 CLI are wanted and unclaimed (see *Write a frontend* above); that work needs no
 changes to the daemon.
 

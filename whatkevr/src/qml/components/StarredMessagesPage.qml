@@ -5,6 +5,7 @@ import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import Whatevr as Whatevr
+import "Initials.js" as Initials
 
 // Drill-in page (pushed onto pageStack.layers) listing starred messages, either
 // across all chats (chatId == "") or scoped to one. Each row shows who sent the
@@ -34,20 +35,6 @@ Kirigami.ScrollablePage {
         Whatevr.ProtocolController.showMessageInChat(targetChatId, messageId)
         applicationWindow().pageStack.layers.pop()
         applicationWindow().showConversation()
-    }
-
-    function initialsForName(name) {
-        const parts = name.trim().split(/\s+/)
-        let initials = ""
-        for (const part of parts) {
-            if (part.length > 0) {
-                initials += part[0].toUpperCase()
-            }
-            if (initials.length >= 2) {
-                break
-            }
-        }
-        return initials.length > 0 ? initials : "?"
     }
 
     ListView {
@@ -102,7 +89,7 @@ Kirigami.ScrollablePage {
                     Layout.alignment: Qt.AlignTop
                     Layout.preferredWidth: Kirigami.Units.gridUnit * 2
                     Layout.preferredHeight: Kirigami.Units.gridUnit * 2
-                    initials: root.initialsForName(starredDelegate.row.senderName)
+                    initials: Initials.firstTwo(starredDelegate.row.senderName)
                     backgroundColor: Qt.alpha(Kirigami.Theme.highlightColor, 0.18)
                 }
 

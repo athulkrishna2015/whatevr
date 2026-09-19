@@ -93,6 +93,8 @@ class ProtocolController final : public QObject
     // Windowed like the active list, so archivedCount is the loaded window, not
     // the true total; the header renders "N+" while more remain.
     Q_PROPERTY(bool archivedExhausted READ archivedExhausted NOTIFY archivedChanged FINAL)
+    // Subscribed but the initial archived window hasn't landed yet.
+    Q_PROPERTY(bool archivedLoading READ archivedLoading NOTIFY archivedChanged FINAL)
 
     // Typing overlay (D2b2): the global `typing` view, keyed by chat_id. The
     // delegate reads chatTyping(chatId); typingRevision bumps on every change so
@@ -206,6 +208,10 @@ class ProtocolController final : public QObject
     // page. One row per keep-enabled sender id; the page archives those
     // contacts' expired statuses instead of hiding them.
     Q_PROPERTY(QAbstractItemModel *keptStatusModel READ keptStatusModel CONSTANT FINAL)
+    // Status mute: the `status.muted` view, subscribed alongside the status
+    // page. One row per muted sender id; the page collects those contacts
+    // under a Muted section instead of the main list.
+    Q_PROPERTY(QAbstractItemModel *mutedStatusModel READ mutedStatusModel CONSTANT FINAL)
 
     // Calls tab: the `calls` view, subscribed while the calls page is on
     // screen. One item per ringing call; callsRingingCount drives the rail
@@ -328,6 +334,7 @@ public:
     [[nodiscard]] QAbstractItemModel *archivedChatsModel() const;
     [[nodiscard]] int archivedCount() const;
     [[nodiscard]] bool archivedExhausted() const;
+    [[nodiscard]] bool archivedLoading() const;
     Q_INVOKABLE void loadMoreArchivedChats();
 
     [[nodiscard]] int typingRevision() const { return m_typingRevision; }
@@ -461,6 +468,9 @@ public:
     // Maps to `status.keep_sender`; kept contacts grow an archived section.
     Q_INVOKABLE void setStatusKeepSender(const QString &senderId, bool kept);
     [[nodiscard]] QAbstractItemModel *keptStatusModel() const;
+    // Maps to `status.mute_sender`; muted contacts collect under Muted.
+    Q_INVOKABLE void setStatusMuteSender(const QString &senderId, bool muted);
+    [[nodiscard]] QAbstractItemModel *mutedStatusModel() const;
     // Subscribe/drop the `calls` view for the calls tab's lifetime.
     Q_INVOKABLE void openCalls();
     Q_INVOKABLE void closeCalls();
@@ -894,6 +904,7 @@ private:
     whatevr::proto::CollectionViewModel *m_chatMediaModel = nullptr;
     whatevr::proto::CollectionViewModel *m_statusModel = nullptr;
     whatevr::proto::CollectionViewModel *m_keptStatusModel = nullptr;
+    whatevr::proto::CollectionViewModel *m_mutedStatusModel = nullptr;
     whatevr::proto::CollectionViewModel *m_callsModel = nullptr;
     whatevr::proto::CollectionViewModel *m_channelsModel = nullptr;
     whatevr::proto::CollectionViewModel *m_channelMessagesModel = nullptr;
@@ -926,6 +937,7 @@ private:
     whatevr::proto::Subscription *m_chatMediaSub = nullptr;
     whatevr::proto::Subscription *m_statusSub = nullptr;
     whatevr::proto::Subscription *m_keptStatusSub = nullptr;
+    whatevr::proto::Subscription *m_mutedStatusSub = nullptr;
     whatevr::proto::Subscription *m_callsSub = nullptr;
     whatevr::proto::Subscription *m_channelsSub = nullptr;
     whatevr::proto::Subscription *m_channelMessagesSub = nullptr;

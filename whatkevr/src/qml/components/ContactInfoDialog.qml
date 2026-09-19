@@ -6,6 +6,7 @@ import QtQuick.Controls as QQC2
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import Whatevr as Whatevr
+import "Initials.js" as Initials
 
 // Centered contact/group info dialog. For a 1:1 chat it shows the
 // saved/push/business name, phone, avatar and "about"; for a group it shows the
@@ -163,20 +164,6 @@ CenteredDialog {
         loadSubject(prev)
     }
 
-    function initialsForName(name) {
-        const parts = name.trim().split(/\s+/)
-        let initials = ""
-        for (const part of parts) {
-            if (part.length > 0) {
-                initials += part[0].toUpperCase()
-            }
-            if (initials.length >= 2) {
-                break
-            }
-        }
-        return initials.length > 0 ? initials : "?"
-    }
-
     // Member rows matching the search box, in the daemon's roster order.
     // PROTOCOL.md calls member search presentation-side filtering over rows the
     // frontend already has; the revision tick makes the read reactive.
@@ -249,7 +236,7 @@ CenteredDialog {
                 Layout.preferredWidth: Kirigami.Units.gridUnit * 6
                 Layout.preferredHeight: Kirigami.Units.gridUnit * 6
                 avatarLocalPath: root.avatarLocalPath
-                initials: root.initialsForName(root.primaryName)
+                initials: Initials.firstTwo(root.primaryName)
 
                 // MouseArea (not TapHandler) so the press is consumed and does
                 // not bleed through to items behind the avatar.
@@ -487,7 +474,7 @@ CenteredDialog {
                         Layout.preferredWidth: Kirigami.Units.gridUnit * 2.2
                         Layout.preferredHeight: Kirigami.Units.gridUnit * 2.2
                         avatarLocalPath: memberDelegate.avatarLocalPath
-                        initials: root.initialsForName(memberDelegate.displayName.length > 0
+                        initials: Initials.firstTwo(memberDelegate.displayName.length > 0
                                                        ? memberDelegate.displayName
                                                        : memberDelegate.phoneNumber)
                     }

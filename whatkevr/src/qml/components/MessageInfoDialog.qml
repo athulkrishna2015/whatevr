@@ -5,6 +5,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import Whatevr as Whatevr
+import "Initials.js" as Initials
 
 // Delivery/read details for one of our own messages: sent/delivered/read rows
 // for direct chats, per-member sections (Read by / Delivered to) for groups.
@@ -73,20 +74,6 @@ CenteredDialog {
         return sameDay
             ? Qt.formatTime(date, Qt.locale().timeFormat(Locale.ShortFormat))
             : Qt.formatDateTime(date, Qt.locale().dateTimeFormat(Locale.ShortFormat))
-    }
-
-    function initialsFor(name) {
-        const parts = String(name || "").trim().split(/\s+/)
-        let initials = ""
-        for (const part of parts) {
-            if (part.length > 0) {
-                initials += part.charAt(0).toUpperCase()
-            }
-            if (initials.length >= 2) {
-                break
-            }
-        }
-        return initials.length > 0 ? initials : "?"
     }
 
     // Sent shows a single tick, delivered/read show overlapping double ticks,
@@ -176,7 +163,7 @@ CenteredDialog {
             Layout.preferredWidth: Kirigami.Units.gridUnit * 1.5
             Layout.preferredHeight: Kirigami.Units.gridUnit * 1.5
             avatarLocalPath: String(participantRow.receipt.avatar_path || "")
-            initials: root.initialsFor(participantRow.receipt.name || participantRow.receipt.id)
+            initials: Initials.firstTwo(participantRow.receipt.name || participantRow.receipt.id)
         }
 
         Label {

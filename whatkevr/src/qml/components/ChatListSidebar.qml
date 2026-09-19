@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 
 import Whatevr as Whatevr
+import "Initials.js" as Initials
 
 // Slim vertical rail on the left of the chat list. Top group switches the chat
 // filter (Home / DMs / Groups) and opens the starred-messages view; the bottom
@@ -15,16 +16,6 @@ Item {
     property int activeFilter: 0
 
     readonly property string userName: Whatevr.ProtocolController.currentUserName
-
-    function initialsFor(name) {
-        const parts = (name || "").trim().split(/\s+/).filter(p => p.length > 0)
-        if (parts.length === 0)
-            return "?"
-        let initials = parts[0].charAt(0)
-        if (parts.length > 1)
-            initials += parts[parts.length - 1].charAt(0)
-        return initials.toUpperCase()
-    }
 
     // Shared icon size for the rail buttons — bigger than the default small
     // toolbutton glyph so they don't look lost in the bar.
@@ -258,7 +249,7 @@ Item {
 
             contentItem: AvatarImage {
                 avatarLocalPath: Whatevr.ProtocolController.currentUserAvatarPath
-                initials: root.initialsFor(root.userName)
+                initials: Initials.firstLast(root.userName)
             }
 
             QQC2.ToolTip.visible: hovered

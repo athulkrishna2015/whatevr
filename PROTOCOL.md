@@ -234,6 +234,8 @@ noted; this inventory fixes the shape of the protocol, not every field name.
 | `sticker_pack` | `pack_id` | stickers | contents fetch is async; items land as they resolve |
 | `transfers` | none | active media transfers | `message_id`, `direction`, `received_bytes`, `total_bytes`, optional active `error`; `remove` on terminal success or failure. This view carries the byte counters only: whether a fetch is in flight at all is `media.downloading` on the message row, so a renderer never has to join two independently recomputed views and never sees the two disagree. `direction` is `"download"` today; outbound uploads are not yet modelled here (a known gap). A `media.stream` fetch reports through this view too, where `received_bytes` counts the chunks present rather than a sequential write head, so it can climb out of order as the viewer seeks |
 | `status` | none | contact statuses (stories) | one item per status update, newest first: `id`, `sender` (id, name), `timestamp`, `kind` (`text`\|media kinds), `fallback`, `text`, `viewed`, `media` (mime, path once downloaded, duration, filename). Statuses never create chat rows |
+| `status.kept` | none | keep-enabled senders | one `{id}` row per sender whose expired statuses the Status tab archives instead of hiding |
+| `status.muted` | none | muted senders | one `{id}` row per sender whose statuses the Status tab collects under Muted; mirrors the phone's muted-status list (synced from appstate, fetch direction) |
 | `calls` | none | ringing calls | one item per locally-ringing call: `id` (call id), `chat_id`, `caller` (id, name), `video`, `started_at`. `remove`d on terminate/reject; missed calls land in their chats as tombstone messages |
 | `notifications` | none | notification records | **Reserved, not served in protocol 1**: subscribing errors `not_found`. What the daemon would notify about, for applets, relays, and headless setups; the daemon's own D-Bus notifier is unaffected. Its shape waits on a real consumer (see *Open questions*) |
 | `daemon.logs` | `limit` (default 200) | log rows, oldest first | the daemon's own process log ring (`daemon.logs` command answers the same lines for a one-shot query). Items carry `time` (`YYYY/MM/DD HH:MM:SS`), `level` (`info`\|`warn`\|`error`\|`debug`), `text`; rows keep stable ids across refreshes so new lines stream in as upserts instead of churning the whole list |
@@ -300,6 +302,8 @@ views.
 | `status.mark_viewed` | `status_id` | `{}`: local viewed flag only; no viewed receipt is sent yet |
 | `status.post` | `text` xor `path`, `caption` | `{status_id}`: publishes a text or photo/video/audio status; the post itself arrives through the `status` view |
 | `status.download` | `status_id` | `{}`: progress is silent; path lands via status upsert |
+| `status.keep_sender` | `sender_id`, `kept` | `{}`: expired statuses of kept senders archive instead of hiding |
+| `status.mute_sender` | `sender_id`, `muted` | `{}`: muted senders collect under the Muted section |
 
 **Groups**
 

@@ -69,3 +69,56 @@ func TestStatusUpdateRoundTrip(t *testing.T) {
 		t.Fatalf("remaining after prune = %v, %v; want none", remaining, err)
 	}
 }
+
+// TestStatusMutedSendersRoundTrip locks in the mute flag lifecycle: set,
+// list in mute order, unset.
+func TestStatusMutedSendersRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.SetStatusMutedSender(ctx, "a@s.whatsapp.net", true); err != nil {
+		t.Fatalf("mute a: %v", err)
+	}
+	if err := db.SetStatusMutedSender(ctx, "b@s.whatsapp.net", true); err != nil {
+		t.Fatalf("mute b: %v", err)
+	}
+	muted, err := db.ListMutedStatusSenders(ctx)
+	if err != nil || len(muted) != 2 || muted[0] != "a@s.whatsapp.net" || muted[1] != "b@s.whatsapp.net" {
+		t.Fatalf("list muted = %v, %v; want [a b]", muted, err)
+	}
+	if err := db.SetStatusMutedSender(ctx, "a@s.whatsapp.net", false); err != nil {
+		t.Fatalf("unmute a: %v", err)
+	}
+	if muted, err := db.ListMutedStatusSenders(ctx); err != nil || len(muted) != 1 || muted[0] != "b@s.whatsapp.net" {
+		t.Fatalf("list muted after unmute = %v, %v; want [b]", muted, err)
+	}
+}
+
+// TestReplaceMutedStatusSenders locks in the snapshot reconcile: the set
+// becomes exactly ids (unlisted senders unmuted), blank ids are skipped,
+// empty clears, and listing stays sorted regardless of input order.
+func TestReplaceMutedStatusSenders(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.ReplaceMutedStatusSenders(ctx, []string{"b@s.whatsapp.net", "a@s.whatsapp.net", "  ", "a@s.whatsapp.net"}); err != nil {
+		t.Fatalf("replace: %v", err)
+	}
+	if muted, err := db.ListMutedStatusSenders(ctx); err != nil || len(muted) != 2 || muted[0] != "a@s.whatsapp.net" || muted[1] != "b@s.whatsapp.net" {
+		t.Fatalf("list muted after replace = %v, %v; want [a b]", muted, err)
+	}
+	if err := db.ReplaceMutedStatusSenders(ctx, nil); err != nil {
+		t.Fatalf("replace empty: %v", err)
+	}
+	if muted, err := db.ListMutedStatusSenders(ctx); err != nil || len(muted) != 0 {
+		t.Fatalf("list muted after empty replace = %v, %v; want []", muted, err)
+	}
+}

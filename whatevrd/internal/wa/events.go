@@ -127,6 +127,8 @@ func (c *Client) handleEvent(eventGen uint64, raw any) {
 		c.handleArchiveEvent(c.backgroundContext(), evt)
 	case *events.Mute:
 		c.handleMuteEvent(c.backgroundContext(), evt)
+	case *events.UserStatusMute:
+		c.handleUserStatusMuteEvent(c.backgroundContext(), evt)
 	case *events.Star:
 		c.handleStarEvent(c.backgroundContext(), evt)
 	case *events.MarkChatAsRead:
