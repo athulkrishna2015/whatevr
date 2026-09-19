@@ -401,12 +401,35 @@ func (db *DB) SaveTextMessage(ctx context.Context, input TextMessageInput) (Save
 
 // saveTextMessageTx stores one already-normalized text message inside the
 // caller's transaction.
+// messageDeletedForMe reports whether this id was deleted on purpose. Backfill
+// re-delivers messages the phone still has, so without this a message somebody
+// deleted comes back the next time its conversation is synced.
+func messageDeletedForMe(ctx context.Context, tx *sql.Tx, id string) (bool, error) {
+	var exists int
+	err := tx.QueryRowContext(ctx, `SELECT 1 FROM deleted_messages WHERE id = ?`, id).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func saveTextMessageTx(ctx context.Context, tx *sql.Tx, input TextMessageInput) (SavedTextMessage, error) {
 	if err := upsertChat(ctx, tx, input); err != nil {
 		return SavedTextMessage{}, err
 	}
 	if err := upsertSender(ctx, tx, input.SenderID, input.SenderName); err != nil {
 		return SavedTextMessage{}, err
+	}
+
+	deleted, err := messageDeletedForMe(ctx, tx, input.ID)
+	if err != nil {
+		return SavedTextMessage{}, err
+	}
+	if deleted {
+		return SavedTextMessage{}, nil
 	}
 
 	upgrading, err := waitingPlaceholderExists(ctx, tx, input.ID)
@@ -601,6 +624,14 @@ func saveMediaMessageTx(ctx context.Context, tx *sql.Tx, input MediaMessageInput
 	}
 	if err := upsertSender(ctx, tx, input.SenderID, input.SenderName); err != nil {
 		return SavedTextMessage{}, err
+	}
+
+	deleted, err := messageDeletedForMe(ctx, tx, input.ID)
+	if err != nil {
+		return SavedTextMessage{}, err
+	}
+	if deleted {
+		return SavedTextMessage{}, nil
 	}
 
 	upgrading, err := waitingPlaceholderExists(ctx, tx, input.ID)
@@ -1954,6 +1985,16 @@ func (db *DB) DeleteMessageForMe(ctx context.Context, id string) (Message, Chat,
 	}
 
 	if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE id = ?`, id); err != nil {
+		return Message{}, Chat{}, false, err
+	}
+
+	// Remember the id. The phone still has this message, so the next backfill
+	// of this conversation carries it again and would undo the deletion.
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO deleted_messages (id, chat_id, deleted_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT(id) DO NOTHING
+	`, id, message.ChatID, time.Now().Unix()); err != nil {
 		return Message{}, Chat{}, false, err
 	}
 

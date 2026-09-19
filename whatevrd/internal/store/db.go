@@ -245,6 +245,14 @@ func (db *DB) migrate(ctx context.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_chat_timestamp ON messages(chat_id, timestamp DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_chat_sort ON messages(chat_id, sort_ms DESC, id DESC)`,
+		// Deleting a message for me removes the row, and a later backfill chunk
+		// would put it straight back. The id outlives the row so the message
+		// stays deleted.
+		`CREATE TABLE IF NOT EXISTS deleted_messages (
+			id TEXT PRIMARY KEY,
+			chat_id TEXT NOT NULL DEFAULT '',
+			deleted_at INTEGER NOT NULL DEFAULT 0
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_chat_timestamp_id ON messages(chat_id, timestamp DESC, id DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_chat_read_candidates ON messages(chat_id, direction, is_read, timestamp ASC, id ASC)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_sender_chat ON messages(sender_id, chat_id)`,
