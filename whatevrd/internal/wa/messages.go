@@ -208,6 +208,10 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 			// through backfill can never have its votes decrypted, so capture it
 			// here where the parsed message is in hand.
 			c.storeBackfilledMessageSecret(ctx, parsedEvt)
+			// After the secret, which rides on the outermost wrapper.
+			if parsedEvt.Message != nil {
+				parsedEvt.Message = unwrapNestedMessage(parsedEvt.Message)
+			}
 			opts := ingestOptions{
 				source:           sourceHistorySync,
 				chatNameOverride: chatNameOverride,
@@ -393,6 +397,9 @@ func historySyncConversationPinState(conv *waHistorySync.Conversation) (present 
 // by a sub-handler (a revoke, a reaction, a vote) report success: their own
 // failures are not covered by this yet.
 func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offlineSync bool) bool {
+	if evt != nil && evt.Message != nil {
+		evt.Message = unwrapNestedMessage(evt.Message)
+	}
 	if c.handleManualHistorySyncNotification(ctx, evt) {
 		return true
 	}
@@ -1265,9 +1272,56 @@ func marshalMessagePayload(message *waE2E.Message) []byte {
 	return payload
 }
 
+// maxMessageUnwrapDepth caps the peel below. Nothing legitimate nests this
+// deep, and an unbounded loop on attacker-shaped input is not worth the risk.
+const maxMessageUnwrapDepth = 8
+
+// unwrapNestedMessage peels the wrappers whatsmeow's own UnwrapRaw leaves
+// alone. Every one of these holds an ordinary message, so leaving it wrapped
+// means the payload matches no builder, writes no row, and logs nothing: the
+// message simply is not there. Wrappers that are not ordinary messages (status,
+// newsletter, bot and settings families) are deliberately left for the
+// tombstone, which at least makes them visible.
+func unwrapNestedMessage(msg *waE2E.Message) *waE2E.Message {
+	for range maxMessageUnwrapDepth {
+		var inner *waE2E.Message
+		switch {
+		case msg.GetGroupMentionedMessage().GetMessage() != nil:
+			inner = msg.GetGroupMentionedMessage().GetMessage()
+		case msg.GetSpoilerMessage().GetMessage() != nil:
+			inner = msg.GetSpoilerMessage().GetMessage()
+		case msg.GetAssociatedChildMessage().GetMessage() != nil:
+			inner = msg.GetAssociatedChildMessage().GetMessage()
+		case msg.GetPollCreationMessageV4().GetMessage() != nil:
+			inner = msg.GetPollCreationMessageV4().GetMessage()
+		case msg.GetPollCreationOptionImageMessage().GetMessage() != nil:
+			inner = msg.GetPollCreationOptionImageMessage().GetMessage()
+		case msg.GetAudioStickerMessage().GetMessage() != nil:
+			inner = msg.GetAudioStickerMessage().GetMessage()
+		case msg.GetBotForwardedMessage().GetMessage() != nil:
+			inner = msg.GetBotForwardedMessage().GetMessage()
+		}
+		if inner == nil {
+			return msg
+		}
+		// The secret and the reply context ride on the wrapper, and whatsmeow
+		// carries them inward the same way for the wrappers it peels.
+		if inner.MessageContextInfo == nil && msg.MessageContextInfo != nil {
+			inner.MessageContextInfo = msg.MessageContextInfo
+		}
+		msg = inner
+	}
+	return msg
+}
+
 // unsupportedMessageLabel maps not-yet-rendered payload types to a short
 // description. ok=false means the message carries nothing user-visible and
 // must stay invisible (protocol messages, poll votes, reactions, ...).
+//
+// This runs last, after every real builder, so anything named here is a kind
+// whatevr cannot draw yet. A label is the difference between an honest grey row
+// and a hole in the transcript, and the payload is kept with it so a later
+// build can upgrade the row in place.
 func unsupportedMessageLabel(evt *events.Message) (string, bool) {
 	msg := evt.Message
 	if evt.IsViewOnce {
@@ -1280,12 +1334,53 @@ func unsupportedMessageLabel(evt *events.Message) (string, bool) {
 			return "View once voice message", true
 		}
 	}
+	switch {
 	// The business family used to land here as a bare "Message". It now has its
 	// own card, and the only member still on this path is the non-hydrated
 	// TemplateMessage, whose contents are a template name to be looked up in a
 	// catalogue a linked device is never sent.
-	if msg.GetTemplateMessage() != nil {
+	case msg.GetTemplateMessage() != nil:
 		return "Message", true
+	case msg.GetHighlyStructuredMessage() != nil:
+		return "Message", true
+	case msg.GetConditionalRevealMessage() != nil:
+		return "Message", true
+	case msg.GetScheduledCallCreationMessage() != nil:
+		return "Scheduled call", true
+	case msg.GetScheduledCallEditMessage() != nil:
+		return "Scheduled call updated", true
+	case msg.GetEventInviteMessage() != nil:
+		return "Event invite", true
+	case msg.GetCommentMessage() != nil:
+		return "Comment", true
+	case msg.GetMusicMessage() != nil:
+		return "Music", true
+	case msg.GetRichResponseMessage() != nil:
+		return "Meta AI response", true
+	case msg.GetContactsArrayMessage() != nil:
+		return "Contacts", true
+	case msg.GetRequestPhoneNumberMessage() != nil:
+		return "Phone number request", true
+	case msg.GetNewsletterAdminInviteMessage() != nil:
+		return "Channel admin invite", true
+	case msg.GetNewsletterFollowerInviteMessageV2() != nil:
+		return "Channel invite", true
+	case msg.GetMessageHistoryBundle() != nil:
+		return "Chat history", true
+	case msg.GetPollResultSnapshotMessage() != nil, msg.GetPollResultSnapshotMessageV3() != nil:
+		return "Poll results", true
+	case msg.GetInvoiceMessage() != nil:
+		return "Invoice", true
+	case msg.GetDeclinePaymentRequestMessage() != nil:
+		return "Payment request declined", true
+	case msg.GetCancelPaymentRequestMessage() != nil:
+		return "Payment request cancelled", true
+	case msg.GetPaymentReminderMessage() != nil:
+		return "Payment reminder", true
+	case msg.GetSplitPaymentMessage() != nil:
+		return "Split payment", true
+	case msg.GetSplitPaymentUpdateMessage() != nil:
+		return "Split payment update", true
 	}
 	return "", false
 }
