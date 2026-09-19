@@ -42,7 +42,7 @@ running for any frontend to work.
 
 #### 1. Install dependencies
 
-**Daemon:** Go 1.25+, just, a C compiler, SQLite dev files, pkg-config.
+**Daemon:** Go 1.26+, just, a C compiler, SQLite dev files, pkg-config.
 **Frontend:** C++20 compiler, CMake 3.21+, Ninja, Qt 6.8+, KDE Frameworks 6.5+
 (KCoreAddons, KDBusAddons, KI18n, Kirigami, Prison, QQC2 Desktop Style),
 Kirigami Addons 1.0+, rlottie, Vulkan headers.
@@ -62,7 +62,7 @@ sudo dnf install go just gcc gcc-c++ sqlite-devel pkgconf-pkg-config cmake ninja
   kf6-kdbusaddons-devel kf6-ki18n-devel kf6-kirigami-devel kf6-prison-devel \
   kf6-qqc2-desktop-style-devel kf6-kirigami-addons-devel rlottie-devel
 
-# Debian 13 "trixie" (needs Go >= 1.25, see Platform support)
+# Debian 13 "trixie" (needs Go >= 1.26, see Platform support)
 sudo apt install golang just gcc g++ libsqlite3-dev pkg-config cmake ninja-build \
   extra-cmake-modules vulkan-headers qt6-base-dev qt6-declarative-dev qt6-shadertools-dev \
   libkf6coreaddons-dev libkf6dbusaddons-dev libkf6i18n-dev \
