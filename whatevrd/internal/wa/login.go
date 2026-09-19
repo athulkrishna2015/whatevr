@@ -25,6 +25,8 @@ const (
 
 	waVersionTimeout  = 10 * time.Second
 	waVersionInterval = 6 * time.Hour
+
+	connReconcileInterval = 5 * time.Second
 )
 
 // http.DefaultClient has no timeout, so a black-holed route after sleep used to
@@ -70,14 +72,14 @@ func (c *Client) runConnectionSupervisor(ctx context.Context) {
 		if err != nil {
 			retry := connectionRetry(attempt, err)
 			attempt = retry.attempt
+			nextRetryUnix := int64(0)
 			if retry.nextRetryUnix {
-				nextRetry := time.Now().Add(retry.delay)
-				c.daemon.SetConnMeta(int32(attempt), nextRetry.Unix(), retry.canReconnect)
-			} else {
-				c.daemon.SetConnMeta(int32(attempt), 0, retry.canReconnect)
+				nextRetryUnix = time.Now().Add(retry.delay).Unix()
 			}
 			if retry.detail != "" {
-				c.daemon.SetStateDetail(retry.state, retry.detail)
+				c.daemon.SetConnection(retry.state, retry.detail, int32(attempt), nextRetryUnix, retry.canReconnect)
+			} else {
+				c.daemon.SetConnMeta(int32(attempt), nextRetryUnix, retry.canReconnect)
 			}
 
 			select {
@@ -109,23 +111,56 @@ func (c *Client) runConnectionSupervisor(ctx context.Context) {
 }
 
 func (c *Client) waitForReconnectSignal(ctx context.Context) bool {
-	ticker := time.NewTicker(10 * time.Second)
+	select {
+	case <-ctx.Done():
+		return false
+	case <-c.reconnectCh:
+		return true
+	}
+}
+
+// runConnectionReconciler keeps what the daemon says about the connection
+// matched to what the client actually has.
+//
+// It runs for the whole life of the account, not only while the supervisor is
+// parked, and it corrects in both directions. The direction that was missing is
+// the one that mattered: a socket that is up and delivering messages while the
+// UI still reads "Still offline. Check your internet connection." had nothing
+// that would ever notice, because every path that could publish Online only ran
+// on a connect the supervisor no longer believed it needed.
+func (c *Client) runConnectionReconciler(ctx context.Context) {
+	ticker := time.NewTicker(connReconcileInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return false
-		case <-c.reconnectCh:
-			return true
+			return
 		case <-ticker.C:
-			if c.connectionLooksOffline(ctx) {
-				c.daemon.SetConnMeta(0, 0, true)
-				c.daemon.SetStateDetail(app.StateOffline, "Connection lost. Reconnecting...")
-				c.reconnectNow.Store(true)
-				return true
-			}
+			c.reconcileConnectionState()
 		}
+	}
+}
+
+func (c *Client) reconcileConnectionState() {
+	client := c.currentClient()
+	if client == nil || client.Store == nil || client.Store.ID == nil {
+		// Not logged in: the login flow owns the state and this must not
+		// overwrite "waiting for a QR scan" with a connection verdict.
+		return
+	}
+
+	published, _, _, _, _ := c.daemon.ConnectionSnapshot()
+	live := client.IsConnected() && client.IsLoggedIn()
+
+	switch {
+	case live && published != app.StateOnline:
+		c.log.Debugf("Reconciler: socket is live but state was %v; publishing online", published)
+		c.daemon.SetConnection(app.StateOnline, "Connected to WhatsApp", 0, 0, false)
+	case !live && published == app.StateOnline:
+		c.log.Debugf("Reconciler: state was online but the socket is gone; reconnecting")
+		c.daemon.SetConnection(app.StateOffline, "Connection lost. Reconnecting...", 0, 0, true)
+		c.requestReconnect(true)
 	}
 }
 
@@ -136,17 +171,6 @@ func (c *Client) closeForReconnectIfRequested() {
 	if client := c.currentClient(); client != nil {
 		client.Disconnect()
 	}
-}
-
-func (c *Client) connectionLooksOffline(ctx context.Context) bool {
-	client := c.currentClient()
-	if client == nil || client.Store.ID == nil {
-		return false
-	}
-	if !client.IsLoggedIn() || !client.IsConnected() {
-		return true
-	}
-	return false
 }
 
 func (c *Client) desiredPresence() types.Presence {
@@ -195,8 +219,7 @@ func (c *Client) connectOnce(ctx context.Context) error {
 		return fmt.Errorf("connect: %w", err)
 	}
 	if client.IsLoggedIn() && client.IsConnected() {
-		c.daemon.SetConnMeta(0, 0, false)
-		c.daemon.SetStateDetail(app.StateOnline, "Connected to WhatsApp")
+		c.daemon.SetConnection(app.StateOnline, "Connected to WhatsApp", 0, 0, false)
 	}
 	return nil
 }
@@ -232,8 +255,7 @@ func (c *Client) startQRLogin(ctx context.Context, client *whatsmeow.Client) err
 				c.daemon.SetStateDetail(app.StateNeedLogin, "QR login timed out; scan a new code")
 				return fmt.Errorf("QR login timed out: %w", errQRLoginRetry)
 			case whatsmeow.QRChannelClientOutdated.Event:
-				c.daemon.SetConnMeta(0, 0, false)
-				c.daemon.SetStateDetail(app.StateOffline, "WhatsApp client is outdated. Update whatevr/whatevrd.")
+				c.daemon.SetConnection(app.StateOffline, "WhatsApp client is outdated. Update whatevr/whatevrd.", 0, 0, false)
 				return fmt.Errorf("client outdated")
 			case whatsmeow.QRChannelScannedWithoutMultidevice.Event:
 				c.daemon.SetStateDetail(app.StateNeedLogin, "Enable multi-device on your phone and scan again")

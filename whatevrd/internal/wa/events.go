@@ -49,8 +49,7 @@ func (c *Client) handleEvent(eventGen uint64, raw any) bool {
 
 	switch evt := raw.(type) {
 	case *events.Connected:
-		c.daemon.SetConnMeta(0, 0, false)
-		c.daemon.SetStateDetail(app.StateOnline, "Connected to WhatsApp")
+		c.daemon.SetConnection(app.StateOnline, "Connected to WhatsApp", 0, 0, false)
 		ctx := c.backgroundContext()
 		c.syncPresence(ctx, true)
 		c.signalSendQueue()
@@ -75,18 +74,26 @@ func (c *Client) handleEvent(eventGen uint64, raw any) bool {
 			c.startPinnedChatRecoveryFromAppState(c.backgroundContext())
 		}
 	case *events.Disconnected:
-		c.daemon.SetConnMeta(0, 0, true)
-		c.daemon.SetStateDetail(app.StateReconnecting, "Connection lost. Reconnecting...")
+		if c.connectionIsLive() {
+			// whatsmeow dispatches this on its own goroutine, so a Disconnected
+			// for a socket that is already gone can land after its replacement
+			// is up. The client itself is the authority, not arrival order.
+			c.log.Debugf("Ignoring a disconnect for a socket that is already replaced")
+			break
+		}
+		c.daemon.SetConnection(app.StateReconnecting, "Connection lost. Reconnecting...", 0, 0, true)
 		c.requestReconnect(false)
 	case *events.KeepAliveTimeout:
-		c.daemon.SetConnMeta(0, 0, true)
-		c.daemon.SetStateDetail(app.StateOffline, "Connection lost. Reconnecting...")
+		if c.connectionIsLive() {
+			c.log.Debugf("Ignoring a keepalive timeout for a socket that is already replaced")
+			break
+		}
+		c.daemon.SetConnection(app.StateOffline, "Connection lost. Reconnecting...", 0, 0, true)
 		c.requestReconnect(true)
 	case *events.KeepAliveRestored:
 		client := c.currentClient()
 		if client != nil && client.IsLoggedIn() && client.IsConnected() {
-			c.daemon.SetConnMeta(0, 0, false)
-			c.daemon.SetStateDetail(app.StateOnline, "Connected to WhatsApp")
+			c.daemon.SetConnection(app.StateOnline, "Connected to WhatsApp", 0, 0, false)
 		}
 	case *events.PairSuccess:
 		c.daemon.SetStateDetail(app.StateConnecting, "QR scanned; pairing succeeded")
@@ -98,15 +105,12 @@ func (c *Client) handleEvent(eventGen uint64, raw any) bool {
 		c.daemon.SetStateDetail(app.StateNeedLogin, fmt.Sprintf("Logged out: %s", evt.Reason.String()))
 		go c.resetAfterExternalLogout()
 	case *events.ConnectFailure:
-		c.daemon.SetConnMeta(0, 0, true)
-		c.daemon.SetStateDetail(app.StateOffline, fmt.Sprintf("WhatsApp connection failed: %s", evt.Reason.String()))
+		c.daemon.SetConnection(app.StateOffline, fmt.Sprintf("WhatsApp connection failed: %s", evt.Reason.String()), 0, 0, true)
 		c.requestReconnect(true)
 	case *events.ClientOutdated:
-		c.daemon.SetConnMeta(0, 0, false)
-		c.daemon.SetStateDetail(app.StateOffline, "WhatsApp client is outdated. Update whatevr/whatevrd.")
+		c.daemon.SetConnection(app.StateOffline, "WhatsApp client is outdated. Update whatevr/whatevrd.", 0, 0, false)
 	case *events.TemporaryBan:
-		c.daemon.SetConnMeta(0, 0, false)
-		c.daemon.SetStateDetail(app.StateOffline, evt.String())
+		c.daemon.SetConnection(app.StateOffline, evt.String(), 0, 0, false)
 	case *events.Message:
 		return c.handleMessage(c.backgroundContext(), evt, offlineSync)
 	case *events.UndecryptableMessage:
@@ -204,6 +208,16 @@ func (c *Client) handleEvent(eventGen uint64, raw any) bool {
 	}
 
 	return true
+}
+
+// connectionIsLive asks the client rather than trusting which event arrived
+// last. It is deliberately strict: only a socket that is both connected and
+// logged in counts, so this can never talk the daemon into claiming an online
+// state it does not have.
+func (c *Client) connectionIsLive() bool {
+	client := c.currentClient()
+	return client != nil && client.Store != nil && client.Store.ID != nil &&
+		client.IsConnected() && client.IsLoggedIn()
 }
 
 // isSelfJID reports whether jid is the logged-in user's own account.

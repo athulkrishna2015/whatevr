@@ -21,22 +21,34 @@ type Status struct {
 	DroppedLoginEvents  uint64
 }
 
+// connState is the whole of what the daemon says about the connection. It is
+// one value behind one lock on purpose: as five independent atomics with three
+// writer goroutines, a reader could see the state from one event and the detail
+// from another, and publish "Offline" alongside "Connected to WhatsApp".
+type connState struct {
+	state         State
+	detail        string
+	retryAttempt  int32
+	nextRetryUnix int64
+	canReconnect  bool
+	// seq increases on every publish, so a consumer can tell which of two
+	// snapshots is newer without comparing their contents.
+	seq uint64
+}
+
 type Daemon struct {
 	paths             Paths
-	state             atomic.Int32
 	nextSubID         atomic.Uint64
 	subMu             sync.Mutex
 	daemonSubs        map[uint64]chan DaemonEvent
 	loginSubs         map[uint64]chan LoginEvent
 	latestQR          *QRCode
-	lastDetail        string
 	presenceByChatID  map[string]presenceState
 	latestHistorySync *HistorySyncEvent
 	mediaDownloads    map[string]MediaDownloadEvent
 
-	retryAttempt  atomic.Int32
-	nextRetryUnix atomic.Int64
-	canReconnect  atomic.Bool
+	connMu sync.Mutex
+	conn   connState
 
 	droppedDaemonEvents atomic.Uint64
 	droppedLoginEvents  atomic.Uint64
@@ -59,43 +71,71 @@ func (d *Daemon) SetState(state State) {
 }
 
 func (d *Daemon) SetStateDetail(state State, detail string) {
-	d.state.Store(int32(state))
+	d.connMu.Lock()
+	d.conn.state = state
+	d.conn.detail = detail
+	d.conn.seq++
+	snapshot := d.conn
+	d.connMu.Unlock()
 
-	d.subMu.Lock()
-	d.lastDetail = detail
-	d.subMu.Unlock()
-
-	d.broadcastDaemonEvent(DaemonEvent{
-		Kind:          DaemonEventConnectionChanged,
-		State:         state,
-		Detail:        detail,
-		RetryAttempt:  d.retryAttempt.Load(),
-		NextRetryUnix: d.nextRetryUnix.Load(),
-		CanReconnect:  d.canReconnect.Load(),
-	})
-	d.broadcastLoginEvent(LoginEvent{Kind: LoginEventState, State: state, Detail: detail})
+	d.publishConnState(snapshot)
 }
 
 // SetConnMeta updates retry/reconnect metadata without changing state.
 // Call before SetStateDetail so the next broadcast includes the new values.
+//
+// Prefer SetConnection where both change: two calls leave a window in which a
+// reader sees the new metadata against the old state.
 func (d *Daemon) SetConnMeta(attempt int32, nextRetryUnix int64, canReconnect bool) {
-	d.retryAttempt.Store(attempt)
-	d.nextRetryUnix.Store(nextRetryUnix)
-	d.canReconnect.Store(canReconnect)
+	d.connMu.Lock()
+	d.conn.retryAttempt = attempt
+	d.conn.nextRetryUnix = nextRetryUnix
+	d.conn.canReconnect = canReconnect
+	d.connMu.Unlock()
+}
+
+// SetConnection publishes state, detail and retry metadata as one change, so
+// no reader can catch the connection half-updated.
+func (d *Daemon) SetConnection(state State, detail string, attempt int32, nextRetryUnix int64, canReconnect bool) {
+	d.connMu.Lock()
+	d.conn = connState{
+		state:         state,
+		detail:        detail,
+		retryAttempt:  attempt,
+		nextRetryUnix: nextRetryUnix,
+		canReconnect:  canReconnect,
+		seq:           d.conn.seq + 1,
+	}
+	snapshot := d.conn
+	d.connMu.Unlock()
+
+	d.publishConnState(snapshot)
+}
+
+func (d *Daemon) publishConnState(snapshot connState) {
+	d.broadcastDaemonEvent(DaemonEvent{
+		Kind:          DaemonEventConnectionChanged,
+		State:         snapshot.state,
+		Detail:        snapshot.detail,
+		RetryAttempt:  snapshot.retryAttempt,
+		NextRetryUnix: snapshot.nextRetryUnix,
+		CanReconnect:  snapshot.canReconnect,
+	})
+	d.broadcastLoginEvent(LoginEvent{Kind: LoginEventState, State: snapshot.state, Detail: snapshot.detail})
 }
 
 func (d *Daemon) Status() Status {
-	d.subMu.Lock()
-	detail := d.lastDetail
-	d.subMu.Unlock()
+	d.connMu.Lock()
+	snapshot := d.conn
+	d.connMu.Unlock()
 
 	return Status{
-		State:               State(d.state.Load()),
-		Detail:              detail,
+		State:               snapshot.state,
+		Detail:              snapshot.detail,
 		Paths:               d.paths,
-		RetryAttempt:        d.retryAttempt.Load(),
-		NextRetryUnix:       d.nextRetryUnix.Load(),
-		CanReconnect:        d.canReconnect.Load(),
+		RetryAttempt:        snapshot.retryAttempt,
+		NextRetryUnix:       snapshot.nextRetryUnix,
+		CanReconnect:        snapshot.canReconnect,
 		DroppedDaemonEvents: d.droppedDaemonEvents.Load(),
 		DroppedLoginEvents:  d.droppedLoginEvents.Load(),
 	}
@@ -576,10 +616,14 @@ func (d *Daemon) SubscribeDaemonEvents() (<-chan DaemonEvent, func()) {
 	id := d.nextSubID.Add(1)
 	ch := make(chan DaemonEvent, daemonSubscriberBuffer)
 
+	// One snapshot, so the replayed event cannot mix a state from one moment
+	// with retry metadata from another.
+	d.connMu.Lock()
+	conn := d.conn
+	d.connMu.Unlock()
+
 	d.subMu.Lock()
 	d.daemonSubs[id] = ch
-	state := State(d.state.Load())
-	detail := d.lastDetail
 	latestHistorySync := d.latestHistorySync
 	mediaDownloads := make([]MediaDownloadEvent, 0, len(d.mediaDownloads))
 	for _, download := range d.mediaDownloads {
@@ -589,11 +633,11 @@ func (d *Daemon) SubscribeDaemonEvents() (<-chan DaemonEvent, func()) {
 
 	ch <- DaemonEvent{
 		Kind:          DaemonEventConnectionChanged,
-		State:         state,
-		Detail:        detail,
-		RetryAttempt:  d.retryAttempt.Load(),
-		NextRetryUnix: d.nextRetryUnix.Load(),
-		CanReconnect:  d.canReconnect.Load(),
+		State:         conn.state,
+		Detail:        conn.detail,
+		RetryAttempt:  conn.retryAttempt,
+		NextRetryUnix: conn.nextRetryUnix,
+		CanReconnect:  conn.canReconnect,
 	}
 	if latestHistorySync != nil {
 		ch <- DaemonEvent{Kind: DaemonEventHistorySyncProgress, HistorySync: *latestHistorySync}
@@ -613,14 +657,16 @@ func (d *Daemon) SubscribeLoginEvents() (<-chan LoginEvent, func()) {
 	id := d.nextSubID.Add(1)
 	ch := make(chan LoginEvent, 32)
 
+	d.connMu.Lock()
+	conn := d.conn
+	d.connMu.Unlock()
+
 	d.subMu.Lock()
 	d.loginSubs[id] = ch
-	state := State(d.state.Load())
-	detail := d.lastDetail
 	latestQR := d.latestQR
 	d.subMu.Unlock()
 
-	ch <- LoginEvent{Kind: LoginEventState, State: state, Detail: detail}
+	ch <- LoginEvent{Kind: LoginEventState, State: conn.state, Detail: conn.detail}
 	if latestQR != nil && time.Now().Before(latestQR.ExpiresAt) {
 		ch <- LoginEvent{Kind: LoginEventQR, QRCode: latestQR.Code, ExpiresAt: latestQR.ExpiresAt}
 	}
@@ -922,10 +968,9 @@ func (d *Daemon) ActiveMediaDownloads() []MediaDownloadEvent {
 // ConnectionSnapshot returns the current connection state the subscribe replay's
 // ConnectionChanged carries, for the `connection` view to reload on a resync.
 func (d *Daemon) ConnectionSnapshot() (state State, detail string, attempt int32, nextRetryUnix int64, canReconnect bool) {
-	d.subMu.Lock()
-	detail = d.lastDetail
-	d.subMu.Unlock()
-	return State(d.state.Load()), detail, d.retryAttempt.Load(), d.nextRetryUnix.Load(), d.canReconnect.Load()
+	d.connMu.Lock()
+	defer d.connMu.Unlock()
+	return d.conn.state, d.conn.detail, d.conn.retryAttempt, d.conn.nextRetryUnix, d.conn.canReconnect
 }
 
 // LatestHistorySync returns the last history-sync progress event (ok=false if
