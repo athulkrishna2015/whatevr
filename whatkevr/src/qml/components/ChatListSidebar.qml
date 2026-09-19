@@ -59,7 +59,11 @@ Item {
             text: Whatevr.I18n.i18nc("@action:button chat filter", "Home")
             checkable: true
             checked: root.activeFilter === 0
-            onClicked: root.activeFilter = 0
+            onClicked: {
+                root.activeFilter = 0
+                root.activeFolder = 0
+                applicationWindow().openConversation()
+            }
 
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.text: text
@@ -98,7 +102,7 @@ Item {
             text: Whatevr.I18n.i18nc("@action:button chat filter", "Direct messages")
             checkable: true
             checked: root.activeFilter === 1
-            onClicked: root.activeFilter = 1
+            onClicked: { root.activeFilter = 1; root.activeFolder = 0; applicationWindow().openConversation() }
 
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.text: text
@@ -114,7 +118,7 @@ Item {
             text: Whatevr.I18n.i18nc("@action:button chat filter", "Groups")
             checkable: true
             checked: root.activeFilter === 2
-            onClicked: root.activeFilter = 2
+            onClicked: { root.activeFilter = 2; root.activeFolder = 0; applicationWindow().openConversation() }
 
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.text: text
@@ -130,7 +134,7 @@ Item {
             text: Whatevr.I18n.i18nc("@action:button chat filter", "Unread")
             checkable: true
             checked: root.activeFilter === 3
-            onClicked: root.activeFilter = 3
+            onClicked: { root.activeFilter = 3; root.activeFolder = 0; applicationWindow().openConversation() }
 
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.text: text
@@ -146,7 +150,7 @@ Item {
             text: Whatevr.I18n.i18nc("@action:button chat filter", "Favorites")
             checkable: true
             checked: root.activeFilter === 4
-            onClicked: root.activeFilter = 4
+            onClicked: { root.activeFilter = 4; root.activeFolder = 0; applicationWindow().openConversation() }
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.text: text
             QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
@@ -271,7 +275,7 @@ Item {
             icon.width: root.railIconSize
             icon.height: root.railIconSize
             text: Whatevr.I18n.i18nc("@action:button quit Whatevr", "Quit Whatevr")
-            onClicked: Qt.quit()
+            onClicked: applicationWindow().quitApplication()
 
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.text: text

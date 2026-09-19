@@ -43,8 +43,13 @@ Kirigami.ApplicationWindow {
     minimumHeight: 680
     title: Whatevr.I18n.i18nc("@title:window", "Whatevr")
     visible: true
+    property bool quitting: false
+    function quitApplication() {
+        quitting = true
+        Qt.quit()
+    }
     onClosing: closeEvent => {
-        if (Whatevr.Settings.closeToTray) {
+        if (Whatevr.Settings.closeToTray && !quitting) {
             closeEvent.accepted = false
             root.hide()
         }
@@ -187,7 +192,7 @@ Kirigami.ApplicationWindow {
                     flat: true
                     Layout.fillWidth: true
                     text: Whatevr.I18n.i18nc("@action:inmenu quit the application", "Quit")
-                    onClicked: Qt.quit()
+                    onClicked: root.quitApplication()
                 }
             }
         }

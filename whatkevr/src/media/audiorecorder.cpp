@@ -73,6 +73,8 @@ void AudioRecorder::resetAfterSend()
 {
     // Qt finalizes the container asynchronously; the caller owns the returned
     // path until the daemon has copied it, then this removes the temp file.
+    if (!m_outputPath.isEmpty())
+        QFile::remove(m_outputPath);
     m_outputPath.clear();
     Q_EMIT outputPathChanged();
 }

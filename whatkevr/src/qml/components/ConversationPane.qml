@@ -312,6 +312,7 @@ Kirigami.Page {
         readonly property real avatarSize: Kirigami.Units.gridUnit * 1.8
         readonly property real subtextPixelSize: Math.max(8, Math.round(Kirigami.Theme.smallFont.pixelSize * 0.82))
 
+        visible: false
         Layout.fillWidth: true
         Layout.minimumWidth: 0
         implicitHeight: avatarSize
