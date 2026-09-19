@@ -159,7 +159,11 @@ func (c *Client) connectOnce(ctx context.Context) error {
 	}
 
 	c.daemon.SetStateDetail(app.StateConnecting, "Connecting to WhatsApp...")
-	if err := client.ConnectContext(ctx); err != nil {
+	// whatsmeow dispatches Disconnected on its own goroutine, so one for a dead
+	// socket can land after a new socket is already up. Treating the resulting
+	// ErrAlreadyConnected as a failure wedged the supervisor into permanent
+	// backoff while the connection was healthy.
+	if err := client.ConnectContext(ctx); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
 		return fmt.Errorf("connect: %w", err)
 	}
 	if client.IsLoggedIn() && client.IsConnected() {
