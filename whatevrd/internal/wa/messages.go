@@ -388,49 +388,53 @@ func historySyncConversationPinState(conv *waHistorySync.Conversation) (present 
 	return true, order > 0, order
 }
 
-func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offlineSync bool) {
+// handleMessage returns false only when the message could not be stored, which
+// leaves whatsmeow's ack unsent so the server delivers it again. Events consumed
+// by a sub-handler (a revoke, a reaction, a vote) report success: their own
+// failures are not covered by this yet.
+func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offlineSync bool) bool {
 	if c.handleManualHistorySyncNotification(ctx, evt) {
-		return
+		return true
 	}
 	if c.handleRevokeMessage(ctx, evt, offlineSync) {
-		return
+		return true
 	}
 	if c.handleEditMessage(ctx, evt, offlineSync) {
-		return
+		return true
 	}
 	if c.handleReaction(ctx, evt, offlineSync) {
-		return
+		return true
 	}
 	if c.handlePinInChat(ctx, evt, offlineSync) {
-		return
+		return true
 	}
 	// Keeping a disappearing message marks the message it names, the same way a
 	// pin does, so it never becomes a row either.
 	if c.handleKeepInChat(ctx, evt, offlineSync) {
-		return
+		return true
 	}
 	// Changing the disappearing timer in a one-to-one chat is something the chat
 	// did, not something anybody said, so it becomes a pill rather than a
 	// bubble.
 	if c.handleEphemeralSetting(ctx, evt) {
-		return
+		return true
 	}
 	// A live-location update moves an existing share rather than becoming a row
 	// of its own, so it never reaches the ingest below.
 	if c.handleLiveLocationUpdate(ctx, evt) {
-		return
+		return true
 	}
 	// A vote changes a poll rather than adding to the conversation, so it never
 	// becomes a row of its own.
 	if c.handlePollUpdate(ctx, evt) {
-		return
+		return true
 	}
 	if c.handlePollAddOption(ctx, evt) {
-		return
+		return true
 	}
 	// An RSVP changes an event the same way, and for the same reason.
 	if c.handleEventResponse(ctx, evt) {
-		return
+		return true
 	}
 	source := sourceLive
 	if offlineSync {
@@ -440,7 +444,7 @@ func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offline
 	if timestamp, ok := c.originalRetryTimestamp(ctx, evt); ok {
 		opts.timestampOverride = timestamp
 	}
-	saved, inserted := c.ingestMessage(ctx, evt, opts)
+	saved, inserted, stored := c.ingestMessage(ctx, evt, opts)
 	// Sending from another device implies everything before it was read there;
 	// clear the badge up to that message's timestamp.
 	if inserted && evt.Info.IsFromMe && saved.Chat.UnreadCount > 0 {
@@ -454,10 +458,11 @@ func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offline
 	}
 	if offlineSync {
 		c.recordOfflineSyncMessage(saved.Chat.ID, inserted)
-		return
+		return stored
 	}
 	c.refreshRawGroupNameForChat(ctx, saved.Chat)
 	c.refreshLiveMessageAvatars(ctx, evt)
+	return stored
 }
 
 // handleRevokeMessage intercepts "delete for everyone" protocol messages and
@@ -684,12 +689,15 @@ func (c *Client) registerSavedMessage(ctx context.Context, message appstore.Mess
 // History-sync messages are saved silently: no NewMessage broadcast, no
 // notification. The caller is responsible for emitting per-chat backfill
 // events once the conversation has been processed.
-func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts ingestOptions) (appstore.SavedTextMessage, bool) {
+// The third result reports whether the store is in the state it should be.
+// It is false only when a write failed, never for a duplicate or for a payload
+// nothing handles, because neither of those gets better on redelivery.
+func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts ingestOptions) (appstore.SavedTextMessage, bool, bool) {
 	if textInput, ok := c.textMessageInput(ctx, evt, opts); ok {
 		saved, err := c.store.SaveTextMessage(ctx, textInput)
 		if err != nil {
 			c.log.Errorf("Failed to store text message %s: %v", textInput.ID, err)
-			return appstore.SavedTextMessage{}, false
+			return appstore.SavedTextMessage{}, false, false
 		}
 		if !saved.Inserted {
 			if opts.source == sourceHistorySync && opts.historyStatus != "" {
@@ -698,7 +706,7 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 			if opts.chatNameOverride != "" && opts.source == sourceLive {
 				c.daemon.PublishChatUpdated(toDaemonChat(saved.Chat))
 			}
-			return saved, false
+			return saved, false, true
 		}
 		if opts.source == sourceLive {
 			c.log.Infof("Stored text message %s from %s", saved.Message.ID, saved.Message.SenderID)
@@ -718,14 +726,14 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 				}
 			}
 		}
-		return saved, true
+		return saved, true, true
 	}
 
 	if mediaInput, ok := c.mediaMessageInput(ctx, evt, opts); ok {
 		saved, err := c.store.SaveMediaMessage(ctx, mediaInput)
 		if err != nil {
 			c.log.Errorf("Failed to store media message %s: %v", mediaInput.ID, err)
-			return appstore.SavedTextMessage{}, false
+			return appstore.SavedTextMessage{}, false, false
 		}
 		if !saved.Inserted {
 			if opts.source == sourceHistorySync && opts.historyStatus != "" {
@@ -734,7 +742,7 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 			if opts.chatNameOverride != "" && opts.source == sourceLive {
 				c.daemon.PublishChatUpdated(toDaemonChat(saved.Chat))
 			}
-			return saved, false
+			return saved, false, true
 		}
 		if updated, ok, err := c.resolveCachedStickerMedia(ctx, saved.Message); err != nil {
 			c.log.Warnf("Failed to resolve cached sticker media for %s: %v", saved.Message.ID, err)
@@ -770,10 +778,10 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 			// requests downloads lazily, when a message scrolls into view and
 			// the user's auto-download policy covers its kind (see ChatBubble).
 		}
-		return saved, true
+		return saved, true, true
 	}
 
-	return appstore.SavedTextMessage{}, false
+	return appstore.SavedTextMessage{}, false, true
 }
 
 func (c *Client) clearComposingAfterLiveIncomingMessage(message app.Message) {

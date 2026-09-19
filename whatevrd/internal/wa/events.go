@@ -17,7 +17,10 @@ import (
 
 const slowEventHandlerThreshold = 200 * time.Millisecond
 
-func (c *Client) handleEvent(eventGen uint64, raw any) {
+// handleEvent returns whether whatsmeow may ack the event. Only a message that
+// could not be stored answers false: the ack goes unsent and the server delivers
+// it again, instead of the message being lost with nothing but a log line.
+func (c *Client) handleEvent(eventGen uint64, raw any) bool {
 	// whatsmeow dispatches events from a single queue that waits for each
 	// handler to return, so a slow handler here delays every event behind it
 	// (incoming messages, receipts, presence).
@@ -29,15 +32,15 @@ func (c *Client) handleEvent(eventGen uint64, raw any) {
 	}()
 
 	if !c.isCurrentEventGeneration(eventGen) {
-		return
+		return true
 	}
 	if evt, ok := raw.(*events.OfflineSyncPreview); ok {
 		c.handleOfflineSyncPreview(evt)
-		return
+		return true
 	}
 	if evt, ok := raw.(*events.OfflineSyncCompleted); ok {
 		c.handleOfflineSyncCompleted(evt)
-		return
+		return true
 	}
 	offlineSync := c.offlineSyncInProgress()
 	if offlineSync {
@@ -105,7 +108,7 @@ func (c *Client) handleEvent(eventGen uint64, raw any) {
 		c.daemon.SetConnMeta(0, 0, false)
 		c.daemon.SetStateDetail(app.StateOffline, evt.String())
 	case *events.Message:
-		c.handleMessage(c.backgroundContext(), evt, offlineSync)
+		return c.handleMessage(c.backgroundContext(), evt, offlineSync)
 	case *events.UndecryptableMessage:
 		c.handleUndecryptableMessage(c.backgroundContext(), evt)
 	case *events.Receipt:
@@ -199,6 +202,8 @@ func (c *Client) handleEvent(eventGen uint64, raw any) {
 	case *events.Blocklist:
 		c.daemon.PublishBlocklistChanged()
 	}
+
+	return true
 }
 
 // isSelfJID reports whether jid is the logged-in user's own account.

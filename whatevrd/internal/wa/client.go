@@ -365,8 +365,10 @@ func (c *Client) resetClient(ctx context.Context) error {
 	// way out is to open WhatsApp on the phone and hope.
 	client.AutomaticMessageRerequestFromPhone = true
 	eventGen := c.eventGen.Add(1)
-	client.AddEventHandler(func(raw any) {
-		c.handleEvent(eventGen, raw)
+	// With success status, returning false makes whatsmeow skip the ack so the
+	// server redelivers. Without it a failed store lost the message for good.
+	client.AddEventHandlerWithSuccessStatus(func(raw any) bool {
+		return c.handleEvent(eventGen, raw)
 	})
 
 	c.mu.Lock()
