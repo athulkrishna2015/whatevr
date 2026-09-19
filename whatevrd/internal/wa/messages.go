@@ -1848,7 +1848,17 @@ func messageDirectionAndStatus(info types.MessageInfo, opts ingestOptions) (stri
 	return appstore.DirectionIncoming, appstore.StatusDelivered
 }
 
+// futureTimestampSlack is how far ahead a message may legitimately claim to be.
+// Clocks disagree by seconds, not days. Anything beyond this is a broken sender
+// clock, and left alone it pins the message to the top of the chat forever,
+// because nothing that arrives later can ever sort above it.
+const futureTimestampSlack = 12 * time.Hour
+
 func messageTimestamp(info types.MessageInfo, opts ingestOptions, webMsg *waWeb.WebMessageInfo) time.Time {
+	return clampFutureTimestamp(rawMessageTimestamp(info, opts, webMsg), time.Now())
+}
+
+func rawMessageTimestamp(info types.MessageInfo, opts ingestOptions, webMsg *waWeb.WebMessageInfo) time.Time {
 	if !opts.timestampOverride.IsZero() {
 		return opts.timestampOverride
 	}
@@ -1858,6 +1868,13 @@ func messageTimestamp(info types.MessageInfo, opts ingestOptions, webMsg *waWeb.
 		}
 	}
 	return info.Timestamp
+}
+
+func clampFutureTimestamp(timestamp, now time.Time) time.Time {
+	if timestamp.IsZero() || !timestamp.After(now.Add(futureTimestampSlack)) {
+		return timestamp
+	}
+	return now
 }
 
 func whatsAppUnixTimestamp(value uint64) (time.Time, bool) {
