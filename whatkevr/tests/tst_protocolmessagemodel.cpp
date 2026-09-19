@@ -4,7 +4,10 @@
 #include <QSignalSpy>
 #include <QTest>
 
+#include <cmath>
+
 #include "collectionviewmodel.h"
+#include "messagemarkup.h"
 #include "protocolmessagemodel.h"
 
 using whatevr::proto::CollectionViewModel;
@@ -127,6 +130,66 @@ private Q_SLOTS:
 
         QCOMPARE(role(model, 0, ProtocolMessageModel::TextRole).toString(), QStringLiteral("Poll: dinner?"));
         QCOMPARE(role(model, 0, ProtocolMessageModel::MediaKindRole).toString(), QStringLiteral("poll"));
+    }
+
+    // A line ending in an emoji is measured as wide as it is drawn.
+    //
+    // The rich-text path enlarges inline emoji, and the width oracle measured
+    // the whole line in the plain body font, so it reported a line narrower than
+    // what lands on screen. The bubble is built from that width, so a message
+    // like "Ok <emoji>" got a plate too narrow for its own last line and its
+    // timestamp dropped onto a line of its own, while a plain message of the
+    // same length kept the timestamp inline. Same words, different answer,
+    // purely because one of them carried an emoji.
+    void anEmojiIsMeasuredAtTheSizeItIsDrawn()
+    {
+        CollectionViewModel source;
+        ProtocolMessageModel model(&source);
+
+        // An explicit font, so the reference advances below are the same ones
+        // the model is measuring with.
+        QFont body;
+        body.setPointSizeF(11.0);
+        model.setBodyMetricsFont(body);
+
+        const QString emoji = QStringLiteral("\U0001F4AF"); // the hundred-points emoji
+        const QFontMetricsF bodyMetrics(body);
+        QFont enlarged = body;
+        enlarged.setPointSizeF(body.pointSizeF() * whatevr::util::inlineEmojiScale());
+        const QFontMetricsF enlargedMetrics(enlarged);
+        if (enlargedMetrics.horizontalAdvance(emoji) - bodyMetrics.horizontalAdvance(emoji) < 1.0) {
+            QSKIP("no emoji glyph here that changes width with its size");
+        }
+
+        const auto lastLineWidth = [&](const QString &id, const QString &text) {
+            QJsonObject row = message(id, 1'700'000'000);
+            row.insert(QStringLiteral("text"), text);
+            row.insert(QStringLiteral("fallback"), text);
+            source.onUpsert(id, row);
+            const int i = model.indexOf(id);
+            Q_ASSERT(i >= 0);
+            return model.data(model.index(i, 0), ProtocolMessageModel::LastLineWidthRole).toReal();
+        };
+
+        const qreal measured = lastLineWidth(QStringLiteral("emoji"), QStringLiteral("Ok ") + emoji);
+        // Exactly what the old oracle reported, rounding included, so the
+        // comparison is about the emoji's size and not about the +1 the oracle
+        // adds to every line it measures.
+        const qreal unscaled =
+            std::ceil(bodyMetrics.horizontalAdvance(QStringLiteral("Ok ") + emoji)) + 1;
+
+        QVERIFY2(whatevr::util::isEmojiGraphemeCluster(emoji),
+                 "the fixture is not an emoji, so this would measure ordinary text");
+        QVERIFY2(measured > unscaled,
+                 qPrintable(QStringLiteral("the emoji line measured %1, no more than the %2 the "
+                                           "body font alone gives: the enlargement is ignored")
+                                .arg(measured)
+                                .arg(unscaled)));
+
+        // A line with no emoji is untouched, so ordinary text keeps measuring
+        // exactly as it did.
+        const qreal plain = lastLineWidth(QStringLiteral("plain"), QStringLiteral("Wahi na"));
+        QCOMPARE(plain, std::ceil(bodyMetrics.horizontalAdvance(QStringLiteral("Wahi na"))) + 1);
     }
 
     void mirrorsMoveRemoveAndReset()

@@ -6,6 +6,16 @@
 
 namespace whatevr::util {
 
+// How much larger than the body text an inline emoji is drawn. The rich-text
+// renderer enlarges emoji, so anything measuring a line has to enlarge them too
+// or it will report a width narrower than what lands on screen.
+double inlineEmojiScale();
+
+// Whether one grapheme cluster is an emoji, by the same rule the renderer uses
+// to decide what to enlarge. Exported so a measurement and the rendering cannot
+// disagree about which characters are emoji.
+bool isEmojiGraphemeCluster(const QString &cluster);
+
 struct MessageMarkup {
     int emojiOnlyCount = 0;
     bool hasRichText = false;

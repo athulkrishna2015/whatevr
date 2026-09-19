@@ -270,6 +270,9 @@ private:
     mutable QHash<QString, TextPresentation> m_textById;
     QFont m_bodyFont;
     QFontMetricsF m_bodyMetrics;
+    /// The same font at the size inline emoji are actually drawn at, so a line
+    /// carrying one is measured as wide as it lands.
+    QFontMetricsF m_emojiMetrics;
     mutable QHash<int, QString> m_dateTextByDay;
     mutable QDate m_dateTextDay;
     mutable RowCache m_rowCache;

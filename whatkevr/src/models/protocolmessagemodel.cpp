@@ -64,12 +64,95 @@ QString collapsedMessageText(const QString &text)
     return preview + QStringLiteral("...");
 }
 
-std::pair<qreal, qreal> measureLineWidths(const QString &text, const QFontMetricsF &metrics)
+// The body font at the size the rich-text path draws inline emoji.
+QFont scaledEmojiFont(const QFont &body)
+{
+    QFont scaled = body;
+    const double factor = whatevr::util::inlineEmojiScale();
+    if (scaled.pointSizeF() > 0) {
+        scaled.setPointSizeF(scaled.pointSizeF() * factor);
+    } else if (scaled.pixelSize() > 0) {
+        scaled.setPixelSize(std::max(1, qRound(scaled.pixelSize() * factor)));
+    }
+    return scaled;
+}
+
+// Whether a line contains anything the renderer would enlarge. Cheap enough to
+// run on every line so the common case never pays for the grapheme walk below.
+bool mayContainEmoji(QStringView line)
+{
+    for (QChar ch : line) {
+        if (ch.isHighSurrogate() || ch.unicode() >= 0x2000) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Advance of one line, with emoji measured at the size they are drawn.
+//
+// The rich-text path enlarges emoji, and this used to measure the whole line in
+// the body font. The width it reported was therefore short by the difference on
+// every message carrying one, and that width is what the bubble is built from:
+// the plate came out narrower than its own last line, so the time and ticks no
+// longer fitted beside the words and dropped onto a line of their own. Two
+// messages of the same length would disagree about where their timestamp went
+// purely because one of them ended in an emoji.
+qreal measureLine(QStringView line, const QFontMetricsF &metrics, const QFontMetricsF &emojiMetrics)
+{
+    if (!mayContainEmoji(line)) {
+        return metrics.horizontalAdvance(line.toString());
+    }
+
+    const QString text = line.toString();
+    QTextBoundaryFinder finder(QTextBoundaryFinder::Grapheme, text);
+    qreal advance = 0;
+    int clusterStart = 0;
+    // Runs of like-measured clusters are batched: shaping a whole run at once is
+    // both faster and truer than summing per-cluster advances, which throws away
+    // kerning between neighbouring letters.
+    int runStart = 0;
+    bool runIsEmoji = false;
+    bool runOpen = false;
+    const auto flushRun = [&](int runEnd) {
+        if (!runOpen || runEnd <= runStart) {
+            return;
+        }
+        const QString run = text.mid(runStart, runEnd - runStart);
+        advance += runIsEmoji ? emojiMetrics.horizontalAdvance(run)
+                              : metrics.horizontalAdvance(run);
+    };
+
+    finder.toStart();
+    while (true) {
+        const int clusterEnd = finder.toNextBoundary();
+        if (clusterEnd < 0) {
+            break;
+        }
+        const QString cluster = text.mid(clusterStart, clusterEnd - clusterStart);
+        const bool isEmoji = whatevr::util::isEmojiGraphemeCluster(cluster);
+        if (!runOpen) {
+            runOpen = true;
+            runIsEmoji = isEmoji;
+            runStart = clusterStart;
+        } else if (isEmoji != runIsEmoji) {
+            flushRun(clusterStart);
+            runIsEmoji = isEmoji;
+            runStart = clusterStart;
+        }
+        clusterStart = clusterEnd;
+    }
+    flushRun(text.size());
+    return advance;
+}
+
+std::pair<qreal, qreal> measureLineWidths(const QString &text, const QFontMetricsF &metrics,
+                                          const QFontMetricsF &emojiMetrics)
 {
     qreal widest = 0;
     qreal last = 0;
     for (const auto line : QStringView(text).split(QLatin1Char('\n'))) {
-        last = metrics.horizontalAdvance(line.toString());
+        last = measureLine(line, metrics, emojiMetrics);
         widest = std::max(widest, last);
     }
     return {std::ceil(widest) + 1, std::ceil(last) + 1};
@@ -81,6 +164,7 @@ ProtocolMessageModel::ProtocolMessageModel(whatevr::proto::CollectionViewModel *
     , m_source(source)
     , m_bodyFont(QGuiApplication::font())
     , m_bodyMetrics(m_bodyFont)
+    , m_emojiMetrics(scaledEmojiFont(m_bodyFont))
 {
     Q_ASSERT(m_source);
 
@@ -964,11 +1048,13 @@ void ProtocolMessageModel::remeasure(TextPresentation &presentation) const
 {
     const QString previewLayout = presentation.previewMarkup.layoutText.isEmpty()
         ? presentation.previewText : presentation.previewMarkup.layoutText;
-    std::tie(presentation.previewWidest, presentation.previewLast) = measureLineWidths(previewLayout, m_bodyMetrics);
+    std::tie(presentation.previewWidest, presentation.previewLast) =
+        measureLineWidths(previewLayout, m_bodyMetrics, m_emojiMetrics);
     if (presentation.fullParsed) {
         const QString fullLayout = presentation.fullMarkup.layoutText.isEmpty()
             ? presentation.sourceText : presentation.fullMarkup.layoutText;
-        std::tie(presentation.fullWidest, presentation.fullLast) = measureLineWidths(fullLayout, m_bodyMetrics);
+        std::tie(presentation.fullWidest, presentation.fullLast) =
+            measureLineWidths(fullLayout, m_bodyMetrics, m_emojiMetrics);
     }
 }
 
@@ -999,6 +1085,7 @@ void ProtocolMessageModel::setBodyMetricsFont(const QFont &font)
     }
     m_bodyFont = font;
     m_bodyMetrics = QFontMetricsF(m_bodyFont);
+    m_emojiMetrics = QFontMetricsF(scaledEmojiFont(m_bodyFont));
     for (auto it = m_textById.begin(); it != m_textById.end(); ++it) {
         remeasure(it.value());
     }
