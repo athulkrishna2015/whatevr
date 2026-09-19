@@ -13,6 +13,8 @@ Kirigami.ScrollablePage {
     id: root
 
     title: Whatevr.I18n.i18nc("@title", "Channels")
+    property bool listOnly: false
+    signal channelSelected(string channelId, string channelName)
     Kirigami.Theme.colorSet: Kirigami.Theme.View
 
     Component.onCompleted: Whatevr.ProtocolController.openChannels()
@@ -57,11 +59,15 @@ Kirigami.ScrollablePage {
             width: ListView.view.width
 
             onClicked: {
-                applicationWindow().pageStack.layers.push(
-                    Qt.resolvedUrl("ChannelMessagesPage.qml"), {
-                        "channelJid": channelDelegate.item.jid || channelDelegate.item.id || "",
-                        "channelName": channelDelegate.item.name || ""
-                })
+                const jid = channelDelegate.item.jid || channelDelegate.item.id || ""
+                const name = channelDelegate.item.name || ""
+                if (root.listOnly) {
+                    root.channelSelected(jid, name)
+                } else {
+                    applicationWindow().pageStack.layers.push(Qt.resolvedUrl("ChannelMessagesPage.qml"), {
+                        "channelJid": jid, "channelName": name
+                    })
+                }
             }
 
             QQC2.Menu {

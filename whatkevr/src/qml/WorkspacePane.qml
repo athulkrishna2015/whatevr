@@ -12,6 +12,10 @@ Kirigami.Page {
     readonly property Item conversationPane: conversation
     property int workspaceIndex: 0
     property string workspaceName: "conversation"
+    property string statusSenderId: ""
+    property string statusSenderName: ""
+    property string channelId: ""
+    property string channelName: ""
 
     padding: 0
     title: stack.currentIndex === 0
@@ -35,6 +39,14 @@ Kirigami.Page {
             chatId: ""
             headerTitle: Whatevr.I18n.i18nc("@title", "Starred messages")
         }
+        StatusViewerPage {
+            senderId: root.statusSenderId
+            senderName: root.statusSenderName
+        }
+        ChannelMessagesPage {
+            channelJid: root.channelId
+            channelName: root.channelName
+        }
     }
 
     function openConversation() {
@@ -47,5 +59,19 @@ Kirigami.Page {
             root.workspaceIndex = indexes[name]
             root.workspaceName = name
         }
+    }
+
+    function openStatusViewer(senderId, senderName) {
+        root.statusSenderId = senderId
+        root.statusSenderName = senderName
+        root.workspaceIndex = 6
+        root.workspaceName = "status-viewer"
+    }
+
+    function openChannelMessages(channelId, channelName) {
+        root.channelId = channelId
+        root.channelName = channelName
+        root.workspaceIndex = 7
+        root.workspaceName = "channel-messages"
     }
 }

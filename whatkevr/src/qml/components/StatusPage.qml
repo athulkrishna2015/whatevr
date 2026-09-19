@@ -16,6 +16,8 @@ Kirigami.ScrollablePage {
     id: root
 
     title: Whatevr.I18n.i18nc("@title", "Status")
+    property bool listOnly: false
+    signal statusSelected(string senderId, string senderName)
     Kirigami.Theme.colorSet: Kirigami.Theme.View
 
     Component.onCompleted: {
@@ -226,10 +228,14 @@ Kirigami.ScrollablePage {
             width: ListView.view.width
 
             onClicked: {
-                applicationWindow().pageStack.layers.push(Qt.resolvedUrl("StatusViewerPage.qml"), {
-                    "senderId": statusDelegate.group.senderId,
-                    "senderName": root.contactLabel(statusDelegate.group)
-                })
+                if (root.listOnly) {
+                    root.statusSelected(statusDelegate.group.senderId, root.contactLabel(statusDelegate.group))
+                } else {
+                    applicationWindow().pageStack.layers.push(Qt.resolvedUrl("StatusViewerPage.qml"), {
+                        "senderId": statusDelegate.group.senderId,
+                        "senderName": root.contactLabel(statusDelegate.group)
+                    })
+                }
             }
 
             QQC2.Menu {

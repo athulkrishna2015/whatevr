@@ -341,6 +341,8 @@ Kirigami.ApplicationWindow {
                 if (listPage.chatSelected) {
                     listPage.chatSelected.connect(showConversation)
                 }
+                listPage.statusSelected.connect(showStatusViewer)
+                listPage.channelSelected.connect(showChannelMessages)
             }
         }
 
@@ -370,10 +372,21 @@ Kirigami.ApplicationWindow {
             return
         }
         ensureChatPages()
+        chatListPageItem.workspaceMode = (tab === "status" || tab === "channels") ? tab : "chats"
         navProgrammaticIndexChange = true
         workspacePageItem.openTab(String(tab))
         pageStack.currentIndex = 1
         navProgrammaticIndexChange = false
+    }
+
+    function showStatusViewer(senderId, senderName) {
+        workspacePageItem.openStatusViewer(senderId, senderName)
+        pageStack.currentIndex = 1
+    }
+
+    function showChannelMessages(channelId, channelName) {
+        workspacePageItem.openChannelMessages(channelId, channelName)
+        pageStack.currentIndex = 1
     }
 
     function showConversation(chatId) {

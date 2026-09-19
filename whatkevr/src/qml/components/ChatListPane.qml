@@ -20,6 +20,9 @@ Kirigami.Page {
     // 3 = Unread, 4 = Favorites. A daemon-side `chats` subscribe param, so changing it
     // re-subscribes — the frontend never filters the list itself.
     property int activeFilter: 0
+    property string workspaceMode: "chats"
+    signal statusSelected(string senderId, string senderName)
+    signal channelSelected(string channelId, string channelName)
     property int activeFolder: 0
     onActiveFilterChanged: Whatevr.ProtocolController.chatFilter = activeFilter
     Component.onCompleted: Whatevr.ProtocolController.chatFilter = activeFilter
@@ -172,16 +175,36 @@ Kirigami.Page {
             }
         }
 
-        Item {
-            id: chatListViewport
+            Item {
+                id: chatListViewport
 
             Layout.fillWidth: true
-            Layout.fillHeight: true
+                Layout.fillHeight: true
 
-            ListView {
+                Loader {
+                    id: statusIndexLoader
+                    anchors.fill: parent
+                    active: root.workspaceMode === "status"
+                    sourceComponent: StatusPage {
+                        listOnly: true
+                        onStatusSelected: (senderId, senderName) => root.statusSelected(senderId, senderName)
+                    }
+                }
+
+                Loader {
+                    id: channelIndexLoader
+                    anchors.fill: parent
+                    active: root.workspaceMode === "channels"
+                    sourceComponent: ChannelsPage {
+                        listOnly: true
+                        onChannelSelected: (channelId, channelName) => root.channelSelected(channelId, channelName)
+                    }
+                }
+
+                ListView {
                 id: chatList
 
-                visible: !Whatevr.ProtocolController.searchActive
+                    visible: root.workspaceMode === "chats" && !Whatevr.ProtocolController.searchActive
 
                 property string contextChatId: ""
                 property bool contextChatPinned: false
