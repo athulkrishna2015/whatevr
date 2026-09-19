@@ -436,14 +436,8 @@ func (c *Client) resetInMemoryAccountState() {
 }
 
 // restartRunLoopsLocked restarts the background loops torn down by a wipe.
-// It must start the same set of loops as Start(); notably the avatar worker,
-// which was previously left dead after logout so avatars never fetched again
-// until the daemon restarted.
 func (c *Client) restartRunLoopsLocked() {
-	runCtx := c.replaceRunContextLocked(context.Background())
-	c.startRunGoroutine(func() { c.runConnectionSupervisor(runCtx) })
-	c.startRunGoroutine(func() { c.runSendQueue(runCtx) })
-	c.startAvatarWorker(runCtx)
+	c.startRunLoopsLocked(context.Background())
 }
 
 func connBackoffDelay(attempt int) time.Duration {

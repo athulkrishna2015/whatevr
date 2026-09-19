@@ -241,6 +241,13 @@ func (c *Client) Start(ctx context.Context) {
 	c.lifecycleMu.Lock()
 	defer c.lifecycleMu.Unlock()
 
+	c.startRunLoopsLocked(ctx)
+}
+
+// startRunLoopsLocked is the single definition of the background loop set. Both
+// first start and post-logout restart go through it; when they were separate,
+// restart quietly dropped three loops and the poster queue grew with no consumer.
+func (c *Client) startRunLoopsLocked(ctx context.Context) {
 	runCtx := c.replaceRunContextLocked(ctx)
 	c.startRunGoroutine(func() { c.runConnectionSupervisor(runCtx) })
 	c.startRunGoroutine(func() { c.runSendQueue(runCtx) })
