@@ -1237,7 +1237,8 @@ func (c *Client) MarkChatReadUpTo(ctx context.Context, chatID, upToMessageID str
 	bounded := readCandidates[:0]
 	internalIDs := make([]string, 0, len(readCandidates))
 	for _, candidate := range readCandidates {
-		if candidate.TimestampUnix < target.TimestampUnix || (candidate.TimestampUnix == target.TimestampUnix && candidate.SortSeq <= target.SortSeq) {
+		// Same ordering the transcript uses: the stored sort key, then the id.
+		if candidate.SortMS < target.SortMS || (candidate.SortMS == target.SortMS && candidate.InternalID <= target.ID) {
 			bounded = append(bounded, candidate)
 			internalIDs = append(internalIDs, candidate.InternalID)
 		}

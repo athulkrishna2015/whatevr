@@ -80,10 +80,10 @@ func TestResentMessageReplacesItsPlaceholderInPlace(t *testing.T) {
 	if len(messages) != 1 {
 		t.Fatalf("got %d rows, want 1", len(messages))
 	}
-	// The rowid is the transcript's sort key. A placeholder that vanished and
-	// came back would land after everything that arrived while it waited.
-	if saved.Message.SortSeq != placeholder.Message.SortSeq {
-		t.Fatalf("sort seq moved from %d to %d", placeholder.Message.SortSeq, saved.Message.SortSeq)
+	// The stored sort key is the transcript's order. A placeholder that vanished
+	// and came back would land after everything that arrived while it waited.
+	if saved.Message.SortMS != placeholder.Message.SortMS {
+		t.Fatalf("sort key moved from %d to %d", placeholder.Message.SortMS, saved.Message.SortMS)
 	}
 	// The placeholder already counted it. Counting again would say two messages
 	// arrived when one did.

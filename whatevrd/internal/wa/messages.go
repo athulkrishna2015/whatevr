@@ -2183,7 +2183,7 @@ func toDaemonMessage(message appstore.Message) app.Message {
 		SenderAvatarLocalPath:   message.SenderAvatarLocalPath,
 		Text:                    message.Text,
 		TimestampUnix:           message.TimestampUnix,
-		SortSeq:                 message.SortSeq,
+		SortMS:                  message.SortMS,
 		Direction:               message.Direction,
 		Status:                  message.Status,
 		MediaKind:               message.MediaKind,

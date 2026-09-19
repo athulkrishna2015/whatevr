@@ -230,6 +230,7 @@ func (db *DB) migrate(ctx context.Context) error {
 			sender_id TEXT NOT NULL DEFAULT '',
 			text TEXT NOT NULL DEFAULT '',
 			timestamp INTEGER NOT NULL,
+			sort_ms INTEGER NOT NULL DEFAULT 0,
 			direction TEXT NOT NULL,
 			is_read INTEGER NOT NULL DEFAULT 1,
 			status TEXT NOT NULL,
@@ -243,6 +244,7 @@ func (db *DB) migrate(ctx context.Context) error {
 			FOREIGN KEY(chat_id) REFERENCES chats(id) ON DELETE CASCADE
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_chat_timestamp ON messages(chat_id, timestamp DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_messages_chat_sort ON messages(chat_id, sort_ms DESC, id DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_chat_timestamp_id ON messages(chat_id, timestamp DESC, id DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_chat_read_candidates ON messages(chat_id, direction, is_read, timestamp ASC, id ASC)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_sender_chat ON messages(sender_id, chat_id)`,
@@ -537,6 +539,7 @@ func (db *DB) ensureMessageRevokedColumn(ctx context.Context) error {
 		// Newline-joined full JIDs of @-mentioned participants (see
 		// encodeMentionedJIDs). Empty for the vast majority of messages.
 		{"mentioned_jids", `ALTER TABLE messages ADD COLUMN mentioned_jids TEXT NOT NULL DEFAULT ''`},
+		{"sort_ms", `ALTER TABLE messages ADD COLUMN sort_ms INTEGER NOT NULL DEFAULT 0`},
 	}
 	for _, a := range alterations {
 		if existing[a.col] {
@@ -545,6 +548,13 @@ func (db *DB) ensureMessageRevokedColumn(ctx context.Context) error {
 		if _, err := db.conn.ExecContext(ctx, a.def); err != nil {
 			return fmt.Errorf("add messages.%s: %w", a.col, err)
 		}
+	}
+
+	// Rows written before sort_ms existed carry a zero, which would sort them
+	// all above everything. Seconds are the best precision those rows ever had,
+	// and the message id still breaks their ties deterministically.
+	if _, err := db.conn.ExecContext(ctx, `UPDATE messages SET sort_ms = timestamp * 1000 WHERE sort_ms = 0`); err != nil {
+		return fmt.Errorf("backfill messages.sort_ms: %w", err)
 	}
 
 	// These indexes reference is_starred / pinned_until, so they must be created

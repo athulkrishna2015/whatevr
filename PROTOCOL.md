@@ -131,7 +131,7 @@ there is no snapshot/subscribe race by construction.
 
 `sort` is an opaque string; order items by bytewise comparison, ascending.
 The daemon computes it (for chats: pinned section then recency; for messages:
-timestamp with arrival-order tiebreaker). A changed `sort` in an upsert means
+timestamp, then message id as a tiebreak). A changed `sort` in an upsert means
 the item moved. Frontends never look inside it.
 
 `reset` is rare (e.g. a history-sync rewrite of a chat, or the daemon

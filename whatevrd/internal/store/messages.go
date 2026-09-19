@@ -144,7 +144,7 @@ type Message struct {
 	SenderAvatarLocalPath   string
 	Text                    string
 	TimestampUnix           int64
-	SortSeq                 int64
+	SortMS                  int64
 	Direction               string
 	IsRead                  bool
 	Status                  string
@@ -265,7 +265,7 @@ type ReadCandidate struct {
 	ChatID        string
 	SenderID      string
 	TimestampUnix int64
-	SortSeq       int64
+	SortMS        int64
 }
 
 type TextMessageInput struct {
@@ -313,9 +313,9 @@ type MessageTimestampCorrection struct {
 // when the message finally arrives it has the *same id*. Dropping it would
 // leave the placeholder standing forever with the real message thrown away.
 //
-// It updates rather than deleting and reinserting so the row keeps its rowid,
-// which is the transcript's sort key: a placeholder that vanished and came back
-// would jump past everything that arrived while it waited.
+// It updates rather than deleting and reinserting so the row keeps its stored
+// sort key: a placeholder that vanished and came back would jump past
+// everything that arrived while it waited.
 //
 // The fields common to every kind live here; each save path appends its own and
 // closes with the WHERE that limits all of it to a placeholder.
@@ -330,6 +330,7 @@ const waitingPlaceholderUpgrade = `
 			-- a resend does not: a message must not move to where it was
 			-- re-delivered.
 			timestamp = MIN(messages.timestamp, excluded.timestamp),
+			sort_ms = MIN(messages.sort_ms, excluded.sort_ms),
 			-- Somebody who already looked at the placeholder has read this
 			-- message; the chat's unread count was settled when the placeholder
 			-- landed and is not touched again.
@@ -414,8 +415,8 @@ func saveTextMessageTx(ctx context.Context, tx *sql.Tx, input TextMessageInput) 
 	}
 
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO messages (id, chat_id, sender_id, text, timestamp, direction, is_read, status, is_forwarded, mentioned_jids, payload_json, reply_to_message_id, reply_to_sender_id, reply_to_sender_name, reply_to_text, reply_to_media_kind, reply_to_media_mime_type, reply_to_direction)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO messages (id, chat_id, sender_id, text, timestamp, sort_ms, direction, is_read, status, is_forwarded, mentioned_jids, payload_json, reply_to_message_id, reply_to_sender_id, reply_to_sender_name, reply_to_text, reply_to_media_kind, reply_to_media_mime_type, reply_to_direction)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`+waitingPlaceholderUpgrade+`
 			text = excluded.text,
 			is_forwarded = excluded.is_forwarded,
@@ -429,7 +430,7 @@ func saveTextMessageTx(ctx context.Context, tx *sql.Tx, input TextMessageInput) 
 			reply_to_media_mime_type = excluded.reply_to_media_mime_type,
 			reply_to_direction = excluded.reply_to_direction
 		WHERE messages.media_kind = '`+MediaKindWaiting+`'
-	`, input.ID, input.ChatID, input.SenderID, input.Text, input.Timestamp.Unix(), input.Direction, boolToInt(!input.CountUnread), input.Status, boolToInt(input.IsForwarded), encodeMentions(input.Mentions), input.PayloadJSON,
+	`, input.ID, input.ChatID, input.SenderID, input.Text, input.Timestamp.Unix(), input.Timestamp.UnixMilli(), input.Direction, boolToInt(!input.CountUnread), input.Status, boolToInt(input.IsForwarded), encodeMentions(input.Mentions), input.PayloadJSON,
 		input.ReplyTo.MessageID, input.ReplyTo.SenderID, input.ReplyTo.SenderName, input.ReplyTo.Text, input.ReplyTo.MediaKind, input.ReplyTo.MediaMimeType, input.ReplyTo.Direction)
 	if err != nil {
 		return SavedTextMessage{}, err
@@ -608,8 +609,8 @@ func saveMediaMessageTx(ctx context.Context, tx *sql.Tx, input MediaMessageInput
 	}
 
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO messages (id, chat_id, sender_id, text, timestamp, direction, is_read, status, is_forwarded, mentioned_jids, media_kind, media_mime_type, media_local_path, media_thumbnail_local_path, media_width, media_height, media_animated, media_payload, media_cache_key, media_duration_secs, media_size_bytes, media_file_name, media_page_count, media_waveform, payload_json, payload_summary, album_parent_id, album_index, reply_to_message_id, reply_to_sender_id, reply_to_sender_name, reply_to_text, reply_to_media_kind, reply_to_media_mime_type, reply_to_direction)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO messages (id, chat_id, sender_id, text, timestamp, sort_ms, direction, is_read, status, is_forwarded, mentioned_jids, media_kind, media_mime_type, media_local_path, media_thumbnail_local_path, media_width, media_height, media_animated, media_payload, media_cache_key, media_duration_secs, media_size_bytes, media_file_name, media_page_count, media_waveform, payload_json, payload_summary, album_parent_id, album_index, reply_to_message_id, reply_to_sender_id, reply_to_sender_name, reply_to_text, reply_to_media_kind, reply_to_media_mime_type, reply_to_direction)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		`+waitingPlaceholderUpgrade+`
 			text = excluded.text,
 			is_forwarded = excluded.is_forwarded,
@@ -638,7 +639,7 @@ func saveMediaMessageTx(ctx context.Context, tx *sql.Tx, input MediaMessageInput
 			reply_to_media_mime_type = excluded.reply_to_media_mime_type,
 			reply_to_direction = excluded.reply_to_direction
 		WHERE messages.media_kind = '`+MediaKindWaiting+`'
-	`, input.ID, input.ChatID, input.SenderID, input.Text, input.Timestamp.Unix(), input.Direction,
+	`, input.ID, input.ChatID, input.SenderID, input.Text, input.Timestamp.Unix(), input.Timestamp.UnixMilli(), input.Direction,
 		boolToInt(!input.CountUnread), input.Status, boolToInt(input.IsForwarded), encodeMentions(input.Mentions), input.MediaKind, input.MediaMimeType, input.MediaLocalPath, input.MediaThumbnailLocalPath, input.MediaWidth, input.MediaHeight, boolToInt(input.MediaAnimated), input.MediaPayload, input.MediaCacheKey,
 		input.MediaDurationSecs, input.MediaSizeBytes, input.MediaFileName, input.MediaPageCount, input.MediaWaveform,
 		input.PayloadJSON, input.PayloadSummary, input.AlbumParentID, input.AlbumIndex,
@@ -824,11 +825,15 @@ func (db *DB) RecordUndecryptableMessageTimestamp(ctx context.Context, id, chatI
 		return MessageTimestampCorrection{}, err
 	}
 
+	// Only ever earlier, and only for an id that actually failed to decrypt, so
+	// this moves a resend back to when it was sent rather than where it landed.
+	// The sort key has to move with it or the row would render in one place and
+	// page from another.
 	result, err := tx.ExecContext(ctx, `
 		UPDATE messages
-		SET timestamp = ?
+		SET timestamp = ?, sort_ms = ?
 		WHERE id = ? AND timestamp > ?
-	`, effectiveTimestampUnix, id, effectiveTimestampUnix)
+	`, effectiveTimestampUnix, effectiveTimestampUnix*1000, id, effectiveTimestampUnix)
 	if err != nil {
 		return MessageTimestampCorrection{}, err
 	}
@@ -903,7 +908,7 @@ func recomputeChatSummaryTx(ctx context.Context, tx *sql.Tx, chatID string) erro
 		SELECT id
 		FROM messages
 		WHERE chat_id = ?
-		ORDER BY timestamp DESC, rowid DESC
+		ORDER BY sort_ms DESC, id DESC
 		LIMIT 1
 	`, chatID).Scan(&latestID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -952,7 +957,7 @@ const messageSelectPrefix = `
 	SELECT m.id, m.chat_id, m.sender_id,
 	       COALESCE(NULLIF(s.name, ''), NULLIF(c.name, ''), ''),
 	       COALESCE(NULLIF(sa.local_path, ''), NULLIF(ca.local_path, ''), NULLIF(s.avatar_local_path, ''), NULLIF(c.avatar_local_path, ''), ''),
-	       m.text, m.timestamp, m.rowid, m.direction, m.is_read, m.status, m.media_kind, m.media_mime_type, m.media_local_path, m.media_thumbnail_local_path, m.media_width, m.media_height, m.media_animated, m.media_download_error,
+	       m.text, m.timestamp, m.sort_ms, m.direction, m.is_read, m.status, m.media_kind, m.media_mime_type, m.media_local_path, m.media_thumbnail_local_path, m.media_width, m.media_height, m.media_animated, m.media_download_error,
 	       m.media_duration_secs, m.media_size_bytes, m.media_file_name, m.media_page_count, m.media_waveform, m.media_played,
 	       m.payload_json, m.payload_summary, m.album_parent_id, m.album_index, m.is_kept,
 	       m.reply_to_message_id, m.reply_to_sender_id, m.reply_to_sender_name, m.reply_to_text, m.reply_to_media_kind, m.reply_to_media_mime_type, m.reply_to_direction,
@@ -976,19 +981,19 @@ func (db *DB) ListMessages(ctx context.Context, chatID string, limit int, before
 	args := []any{chatID}
 
 	if beforeMessageID != "" {
-		beforeTimestamp, beforeSeq, err := db.messageCursor(ctx, beforeMessageID)
+		beforeSortMS, beforeID, err := db.messageCursor(ctx, beforeMessageID)
 		if err != nil {
 			return nil, err
 		}
 
 		query += `
-			AND (m.timestamp < ? OR (m.timestamp = ? AND m.rowid < ?))
+			AND (m.sort_ms < ? OR (m.sort_ms = ? AND m.id < ?))
 		`
-		args = append(args, beforeTimestamp, beforeTimestamp, beforeSeq)
+		args = append(args, beforeSortMS, beforeSortMS, beforeID)
 	}
 
 	query += `
-		ORDER BY m.timestamp DESC, m.rowid DESC
+		ORDER BY m.sort_ms DESC, m.id DESC
 		LIMIT ?
 	`
 	args = append(args, limit)
@@ -1019,7 +1024,7 @@ func (db *DB) ListVideoPosterCandidates(ctx context.Context) ([]Message, error) 
 	rows, err := db.reader().QueryContext(ctx, messageSelectPrefix+`
 		WHERE m.media_kind IN (?, ?)
 		  AND m.media_local_path != ''
-		ORDER BY m.timestamp DESC, m.rowid DESC
+		ORDER BY m.sort_ms DESC, m.id DESC
 	`, MediaKindVideo, MediaKindGIF)
 	if err != nil {
 		return nil, err
@@ -1045,7 +1050,7 @@ func (db *DB) OldestStoredMessage(ctx context.Context, chatID string) (Message, 
 		SELECT id, chat_id, sender_id, direction, timestamp
 		FROM messages
 		WHERE chat_id = ?
-		ORDER BY timestamp ASC, rowid ASC
+		ORDER BY sort_ms ASC, id ASC
 		LIMIT 1
 	`, chatID).Scan(&msg.ID, &msg.ChatID, &msg.SenderID, &msg.Direction, &msg.TimestampUnix)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -1070,11 +1075,11 @@ func (db *DB) ListMessagesAfter(ctx context.Context, chatID string, limit int, a
 	if afterMessageID == "" {
 		return nil, nil
 	}
-	afterTimestamp, afterSeq, err := db.messageCursor(ctx, afterMessageID)
+	afterSortMS, afterID, err := db.messageCursor(ctx, afterMessageID)
 	if err != nil {
 		return nil, err
 	}
-	return db.listMessagesAroundSide(ctx, chatID, afterTimestamp, afterSeq, limit, true)
+	return db.listMessagesAroundSide(ctx, chatID, afterSortMS, afterID, limit, true)
 }
 
 func (db *DB) ListMessagesAround(ctx context.Context, chatID string, limit int, targetMessageID string) ([]Message, error) {
@@ -1106,11 +1111,11 @@ func (db *DB) ListMessagesAround(ctx context.Context, chatID string, limit int, 
 	}
 
 	capacity := limit - 1
-	olderDesc, err := db.listMessagesAroundSide(ctx, chatID, target.TimestampUnix, target.SortSeq, capacity, false)
+	olderDesc, err := db.listMessagesAroundSide(ctx, chatID, target.SortMS, target.ID, capacity, false)
 	if err != nil {
 		return nil, err
 	}
-	newerAsc, err := db.listMessagesAroundSide(ctx, chatID, target.TimestampUnix, target.SortSeq, capacity, true)
+	newerAsc, err := db.listMessagesAroundSide(ctx, chatID, target.SortMS, target.ID, capacity, true)
 	if err != nil {
 		return nil, err
 	}
@@ -1153,7 +1158,7 @@ func (db *DB) ListMessagesAroundUnread(ctx context.Context, chatID string, limit
           AND m.direction = ?
           AND m.is_revoked = 0
     `+albumChildExclusion+`
-        ORDER BY m.timestamp DESC, m.rowid DESC
+        ORDER BY m.sort_ms DESC, m.id DESC
         LIMIT 1 OFFSET ?
     `, chatID, DirectionIncoming, unreadCount-1).Scan(&anchorID)
 	if err != nil {
@@ -1167,16 +1172,16 @@ func (db *DB) ListMessagesAroundUnread(ctx context.Context, chatID string, limit
 	return messages, anchorID, nil
 }
 
-func (db *DB) listMessagesAroundSide(ctx context.Context, chatID string, timestamp int64, seq int64, limit int, newer bool) ([]Message, error) {
+func (db *DB) listMessagesAroundSide(ctx context.Context, chatID string, sortMS int64, id string, limit int, newer bool) ([]Message, error) {
 	if limit <= 0 {
 		return nil, nil
 	}
 
-	comparison := `AND (m.timestamp < ? OR (m.timestamp = ? AND m.rowid < ?))`
-	order := `ORDER BY m.timestamp DESC, m.rowid DESC`
+	comparison := `AND (m.sort_ms < ? OR (m.sort_ms = ? AND m.id < ?))`
+	order := `ORDER BY m.sort_ms DESC, m.id DESC`
 	if newer {
-		comparison = `AND (m.timestamp > ? OR (m.timestamp = ? AND m.rowid > ?))`
-		order = `ORDER BY m.timestamp ASC, m.rowid ASC`
+		comparison = `AND (m.sort_ms > ? OR (m.sort_ms = ? AND m.id > ?))`
+		order = `ORDER BY m.sort_ms ASC, m.id ASC`
 	}
 
 	query := messageSelectPrefix + `
@@ -1186,7 +1191,7 @@ func (db *DB) listMessagesAroundSide(ctx context.Context, chatID string, timesta
 		LIMIT ?
 	`
 
-	rows, err := db.reader().QueryContext(ctx, query, chatID, timestamp, timestamp, seq, limit)
+	rows, err := db.reader().QueryContext(ctx, query, chatID, sortMS, sortMS, id, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1202,11 +1207,12 @@ func (db *DB) listMessagesAroundSide(ctx context.Context, chatID string, timesta
 	return messages, nil
 }
 
-func (db *DB) messageCursor(ctx context.Context, id string) (int64, int64, error) {
-	var timestamp int64
-	var seq int64
-	err := db.reader().QueryRowContext(ctx, `SELECT timestamp, rowid FROM messages WHERE id = ?`, id).Scan(&timestamp, &seq)
-	return timestamp, seq, err
+// messageCursor yields the pair a page walks from: the stored sort key and the
+// id that breaks its ties.
+func (db *DB) messageCursor(ctx context.Context, id string) (int64, string, error) {
+	var sortMS int64
+	err := db.reader().QueryRowContext(ctx, `SELECT sort_ms FROM messages WHERE id = ?`, id).Scan(&sortMS)
+	return sortMS, id, err
 }
 
 func (db *DB) GetMessage(ctx context.Context, id string) (Message, error) {
@@ -1233,7 +1239,7 @@ func (db *DB) ListPendingOutgoingMessages(ctx context.Context, limit int, now ti
 		       send_attempts, last_send_error, next_send_attempt, is_forwarded, mentioned_jids
 		FROM messages
 		WHERE direction = ? AND status = ? AND next_send_attempt <= ?
-		ORDER BY timestamp ASC, rowid ASC
+		ORDER BY sort_ms ASC, id ASC
 		LIMIT ?
 	`, DirectionOutgoing, StatusPending, now.Unix(), limit)
 	if err != nil {
@@ -1670,7 +1676,7 @@ func (db *DB) ListPinnedMessages(ctx context.Context, chatID string) ([]Message,
 	defer db.timeOp("ListPinnedMessages", time.Now())
 	rows, err := db.reader().QueryContext(ctx, messageSelectPrefix+`
 		WHERE m.chat_id = ? AND m.pinned_until > ?
-		ORDER BY m.pinned_at ASC, m.rowid ASC
+		ORDER BY m.pinned_at ASC, m.sort_ms ASC, m.id ASC
 	`, chatID, time.Now().Unix())
 	if err != nil {
 		return nil, err
@@ -1718,15 +1724,15 @@ func (db *DB) ListChatMediaMessages(ctx context.Context, chatID string, limit in
 		args = append(args, kind)
 	}
 	if beforeMessageID != "" {
-		beforeTimestamp, beforeSeq, err := db.messageCursor(ctx, beforeMessageID)
+		beforeSortMS, beforeID, err := db.messageCursor(ctx, beforeMessageID)
 		if err != nil {
 			return nil, err
 		}
-		query += ` AND (m.timestamp < ? OR (m.timestamp = ? AND m.rowid < ?))`
-		args = append(args, beforeTimestamp, beforeTimestamp, beforeSeq)
+		query += ` AND (m.sort_ms < ? OR (m.sort_ms = ? AND m.id < ?))`
+		args = append(args, beforeSortMS, beforeSortMS, beforeID)
 	}
 	query += `
-		ORDER BY m.timestamp DESC, m.rowid DESC
+		ORDER BY m.sort_ms DESC, m.id DESC
 		LIMIT ?
 	`
 	args = append(args, limit)
@@ -1765,15 +1771,15 @@ func (db *DB) ListStarredMessages(ctx context.Context, chatID string, limit int,
 		args = append(args, chatID)
 	}
 	if beforeMessageID != "" {
-		beforeTimestamp, beforeSeq, err := db.messageCursor(ctx, beforeMessageID)
+		beforeSortMS, beforeID, err := db.messageCursor(ctx, beforeMessageID)
 		if err != nil {
 			return nil, err
 		}
-		query += ` AND (m.timestamp < ? OR (m.timestamp = ? AND m.rowid < ?))`
-		args = append(args, beforeTimestamp, beforeTimestamp, beforeSeq)
+		query += ` AND (m.sort_ms < ? OR (m.sort_ms = ? AND m.id < ?))`
+		args = append(args, beforeSortMS, beforeSortMS, beforeID)
 	}
 	query += `
-		ORDER BY m.timestamp DESC, m.rowid DESC
+		ORDER BY m.sort_ms DESC, m.id DESC
 		LIMIT ?
 	`
 	args = append(args, limit)
@@ -1836,15 +1842,15 @@ func (db *DB) SearchMessages(ctx context.Context, query, chatID string, limit in
 		args = append(args, chatID)
 	}
 	if beforeMessageID != "" {
-		beforeTimestamp, beforeSeq, err := db.messageCursor(ctx, beforeMessageID)
+		beforeSortMS, beforeID, err := db.messageCursor(ctx, beforeMessageID)
 		if err != nil {
 			return nil, err
 		}
-		sql += ` AND (m.timestamp < ? OR (m.timestamp = ? AND m.rowid < ?))`
-		args = append(args, beforeTimestamp, beforeTimestamp, beforeSeq)
+		sql += ` AND (m.sort_ms < ? OR (m.sort_ms = ? AND m.id < ?))`
+		args = append(args, beforeSortMS, beforeSortMS, beforeID)
 	}
 	sql += `
-		ORDER BY m.timestamp DESC, m.rowid DESC
+		ORDER BY m.sort_ms DESC, m.id DESC
 		LIMIT ?
 	`
 	args = append(args, limit)
@@ -2254,10 +2260,10 @@ func (db *DB) ListChatIDsBySenderID(ctx context.Context, senderID string) ([]str
 
 func (db *DB) ReadCandidatesForChat(ctx context.Context, chatID string) ([]ReadCandidate, error) {
 	rows, err := db.reader().QueryContext(ctx, `
-		SELECT id, chat_id, sender_id, timestamp, rowid
+		SELECT id, chat_id, sender_id, timestamp, sort_ms
 		FROM messages
 		WHERE chat_id = ? AND direction = ? AND is_read = 0
-		ORDER BY timestamp ASC, rowid ASC
+		ORDER BY sort_ms ASC, id ASC
 	`, chatID, DirectionIncoming)
 	if err != nil {
 		return nil, err
@@ -2267,7 +2273,7 @@ func (db *DB) ReadCandidatesForChat(ctx context.Context, chatID string) ([]ReadC
 	candidates := make([]ReadCandidate, 0)
 	for rows.Next() {
 		var candidate ReadCandidate
-		if err := rows.Scan(&candidate.InternalID, &candidate.ChatID, &candidate.SenderID, &candidate.TimestampUnix, &candidate.SortSeq); err != nil {
+		if err := rows.Scan(&candidate.InternalID, &candidate.ChatID, &candidate.SenderID, &candidate.TimestampUnix, &candidate.SortMS); err != nil {
 			return nil, err
 		}
 		candidate.ExternalID = ExternalMessageID(chatID, candidate.InternalID)
@@ -2476,7 +2482,7 @@ func getMessageRow(ctx context.Context, queryer interface {
 		SELECT m.id, m.chat_id, m.sender_id,
 		       COALESCE(NULLIF(s.name, ''), NULLIF(c.name, ''), ''),
 		       COALESCE(NULLIF(sa.local_path, ''), NULLIF(ca.local_path, ''), NULLIF(s.avatar_local_path, ''), NULLIF(c.avatar_local_path, ''), ''),
-		       m.text, m.timestamp, m.rowid, m.direction, m.is_read, m.status, m.media_kind, m.media_mime_type, m.media_local_path, m.media_thumbnail_local_path, m.media_width, m.media_height, m.media_animated, m.media_download_error, m.media_payload, m.media_cache_key,
+		       m.text, m.timestamp, m.sort_ms, m.direction, m.is_read, m.status, m.media_kind, m.media_mime_type, m.media_local_path, m.media_thumbnail_local_path, m.media_width, m.media_height, m.media_animated, m.media_download_error, m.media_payload, m.media_cache_key,
 		       m.media_duration_secs, m.media_size_bytes, m.media_file_name, m.media_page_count, m.media_waveform, m.media_played,
 		       m.payload_json, m.payload_summary, m.album_parent_id, m.album_index, m.is_kept,
 		       m.reply_to_message_id, m.reply_to_sender_id, m.reply_to_sender_name, m.reply_to_text, m.reply_to_media_kind, m.reply_to_media_mime_type, m.reply_to_direction,
@@ -2495,7 +2501,7 @@ func getMessageRow(ctx context.Context, queryer interface {
 		&message.SenderAvatarLocalPath,
 		&message.Text,
 		&message.TimestampUnix,
-		&message.SortSeq,
+		&message.SortMS,
 		&message.Direction,
 		&message.IsRead,
 		&message.Status,
@@ -2681,7 +2687,7 @@ func scanMessageRows(rows *sql.Rows, capacity int) ([]Message, error) {
 			&message.SenderAvatarLocalPath,
 			&message.Text,
 			&message.TimestampUnix,
-			&message.SortSeq,
+			&message.SortMS,
 			&message.Direction,
 			&message.IsRead,
 			&message.Status,

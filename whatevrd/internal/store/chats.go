@@ -920,7 +920,7 @@ func (db *DB) OverwriteChatUnreadCount(ctx context.Context, chatID string, unrea
 				SELECT id
 				FROM messages
 				WHERE chat_id = ? AND direction = ? AND is_revoked = 0
-				ORDER BY timestamp DESC, rowid DESC
+				ORDER BY sort_ms DESC, id DESC
 				LIMIT ?
 			)
 		`, chatID, chatID, DirectionIncoming, int64(unread)); err != nil {
@@ -1270,10 +1270,10 @@ func (db *DB) MigrateChatID(ctx context.Context, fromChatID, toChatID string) (C
 
 	if _, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO messages
-		(id, chat_id, sender_id, text, timestamp, direction, is_read, status)
+		(id, chat_id, sender_id, text, timestamp, sort_ms, direction, is_read, status)
 		SELECT
 			replace(id, ? || ':', ? || ':'),
-			?, sender_id, text, timestamp, direction, is_read, status
+			?, sender_id, text, timestamp, sort_ms, direction, is_read, status
 		FROM messages
 		WHERE chat_id = ?
 	`, fromChatID, toChatID, toChatID, fromChatID); err != nil {

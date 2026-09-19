@@ -381,8 +381,8 @@ func (f *fakeCommandActions) SearchMessages(_ context.Context, query, chatID str
 	defer f.mu.Unlock()
 	f.searchMsgQuery, f.searchMsgChat, f.searchMsgLimit, f.searchMsgBefore = query, chatID, limit, beforeMessageID
 	return []appstore.MessageSearchResult{
-		{Message: appstore.Message{ID: "m2", ChatID: "chat@s.whatsapp.net", Text: "hello again", TimestampUnix: 20, SortSeq: 2, Direction: appstore.DirectionIncoming, Status: appstore.StatusDelivered}, ChatName: "Alice"},
-		{Message: appstore.Message{ID: "m1", ChatID: "chat@s.whatsapp.net", Text: "hello", TimestampUnix: 10, SortSeq: 1, Direction: appstore.DirectionIncoming, Status: appstore.StatusDelivered}, ChatName: "Alice"},
+		{Message: appstore.Message{ID: "m2", ChatID: "chat@s.whatsapp.net", Text: "hello again", TimestampUnix: 20, SortMS: 20000, Direction: appstore.DirectionIncoming, Status: appstore.StatusDelivered}, ChatName: "Alice"},
+		{Message: appstore.Message{ID: "m1", ChatID: "chat@s.whatsapp.net", Text: "hello", TimestampUnix: 10, SortMS: 10000, Direction: appstore.DirectionIncoming, Status: appstore.StatusDelivered}, ChatName: "Alice"},
 	}, f.err
 }
 func (f *fakeCommandActions) SearchStickers(_ context.Context, query string, limit int) ([]appstore.Sticker, error) {

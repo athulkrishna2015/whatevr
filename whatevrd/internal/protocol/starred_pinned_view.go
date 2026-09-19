@@ -149,7 +149,7 @@ const newestFirstSortMax = int64(1) << 62
 // extended. Recording a star time would need a schema migration; ordering by
 // message timestamp is the documented behavior (see PROTOCOL.md `starred`).
 func newestFirstSort(m store.Message) string {
-	return fmt.Sprintf("%020d-%020d-%s", invNewestFirst(m.TimestampUnix), invNewestFirst(m.SortSeq), m.ID)
+	return fmt.Sprintf("%020d-%s", invNewestFirst(m.SortMS), m.ID)
 }
 
 func invNewestFirst(v int64) int64 {
@@ -272,10 +272,10 @@ func (s *pinnedSession) Items(int) []Item {
 	return items
 }
 
-// pinnedSort orders rows by pin time then rowid, matching the store's
-// oldest-pin-first banner order.
+// pinnedSort orders rows by pin time then the message's own key, matching the
+// store's oldest-pin-first banner order.
 func pinnedSort(m store.Message) string {
-	return fmt.Sprintf("%020d-%020d", pinnedAtOrZero(m.PinnedAt), pinnedSeqOrZero(m.SortSeq))
+	return fmt.Sprintf("%020d-%020d-%s", pinnedAtOrZero(m.PinnedAt), pinnedSeqOrZero(m.SortMS), m.ID)
 }
 
 func pinnedAtOrZero(v int64) int64 {

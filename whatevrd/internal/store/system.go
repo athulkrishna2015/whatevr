@@ -71,7 +71,7 @@ func SystemMessageID(chatID, eventType string, timestamp time.Time, parts ...str
 func (db *DB) NewestSystemMessage(ctx context.Context, chatID string) (Message, error) {
 	rows, err := db.reader().QueryContext(ctx, messageSelectPrefix+`
 		WHERE m.chat_id = ?
-		ORDER BY m.timestamp DESC, m.rowid DESC
+		ORDER BY m.sort_ms DESC, m.id DESC
 		LIMIT 1
 	`, chatID)
 	if err != nil {
@@ -138,9 +138,9 @@ func (db *DB) SaveSystemMessage(ctx context.Context, input SystemMessageInput) (
 	inserted := false
 	if id != "" {
 		// Folding into the pill already there: the merged list, the newer
-		// sentence and the newer timestamp, all in place. The row keeps its id,
-		// so a frontend sees one item change rather than one vanish and another
-		// appear where the reader was looking.
+		// sentence and the newer timestamp, all in place. The row keeps its id
+		// and, deliberately, its sort key, so the pill stays where the reader
+		// saw it instead of sliding down each time somebody else joins.
 		if _, err := tx.ExecContext(ctx, `
 			UPDATE messages SET payload_json = ?, payload_summary = ?, timestamp = ?
 			WHERE id = ?
@@ -151,10 +151,10 @@ func (db *DB) SaveSystemMessage(ctx context.Context, input SystemMessageInput) (
 		id = SystemMessageID(input.ChatID, input.Payload.Type, input.Timestamp, systemIdentityParts(input)...)
 		base.ID = id
 		result, err := tx.ExecContext(ctx, `
-			INSERT INTO messages (id, chat_id, sender_id, text, timestamp, direction, is_read, status, media_kind, payload_json, payload_summary)
-			VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?)
+			INSERT INTO messages (id, chat_id, sender_id, text, timestamp, sort_ms, direction, is_read, status, media_kind, payload_json, payload_summary)
+			VALUES (?, ?, ?, '', ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(id) DO NOTHING
-		`, id, input.ChatID, input.SenderID, input.Timestamp.Unix(), DirectionIncoming,
+		`, id, input.ChatID, input.SenderID, input.Timestamp.Unix(), input.Timestamp.UnixMilli(), DirectionIncoming,
 			boolToInt(!input.Loud), StatusDelivered, MediaKindSystem, payloadJSON, input.Summary)
 		if err != nil {
 			return SavedTextMessage{}, err

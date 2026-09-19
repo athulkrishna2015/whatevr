@@ -522,19 +522,21 @@ func reverseMessages(msgs []store.Message) {
 	}
 }
 
-// messageSort is the opaque ordering key: timestamp then the arrival-order
-// tiebreaker (the row's sort sequence), zero-padded so the strings compare
-// numerically. Ascending bytewise order renders oldest-first.
+// messageSort is the opaque ordering key: the stored millisecond sort key,
+// zero-padded so the strings compare numerically, then the message id as a
+// tiebreak. Ascending bytewise order renders oldest-first.
+//
+// The tiebreak is the id rather than local insert order on purpose. Insert
+// order made a backfilled message sort after a live one from the same second,
+// which is exactly backwards, and gave two devices holding the same
+// conversation two different orders. The id is the same everywhere and does not
+// change when a row is written again.
 func messageSort(m store.Message) string {
-	ts := m.TimestampUnix
-	if ts < 0 {
-		ts = 0
+	sortMS := m.SortMS
+	if sortMS < 0 {
+		sortMS = 0
 	}
-	seq := m.SortSeq
-	if seq < 0 {
-		seq = 0
-	}
-	return fmt.Sprintf("%020d-%020d", ts, seq)
+	return fmt.Sprintf("%020d-%s", sortMS, m.ID)
 }
 
 // messageItem is the wire shape of a conversation row. Every item carries a
