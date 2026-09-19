@@ -43,6 +43,12 @@ Kirigami.ApplicationWindow {
     minimumHeight: 680
     title: Whatevr.I18n.i18nc("@title:window", "Whatevr")
     visible: true
+    onClosing: closeEvent => {
+        if (Whatevr.Settings.closeToTray) {
+            closeEvent.accepted = false
+            root.hide()
+        }
+    }
 
     SettingsView {
         id: settingsView

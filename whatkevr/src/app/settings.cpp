@@ -48,6 +48,7 @@ constexpr auto kSnapToBottomOnSend = "settings/snapToBottomOnSend";
 constexpr auto kRememberWindowGeometry = "settings/rememberWindowGeometry";
 constexpr auto kRememberColumnWidth = "settings/rememberColumnWidth";
 constexpr auto kChatListColumnWidth = "settings/chatListColumnWidth";
+constexpr auto kCloseToTray = "settings/closeToTray";
 constexpr auto kDefaultSkinTone = "settings/defaultSkinTone";
 constexpr auto kAppLockSalt = "settings/appLockSalt";
 constexpr auto kAppLockHash = "settings/appLockHash";
@@ -138,8 +139,20 @@ void Settings::load()
     m_rememberWindowGeometry = settings.value(QLatin1String(kRememberWindowGeometry), true).toBool();
     m_rememberColumnWidth = settings.value(QLatin1String(kRememberColumnWidth), true).toBool();
     m_chatListColumnWidth = settings.value(QLatin1String(kChatListColumnWidth), 0).toInt();
+    m_closeToTray = settings.value(QLatin1String(kCloseToTray), true).toBool();
     m_defaultSkinTone = settings.value(QLatin1String(kDefaultSkinTone), 0).toInt();
     m_appLocked = !settings.value(QLatin1String(kAppLockHash)).toByteArray().isEmpty();
+}
+
+bool Settings::closeToTray() const { return m_closeToTray; }
+
+void Settings::setCloseToTray(bool enabled)
+{
+    if (m_closeToTray == enabled)
+        return;
+    m_closeToTray = enabled;
+    QSettings().setValue(QLatin1String(kCloseToTray), enabled);
+    Q_EMIT closeToTrayChanged();
 }
 
 bool Settings::appLockEnabled() const

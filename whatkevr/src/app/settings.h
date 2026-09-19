@@ -97,6 +97,7 @@ class Settings final : public QObject
     Q_PROPERTY(bool rememberColumnWidth READ rememberColumnWidth WRITE setRememberColumnWidth NOTIFY rememberColumnWidthChanged FINAL)
     // Persisted chat-list column width in pixels; 0 means "use the computed default".
     Q_PROPERTY(int chatListColumnWidth READ chatListColumnWidth WRITE setChatListColumnWidth NOTIFY chatListColumnWidthChanged FINAL)
+    Q_PROPERTY(bool closeToTray READ closeToTray WRITE setCloseToTray NOTIFY closeToTrayChanged FINAL)
 
     // --- Emoji ---
     // Default skin tone applied to tone-capable emoji; 0 == neutral, 1..5 == light..dark.
@@ -184,6 +185,8 @@ public:
     void setRememberColumnWidth(bool remember);
     [[nodiscard]] int chatListColumnWidth() const;
     void setChatListColumnWidth(int width);
+    [[nodiscard]] bool closeToTray() const;
+    void setCloseToTray(bool enabled);
 
     [[nodiscard]] int defaultSkinTone() const;
     void setDefaultSkinTone(int tone);
@@ -251,6 +254,7 @@ Q_SIGNALS:
     void rememberWindowGeometryChanged();
     void rememberColumnWidthChanged();
     void chatListColumnWidthChanged();
+    void closeToTrayChanged();
     void defaultSkinToneChanged();
     void appLockChanged();
     // Emitted after the media cache is cleared so QML re-queries the size.
@@ -287,6 +291,7 @@ private:
     bool m_rememberWindowGeometry = true;
     bool m_rememberColumnWidth = true;
     int m_chatListColumnWidth = 0;
+    bool m_closeToTray = true;
     int m_defaultSkinTone = 0;
     bool m_appLocked = false;
 };
