@@ -38,6 +38,22 @@ type ViewSession interface {
 	Close()
 }
 
+// FallibleSession is an optional ViewSession capability for a session whose
+// Items reads a store that can fail.
+//
+// Without it the engine cannot tell "this window is empty" from "this window
+// could not be read": both are the same nil slice, and the diff in recompute
+// answers the second by removing every row the client holds. One transient
+// store error therefore wipes an open transcript. A session that implements
+// this reports the failure instead, and the engine keeps what it already sent.
+type FallibleSession interface {
+	ViewSession
+	// ItemsErr is Items, plus the read error that made the window unusable. A
+	// non-nil error means "no answer", never "no items": the returned slice is
+	// ignored. An empty window with no error is still a legitimate empty window.
+	ItemsErr(max int) ([]Item, error)
+}
+
 // DirectionalSession is an optional ViewSession capability for a windowed view
 // whose window is not a live-edge prefix but a range that grows independently
 // toward older and newer items — the anchored `messages` window. When Open

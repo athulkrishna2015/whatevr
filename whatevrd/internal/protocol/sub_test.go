@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -156,5 +157,90 @@ func TestSubscriptionCoalescesKicksIntoOneRecompute(t *testing.T) {
 		if !strings.Contains(l, `"event":"upsert"`) || !strings.Contains(l, `"id":"a"`) {
 			t.Fatalf("unexpected event during rewrite storm: %s", l)
 		}
+	}
+}
+
+// flakySession is a view session whose backing store can be made to fail, so a
+// read error can be told apart from a genuinely empty window.
+type flakySession struct {
+	mu         sync.Mutex
+	items      []Item
+	failing    bool
+	reads      int
+	invalidate func()
+}
+
+func (s *flakySession) ItemsErr(int) ([]Item, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reads++
+	if s.failing {
+		return nil, errors.New("too many SQL variables")
+	}
+	return append([]Item(nil), s.items...), nil
+}
+
+// readsSince reports how many times the engine has asked for the window, so a
+// test can wait for a recompute it expects to emit nothing at all.
+func (s *flakySession) readsSince() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.reads
+}
+
+func (s *flakySession) Items(max int) []Item {
+	items, _ := s.ItemsErr(max)
+	return items
+}
+
+func (s *flakySession) Close() {}
+
+func (s *flakySession) setFailing(failing bool) {
+	s.mu.Lock()
+	s.failing = failing
+	s.mu.Unlock()
+	s.invalidate()
+}
+
+// A store read that fails says nothing about the window, so the rows already on
+// screen must stay there. Answering it with the ordinary diff compares them
+// against an empty answer and removes every one of them, which is how a single
+// SQLite error emptied an open transcript.
+func TestFailedReadKeepsDeliveredItemsInsteadOfRemovingThem(t *testing.T) {
+	sink := &fakeSink{}
+	sub := newSubscription(1, sink, 0)
+	sess := &flakySession{
+		items: []Item{
+			{ID: "a", Sort: "1", Data: map[string]any{"id": "a"}},
+			{ID: "b", Sort: "2", Data: map[string]any{"id": "b"}},
+		},
+		invalidate: sub.kick,
+	}
+	sub.sess = sess
+	t.Cleanup(sub.close)
+	sub.start()
+
+	waitFor(t, "initial fill", func() bool {
+		return kinds(sink.snapshot()) == "upsert,upsert,ready"
+	})
+
+	// The store starts failing. Nothing may be removed on the strength of an
+	// answer the store never gave.
+	sess.setFailing(true)
+	waitFor(t, "a recompute ran while failing", func() bool {
+		return sess.readsSince() >= 2
+	})
+	if got := kinds(sink.snapshot()); got != "upsert,upsert,ready" {
+		t.Fatalf("a failed read emitted %q; the delivered rows must be left alone", got)
+	}
+
+	// Recovering re-reads the same rows, so there is nothing new to send: the
+	// client's copy was never damaged.
+	sess.setFailing(false)
+	waitFor(t, "a recompute ran after recovery", func() bool {
+		return sess.readsSince() >= 3
+	})
+	if got := kinds(sink.snapshot()); got != "upsert,upsert,ready" {
+		t.Fatalf("after recovery the sub emitted %q, want the untouched original fill", got)
 	}
 }

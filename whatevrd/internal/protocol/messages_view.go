@@ -341,8 +341,13 @@ type latestMessagesSession struct {
 }
 
 func (s *latestMessagesSession) Items(max int) []Item {
+	items, _ := s.ItemsErr(max)
+	return items
+}
+
+func (s *latestMessagesSession) ItemsErr(max int) ([]Item, error) {
 	if s.lister == nil {
-		return nil
+		return nil, nil
 	}
 	limit := max
 	if limit <= 0 {
@@ -351,7 +356,7 @@ func (s *latestMessagesSession) Items(max int) []Item {
 	msgs, err := s.lister.ListMessages(s.ctx, s.chatID, limit, "")
 	if err != nil {
 		log.Printf("protocol: list latest messages for view: %v", err)
-		return nil
+		return nil, err
 	}
 	reverseMessages(msgs) // newest-first for the prefix window
 	s.noteAvatarSubjects(msgs)
@@ -359,7 +364,7 @@ func (s *latestMessagesSession) Items(max int) []Item {
 	for _, m := range msgs {
 		items = append(items, messageWireItem(m, s.isDownloading))
 	}
-	return items
+	return items, nil
 }
 
 // anchoredMessagesSession is a DirectionalSession: a bounded window pinned
@@ -412,9 +417,14 @@ func (s *anchoredMessagesSession) Exhausted() bool {
 	}
 }
 
-func (s *anchoredMessagesSession) Items(int) []Item {
+func (s *anchoredMessagesSession) Items(max int) []Item {
+	items, _ := s.ItemsErr(max)
+	return items
+}
+
+func (s *anchoredMessagesSession) ItemsErr(int) ([]Item, error) {
 	if s.lister == nil {
-		return nil
+		return nil, nil
 	}
 	s.mu.Lock()
 	olderN, newerN, live := s.olderReach, s.newerReach, s.atLiveEdge
@@ -424,11 +434,13 @@ func (s *anchoredMessagesSession) Items(int) []Item {
 	anchor, err := s.lister.GetMessage(ctx, s.anchorID)
 	if err != nil {
 		// The anchor was validated at subscribe; if it is later deleted the
-		// window collapses to empty rather than erroring the live view.
-		if !errors.Is(err, sql.ErrNoRows) {
-			log.Printf("protocol: anchored messages get anchor %q: %v", s.anchorID, err)
+		// window collapses to empty rather than erroring the live view. Any
+		// other failure is a read that did not happen, not an empty window.
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
 		}
-		return nil
+		log.Printf("protocol: anchored messages get anchor %q: %v", s.anchorID, err)
+		return nil, err
 	}
 
 	// Older frontier: the olderN messages nearest the anchor on the older side
@@ -436,7 +448,7 @@ func (s *anchoredMessagesSession) Items(int) []Item {
 	older, err := s.lister.ListMessages(ctx, s.chatID, olderN+1, s.anchorID)
 	if err != nil {
 		log.Printf("protocol: anchored messages older frontier: %v", err)
-		return nil
+		return nil, err
 	}
 	olderExhausted := len(older) <= olderN
 	if len(older) > olderN {
@@ -457,7 +469,7 @@ func (s *anchoredMessagesSession) Items(int) []Item {
 	newer, err := s.lister.ListMessagesAfter(ctx, s.chatID, newerLimit, s.anchorID)
 	if err != nil {
 		log.Printf("protocol: anchored messages newer frontier: %v", err)
-		return nil
+		return nil, err
 	}
 	newerExhausted := live || len(newer) <= newerN
 	if !live && len(newer) > newerN {
@@ -487,7 +499,7 @@ func (s *anchoredMessagesSession) Items(int) []Item {
 	for _, m := range window {
 		items = append(items, messageWireItem(m, s.isDownloading))
 	}
-	return items
+	return items, nil
 }
 
 // messageWireItem projects a stored message into a view Item: stable id, the
