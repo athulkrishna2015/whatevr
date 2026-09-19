@@ -32,6 +32,8 @@ Item {
     property bool loop: false
     property real speed: 1.0
     property real volume: 100
+    /// Fills the slot rather than fitting inside it; see VideoSurfaceBackend.
+    property bool cover: false
     /// Where to open the file. Applied at load, so set it before playing.
     property real startPosition: 0
     /// Which arbitration lane this surface plays in: Exclusive for video and
@@ -272,6 +274,7 @@ Item {
             loop: root.loop
             speed: root.speed
             volume: root.volume
+            cover: root.cover
         }
     }
 }

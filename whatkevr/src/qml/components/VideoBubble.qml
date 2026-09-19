@@ -631,12 +631,12 @@ Item {
             source: !root.row.pooled && (!root.row.fastFlicking || everDecoded)
                 ? targetSource
                 : ""
-            // Fit, not crop: the video below draws PreserveAspectFit, and a
-            // cropped poster visibly reframed to letterboxed the instant the
-            // first frame landed. The slot is sized to the media's aspect
-            // ratio anyway, so fit and crop only differ when the metadata was
-            // wrong, which is exactly when the jump was worst.
-            fillMode: Image.PreserveAspectFit
+            // Matched to the video below, or the poster visibly reframes the
+            // instant the first frame lands. A rectangular slot is already
+            // sized to the media's aspect ratio, so both fit; a video note is a
+            // fixed circle that a clip of any other shape has to fill, so both
+            // cover.
+            fillMode: root.isVideoNote ? Image.PreserveAspectCrop : Image.PreserveAspectFit
             asynchronous: true
             // A provider url is answered from a store that changes underneath
             // it; the revision in the url is what makes a new capture reload,
@@ -694,6 +694,9 @@ Item {
             source: root.playbackSource
             startPosition: root.resumeAt
             lane: root.isGif ? Whatevr.VideoPlayback.Animated : Whatevr.VideoPlayback.Exclusive
+            // A circle has to be filled. Every other slot already carries the
+            // clip's own shape, and full screen stays fit in the viewer.
+            cover: root.isVideoNote
             engaged: root.engaged
             playing: root.wantsRun
             muted: root.isGif ? true : root.userMuted

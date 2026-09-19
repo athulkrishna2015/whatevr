@@ -36,19 +36,19 @@ constexpr int frameCount = 30;
 constexpr char lumaValue = char(0xB0);
 constexpr char chromaValue = char(0x80);
 
-/// A 64x64 grey clip as YUV4MPEG2, the simplest thing a demuxer will accept.
-bool writeFixture(const QString &path)
+/// A grey clip as YUV4MPEG2, the simplest thing a demuxer will accept.
+bool writeFixtureSized(const QString &path, int width, int height)
 {
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly)) {
         return false;
     }
     file.write(QStringLiteral("YUV4MPEG2 W%1 H%2 F10:1 Ip A1:1 C420\n")
-                   .arg(frameWidth)
-                   .arg(frameHeight)
+                   .arg(width)
+                   .arg(height)
                    .toUtf8());
-    const QByteArray luma(frameWidth * frameHeight, lumaValue);
-    const QByteArray chroma((frameWidth / 2) * (frameHeight / 2), chromaValue);
+    const QByteArray luma(width * height, lumaValue);
+    const QByteArray chroma((width / 2) * (height / 2), chromaValue);
     for (int i = 0; i < frameCount; ++i) {
         file.write("FRAME\n");
         file.write(luma);
@@ -57,6 +57,11 @@ bool writeFixture(const QString &path)
     }
     file.close();
     return true;
+}
+
+bool writeFixture(const QString &path)
+{
+    return writeFixtureSized(path, frameWidth, frameHeight);
 }
 
 /// Whether anything brighter than the cleared framebuffer was drawn.
@@ -122,6 +127,114 @@ private Q_SLOTS:
         // frame exists: the property every bubble swaps its poster out on.
         QTRY_VERIFY_WITH_TIMEOUT(session.hasVideo(), 15000);
         QTRY_VERIFY_WITH_TIMEOUT(hasBrightPixels(window.grabWindow()), 15000);
+    }
+
+    // A video note is a circle at a fixed diameter, so a clip that is not square
+    // has to fill it. mpv preserves aspect inside whatever item it is given, so
+    // an item sized exactly to the square slot gets the clip plus a black matte,
+    // and the circle then frames the matte instead of the face. Covering sizes
+    // the item to the clip's own shape, large enough to overhang the slot, and
+    // centres it; the view's texture capture crops the overhang.
+    void aCoveredClipFillsItsSlotInsteadOfBeingMatted()
+    {
+        const QString wide = m_dir.filePath(QStringLiteral("wide.y4m"));
+        QVERIFY(writeFixtureSized(wide, frameWidth, frameHeight / 2));
+
+        QQuickWindow window;
+        window.resize(frameWidth, frameHeight);
+        auto *container = new QQuickItem(window.contentItem());
+        container->setSize(QSizeF(frameWidth, frameHeight)); // a square slot
+        window.show();
+        if (!QTest::qWaitForWindowExposed(&window)) {
+            QSKIP("no exposed window on this platform");
+        }
+        if (window.rendererInterface()->graphicsApi() != QSGRendererInterface::OpenGL) {
+            QSKIP("scene graph is not on OpenGL here");
+        }
+
+        PlaybackSession session;
+        session.setCoverContainer(true);
+        session.attachView(container);
+        session.setMuted(true);
+        session.configure(QStringLiteral("note"), QUrl::fromLocalFile(wide), 0.0);
+        session.setPlaying(true);
+        QTRY_VERIFY_WITH_TIMEOUT(session.hasVideo(), 15000);
+
+        QQuickItem *video = nullptr;
+        QTRY_VERIFY_WITH_TIMEOUT([&] {
+            for (QQuickItem *child : container->childItems()) {
+                if (child->width() > 0 && child->height() > 0) {
+                    video = child;
+                    return true;
+                }
+            }
+            return false;
+        }(), 15000);
+
+        // Both axes are covered, so no part of the circle is left unpainted.
+        QVERIFY2(video->width() >= container->width() - 0.5
+                     && video->height() >= container->height() - 0.5,
+                 qPrintable(QStringLiteral("a %1x%2 clip drew %3x%4 inside a %5x%6 slot, "
+                                           "so the slot is not filled")
+                                .arg(frameWidth)
+                                .arg(frameHeight / 2)
+                                .arg(video->width())
+                                .arg(video->height())
+                                .arg(container->width())
+                                .arg(container->height())));
+
+        // Filling by stretching would be worse than the matte, so the clip keeps
+        // its own shape: a 2:1 source stays 2:1.
+        const qreal aspect = video->width() / video->height();
+        QVERIFY2(qAbs(aspect - 2.0) < 0.05,
+                 qPrintable(QStringLiteral("the covered clip was drawn at aspect %1, not its own 2.0")
+                                .arg(aspect)));
+
+        // Centred, so the crop takes the same amount off each side rather than
+        // cutting the whole overhang off one edge.
+        QVERIFY2(qAbs(video->x() - (container->width() - video->width()) / 2) < 0.5
+                     && qAbs(video->y() - (container->height() - video->height()) / 2) < 0.5,
+                 "the covered clip was not centred in its slot");
+    }
+
+    // The other half of the same contract: everything that is not a video note
+    // keeps mpv's own fit, because those slots already carry the clip's shape
+    // and full-screen playback must never crop the picture.
+    void anUncoveredClipStillFitsItsView()
+    {
+        const QString wide = m_dir.filePath(QStringLiteral("wide-fit.y4m"));
+        QVERIFY(writeFixtureSized(wide, frameWidth, frameHeight / 2));
+
+        QQuickWindow window;
+        window.resize(frameWidth, frameHeight);
+        auto *container = new QQuickItem(window.contentItem());
+        container->setSize(QSizeF(frameWidth, frameHeight));
+        window.show();
+        if (!QTest::qWaitForWindowExposed(&window)) {
+            QSKIP("no exposed window on this platform");
+        }
+        if (window.rendererInterface()->graphicsApi() != QSGRendererInterface::OpenGL) {
+            QSKIP("scene graph is not on OpenGL here");
+        }
+
+        PlaybackSession session;
+        session.attachView(container);
+        session.setMuted(true);
+        session.configure(QStringLiteral("clip"), QUrl::fromLocalFile(wide), 0.0);
+        session.setPlaying(true);
+        QTRY_VERIFY_WITH_TIMEOUT(session.hasVideo(), 15000);
+
+        QQuickItem *video = nullptr;
+        for (QQuickItem *child : container->childItems()) {
+            if (child->width() > 0 && child->height() > 0) {
+                video = child;
+                break;
+            }
+        }
+        QVERIFY(video);
+        // The item is the container; mpv letterboxes inside it, which is what a
+        // rectangular bubble and the full-screen viewer both want.
+        QCOMPARE(video->size(), container->size());
     }
 
     void aStillCanBeTakenFromWhatIsOnScreen()

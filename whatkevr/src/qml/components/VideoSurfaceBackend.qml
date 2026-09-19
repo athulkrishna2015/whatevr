@@ -22,6 +22,10 @@ Item {
     /// viewer sets these; a bubble plays at 1x.
     property real speed: 1.0
     property real volume: 100
+    /// Whether the picture fills its slot instead of fitting inside it. Only a
+    /// video note wants this: it is a circle at a fixed diameter, so a clip
+    /// that is not square is otherwise framed around mpv's black matte.
+    property bool cover: false
     /// Where the file should open, in seconds. Read at load time, so it has to
     /// be set before playing starts; changing it later does nothing until the
     /// next load. This is what carries a clip from a bubble to the full-screen

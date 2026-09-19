@@ -30,7 +30,12 @@ PlaybackSession::PlaybackSession(QObject *parent)
         Q_EMIT positionChanged();
     });
     connect(m_core, &MpvCore::durationChanged, this, &PlaybackSession::durationChanged);
-    connect(m_core, &MpvCore::videoSizeChanged, this, &PlaybackSession::hasVideoChanged);
+    connect(m_core, &MpvCore::videoSizeChanged, this, [this]() {
+        // Cover geometry is derived from the decoded size, so it can only be
+        // right once mpv has reported one.
+        syncItemGeometry();
+        Q_EMIT hasVideoChanged();
+    });
     connect(m_core, &MpvCore::progressStateChanged, this, &PlaybackSession::handleProgressState);
     connect(m_core, &MpvCore::endOfFile, this, [this]() {
         if (!m_loop) {
@@ -338,12 +343,36 @@ QQuickItem *PlaybackSession::parkingHolder() const
     return m_window ? m_window->contentItem() : nullptr;
 }
 
+void PlaybackSession::setCoverContainer(bool cover)
+{
+    if (m_coverContainer == cover) {
+        return;
+    }
+    m_coverContainer = cover;
+    syncItemGeometry();
+}
+
 void PlaybackSession::syncItemGeometry()
 {
     if (!m_item || !m_container) {
         return;
     }
-    m_item->setSize(QSizeF(m_container->width(), m_container->height()));
+    const QSizeF box(m_container->width(), m_container->height());
+    const QSize video = m_core->videoSize();
+    // Fit is mpv's own behaviour, so the item is simply the container and the
+    // engine letterboxes inside it. Cover needs the item to carry the clip's
+    // aspect and overhang the box, which cannot be worked out before the first
+    // frame reports a size; until then the fit geometry is the better guess.
+    if (!m_coverContainer || box.isEmpty() || video.isEmpty()) {
+        m_item->setPosition(QPointF(0, 0));
+        m_item->setSize(box);
+        return;
+    }
+    const qreal scale = std::max(box.width() / video.width(), box.height() / video.height());
+    const QSizeF scaled(video.width() * scale, video.height() * scale);
+    m_item->setPosition(QPointF((box.width() - scaled.width()) / 2,
+                                (box.height() - scaled.height()) / 2));
+    m_item->setSize(scaled);
 }
 
 void PlaybackSession::applyStateToCore()

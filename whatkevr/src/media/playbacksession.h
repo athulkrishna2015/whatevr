@@ -141,6 +141,19 @@ public:
     /// a view being torn down cannot yank the item a newer view just took.
     Q_INVOKABLE void detachView(QQuickItem *container);
 
+    /**
+     * Whether the picture fills the container rather than fitting inside it.
+     *
+     * mpv letterboxes to preserve aspect, which is right everywhere the slot
+     * already carries the clip's shape. A video note is the exception: it is a
+     * circle at a fixed diameter, so a clip that is not square is drawn with
+     * mpv's black matte around it and the circle then frames the matte instead
+     * of the face. Covering oversizes the item to the container's larger axis
+     * and centres it, and the view's own texture capture crops the overhang.
+     */
+    [[nodiscard]] bool coverContainer() const { return m_coverContainer; }
+    Q_INVOKABLE void setCoverContainer(bool cover);
+
     Q_INVOKABLE void seek(double seconds);
 
     /// A finished clip playing again from the top.
@@ -197,6 +210,7 @@ private:
     /// the session and moved between views.
     MpvVideoItem *m_item = nullptr;
     QPointer<QQuickItem> m_container;
+    bool m_coverContainer = false;
     /// The window the last view lived in, which is the scene the item is parked
     /// in between views.
     QPointer<QQuickWindow> m_window;
