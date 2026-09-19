@@ -168,6 +168,10 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 			historyStatus string
 			isMedia       bool
 			reactions     []*waWeb.Reaction
+			// the parsed proto and its timestamp are what the post-save
+			// registrations need, so they have to survive phase 1
+			waMsg     *waE2E.Message
+			timestamp time.Time
 			// keptKnown separates "this message says nothing about keeping" from
 			// "this message says it is not kept", because only the second should
 			// clear a flag a live keep already set.
@@ -224,6 +228,8 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 					reactions:     webMsg.GetReactions(),
 					keptKnown:     keptKnown,
 					kept:          kept,
+					waMsg:         parsedEvt.Message,
+					timestamp:     parsedEvt.Info.Timestamp,
 				})
 			}
 			publishProcessingProgress(false)
@@ -274,6 +280,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 				} else if ok {
 					saved.Message = updated
 				}
+				c.registerSavedMessage(ctx, saved.Message, entry.waMsg, entry.timestamp, false)
 			}
 			c.log.Debugf("Stored history message %s from %s", saved.Message.ID, saved.Message.SenderID)
 			messagesAdded++
@@ -631,6 +638,34 @@ func (c *Client) refreshLiveMessageAvatars(ctx context.Context, evt *events.Mess
 	}
 }
 
+// registerSavedMessage runs the post-save registrations that a message's later
+// events depend on. Every ingest path has to call it, not just the live one:
+// these build the state that arrives-later events are matched against, so a
+// backfilled row that skips it is permanently inert.
+//
+// A live share has to be registered the moment its opening message lands,
+// because the position updates that follow are matched to it by sender and
+// there is nothing else tying them together. A poll's options carry the hashes
+// its votes will name, so they have to be recorded before any vote can be
+// matched to a choice; doing it here also drains the votes that arrived before
+// the poll. An invite's card is worth more than the sender's snapshot of it, so
+// the code is resolved in the background as soon as the row exists.
+func (c *Client) registerSavedMessage(ctx context.Context, message appstore.Message, waMsg *waE2E.Message, timestamp time.Time, live bool) {
+	switch message.MediaKind {
+	case appstore.MediaKindPoll:
+		if poll := pollCreationFromMessage(waMsg); poll != nil {
+			c.savePollOptions(ctx, message.ID, poll)
+		}
+	case appstore.MediaKindGroupInvite:
+		c.maybeResolveGroupInvite(ctx, message)
+	case appstore.MediaKindLiveLocation:
+		c.registerLiveShare(ctx, message, timestamp, 0)
+		if live {
+			c.daemon.PublishLiveLocationsChanged(message.ChatID)
+		}
+	}
+}
+
 // ingestMessage stores a parsed whatsmeow message in the local store and,
 // for live messages, publishes the daemon NewMessage event and triggers a
 // desktop notification when appropriate.
@@ -695,28 +730,7 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 		} else if ok {
 			saved.Message = updated
 		}
-		// A live share has to be registered the moment its opening message
-		// lands, because the position updates that follow are matched to it by
-		// sender and there is nothing else tying them together.
-		// A poll's options carry the hashes its votes will name, so they have to
-		// be recorded before any vote can be matched to a choice. Doing it here
-		// also drains the votes that arrived before the poll.
-		if saved.Message.MediaKind == appstore.MediaKindPoll {
-			if poll := pollCreationFromMessage(evt.Message); poll != nil {
-				c.savePollOptions(ctx, saved.Message.ID, poll)
-			}
-		}
-		// An invite's card is worth more than the sender's snapshot of it, so
-		// the code is resolved in the background as soon as the row exists.
-		if saved.Message.MediaKind == appstore.MediaKindGroupInvite {
-			c.maybeResolveGroupInvite(ctx, saved.Message)
-		}
-		if saved.Message.MediaKind == appstore.MediaKindLiveLocation {
-			c.registerLiveShare(ctx, saved.Message, evt.Info.Timestamp, 0)
-			if opts.source == sourceLive {
-				c.daemon.PublishLiveLocationsChanged(saved.Message.ChatID)
-			}
-		}
+		c.registerSavedMessage(ctx, saved.Message, evt.Message, evt.Info.Timestamp, opts.source == sourceLive)
 		if opts.source == sourceLive {
 			c.log.Infof("Stored media message %s from %s", saved.Message.ID, saved.Message.SenderID)
 		} else if opts.source == sourceOfflineSync {
