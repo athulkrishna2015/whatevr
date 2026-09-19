@@ -197,6 +197,15 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 				publishProcessingProgress(false)
 				continue
 			}
+			// A stub carries no message at all, so it parses into nothing and
+			// matches no builder. Routed here it becomes the same pill the live
+			// path writes, which is the only record a backfilled group has of
+			// who joined and who left.
+			if payload, ts, ok := c.historyStubSystemPayload(ctx, webMsg); ok {
+				c.recordSystemEvent(ctx, chatJID, payload, ts, false)
+				publishProcessingProgress(false)
+				continue
+			}
 			parsedEvt, err := client.ParseWebMessage(chatJID, webMsg)
 			if err != nil {
 				c.log.Warnf("Failed to parse history sync message: %v", err)

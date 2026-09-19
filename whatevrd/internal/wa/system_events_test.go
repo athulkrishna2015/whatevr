@@ -290,9 +290,9 @@ func TestSystemEventsCoalesceIntoOnePill(t *testing.T) {
 	chatJID := parseTestJID(t, systemTestChat)
 
 	at := time.Unix(1_700_000_000, 0)
-	client.recordSystemEvent(ctx, chatJID, joinPayload("Ana"), at)
-	client.recordSystemEvent(ctx, chatJID, joinPayload("Bo"), at.Add(2*time.Second))
-	client.recordSystemEvent(ctx, chatJID, joinPayload("Cy2"), at.Add(4*time.Second))
+	client.recordSystemEvent(ctx, chatJID, joinPayload("Ana"), at, true)
+	client.recordSystemEvent(ctx, chatJID, joinPayload("Bo"), at.Add(2*time.Second), true)
+	client.recordSystemEvent(ctx, chatJID, joinPayload("Cy2"), at.Add(4*time.Second), true)
 
 	rows := systemRows(t, client)
 	if len(rows) != 1 {
@@ -310,8 +310,8 @@ func TestSystemEventsOutsideTheWindowStayApart(t *testing.T) {
 	chatJID := parseTestJID(t, systemTestChat)
 
 	at := time.Unix(1_700_000_000, 0)
-	client.recordSystemEvent(ctx, chatJID, joinPayload("Ana"), at)
-	client.recordSystemEvent(ctx, chatJID, joinPayload("Bo"), at.Add(appstore.SystemCoalesceWindow+time.Second))
+	client.recordSystemEvent(ctx, chatJID, joinPayload("Ana"), at, true)
+	client.recordSystemEvent(ctx, chatJID, joinPayload("Bo"), at.Add(appstore.SystemCoalesceWindow+time.Second), true)
 
 	if rows := systemRows(t, client); len(rows) != 2 {
 		t.Fatalf("got %d system rows, want 2", len(rows))
@@ -325,10 +325,10 @@ func TestDifferentSystemEventsNeverFold(t *testing.T) {
 	chatJID := parseTestJID(t, systemTestChat)
 
 	at := time.Unix(1_700_000_000, 0)
-	client.recordSystemEvent(ctx, chatJID, joinPayload("Ana"), at)
+	client.recordSystemEvent(ctx, chatJID, joinPayload("Ana"), at, true)
 	leave := joinPayload("Bo")
 	leave.Type = appstore.SystemTypeGroupLeave
-	client.recordSystemEvent(ctx, chatJID, leave, at.Add(time.Second))
+	client.recordSystemEvent(ctx, chatJID, leave, at.Add(time.Second), true)
 
 	if rows := systemRows(t, client); len(rows) != 2 {
 		t.Fatalf("got %d system rows, want 2", len(rows))
@@ -359,7 +359,7 @@ func TestQuietSystemRowLeavesTheChatListAlone(t *testing.T) {
 		t.Fatalf("get chat: %v", err)
 	}
 
-	client.recordSystemEvent(ctx, chatJID, joinPayload("Bo"), time.Unix(1_700_000_100, 0))
+	client.recordSystemEvent(ctx, chatJID, joinPayload("Bo"), time.Unix(1_700_000_100, 0), true)
 
 	after, err := client.store.GetChat(ctx, systemTestChat)
 	if err != nil {
@@ -386,7 +386,7 @@ func TestSystemRowNamingUsIsLoud(t *testing.T) {
 	payload := joinPayload()
 	payload.Participants = []appstore.SystemParticipant{me()}
 	payload.AboutSelf = true
-	client.recordSystemEvent(ctx, chatJID, payload, time.Unix(1_700_000_000, 0))
+	client.recordSystemEvent(ctx, chatJID, payload, time.Unix(1_700_000_000, 0), true)
 
 	chat, err := client.store.GetChat(ctx, systemTestChat)
 	if err != nil {
@@ -408,8 +408,8 @@ func TestRepeatedSystemEventDoesNotDouble(t *testing.T) {
 	chatJID := parseTestJID(t, systemTestChat)
 
 	at := time.Unix(1_700_000_000, 0)
-	client.recordSystemEvent(ctx, chatJID, joinPayload("Ana"), at)
-	client.recordSystemEvent(ctx, chatJID, joinPayload("Ana"), at)
+	client.recordSystemEvent(ctx, chatJID, joinPayload("Ana"), at, true)
+	client.recordSystemEvent(ctx, chatJID, joinPayload("Ana"), at, true)
 
 	rows := systemRows(t, client)
 	if len(rows) != 1 {
@@ -449,7 +449,7 @@ func TestSecurityCodeChangeIsQuiet(t *testing.T) {
 		Participants: []appstore.SystemParticipant{{JID: "ana@s.whatsapp.net", Name: "Ana"}},
 		AboutSelf:    true,
 	}
-	client.recordSystemEvent(ctx, chatJID, payload, time.Unix(1_700_000_100, 0))
+	client.recordSystemEvent(ctx, chatJID, payload, time.Unix(1_700_000_100, 0), true)
 
 	after, err := client.store.GetChat(ctx, systemTestChat)
 	if err != nil {

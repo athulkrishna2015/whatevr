@@ -5,10 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
+	waWeb "go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 
@@ -42,7 +44,7 @@ const systemNameMaxRunes = 24
 // recordSystemEvent stores one system event and publishes it, folding it into
 // the pill above when that pill is the same kind of event from the same person
 // moments ago.
-func (c *Client) recordSystemEvent(ctx context.Context, chatJID types.JID, payload appstore.SystemPayload, timestamp time.Time) {
+func (c *Client) recordSystemEvent(ctx context.Context, chatJID types.JID, payload appstore.SystemPayload, timestamp time.Time, live bool) {
 	if chatJID.IsEmpty() || payload.Type == "" {
 		return
 	}
@@ -51,11 +53,19 @@ func (c *Client) recordSystemEvent(ctx context.Context, chatJID types.JID, paylo
 	}
 	chatID := chatJID.String()
 
-	coalesceWith, previous, folds := c.systemEventToFoldInto(ctx, chatID, payload, timestamp)
-	if folds {
-		payload = mergeSystemPayloads(previous, payload)
-	} else {
-		coalesceWith = ""
+	// Folding asks what the newest row in the chat is, which only means
+	// something when the event just happened. A backfilled pill arrives next to
+	// rows older than itself, so it always stands alone.
+	coalesceWith := ""
+	if live {
+		var previous appstore.SystemPayload
+		var folds bool
+		coalesceWith, previous, folds = c.systemEventToFoldInto(ctx, chatID, payload, timestamp)
+		if folds {
+			payload = mergeSystemPayloads(previous, payload)
+		} else {
+			coalesceWith = ""
+		}
 	}
 
 	actorID := chatID
@@ -84,6 +94,10 @@ func (c *Client) recordSystemEvent(ctx context.Context, chatJID types.JID, paylo
 	}
 	if !saved.Inserted {
 		// The same event again, already on the row it wrote the first time.
+		return
+	}
+	if !live {
+		// Backfill is announced per chat once the conversation is done.
 		return
 	}
 	if coalesceWith != "" {
@@ -441,7 +455,7 @@ func (c *Client) recordGroupInfoEvents(ctx context.Context, chatJID types.JID, e
 		if systemSummary(payload) == "" {
 			return
 		}
-		c.recordSystemEvent(ctx, chatJID, payload, timestamp)
+		c.recordSystemEvent(ctx, chatJID, payload, timestamp, true)
 	}
 
 	if len(evt.Join) > 0 {
@@ -549,7 +563,7 @@ func (c *Client) handleEphemeralSetting(ctx context.Context, evt *events.Message
 		On:      seconds > 0,
 		Seconds: seconds,
 	}
-	c.recordSystemEvent(ctx, chatJID, payload, evt.Info.Timestamp)
+	c.recordSystemEvent(ctx, chatJID, payload, evt.Info.Timestamp, true)
 	return true
 }
 
@@ -587,7 +601,7 @@ func (c *Client) recordIdentityChange(ctx context.Context, evt *events.IdentityC
 		Participants: []appstore.SystemParticipant{c.systemParticipant(ctx, chatJID)},
 		AboutSelf:    true,
 	}
-	c.recordSystemEvent(ctx, chatJID, payload, evt.Timestamp)
+	c.recordSystemEvent(ctx, chatJID, payload, evt.Timestamp, true)
 }
 
 // recordGroupPhotoChange writes the pill for a changed group photo. The same
@@ -602,5 +616,95 @@ func (c *Client) recordGroupPhotoChange(ctx context.Context, evt *events.Picture
 		Type:  appstore.SystemTypeGroupPhoto,
 		Actor: actor,
 		On:    !evt.Remove,
-	}, evt.Timestamp)
+	}, evt.Timestamp, true)
+}
+
+// historyStubSystemPayload turns a backfilled group stub into the same pill the
+// live path builds from events.GroupInfo. A stub carries no message, so it
+// matched no builder and wrote no row: a group pulled out of backfill had no
+// record of who joined, who left, or when the subject changed.
+//
+// Stub parameters are positional and their meaning depends on the type: JIDs
+// for the participant events, the new text for a subject or description.
+func (c *Client) historyStubSystemPayload(ctx context.Context, webMsg *waWeb.WebMessageInfo) (appstore.SystemPayload, time.Time, bool) {
+	if webMsg == nil || webMsg.MessageStubType == nil {
+		return appstore.SystemPayload{}, time.Time{}, false
+	}
+
+	params := webMsg.GetMessageStubParameters()
+	timestamp := time.Unix(int64(webMsg.GetMessageTimestamp()), 0)
+
+	var payload appstore.SystemPayload
+	switch webMsg.GetMessageStubType() {
+	case waWeb.WebMessageInfo_GROUP_PARTICIPANT_ADD, waWeb.WebMessageInfo_GROUP_PARTICIPANT_INVITE,
+		waWeb.WebMessageInfo_GROUP_PARTICIPANT_LINKED_GROUP_JOIN:
+		payload = appstore.SystemPayload{Type: appstore.SystemTypeGroupJoin, Participants: c.systemParticipants(ctx, parseStubJIDs(params))}
+	case waWeb.WebMessageInfo_GROUP_PARTICIPANT_REMOVE, waWeb.WebMessageInfo_GROUP_PARTICIPANT_LEAVE:
+		payload = appstore.SystemPayload{Type: appstore.SystemTypeGroupLeave, Participants: c.systemParticipants(ctx, parseStubJIDs(params))}
+	case waWeb.WebMessageInfo_GROUP_PARTICIPANT_PROMOTE:
+		payload = appstore.SystemPayload{Type: appstore.SystemTypeGroupPromote, Participants: c.systemParticipants(ctx, parseStubJIDs(params))}
+	case waWeb.WebMessageInfo_GROUP_PARTICIPANT_DEMOTE:
+		payload = appstore.SystemPayload{Type: appstore.SystemTypeGroupDemote, Participants: c.systemParticipants(ctx, parseStubJIDs(params))}
+	case waWeb.WebMessageInfo_GROUP_CHANGE_SUBJECT, waWeb.WebMessageInfo_GROUP_CREATE:
+		payload = appstore.SystemPayload{Type: appstore.SystemTypeGroupName, Value: strings.TrimSpace(firstStubParam(params))}
+	case waWeb.WebMessageInfo_GROUP_CHANGE_DESCRIPTION:
+		payload = appstore.SystemPayload{Type: appstore.SystemTypeGroupTopic, Value: strings.TrimSpace(firstStubParam(params))}
+	case waWeb.WebMessageInfo_GROUP_CHANGE_ICON:
+		payload = appstore.SystemPayload{Type: appstore.SystemTypeGroupPhoto, On: true}
+	case waWeb.WebMessageInfo_GROUP_CHANGE_INVITE_LINK:
+		payload = appstore.SystemPayload{Type: appstore.SystemTypeGroupInviteLink}
+	case waWeb.WebMessageInfo_GROUP_CHANGE_RESTRICT:
+		payload = appstore.SystemPayload{Type: appstore.SystemTypeGroupLocked, On: stubFlagIsOn(params)}
+	case waWeb.WebMessageInfo_GROUP_CHANGE_ANNOUNCE:
+		payload = appstore.SystemPayload{Type: appstore.SystemTypeGroupAnnounce, On: stubFlagIsOn(params)}
+	case waWeb.WebMessageInfo_CHANGE_EPHEMERAL_SETTING:
+		seconds := stubSeconds(params)
+		payload = appstore.SystemPayload{Type: appstore.SystemTypeEphemeral, On: seconds > 0, Seconds: seconds}
+	default:
+		return appstore.SystemPayload{}, time.Time{}, false
+	}
+
+	if participant := strings.TrimSpace(webMsg.GetParticipant()); participant != "" {
+		if jid, err := types.ParseJID(participant); err == nil {
+			payload.Actor = c.systemActor(ctx, &jid)
+		}
+	}
+	payload.AboutSelf = systemNamesSelf(payload.Participants)
+	if systemSummary(payload) == "" {
+		return appstore.SystemPayload{}, time.Time{}, false
+	}
+	return payload, timestamp, true
+}
+
+func parseStubJIDs(params []string) []types.JID {
+	jids := make([]types.JID, 0, len(params))
+	for _, param := range params {
+		jid, err := types.ParseJID(strings.TrimSpace(param))
+		if err != nil || jid.IsEmpty() {
+			continue
+		}
+		jids = append(jids, jid)
+	}
+	return jids
+}
+
+func firstStubParam(params []string) string {
+	if len(params) == 0 {
+		return ""
+	}
+	return params[0]
+}
+
+// stubFlagIsOn reads the on/off parameter WhatsApp sends as the string "on" or
+// "off" for the lock and announce toggles.
+func stubFlagIsOn(params []string) bool {
+	return strings.EqualFold(strings.TrimSpace(firstStubParam(params)), "on")
+}
+
+func stubSeconds(params []string) uint32 {
+	seconds, err := strconv.ParseUint(strings.TrimSpace(firstStubParam(params)), 10, 32)
+	if err != nil {
+		return 0
+	}
+	return uint32(seconds)
 }
