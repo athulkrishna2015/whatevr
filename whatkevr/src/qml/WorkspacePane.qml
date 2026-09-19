@@ -15,7 +15,7 @@ Kirigami.Page {
     padding: 0
     title: stack.currentIndex === 0
         ? (Whatevr.ProtocolController.hasSelectedChat ? Whatevr.ProtocolController.selectedChatName : "")
-        : stack.currentItem.title
+        : (stack.currentItem ? stack.currentItem.title : "")
 
     StackLayout {
         id: stack
