@@ -64,13 +64,13 @@ func (c *Client) handleHistorySync(eventGen uint64, evt *events.HistorySync) {
 	c.processHistorySyncData(ctx, evt.Data)
 }
 
-func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync.HistorySync) {
+func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync.HistorySync) bool {
 	client := c.currentClient()
 	if client == nil || data == nil {
-		return
+		return false
 	}
 	if ctx.Err() != nil {
-		return
+		return false
 	}
 	c.updateChatNamesFromHistorySync(ctx, &events.HistorySync{Data: data})
 	c.ingestRecentStickers(ctx, data.GetRecentStickers())
@@ -125,9 +125,16 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		onDemandCounts = make(map[string]int, len(conversations))
 	}
 
+	// A conversation that failed to store must not let its chunk be marked
+	// processed: the chunk is pruned after that, and the server was acked
+	// before ingestion even started, so the backfill would be gone for good.
+	// Only storage failures count; an unparseable JID will not store on a
+	// retry either, so it does not burn the attempt budget.
+	stored := true
+
 	for _, conv := range conversations {
 		if ctx.Err() != nil {
-			return
+			return false
 		}
 		rawChatJID, err := types.ParseJID(conv.GetID())
 		if err != nil {
@@ -149,9 +156,10 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		}
 		if _, err := c.store.EnsureChatWithNameSource(ctx, chatID, chatNameOverride, chatNameSource, chatJID.Server == types.GroupServer); err != nil {
 			if ctx.Err() != nil {
-				return
+				return false
 			}
 			c.log.Warnf("Failed to ensure history-sync chat %s: %v", chatID, err)
+			stored = false
 			continue
 		}
 		convUnread := effectiveHistorySyncUnread(conv)
@@ -181,7 +189,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		pending := make([]historySaveItem, 0, len(conv.GetMessages()))
 		for _, msg := range conv.GetMessages() {
 			if ctx.Err() != nil {
-				return
+				return false
 			}
 			processedMessages++
 			webMsg := msg.GetMessage()
@@ -245,9 +253,10 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		savedBatch, err := c.store.SaveMessages(ctx, items)
 		if err != nil {
 			if ctx.Err() != nil {
-				return
+				return false
 			}
 			c.log.Errorf("Failed to store history sync conversation %s: %v", chatID, err)
+			stored = false
 			continue
 		}
 
@@ -256,7 +265,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		// their own store writes).
 		for i, saved := range savedBatch {
 			if ctx.Err() != nil {
-				return
+				return false
 			}
 			entry := pending[i]
 			if len(entry.reactions) > 0 {
@@ -293,7 +302,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		// per-message rows we just inserted didn't bump it (CountUnread
 		// is intentionally false during history-sync ingestion).
 		if ctx.Err() != nil {
-			return
+			return false
 		}
 		updatedChat, unreadChanged, err := c.store.OverwriteChatUnreadCount(ctx, chatID, convUnread)
 		if err != nil {
@@ -320,7 +329,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 	}
 
 	if ctx.Err() != nil {
-		return
+		return false
 	}
 
 	if onDemandCounts != nil {
@@ -354,6 +363,8 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 			c.kickAvatarBackgroundRefresh()
 		}()
 	}
+
+	return stored
 }
 
 func effectiveHistorySyncUnread(conv *waHistorySync.Conversation) uint32 {

@@ -189,8 +189,16 @@ func (c *Client) processHistorySyncChunk(ctx context.Context, chunk appstore.His
 
 		processStarted := time.Now()
 		c.publishHistorySyncChunkProgress(chunk, syncType, app.HistorySyncPhaseProcessing)
-		c.processHistorySyncData(ctx, blob)
+		stored := c.processHistorySyncData(ctx, blob)
 		if ctx.Err() != nil {
+			return false
+		}
+		if !stored {
+			// Leave it failed rather than processed so the retry budget gets a
+			// chance at it. Marking it processed here would ack, prune and lose
+			// the conversation permanently over one transient store error.
+			_ = c.store.MarkHistorySyncChunkFailed(ctx, chunk.ID, "failed to store one or more conversations")
+			c.log.Errorf("History sync chunk %s stored incompletely; leaving it for retry", chunk.ID)
 			return false
 		}
 		c.log.Debugf("Processed history sync chunk %s (type %d, chunk %d, progress %d) in %s", chunk.ID, chunk.SyncType, chunk.ChunkOrder, chunk.Progress, time.Since(processStarted).Round(time.Millisecond))
