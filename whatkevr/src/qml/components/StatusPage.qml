@@ -27,10 +27,10 @@ Kirigami.ScrollablePage {
     // Contact groups rebuilt from the flat model: newest status first, so the
     // first time a sender appears is its recency rank. Each entry: {senderId,
     // senderName, latest, total, unviewed, statusIds, section, kept, muted}.
-    // Recent contacts (anything newer than 24h) sort under "Recent" with
-    // unviewed contacts above watched ones; kept contacts whose statuses all
-    // expired move to "Archived" instead of vanishing; muted contacts collect
-    // under "Muted" at the bottom instead of the main list.
+    // Kept contacts whose statuses all expired sort under "Archived" at the
+    // top instead of vanishing; recent contacts (anything newer than 24h)
+    // follow under "Recent" with unviewed contacts above watched ones; muted
+    // contacts collect under "Muted" at the bottom instead of the main list.
     property var contactGroups: []
     // Keep-enabled sender ids from the `status.kept` view, as a lookup map.
     property var keptSenders: ({})
@@ -137,7 +137,7 @@ Kirigami.ScrollablePage {
                 }
             }
         }
-        root.contactGroups = recentUnviewed.concat(recentViewed, archived, mutedGroups)
+        root.contactGroups = archived.concat(recentUnviewed, recentViewed, mutedGroups)
     }
 
     function contactLabel(group) {

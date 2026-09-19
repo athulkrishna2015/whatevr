@@ -208,7 +208,7 @@ Kirigami.Page {
                 // daemon for the next page as the bottom comes into reach.
                 // Ordering and membership stay entirely daemon-side — this only
                 // decides *when* to widen the window. The archived section
-                // lives in this list's footer, so the same trigger feeds it
+                // lives in this list's header, so the same trigger feeds it
                 // once it is expanded.
                 function maybeLoadMore() {
                     if (contentHeight <= 0) {
@@ -228,7 +228,7 @@ Kirigami.Page {
                 onArchivedExpandedChanged: if (archivedExpanded) Whatevr.ProtocolController.loadMoreArchivedChats()
                 Component.onCompleted: Qt.callLater(maybeLoadMore)
 
-                // One row shape for both the active list and the archived footer
+                // One row shape for both the active list and the archived header
                 // section. The generic collection model exposes the whole daemon
                 // `chats` row as `model.item` (id/name/preview/unread/pinned/…);
                 // archived-vs-active is just the row's own `archived` flag.
@@ -296,11 +296,11 @@ Kirigami.Page {
                 delegate: chatRowDelegate
 
                 // The archived chats are a separate `chats` subscription
-                // (`archived: true`); they render in a collapsible footer section
-                // that scrolls with the list. Reusing chatRowDelegate keeps the
+                // (`archived: true`); they render in a collapsible header section
+                // at the top of the list. Reusing chatRowDelegate keeps the
                 // rows identical; each archived row collapses to nothing until the
                 // section is expanded (the delegate's own archived-collapse logic).
-                footer: Column {
+                header: Column {
                     width: chatList.width
 
                     ItemDelegate {
