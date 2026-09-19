@@ -349,9 +349,56 @@ Kirigami.Page {
             avatarLocalPath: Whatevr.ProtocolController.selectedChatAvatarLocalPath
             initials: Initials.firstTwo(Whatevr.ProtocolController.selectedChatName)
 
-            TapHandler {
-                enabled: Whatevr.ProtocolController.hasSelectedChat
-                onTapped: root.openChatInfo()
+             TapHandler {
+                 enabled: Whatevr.ProtocolController.hasSelectedChat
+                onTapped: Whatevr.ProtocolController.viewProfilePicture(
+                              Whatevr.ProtocolController.selectedChatId)
+             }
+        }
+
+        ToolButton {
+            visible: !headerTitle.selectionActive && Whatevr.ProtocolController.hasSelectedChat
+            Layout.alignment: Qt.AlignVCenter
+            icon.name: "view-more-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button chat header menu", "Chat menu")
+            display: AbstractButton.IconOnly
+            onClicked: chatHeaderMenu.open()
+        }
+
+        Menu {
+            id: chatHeaderMenu
+
+            MenuItem {
+                text: Whatevr.I18n.i18nc("@action:menu chat info", "Chat info")
+                icon.name: "dialog-information-symbolic"
+                onTriggered: root.openChatInfo()
+            }
+            MenuItem {
+                text: Whatevr.I18n.i18nc("@action:menu chat media", "Media, links and documents")
+                icon.name: "folder-pictures-symbolic"
+                onTriggered: applicationWindow().pageStack.layers.push(
+                    Qt.resolvedUrl("ChatMediaGalleryPage.qml"), {
+                        chatId: Whatevr.ProtocolController.selectedChatId,
+                        chatName: Whatevr.ProtocolController.selectedChatName
+                    })
+            }
+            MenuItem {
+                text: Whatevr.I18n.i18nc("@action:menu starred chat messages", "Starred messages")
+                icon.name: "starred-symbolic"
+                onTriggered: applicationWindow().openWorkspace("starred")
+            }
+            MenuItem {
+                text: Whatevr.I18n.i18nc("@action:menu export chat", "Export chat…")
+                icon.name: "document-save-symbolic"
+                onTriggered: messageView.exportChatDialog.openFor(
+                    Whatevr.ProtocolController.selectedChatId,
+                    Whatevr.ProtocolController.selectedChatName)
+            }
+            MenuSeparator {}
+            MenuItem {
+                text: Whatevr.I18n.i18nc("@action:menu close chat", "Close chat")
+                icon.name: "dialog-close-symbolic"
+                onTriggered: root.closeChatRequested()
             }
         }
 

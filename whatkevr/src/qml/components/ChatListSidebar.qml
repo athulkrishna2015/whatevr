@@ -266,6 +266,20 @@ Item {
 
         QQC2.ToolButton {
             Layout.alignment: Qt.AlignHCenter
+            icon.name: "application-exit-symbolic"
+            display: QQC2.AbstractButton.IconOnly
+            icon.width: root.railIconSize
+            icon.height: root.railIconSize
+            text: Whatevr.I18n.i18nc("@action:button quit Whatevr", "Quit Whatevr")
+            onClicked: Qt.quit()
+
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.text: text
+            QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+        }
+
+        QQC2.ToolButton {
+            Layout.alignment: Qt.AlignHCenter
             icon.name: "document-properties-symbolic"
             display: QQC2.AbstractButton.IconOnly
             icon.width: root.railIconSize

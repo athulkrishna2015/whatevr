@@ -24,7 +24,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [x64, arm64]
+        # Qt's public Windows ARM64 kits do not currently include the
+        # qtmultimedia module required by this project.
+        arch: [x64]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -36,7 +38,7 @@ jobs:
           version: 6.10.0
           host: windows
           target: desktop
-          arch: ${{ matrix.arch == 'arm64' && 'win64_msvc2022_arm64' || 'win64_msvc2022_64' }}
+          arch: win64_msvc2022_64
           modules: qtmultimedia
       - name: Configure
         shell: pwsh
@@ -57,7 +59,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [x86_64, arm64]
+        include:
+          - arch: x86_64
+            qt_arch: clang_64
+          - arch: arm64
+            qt_arch: clang_arm64
     steps:
       - uses: actions/checkout@v6
         with:
@@ -68,7 +74,7 @@ jobs:
           version: 6.10.0
           host: mac
           target: desktop
-          arch: ${{ matrix.arch }}
+          arch: ${{ matrix.qt_arch }}
           modules: qtmultimedia
       - name: Configure
         run: cmake -S whatkevr -B build/macos -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}
@@ -81,32 +87,53 @@ jobs:
           name: macos-${{ matrix.arch }}
           path: build/*.zip
 
-  linux-appimages:
-    name: Linux AppImage ${{ matrix.arch }}
+  linux-x86_64:
+    name: Linux x86_64 artifact
     runs-on: ubuntu-24.04
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [x86_64, aarch64]
     steps:
       - uses: actions/checkout@v6
         with:
           ref: ${{ inputs.tag || github.ref }}
-      - name: Build native artifact
-        uses: uraimo/run-on-arch-action@v3
-        with:
-          arch: ${{ matrix.arch }}
-          distro: ubuntu_latest
-          githubToken: ${{ github.token }}
-          install: >-
-            apt-get update && apt-get install -y git golang cmake ninja-build
-            qt6-base-dev qt6-declarative-dev qt6-multimedia-dev
-          run: |
-            just artifacts ${{ matrix.arch == 'aarch64' && 'aarch64' || 'x86_64' }}
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git golang just cmake ninja-build pkg-config \
+            extra-cmake-modules qt6-base-dev qt6-declarative-dev qt6-multimedia-dev \
+            libkf6coreaddons-dev libkf6dbusaddons-dev libkf6i18n-dev libkf6kirigami-dev \
+            libkf6prison-dev libkf6qqc2desktopstyle-dev kirigami-addons-dev \
+            librlottie-dev libmpv-dev zstd
+      - name: Build artifact
+        run: just artifacts x86_64
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-${{ matrix.arch }}
-          path: build/whatevr-*${{ matrix.arch }}*
+          name: linux-x86_64
+          path: build/whatevr-*
+
+  linux-aarch64:
+    name: Linux aarch64 artifact
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Build in Debian ARM64 container
+        uses: uraimo/run-on-arch-action@v3
+        with:
+          arch: aarch64
+          distro: ubuntu_latest
+          dockerRunArgs: --volume "${PWD}:/work"
+          install: |
+            apt-get update
+            apt-get install -y git curl ca-certificates just golang cmake ninja-build pkg-config \
+              extra-cmake-modules qt6-base-dev qt6-declarative-dev qt6-multimedia-dev \
+              libkf6coreaddons-dev libkf6dbusaddons-dev libkf6i18n-dev libkf6kirigami-dev \
+              libkf6prison-dev libkf6qqc2desktopstyle-dev kirigami-addons-dev \
+              librlottie-dev libmpv-dev zstd
+          run: cd /work && just artifacts aarch64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-aarch64
+          path: build/whatevr-*
 
   linux-packages:
     name: Linux package recipes
@@ -118,10 +145,19 @@ jobs:
       - name: Build AppImage, deb, Snap, and Flatpak when toolchains are available
         run: |
           sudo apt-get update
-          sudo apt-get install -y appimage-builder dpkg-dev snapcraft flatpak flatpak-builder
-          if test -f packaging/appimage/AppImageBuilder.yml; then appimage-builder --recipe packaging/appimage/AppImageBuilder.yml; fi
-          if test -f packaging/snap/snapcraft.yaml; then snapcraft --destructive-mode; fi
-          if test -d packaging/flatpak; then flatpak-builder --force-clean build/flatpak packaging/flatpak/*.yml; fi
+          sudo apt-get install -y dpkg-dev
+          if test -f packaging/appimage/AppImageBuilder.yml; then
+            sudo apt-get install -y appimage-builder
+            appimage-builder --recipe packaging/appimage/AppImageBuilder.yml
+          fi
+          if test -f packaging/snap/snapcraft.yaml; then
+            sudo apt-get install -y snapcraft
+            snapcraft --destructive-mode
+          fi
+          if test -d packaging/flatpak; then
+            sudo apt-get install -y flatpak flatpak-builder
+            flatpak-builder --force-clean build/flatpak packaging/flatpak/*.yml
+          fi
           if test -f packaging/debian/control; then dpkg-buildpackage -us -uc -b; fi
       - uses: actions/upload-artifact@v4
         with:
@@ -136,7 +172,7 @@ jobs:
 
   publish:
     name: Publish cross-platform assets
-    needs: [windows, macos, linux-appimages, linux-packages]
+    needs: [windows, macos, linux-x86_64, linux-aarch64, linux-packages]
     if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
     runs-on: ubuntu-latest
     steps:
