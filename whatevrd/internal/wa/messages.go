@@ -125,6 +125,10 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		onDemandCounts = make(map[string]int, len(conversations))
 	}
 
+	// Chats the phone gave a straight answer about, so the guess in
+	// resolveBackfillRequests does not get to overrule it.
+	answered := make(map[string]bool, len(conversations))
+
 	// A conversation that failed to store must not let its chunk be marked
 	// processed: the chunk is pruned after that, and the server was acked
 	// before ingestion even started, so the backfill would be gone for good.
@@ -323,6 +327,14 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		} else if updatedChat.ID != "" {
 			lastSavedChat = updatedChat
 		}
+		if exhausted, known := historyExhaustedFromConversation(conv); known {
+			answered[chatID] = true
+			if chat, changed, err := c.store.UpdateChatHistoryExhausted(ctx, chatID, exhausted); err != nil {
+				c.log.Warnf("Failed to record history exhaustion for %s: %v", chatID, err)
+			} else if changed {
+				lastSavedChat = chat
+			}
+		}
 		pinChanged := false
 		if convHasPinned {
 			updatedChat, pinChanged, err = c.store.UpdateChatPinState(ctx, chatID, convPinned, convPinnedOrder)
@@ -346,7 +358,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 	}
 
 	if onDemandCounts != nil {
-		c.resolveBackfillRequests(ctx, onDemandCounts)
+		c.resolveBackfillRequests(ctx, onDemandCounts, answered)
 	}
 
 	complete := historySyncIsComplete(syncType, progressPercent)
@@ -378,6 +390,29 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 	}
 
 	return stored
+}
+
+// historyExhaustedFromConversation reads the phone's own answer about whether
+// more history remains. WhatsApp states it outright, so nothing here has to be
+// inferred from how many messages happened to arrive. known=false means the
+// field was absent and the flag must be left exactly as it was.
+func historyExhaustedFromConversation(conv *waHistorySync.Conversation) (bool, bool) {
+	if conv == nil || conv.EndOfHistoryTransferType == nil {
+		return false, false
+	}
+	switch conv.GetEndOfHistoryTransferType() {
+	case waHistorySync.Conversation_COMPLETE_AND_NO_MORE_MESSAGE_REMAIN_ON_PRIMARY:
+		return true, true
+	case waHistorySync.Conversation_COMPLETE_ON_DEMAND_SYNC_WITH_MORE_MSG_ON_PRIMARY_BUT_NO_ACCESS:
+		// More exist, but the phone will not hand them over. Offering to load
+		// older messages that can never arrive is worse than saying there are
+		// none.
+		return true, true
+	case waHistorySync.Conversation_COMPLETE_BUT_MORE_MESSAGES_REMAIN_ON_PRIMARY,
+		waHistorySync.Conversation_COMPLETE_ON_DEMAND_SYNC_BUT_MORE_MSG_REMAIN_ON_PRIMARY:
+		return false, true
+	}
+	return false, false
 }
 
 func effectiveHistorySyncUnread(conv *waHistorySync.Conversation) uint32 {

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	waHistorySync "go.mau.fi/whatsmeow/proto/waHistorySync"
 	waLog "go.mau.fi/whatsmeow/util/log"
 
 	"whatevrd/internal/app"
@@ -31,7 +32,7 @@ func TestResolveBackfillRequestsIgnoresOmittedChats(t *testing.T) {
 	client.backfillInFlight = map[string]*backfillRequest{
 		omitted: {requested: 50},
 	}
-	client.resolveBackfillRequests(ctx, map[string]int{})
+	client.resolveBackfillRequests(ctx, map[string]int{}, nil)
 
 	if _, still := client.backfillInFlight[omitted]; !still {
 		t.Fatal("a chunk omitting the only in-flight chat resolved it anyway")
@@ -43,12 +44,47 @@ func TestResolveBackfillRequestsIgnoresOmittedChats(t *testing.T) {
 	// A chat the chunk does mention still resolves, and a short answer still
 	// means the phone has nothing older.
 	client.backfillInFlight[answered] = &backfillRequest{requested: 50}
-	client.resolveBackfillRequests(ctx, map[string]int{answered: 3})
+	client.resolveBackfillRequests(ctx, map[string]int{answered: 3}, nil)
 
 	if _, still := client.backfillInFlight[answered]; still {
 		t.Fatal("a mentioned chat was left in flight")
 	}
 	if _, still := client.backfillInFlight[omitted]; !still {
 		t.Fatal("the omitted chat was resolved by a chunk about another chat")
+	}
+}
+
+// WhatsApp states outright whether more history remains. Reading that answer is
+// the only way to be right; counting how many messages happened to arrive is a
+// guess, and it must not overrule the phone.
+func TestHistoryExhaustedFromConversation(t *testing.T) {
+	cases := []struct {
+		name          string
+		kind          waHistorySync.Conversation_EndOfHistoryTransferType
+		wantExhausted bool
+	}{
+		{"more remain", waHistorySync.Conversation_COMPLETE_BUT_MORE_MESSAGES_REMAIN_ON_PRIMARY, false},
+		{"none remain", waHistorySync.Conversation_COMPLETE_AND_NO_MORE_MESSAGE_REMAIN_ON_PRIMARY, true},
+		{"on demand, more remain", waHistorySync.Conversation_COMPLETE_ON_DEMAND_SYNC_BUT_MORE_MSG_REMAIN_ON_PRIMARY, false},
+		{"on demand, no access", waHistorySync.Conversation_COMPLETE_ON_DEMAND_SYNC_WITH_MORE_MSG_ON_PRIMARY_BUT_NO_ACCESS, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			exhausted, known := historyExhaustedFromConversation(&waHistorySync.Conversation{
+				EndOfHistoryTransferType: tc.kind.Enum(),
+			})
+			if !known {
+				t.Fatal("a stated answer was read as unknown")
+			}
+			if exhausted != tc.wantExhausted {
+				t.Fatalf("exhausted = %t, want %t", exhausted, tc.wantExhausted)
+			}
+		})
+	}
+
+	// Absent means the phone said nothing, so the flag must be left alone
+	// rather than guessed at.
+	if _, known := historyExhaustedFromConversation(&waHistorySync.Conversation{}); known {
+		t.Fatal("an absent field was read as an answer")
 	}
 }

@@ -113,7 +113,7 @@ func (c *Client) finishBackfillRequest(chatID string) bool {
 // evidence: an omitted chat is left to its expiry timer, because exhaustion is
 // a one-way latch and guessing it wrong costs that chat its older history
 // permanently.
-func (c *Client) resolveBackfillRequests(ctx context.Context, messagesByChat map[string]int) {
+func (c *Client) resolveBackfillRequests(ctx context.Context, messagesByChat map[string]int, answered map[string]bool) {
 	type resolution struct {
 		chatID    string
 		exhausted bool
@@ -130,7 +130,9 @@ func (c *Client) resolveBackfillRequests(ctx context.Context, messagesByChat map
 			req.timer.Stop()
 		}
 		delete(c.backfillInFlight, chatID)
-		resolved = append(resolved, resolution{chatID: chatID, exhausted: count < req.requested})
+		// The phone already said whether more remain; counting messages is only
+		// a guess and must not overrule it.
+		resolved = append(resolved, resolution{chatID: chatID, exhausted: !answered[chatID] && count < req.requested})
 	}
 	c.backfillMu.Unlock()
 
