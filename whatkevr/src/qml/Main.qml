@@ -86,7 +86,7 @@ Kirigami.ApplicationWindow {
             QQC2.TextField {
                 id: unlockPin
                 Layout.fillWidth: true
-                echoMode: QQC2.TextInput.Password
+                echoMode: TextInput.Password
                 placeholderText: Whatevr.I18n.i18nc("@info:placeholder app unlock PIN", "PIN")
                 onAccepted: unlockButton.clicked()
                 Component.onCompleted: if (appLockOverlay.visible) forceActiveFocus()
