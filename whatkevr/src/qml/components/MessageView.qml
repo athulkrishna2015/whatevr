@@ -1655,7 +1655,13 @@ Item {
             Qt.callLater(settlePendingJump)
         } else if (unreadAnchorMessageId.length > 0) {
             positionAtUnreadAnchor()
-        } else if (followNewest) {
+        } else {
+            // Nothing owed and nothing unread: open at the newest message, even
+            // if this pane was left scrolled up into history. A parked pane
+            // keeps its viewport along with its rows, so gating this on
+            // followNewest meant a chat you had read and scrolled up in
+            // re-opened in the middle of last week. Coming back to a chat with
+            // nothing unread in it is arriving at the present.
             Qt.callLater(scrollToNewest)
         }
     }

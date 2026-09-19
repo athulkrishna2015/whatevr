@@ -257,6 +257,7 @@ private Q_SLOTS:
     void aHiddenTranscriptKeepsItsRowsSoComingBackToItIsFree();
     void flingingThroughAMediaHeavyChatReusesItsRows();
     void aDownloadedStickerIsActuallyDrawn();
+    void aReadChatReopensAtItsNewestMessage();
 
 private:
     QQuickWindow *m_window = nullptr;
@@ -2479,6 +2480,80 @@ void ChatBubblePerf::aDownloadedStickerIsActuallyDrawn()
 
     m_window->hide();
     bubbleItem->setParentItem(nullptr);
+}
+
+// A conversation with nothing unread opens at its newest message, even when the
+// pane it reuses was left scrolled up.
+//
+// The warm pane keeps its viewport along with its rows, which is what makes
+// coming back instant, and the placement on becoming visible was gated on
+// followNewest: false for exactly the case that matters, a chat the reader had
+// scrolled up in. So a chat they had read re-opened in the middle of its
+// history instead of at the present.
+void ChatBubblePerf::aReadChatReopensAtItsNewestMessage()
+{
+    CollectionViewModel source;
+    source.setReverseOrder(true);
+    ProtocolMessageModel model(&source);
+    for (int i = 0; i < 60; ++i) {
+        const QString id = QStringLiteral("r%1").arg(i, 3, 10, QLatin1Char('0'));
+        source.onUpsert(QStringLiteral("%1").arg(1'700'000'000 + i * 60, 20, 10, QLatin1Char('0')),
+                        QJsonObject{
+                            {QStringLiteral("id"), id},
+                            {QStringLiteral("chat_id"), QStringLiteral("read@g.us")},
+                            {QStringLiteral("kind"), QStringLiteral("text")},
+                            {QStringLiteral("text"), QStringLiteral("row %1").arg(i)},
+                            {QStringLiteral("fallback"), QStringLiteral("row %1").arg(i)},
+                            {QStringLiteral("timestamp"), 1'700'000'000 + i * 60},
+                            {QStringLiteral("direction"), QStringLiteral("incoming")},
+                            {QStringLiteral("status"), QStringLiteral("read")},
+                        });
+    }
+
+    QQmlComponent component(
+        m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/MessageView.qml")));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> view(component.createWithInitialProperties(
+        {{QStringLiteral("model"), QVariant::fromValue<QObject *>(&model)}}));
+    QVERIFY2(view, qPrintable(component.errorString()));
+    auto *viewItem = qobject_cast<QQuickItem *>(view.get());
+    viewItem->setParentItem(m_window->contentItem());
+    viewItem->setWidth(700);
+    viewItem->setHeight(420);
+    m_window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_window));
+    viewItem->setProperty("chatId", QStringLiteral("read@g.us"));
+    QTest::qWait(800);
+
+    QQuickItem *list = findVisualChild(viewItem, QStringLiteral("messageList"));
+    QVERIFY2(list, "the timeline has no list");
+    QTRY_VERIFY(list->property("contentHeight").toReal() > viewItem->height() * 2);
+
+    // contentY stays an ordinary top-down coordinate over the content, so the
+    // newest message (drawn at the bottom) sits at the largest one and history
+    // climbs away from it toward smaller values.
+    const qreal atBottom = list->property("contentY").toReal();
+
+    // The reader scrolls up into history and leaves.
+    viewItem->setProperty("followNewest", false);
+    list->setProperty("contentY", atBottom - 900);
+    QTest::qWait(100);
+    QVERIFY2(list->property("contentY").toReal() < atBottom - 100,
+             "the test could not scroll the transcript up");
+
+    viewItem->setVisible(false);
+    QTest::qWait(200);
+
+    // Coming back to a chat with nothing unread is arriving at the present.
+    viewItem->setVisible(true);
+    QTRY_VERIFY2(qAbs(list->property("contentY").toReal() - atBottom) < 2.0,
+                 qPrintable(QStringLiteral("a read chat re-opened at contentY %1, not at its "
+                                           "newest message (%2)")
+                                .arg(list->property("contentY").toReal())
+                                .arg(atBottom)));
+
+    m_window->hide();
+    viewItem->setParentItem(nullptr);
 }
 
 // What a fast scroll through a chat full of pictures, video and voice notes
