@@ -136,13 +136,18 @@ Kirigami.ScrollablePage {
                     elide: Text.ElideRight
                 }
 
-                QQC2.Label {
+                TextEdit {
                     Layout.fillWidth: true
                     Layout.alignment: Qt.AlignTop
                     text: (logDelegate.item && logDelegate.item.text) ? logDelegate.item.text : ""
                     font.family: "monospace"
                     font.pixelSize: Kirigami.Theme.smallFont.pixelSize
-                    wrapMode: Text.Wrap
+                    color: Kirigami.Theme.textColor
+                    wrapMode: TextEdit.Wrap
+                    readOnly: true
+                    selectByMouse: true
+                    selectByKeyboard: true
+                    persistentSelection: true
                 }
             }
         }
