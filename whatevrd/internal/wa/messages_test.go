@@ -209,6 +209,45 @@ func TestHistorySyncMarkedUnreadPublishesChatUpdated(t *testing.T) {
 	}
 }
 
+func TestHistorySyncExhaustionPublishesChatUpdated(t *testing.T) {
+	ctx := context.Background()
+	db, err := appstore.Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	daemon := app.NewDaemon(app.Paths{})
+	events, unsubscribe := daemon.SubscribeDaemonEvents()
+	t.Cleanup(unsubscribe)
+
+	client := &Client{
+		store:  db,
+		daemon: daemon,
+		log:    waLog.Noop,
+		client: &whatsmeow.Client{Store: &waStore.Device{}},
+	}
+	syncType := waHistorySync.HistorySync_RECENT
+	chatID := types.NewJID("12345", types.DefaultUserServer).String()
+	client.processHistorySyncData(ctx, &waHistorySync.HistorySync{
+		SyncType: &syncType,
+		Conversations: []*waHistorySync.Conversation{{
+			ID:                       proto.String(chatID),
+			EndOfHistoryTransferType: waHistorySync.Conversation_COMPLETE_AND_NO_MORE_MESSAGE_REMAIN_ON_PRIMARY.Enum(),
+		}},
+	})
+
+	for deadline := time.After(time.Second); ; {
+		select {
+		case evt := <-events:
+			if evt.Kind == app.DaemonEventChatUpdated && evt.Chat.ID == chatID && evt.Chat.HistoryExhausted {
+				return
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for history-exhausted ChatUpdated")
+		}
+	}
+}
+
 func TestHistorySyncPreservesPinWhenPinnedFieldAbsent(t *testing.T) {
 	ctx := context.Background()
 	db, err := appstore.Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))

@@ -327,12 +327,14 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		} else if updatedChat.ID != "" {
 			lastSavedChat = updatedChat
 		}
+		historyExhaustedChanged := false
 		if exhausted, known := historyExhaustedFromConversation(conv); known {
 			answered[chatID] = true
 			if chat, changed, err := c.store.UpdateChatHistoryExhausted(ctx, chatID, exhausted); err != nil {
 				c.log.Warnf("Failed to record history exhaustion for %s: %v", chatID, err)
 			} else if changed {
 				lastSavedChat = chat
+				historyExhaustedChanged = true
 			}
 		}
 		pinChanged := false
@@ -345,7 +347,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 			}
 		}
 
-		if messagesAdded > 0 || pinChanged || unreadChanged {
+		if messagesAdded > 0 || pinChanged || unreadChanged || historyExhaustedChanged {
 			if lastSavedChat.ID != "" {
 				c.daemon.PublishChatUpdated(toDaemonChat(lastSavedChat))
 			}
