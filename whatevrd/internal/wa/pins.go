@@ -169,13 +169,24 @@ func (c *Client) applyPendingAppState(ctx context.Context, chatJID types.JID, en
 
 func (c *Client) startPinnedChatRecovery(ctx context.Context, reason string, fn func(context.Context) error) {
 	if !c.pinBackfill.CompareAndSwap(false, true) {
+		// One pass at a time, but never drop a request: the pass in flight
+		// started from a snapshot taken before this caller saw a reason to ask,
+		// and on a fresh login the connect-time reconcile and the one that
+		// follows app state actually arriving collide here every time.
+		c.pinBackfillAgain.Store(true)
 		return
 	}
 
 	go func() {
 		defer c.pinBackfill.Store(false)
-		if err := fn(ctx); err != nil {
-			c.log.Warnf("Failed to %s pinned chats from WhatsApp app state: %v", reason, err)
+		for {
+			c.pinBackfillAgain.Store(false)
+			if err := fn(ctx); err != nil {
+				c.log.Warnf("Failed to %s pinned chats from WhatsApp app state: %v", reason, err)
+			}
+			if ctx.Err() != nil || !c.pinBackfillAgain.CompareAndSwap(true, false) {
+				return
+			}
 		}
 	}()
 }

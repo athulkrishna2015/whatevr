@@ -142,6 +142,10 @@ type Client struct {
 	reconnectNow  atomic.Bool
 	eventGen      atomic.Uint64
 	pinBackfill   atomic.Bool
+	// Set when a recovery is asked for while one is already running, so the
+	// request is re-run rather than dropped: the pass in flight may be reading
+	// app state older than whatever prompted the new one.
+	pinBackfillAgain atomic.Bool
 
 	// appPrefs caches the daemon_config user preferences so the hot notify and
 	// media-ingestion gates never hit sqlite per message. Loaded at New() and

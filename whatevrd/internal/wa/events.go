@@ -64,6 +64,14 @@ func (c *Client) handleEvent(eventGen uint64, raw any) bool {
 		go c.backfillAnimatedWebPFlags(c.backgroundContext())
 	case *events.AppStateSyncComplete:
 		c.syncPresence(c.backgroundContext(), true)
+		// A fresh login reconciles app state on Connected, which is before the
+		// device has any: the snapshot comes back empty, and ReconcileChatPins
+		// is full authority, so it concludes nothing is pinned. This is the
+		// moment the state actually exists, and nothing was re-reading it, so a
+		// first sync finished with every pin dropped.
+		if evt.Name == appstate.WAPatchRegularLow || evt.Name == appstate.WAPatchRegularHigh {
+			c.startAppStateReconcile(c.backgroundContext())
+		}
 	case *events.AppState:
 		// Typed app-state events (pins, mutes...) have their own cases;
 		// sticker favorites/recents only arrive through this generic event.
