@@ -997,9 +997,22 @@ QVariantMap ProtocolController::warmWindowAt(int index) const
     const MessageWindow *window = m_messageWindows.at(index);
     if (!window) {
         return {{QStringLiteral("chatId"), QString()},
+                {QStringLiteral("active"), false},
                 {QStringLiteral("model"), QVariant::fromValue<QObject *>(nullptr)}};
     }
+    // Which pane is the conversation, decided here rather than in QML.
+    //
+    // A window is keyed by chat *and* anchor, so a jump into a chat's history
+    // leaves that chat holding two of them: the live edge it was opened at and
+    // the anchored one it jumped to. Both are warm on purpose, which is what
+    // makes going back to the bottom free. But the panes used to work out which
+    // of them was on screen by comparing chat ids, and both matched: two panes
+    // drew at once, both claimed the conversation's message-view pointer, and
+    // both answered every jump result. The one that did not hold the target
+    // announced it missing and kept its highlight. Only the window the
+    // controller is actually driving is the current one.
     return {{QStringLiteral("chatId"), window->chatId},
+            {QStringLiteral("active"), window->source == m_messagesModel},
             {QStringLiteral("model"), QVariant::fromValue<QObject *>(window->presentation)}};
 }
 

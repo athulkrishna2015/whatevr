@@ -13,6 +13,10 @@ Item {
 
     property string chatId: ""
     property alias model: list.model
+    // Whether this is the pane the conversation is showing. Jump results are
+    // broadcast to every warm pane, and a parked one that answers them reports
+    // the target missing (it does not hold it) and leaves its highlight behind.
+    property bool isCurrentPane: true
     property bool loadingMessages: false
     property bool loadingOlderMessages: false
     property bool loadingNewerMessages: false
@@ -253,6 +257,21 @@ Item {
             to: 0
             duration: Kirigami.Units.longDuration
             easing.type: Easing.OutCubic
+        }
+    }
+
+    // Stops the glow and un-latches whatever row it was on. The animation ends
+    // by fading to 0, so a glow that is merely interrupted leaves its row lit at
+    // whatever opacity it had reached, and nothing else ever puts it out: that
+    // is the highlight that stayed stuck behind a tagged message and survived
+    // switching chats.
+    function clearReplyGlow() {
+        if (sharedReplyGlow.running) {
+            sharedReplyGlow.stop()
+        }
+        if (sharedReplyGlow.glowTarget !== null) {
+            sharedReplyGlow.glowTarget.replyGlowOpacity = 0
+            sharedReplyGlow.glowTarget = null
         }
     }
 
@@ -1577,8 +1596,25 @@ Item {
         Qt.callLater(updateScrollState)
     }
 
+    // Handing the conversation to another pane. Anything this one was still in
+    // the middle of belongs to a view nobody is looking at: a jump left pending
+    // keeps programmaticScroll latched, which is what stopped the transcript
+    // responding to the wheel, and a glow left half-played stays lit forever.
+    onIsCurrentPaneChanged: {
+        if (isCurrentPane) {
+            return
+        }
+        if (pendingJumpMessageId.length > 0) {
+            finishPendingJump()
+        }
+        cancelUnreadAnchorSettle()
+        clearReplyGlow()
+        programmaticScroll = false
+    }
+
     onChatIdChanged: {
         openStampOwed = Whatevr.ProtocolController.perfLogging && chatId.length > 0
+        clearReplyGlow()
         if (pendingJumpMessageId.length > 0) {
             finishPendingJump()
         }
@@ -2046,6 +2082,16 @@ Item {
             }
         }
         onMovementEnded: root.updateScrollState()
+        // Touch and kinetic drags come through the Flickable rather than the
+        // wheel scroller, and they are the reader taking over just the same.
+        onDraggingChanged: {
+            if (dragging && root.pendingJumpMessageId.length > 0) {
+                root.finishPendingJump()
+            }
+            if (dragging) {
+                root.cancelUnreadAnchorSettle()
+            }
+        }
 
         Connections {
             target: list.model
@@ -2162,6 +2208,10 @@ Item {
         }
 
         function onMessageJumpReady(messageId) {
+            // Broadcast to every warm pane; only the one on screen may act.
+            if (!root.isCurrentPane) {
+                return
+            }
             // A jump started on the C++ side (showMessageInChat: starred lists,
             // global search results) never went through jumpToReplyTarget, so
             // this view has no pendingJumpMessageId and every guard below would
@@ -2177,6 +2227,11 @@ Item {
         }
 
         function onMessageJumpUnavailable(messageId) {
+            // Same broadcast, and the same reason a parked pane must stay out of
+            // it: it would be answering for rows it does not hold.
+            if (!root.isCurrentPane) {
+                return
+            }
             // An adopted jump has nothing pending here yet, but the user still
             // asked for that message and deserves to be told it is gone.
             if (root.pendingJumpMessageId.length > 0 && root.pendingJumpMessageId !== messageId) {
@@ -2204,6 +2259,16 @@ Item {
         target: list
         wheelStep: Kirigami.Units.gridUnit * 4
         maximumVelocity: 16000
+
+        // The reader taking over always wins. Only a scrollbar drag used to say
+        // so, so a jump still settling kept programmaticScroll latched and went
+        // on re-centring the view under the wheel: the transcript read as stuck.
+        onScrollStarted: {
+            if (root.pendingJumpMessageId.length > 0) {
+                root.finishPendingJump()
+            }
+            root.cancelUnreadAnchorSettle()
+        }
         // The top edge is only final once all history is loaded; until then the
         // prefetched page usually fills any overshoot before it becomes visible.
         clampAtOrigin: !root.canLoadOlderMessages

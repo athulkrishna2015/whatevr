@@ -773,8 +773,13 @@ Kirigami.Page {
                     // here changes at all.
                     readonly property var slot: Whatevr.ProtocolController.warmWindows[index]
                     readonly property string slotChatId: slot ? String(slot.chatId ?? "") : ""
+                    // The controller names the one window it is driving. Chat id
+                    // alone is not enough: a chat jumped into keeps both its
+                    // live-edge window and its anchored one warm, and comparing
+                    // ids made both panes current at once.
                     readonly property bool isCurrent: slotChatId.length > 0
                                                       && slotChatId === Whatevr.ProtocolController.selectedChatId
+                                                      && (slot ? slot.active === true : false)
 
                     // The pane the rest of this file talks to. Panes are never
                     // destroyed, so once one has claimed this it is never null
@@ -794,6 +799,7 @@ Kirigami.Page {
                              && (!Whatevr.ProtocolController.messagesEmpty
                                  || Whatevr.ProtocolController.messagesReloading)
                     chatId: slotChatId
+                    isCurrentPane: isCurrent
                     model: slot ? slot.model : null
                     // Every piece of live window state below describes the chat
                     // on screen, so a parked pane is handed the quiescent value of

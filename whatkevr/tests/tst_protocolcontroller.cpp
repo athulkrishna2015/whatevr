@@ -1368,6 +1368,88 @@ private Q_SLOTS:
         QCOMPARE(daemon.messagesSubscribeCount, warm + 2);
     }
 
+    // Exactly one warm window is ever the current one.
+    //
+    // Jumping to a message the window does not hold re-subscribes the same chat
+    // at a new anchor, and both windows stay warm on purpose: that is what makes
+    // going back to the live edge free. So a chat legitimately owns two panes,
+    // and the conversation used to pick which was on screen by comparing chat
+    // ids, which both of them matched. Two panes drew at once, both claimed the
+    // conversation's message-view pointer, and both handled every jump result;
+    // the one without the target announced it missing and kept its highlight.
+    // The controller names the active window so there can only be one.
+    void onlyOneWarmWindowIsCurrentAfterAJumpReanchorsAChat()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats({chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});
+        daemon.setMessages({messageRow(QStringLiteral("m1"), QStringLiteral("0001"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_VERIFY(!ctrl.chatsLoading());
+        ctrl.setConversationVisible(true);
+        ctrl.selectChat(QStringLiteral("a@s"));
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("a@s"));
+
+        // Windows holding this chat, and how many of them claim to be current.
+        const auto census = [&](const QString &chatId) {
+            int held = 0;
+            int active = 0;
+            const QVariantList warm = ctrl.warmWindows();
+            for (const QVariant &entry : warm) {
+                const QVariantMap row = entry.toMap();
+                if (row.value(QStringLiteral("chatId")).toString() != chatId) {
+                    continue;
+                }
+                ++held;
+                if (row.value(QStringLiteral("active")).toBool()) {
+                    ++active;
+                }
+            }
+            return std::pair<int, int>(held, active);
+        };
+        auto [heldAtOpen, activeAtOpen] = census(QStringLiteral("a@s"));
+        QCOMPARE(heldAtOpen, 1);
+        QCOMPARE(activeAtOpen, 1);
+
+        // A jump into history: a second window over the same chat.
+        QSignalSpy unavailableSpy(&ctrl, &ProtocolController::messageJumpUnavailable);
+        daemon.setMessages({messageRow(QStringLiteral("target"), QStringLiteral("0005"))});
+        ctrl.jumpToMessage(QStringLiteral("target"));
+        QTRY_COMPARE(daemon.messagesSubscribeCount, 2);
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("a@s"));
+
+        // Both are warm, which is the point of the pool, but only one is current.
+        const std::pair<int, int> afterJump = census(QStringLiteral("a@s"));
+        QCOMPARE(afterJump.first, 2);
+        QVERIFY2(afterJump.second == 1,
+                 qPrintable(QStringLiteral("%1 of this chat's %2 warm windows claim to be current")
+                                .arg(afterJump.second)
+                                .arg(afterJump.first)));
+        // The jump found its message, so nothing may claim it did not.
+        QCOMPARE(unavailableSpy.count(), 0);
+
+        // And the model the conversation renders is the active window's.
+        const QVariantList warm = ctrl.warmWindows();
+        for (const QVariant &entry : warm) {
+            const QVariantMap row = entry.toMap();
+            if (!row.value(QStringLiteral("active")).toBool()) {
+                continue;
+            }
+            QCOMPARE(row.value(QStringLiteral("model")).value<QObject *>(),
+                     static_cast<QObject *>(ctrl.messageListModel()));
+        }
+
+        // Back to the live edge: still warm, still exactly one current window.
+        ctrl.jumpToBottom();
+        QTRY_VERIFY(ctrl.messagesAtLiveEdge());
+        QCOMPARE(daemon.messagesSubscribeCount, 2);
+        auto [heldAtEdge, activeAtEdge] = census(QStringLiteral("a@s"));
+        QCOMPARE(heldAtEdge, 2);
+        QCOMPARE(activeAtEdge, 1);
+    }
+
     void hiddenConversationClearsTheSessionButKeepsItsTranscriptWarm()
     {
         FakeDaemon daemon(m_path);
