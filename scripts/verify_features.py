@@ -318,6 +318,8 @@ def run_all(ctx: Context) -> None:
                             "chat_media",
                             {"chat_id": chat_id, "kinds": ["image"]}))
     rej("media-save", "Save message media", "media.save", {"path": "/tmp/x"})
+    rej("chat-export", "Export chat transcript", "chat.export",
+        {"chat_id": "", "path": "/tmp/x.txt"})
     # --- status ---
     sk("status", "Status tab + viewer data", "status", {"limit": 5})
     sk("status-kept", "Kept senders view", "status.kept", {})

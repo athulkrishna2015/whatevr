@@ -53,6 +53,8 @@ type fakeCommandActions struct {
 	saveStatusID           string
 	saveJID                string
 	saveDest               string
+	exportChatID           string
+	exportDest             string
 	viewedStatusID         string
 	postedStatusText       string
 	postedStatusPath       string
@@ -388,6 +390,15 @@ func (f *fakeCommandActions) SaveMediaToPath(_ context.Context, messageID, statu
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.saveMessageID, f.saveStatusID, f.saveJID, f.saveDest = messageID, statusID, jid, dest
+	if f.err != nil {
+		return "", f.err
+	}
+	return dest, nil
+}
+func (f *fakeCommandActions) ExportChat(_ context.Context, chatID, dest string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.exportChatID, f.exportDest = chatID, dest
 	if f.err != nil {
 		return "", f.err
 	}
@@ -880,6 +891,19 @@ func TestC2MessageAndMediaCommands(t *testing.T) {
 		t.Fatalf("media.save without a selector must fail, got %v", msg)
 	} else if errObj, ok := msg["error"].(map[string]any); !ok || errObj["code"] != "invalid_params" {
 		t.Fatalf("media.save without a selector must fail invalid_params, got %v", msg)
+	}
+
+	c.sendLine(`{"id":121,"method":"chat.export","params":{"chat_id":"chat-1","path":"/tmp/chat-1.txt"}}`)
+	result = c.recv()["result"].(map[string]any)
+	if result["path"] != "/tmp/chat-1.txt" || actions.exportChatID != "chat-1" || actions.exportDest != "/tmp/chat-1.txt" {
+		t.Fatalf("chat.export result/action = %v/%+v", result, actions)
+	}
+
+	c.sendLine(`{"id":122,"method":"chat.export","params":{"chat_id":"chat-1"}}`)
+	if msg := c.recv(); msg["error"] == nil {
+		t.Fatalf("chat.export without a path must fail, got %v", msg)
+	} else if errObj, ok := msg["error"].(map[string]any); !ok || errObj["code"] != "invalid_params" {
+		t.Fatalf("chat.export without a path must fail invalid_params, got %v", msg)
 	}
 
 	c.sendLine(`{"id":13,"method":"status.mark_viewed","params":{"status_id":"status:1"}}`)

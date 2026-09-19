@@ -495,6 +495,10 @@ public:
     // carries keys but no bytes yet (explicit per-item save, including for
     // inbound view-once rows). Exactly one source id may be set.
     Q_INVOKABLE void saveRemoteMedia(const QString &messageId, const QString &statusId, const QString &jid, const QUrl &destUrl);
+    // Maps to `chat.export`: writes the chat transcript (.txt, official
+    // export shape) to a local file. Failures surface through
+    // messageActionFailed; success through chatExported.
+    Q_INVOKABLE void exportChat(const QString &chatId, const QUrl &destUrl);
     // Display fields (`messageId`, `chatId`, `chatName`, `senderName`,
     // `preview`, `timeText`, `isOutgoing`) derived from one daemon message-row
     // item. A pure function of its argument, so a delegate can call it on the
@@ -731,6 +735,8 @@ Q_SIGNALS:
     void logsLoadingChanged();
     // Answer to saveRemoteMedia: the bytes reached the destination path.
     void remoteMediaSaved(const QString &destPath);
+    // Answer to exportChat: the transcript reached the destination path.
+    void chatExported(const QString &destPath);
     /// Answer to streamMessageMedia: where a player can read this message from
     /// while it is still downloading.
     void mediaStreamReady(const QString &messageId, const QString &streamId, const QUrl &url);

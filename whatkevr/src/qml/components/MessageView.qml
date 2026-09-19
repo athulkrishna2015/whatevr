@@ -1766,6 +1766,10 @@ Item {
     Connections {
         target: Whatevr.ProtocolController
 
+        function onChatExported(destPath) {
+            root.showNotification(Whatevr.I18n.i18nc("@info:status chat transcript saved", "Chat exported"))
+        }
+
         function onUnreadAnchorChanged() {
             root.traceViewport("onUnreadAnchorChanged")
             // The anchor can resolve after the chat already opened from the
@@ -2617,6 +2621,36 @@ Item {
             if (Whatevr.ProtocolController.saveMediaAs(sourcePath, file)) {
                 root.showNotification(Whatevr.I18n.i18nc("@info:status", "File saved"))
             }
+        }
+    }
+
+    Platform.FileDialog {
+        id: exportChatDialog
+
+        property string exportChatId: ""
+
+        fileMode: Platform.FileDialog.SaveFile
+        title: Whatevr.I18n.i18nc("@title:window save a chat transcript", "Export chat")
+
+        // Official clients suggest "WhatsApp Chat with <name>.txt" into
+        // Documents; the name is sanitized to one path segment.
+        function openFor(chatId, chatName) {
+            exportChatId = chatId
+            let base = "WhatsApp Chat with " + (chatName || chatId)
+            base = base.replace(/[\/\\]/g, "_").trim()
+            if (base.length === 0) {
+                base = "WhatsApp Chat"
+            }
+            const preferred = Whatevr.Settings.mediaSaveDirectory
+            const directory = preferred.length > 0
+                ? preferred
+                : Platform.StandardPaths.writableLocation(Platform.StandardPaths.DocumentsLocation)
+            currentFile = directory + "/" + base + ".txt"
+            open()
+        }
+
+        onAccepted: {
+            Whatevr.ProtocolController.exportChat(exportChatId, file)
         }
     }
 

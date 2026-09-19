@@ -2656,8 +2656,7 @@ void ProtocolController::downloadStatus(const QString &statusId)
     m_client->request(QStringLiteral("status.download"), {{QStringLiteral("status_id"), statusId}});
 }
 
-void ProtocolController::saveRemoteMedia(const QString &messageId, const QString &statusId, const QString &jid, const QUrl &destUrl)
-{
+void ProtocolController::saveRemoteMedia(const QString &messageId, const QString &statusId, const QString &jid, const QUrl &destUrl){
     if (!destUrl.isLocalFile()) {
         return;
     }
@@ -2688,6 +2687,33 @@ void ProtocolController::saveRemoteMedia(const QString &messageId, const QString
                               return;
                           }
                           Q_EMIT remoteMediaSaved(result.value(QStringLiteral("path")).toString());
+                      });
+}
+
+void ProtocolController::exportChat(const QString &chatId, const QUrl &destUrl)
+{
+    if (chatId.isEmpty() || !destUrl.isLocalFile()) {
+        return;
+    }
+    const QString destination = destUrl.toLocalFile();
+    if (destination.isEmpty()) {
+        return;
+    }
+    // The dialog already confirmed overwriting; QFile::copy refuses to.
+    if (QFile::exists(destination) && !QFile::remove(destination)) {
+        Q_EMIT messageActionFailed(i18nc("@info", "Unable to overwrite the existing file"));
+        return;
+    }
+    QJsonObject params{{QStringLiteral("chat_id"), chatId},
+                       {QStringLiteral("path"), destination}};
+    m_client->request(QStringLiteral("chat.export"), params,
+                      [this](const QJsonObject &result, const ProtocolError &error) {
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(
+                                  error.message.isEmpty() ? i18nc("@info", "Unable to export the chat") : error.message);
+                              return;
+                          }
+                          Q_EMIT chatExported(result.value(QStringLiteral("path")).toString());
                       });
 }
 

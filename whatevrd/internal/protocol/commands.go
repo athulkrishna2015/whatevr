@@ -80,6 +80,7 @@ type CommandActions interface {
 
 	MarkChatReadUpTo(context.Context, string, string) (appstore.Chat, error)
 	MarkAllChatsRead(context.Context) (int, error)
+	ExportChat(context.Context, string, string) (string, error)
 	SetChatPinned(context.Context, string, bool) (appstore.Chat, error)
 	SetChatArchived(context.Context, string, bool) (appstore.Chat, error)
 	SetChatMuted(context.Context, string, bool, time.Duration) (appstore.Chat, error)
@@ -180,6 +181,7 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("chat.typing", backgroundNet(cmd.chatTyping, false))
 	s.RegisterCommand("chat.request_older", backgroundNet(cmd.chatRequestOlder, false))
 	s.RegisterCommand("chat.ensure_direct", cmd.chatEnsureDirect)
+	s.RegisterCommand("chat.export", backgroundNet(cmd.chatExport, false))
 	s.RegisterCommand("send.text", cmd.sendText)
 	s.RegisterCommand("send.media", cmd.sendMedia)
 	s.RegisterCommand("send.media_batch", cmd.sendMediaBatch)

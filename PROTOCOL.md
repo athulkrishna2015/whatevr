@@ -265,6 +265,7 @@ correlation (e.g. to scroll to your own just-sent message when it upserts).
 | `chat.typing` | `chat_id`, `composing` | `{}` |
 | `chat.request_older` | `chat_id` | `{requested}`: asks the phone; results land as message upserts, exhaustion flips the chat row flag |
 | `chat.ensure_direct` | `jid` | `{chat_id}`: row appears in `chats` views |
+| `chat.export` | `chat_id`, `path` (absolute destination) | `{path}`: writes the chat transcript (.txt, official export shape) to a local file |
 
 `chat.mark_read` marks messages read through the frontend's visible horizon;
 `up_to_message_id` is the newest message the user has actually seen. The daemon

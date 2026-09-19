@@ -133,6 +133,34 @@ func (h commandHandlers) chatMute(ctx context.Context, _ *conn, req request) (an
 	return nil, mapCommandError(err)
 }
 
+type chatExportParams struct {
+	ChatID string `json:"chat_id"`
+	Path   string `json:"path"`
+}
+
+// chatExport writes the chat transcript to path in the official WhatsApp
+// .txt export format. The frontend picks the destination with a save dialog.
+func (h commandHandlers) chatExport(ctx context.Context, _ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p chatExportParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(p.ChatID) == "" {
+		return nil, errorf(CodeInvalidParams, "chat_id is required")
+	}
+	if strings.TrimSpace(p.Path) == "" {
+		return nil, errorf(CodeInvalidParams, "path is required")
+	}
+	path, err := h.actions.ExportChat(ctx, strings.TrimSpace(p.ChatID), strings.TrimSpace(p.Path))
+	if perr := mapCommandError(err); perr != nil {
+		return nil, perr
+	}
+	return map[string]any{"path": path}, nil
+}
+
 type chatTypingParams struct {
 	ChatID    string `json:"chat_id"`
 	Composing *bool  `json:"composing"`

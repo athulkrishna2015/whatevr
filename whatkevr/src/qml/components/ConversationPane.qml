@@ -446,6 +446,15 @@ Kirigami.Page {
             }
         },
         Kirigami.Action {
+            icon.name: "document-save-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button export this chat to a text file", "Export chat…")
+            displayHint: Kirigami.DisplayHint.AlwaysHide
+            visible: Whatevr.ProtocolController.hasSelectedChat
+            onTriggered: messageView.exportChatDialog.openFor(
+                Whatevr.ProtocolController.selectedChatId,
+                Whatevr.ProtocolController.selectedChatName)
+        },
+        Kirigami.Action {
             icon.name: "dialog-close-symbolic"
             text: Whatevr.I18n.i18nc("@action:button", "Close Chat")
             displayHint: Kirigami.DisplayHint.AlwaysHide

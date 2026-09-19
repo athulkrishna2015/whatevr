@@ -7,6 +7,10 @@ PROTOCOL.md (stable at version 1: additive changes only).
 
 ### Fixed
 
+- Chat export: "Export chat…" in the conversation menu writes the transcript
+  (.txt, official export shape) via a save dialog.
+- Document sends keep their real filenames end to end (regression-tested);
+  the bare-"file" display seen earlier came from an older build.
 - Tray menu is a top-level popup window at the click point; the icon never
   pulses.
 - Channel message pages load older history on scroll (directional window).

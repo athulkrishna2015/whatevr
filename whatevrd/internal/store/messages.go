@@ -887,6 +887,27 @@ func (db *DB) ListMessages(ctx context.Context, chatID string, limit int, before
 	return messages, nil
 }
 
+// ListMessagesForExport returns every stored message of a chat, oldest first,
+// for chat transcript exports. Unlike ListMessages there is no paging: an
+// export is complete by definition.
+func (db *DB) ListMessagesForExport(ctx context.Context, chatID string) ([]Message, error) {
+	defer db.timeOp("ListMessagesForExport", time.Now())
+	rows, err := db.reader().QueryContext(ctx, messageSelectPrefix+`
+		WHERE m.chat_id = ?
+		ORDER BY m.timestamp ASC, m.rowid ASC
+	`, chatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	messages, err := scanMessageRows(rows, 0)
+	if err != nil {
+		return nil, err
+	}
+	return messages, nil
+}
+
 // ListVideoPosterCandidates returns downloaded rectangular videos and GIFs
 // newest first. Video notes deliberately keep their sender-supplied thumbnail
 // and circular presentation.

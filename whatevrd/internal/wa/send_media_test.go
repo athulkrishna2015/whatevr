@@ -5,7 +5,11 @@ import (
 	"image"
 	"image/color"
 	"image/jpeg"
+	"os"
+	"path/filepath"
 	"testing"
+
+	appstore "whatevrd/internal/store"
 )
 
 func testJPEG(t *testing.T, w, h int) []byte {
@@ -43,5 +47,43 @@ func TestDownscaleImageForStandard(t *testing.T) {
 	}
 	if cfg, _, err := image.DecodeConfig(bytes.NewReader(out)); err != nil || cfg.Width != 1600 || cfg.Height != 1200 {
 		t.Fatalf("scaled bytes decode = %+v, %v; want 1600x1200", cfg, err)
+	}
+}
+
+// TestDocumentSendKeepsFilename is a regression test: documents sent through
+// the outbound path must carry their real basename on the wire, never the
+// "file" fallback (receivers showed just "file" for batch-sent documents).
+func TestDocumentSendKeepsFilename(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hallticket-2026.pdf")
+	if err := os.WriteFile(path, []byte("%PDF-1.4 fake body for name test"), 0o600); err != nil {
+		t.Fatalf("write temp pdf: %v", err)
+	}
+
+	_, _, _, mediaKind, fileName, err := readOutboundMedia(path, MediaSendOptions{Kind: "document"})
+	if err != nil {
+		t.Fatalf("readOutboundMedia: %v", err)
+	}
+	if mediaKind != appstore.MediaKindDocument {
+		t.Fatalf("kind = %q, want document", mediaKind)
+	}
+	if fileName != "hallticket-2026.pdf" {
+		t.Fatalf("outbound fileName = %q, want the source basename", fileName)
+	}
+
+	envelope, _, _, err := buildOutgoingMediaMessage(appstore.Message{
+		MediaKind:     appstore.MediaKindDocument,
+		MediaMimeType: "application/pdf",
+		MediaFileName: fileName,
+	}, []byte("fake body"), "application/pdf")
+	if err != nil {
+		t.Fatalf("buildOutgoingMediaMessage: %v", err)
+	}
+	doc := envelope.GetDocumentMessage()
+	if doc == nil {
+		t.Fatalf("envelope is not a document message: %+v", envelope)
+	}
+	if doc.GetFileName() != "hallticket-2026.pdf" {
+		t.Fatalf("wire FileName = %q, want the source basename", doc.GetFileName())
 	}
 }

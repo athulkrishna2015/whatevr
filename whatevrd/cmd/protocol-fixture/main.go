@@ -35,6 +35,9 @@ func (fixtureCommands) MarkChatReadUpTo(context.Context, string, string) (appsto
 	return appstore.Chat{}, nil
 }
 func (fixtureCommands) MarkAllChatsRead(context.Context) (int, error) { return 0, nil }
+func (fixtureCommands) ExportChat(_ context.Context, chatID, path string) (string, error) {
+	return path, nil
+}
 func (fixtureCommands) SetChatPinned(context.Context, string, bool) (appstore.Chat, error) {
 	return appstore.Chat{}, nil
 }
