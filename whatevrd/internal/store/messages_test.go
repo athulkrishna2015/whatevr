@@ -2207,3 +2207,56 @@ func TestSaveMessagesBatchMatchesSingleSaveSemantics(t *testing.T) {
 		t.Fatalf("expected 2 stored messages, got %d", len(messages))
 	}
 }
+
+func TestListMessagesBatchesExtrasPastSQLiteVariableLimit(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	const (
+		chatID = "large-chat"
+		count  = 32767
+	)
+	if _, err := db.conn.ExecContext(ctx, `INSERT INTO chats (id, name) VALUES (?, ?)`, chatID, "Large Chat"); err != nil {
+		t.Fatalf("insert chat: %v", err)
+	}
+	tx, err := db.conn.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin message batch: %v", err)
+	}
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO messages (id, chat_id, text, timestamp, sort_ms, direction, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		t.Fatalf("prepare message insert: %v", err)
+	}
+	for i := 0; i < count; i++ {
+		id := fmt.Sprintf("m-%05d", i)
+		if _, err := stmt.ExecContext(ctx, id, chatID, id, i, i*1000, DirectionIncoming, StatusDelivered); err != nil {
+			stmt.Close()
+			tx.Rollback()
+			t.Fatalf("insert message %d: %v", i, err)
+		}
+	}
+	if err := stmt.Close(); err != nil {
+		t.Fatalf("close message insert: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit message batch: %v", err)
+	}
+
+	messages, err := db.ListMessages(ctx, chatID, count, "")
+	if err != nil {
+		t.Fatalf("list large message window: %v", err)
+	}
+	if len(messages) != count {
+		t.Fatalf("message count = %d, want %d", len(messages), count)
+	}
+	if messages[0].ID != "m-00000" || messages[len(messages)-1].ID != "m-32766" {
+		t.Fatalf("unexpected message bounds: %q .. %q", messages[0].ID, messages[len(messages)-1].ID)
+	}
+}

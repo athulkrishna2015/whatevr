@@ -23,25 +23,37 @@ type reactionQueryer interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }
 
+// every attach below binds one placeholder per message, so a page larger than
+// SQLITE_MAX_VARIABLE_NUMBER makes the driver reject the whole query. chunk it
+// well under the limit instead of trusting the window to stay small
+const messageExtrasBatchSize = 500
+
 // attachMessageExtras loads everything a page of messages needs beyond its own
 // columns: reactions for every row, and the tally for the poll rows among them.
 // One place decides what a page carries, so a new per-message collection is one
 // call here rather than one at each of the twenty read sites.
 func (db *DB) attachMessageExtras(ctx context.Context, q reactionQueryer, messages []Message) error {
-	if err := attachReactions(ctx, q, messages); err != nil {
-		return err
-	}
 	selfJID := db.cachedSelfJID()
-	if err := attachPolls(ctx, q, messages, selfJID); err != nil {
-		return err
+	for start := 0; start < len(messages); start += messageExtrasBatchSize {
+		end := min(start+messageExtrasBatchSize, len(messages))
+		batch := messages[start:end]
+		if err := attachReactions(ctx, q, batch); err != nil {
+			return err
+		}
+		if err := attachPolls(ctx, q, batch, selfJID); err != nil {
+			return err
+		}
+		if err := attachEvents(ctx, q, batch, selfJID); err != nil {
+			return err
+		}
+		if err := attachStickerPacks(ctx, q, batch); err != nil {
+			return err
+		}
+		if err := attachAlbums(ctx, q, batch); err != nil {
+			return err
+		}
 	}
-	if err := attachEvents(ctx, q, messages, selfJID); err != nil {
-		return err
-	}
-	if err := attachStickerPacks(ctx, q, messages); err != nil {
-		return err
-	}
-	return attachAlbums(ctx, q, messages)
+	return nil
 }
 
 // attachMessageExtrasOne is the same for a single message.
