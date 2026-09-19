@@ -1980,6 +1980,7 @@ func toDaemonChat(chat appstore.Chat) app.Chat {
 		IsGroup:              chat.IsGroup,
 		IsPinned:             chat.IsPinned,
 		PinnedOrder:          chat.PinnedOrder,
+		IsFavorite:           chat.IsFavorite,
 		IsArchived:           chat.IsArchived,
 		IsMuted:              chat.IsMuted,
 		MuteEndTimestamp:     chat.MuteEndTimestamp,

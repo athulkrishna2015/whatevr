@@ -239,6 +239,7 @@ func (s *channelMessagesSession) merge(rows []app.ChannelMessage) {
 			Data: channelMessageItem{
 				ID:        id,
 				ChannelID: s.channelID,
+				ServerID:  msg.ServerID,
 				Timestamp: msg.Timestamp,
 				Kind:      msg.Kind,
 				Text:      msg.Text,
@@ -308,6 +309,7 @@ func (s *channelMessagesSession) Items(max int) []Item {
 type channelMessageItem struct {
 	ID        string `json:"id"`
 	ChannelID string `json:"channel_id"`
+	ServerID  int64  `json:"server_id"`
 	Timestamp int64  `json:"timestamp"`
 	Kind      string `json:"kind"`
 	Text      string `json:"text,omitempty"`

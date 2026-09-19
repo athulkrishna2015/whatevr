@@ -348,6 +348,7 @@ type Chat struct {
 	IsGroup              bool
 	IsPinned             bool
 	PinnedOrder          uint32
+	IsFavorite           bool
 	IsArchived           bool
 	IsMuted              bool
 	MuteEndTimestamp     int64
@@ -582,10 +583,8 @@ func (d *Daemon) PublishQRCode(code string, expiresAt time.Time) {
 
 func (d *Daemon) SubscribeDaemonEvents() (<-chan DaemonEvent, func()) {
 	id := d.nextSubID.Add(1)
-	ch := make(chan DaemonEvent, daemonSubscriberBuffer)
 
 	d.subMu.Lock()
-	d.daemonSubs[id] = ch
 	state := State(d.state.Load())
 	detail := d.lastDetail
 	latestHistorySync := d.latestHistorySync
@@ -593,8 +592,9 @@ func (d *Daemon) SubscribeDaemonEvents() (<-chan DaemonEvent, func()) {
 	for _, download := range d.mediaDownloads {
 		mediaDownloads = append(mediaDownloads, download)
 	}
-	d.subMu.Unlock()
-
+	ch := make(chan DaemonEvent, daemonSubscriberBuffer+1+len(mediaDownloads)+boolToInt(latestHistorySync != nil))
+	// Queue the replay before releasing the producer lock. Otherwise a live
+	// event can overtake this snapshot and regress the subscriber's state.
 	ch <- DaemonEvent{
 		Kind:          DaemonEventConnectionChanged,
 		State:         state,
@@ -609,6 +609,8 @@ func (d *Daemon) SubscribeDaemonEvents() (<-chan DaemonEvent, func()) {
 	for _, download := range mediaDownloads {
 		ch <- DaemonEvent{Kind: DaemonEventMediaDownloadChanged, MediaDownload: download}
 	}
+	d.daemonSubs[id] = ch
+	d.subMu.Unlock()
 
 	return ch, func() {
 		d.subMu.Lock()
@@ -619,25 +621,31 @@ func (d *Daemon) SubscribeDaemonEvents() (<-chan DaemonEvent, func()) {
 
 func (d *Daemon) SubscribeLoginEvents() (<-chan LoginEvent, func()) {
 	id := d.nextSubID.Add(1)
-	ch := make(chan LoginEvent, 32)
 
 	d.subMu.Lock()
-	d.loginSubs[id] = ch
 	state := State(d.state.Load())
 	detail := d.lastDetail
 	latestQR := d.latestQR
-	d.subMu.Unlock()
-
+	ch := make(chan LoginEvent, 2)
 	ch <- LoginEvent{Kind: LoginEventState, State: state, Detail: detail}
 	if latestQR != nil && time.Now().Before(latestQR.ExpiresAt) {
 		ch <- LoginEvent{Kind: LoginEventQR, QRCode: latestQR.Code, ExpiresAt: latestQR.ExpiresAt}
 	}
+	d.loginSubs[id] = ch
+	d.subMu.Unlock()
 
 	return ch, func() {
 		d.subMu.Lock()
 		delete(d.loginSubs, id)
 		d.subMu.Unlock()
 	}
+}
+
+func boolToInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func (d *Daemon) broadcastDaemonEvent(event DaemonEvent) {

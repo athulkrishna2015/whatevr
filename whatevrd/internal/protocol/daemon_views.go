@@ -60,6 +60,9 @@ func RegisterDaemonViews(s *Server, daemon *app.Daemon, store DaemonStore, actio
 	s.RegisterView("sync", syncView{daemon: daemon})
 	s.RegisterView("login", loginView{daemon: daemon})
 	s.RegisterView("chats", chatsView{daemon: daemon, lister: store, statuses: store})
+	if folders, ok := any(store).(FolderLister); ok {
+		s.RegisterView("chat_folders", foldersView{lister: folders})
+	}
 	s.RegisterView("chat", chatView{daemon: daemon, lister: store})
 	s.RegisterView("messages", messagesView{daemon: daemon, lister: store})
 	s.RegisterView("typing", typingView{daemon: daemon, resolver: store})

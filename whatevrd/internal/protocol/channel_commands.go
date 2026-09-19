@@ -136,3 +136,23 @@ func (h commandHandlers) channelMarkViewed(ctx context.Context, _ *conn, req req
 	}
 	return nil, mapCommandError(h.actions.MarkChannelViewed(ctx, strings.TrimSpace(p.ChannelID), p.ServerIDs))
 }
+
+type channelReactParams struct {
+	ChannelID string `json:"channel_id"`
+	ServerID  int64  `json:"server_id"`
+	Emoji     string `json:"emoji"`
+}
+
+func (h commandHandlers) channelReact(ctx context.Context, _ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p channelReactParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(p.ChannelID) == "" || p.ServerID <= 0 {
+		return nil, errorf(CodeInvalidParams, "channel_id and positive server_id are required")
+	}
+	return nil, mapCommandError(h.actions.ReactToChannelMessage(ctx, strings.TrimSpace(p.ChannelID), p.ServerID, p.Emoji))
+}

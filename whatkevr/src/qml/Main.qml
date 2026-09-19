@@ -19,7 +19,11 @@ Kirigami.ApplicationWindow {
     // page when not in chat mode.
     property var chatListPageItem: null
     property var conversationPageItem: null
+    property var workspacePageItem: null
     property var transientPageItem: null
+    // Secondary tabs share the same two-column shell. Pages are cached by URL
+    // so switching tabs changes the right column without rebuilding the chat
+    // list or reloading an already-open tab.
     // The chat id the settled navigation state must show ("" = chat list).
     // Every open/close intent writes it; applyNavTarget() applies it once the
     // column view has been still for a quiet period. The last intent always
@@ -44,6 +48,63 @@ Kirigami.ApplicationWindow {
         id: settingsView
 
         window: root
+    }
+
+    Connections {
+        target: Whatevr.Settings
+        function onAppLockChanged() {
+            if (Whatevr.Settings.appLocked)
+                settingsView.close()
+        }
+    }
+
+    Rectangle {
+        id: appLockOverlay
+        anchors.fill: parent
+        z: 10000
+        visible: Whatevr.Settings.appLocked
+        focus: visible
+        activeFocusOnTab: visible
+        color: Kirigami.Theme.backgroundColor
+
+        ColumnLayout {
+            anchors.centerIn: parent
+            width: Math.min(parent.width - Kirigami.Units.largeSpacing * 4,
+                            Kirigami.Units.gridUnit * 20)
+            spacing: Kirigami.Units.largeSpacing
+
+            Kirigami.Icon {
+                Layout.alignment: Qt.AlignHCenter
+                source: "object-locked-symbolic"
+                implicitWidth: Kirigami.Units.iconSizes.large
+                implicitHeight: implicitWidth
+            }
+            Kirigami.Heading {
+                Layout.alignment: Qt.AlignHCenter
+                text: Whatevr.I18n.i18nc("@title app lock", "Whatevr is locked")
+            }
+            QQC2.TextField {
+                id: unlockPin
+                Layout.fillWidth: true
+                echoMode: QQC2.TextInput.Password
+                placeholderText: Whatevr.I18n.i18nc("@info:placeholder app unlock PIN", "PIN")
+                onAccepted: unlockButton.clicked()
+                Component.onCompleted: if (appLockOverlay.visible) forceActiveFocus()
+            }
+            QQC2.Button {
+                id: unlockButton
+                Layout.alignment: Qt.AlignHCenter
+                text: Whatevr.I18n.i18nc("@action:button unlock app", "Unlock")
+                enabled: unlockPin.text.length > 0
+                onClicked: {
+                    if (Whatevr.Settings.unlockApp(unlockPin.text)) {
+                        unlockPin.clear()
+                    } else {
+                        unlockPin.selectAll()
+                    }
+                }
+            }
+        }
     }
 
     // Tray right-click menu (daemon `show_tray_menu` event). A top-level
@@ -94,6 +155,24 @@ Kirigami.ApplicationWindow {
                     onToggled: Whatevr.ProtocolController.setAppPreference("notifications_enabled", checked)
                 }
 
+                QQC2.Button {
+                    flat: true
+                    Layout.fillWidth: true
+                    text: Whatevr.I18n.i18nc("@action:inmenu mark all chats read from tray", "Mark all as read")
+                    onClicked: {
+                        trayMenuWindow.visible = false
+                        Whatevr.ProtocolController.markAllChatsRead()
+                    }
+                }
+
+                QQC2.CheckBox {
+                    id: muteNotificationsItem
+                    Layout.fillWidth: true
+                    text: Whatevr.I18n.i18nc("@action:inmenu mute desktop notifications", "Mute notifications")
+                    checked: !(Whatevr.ProtocolController.appPreferences.notifications_enabled ?? true)
+                    onToggled: Whatevr.ProtocolController.setAppPreference("notifications_enabled", !checked)
+                }
+
                 Kirigami.Separator {
                     Layout.fillWidth: true
                 }
@@ -109,6 +188,7 @@ Kirigami.ApplicationWindow {
 
         function showAt(sx, sy) {
             notificationsItem.checked = Whatevr.ProtocolController.appPreferences.notifications_enabled ?? true
+            muteNotificationsItem.checked = !notificationsItem.checked
             const screenW = Screen.desktopAvailableWidth > 0 ? Screen.desktopAvailableWidth : Screen.width
             const screenH = Screen.desktopAvailableHeight > 0 ? Screen.desktopAvailableHeight : Screen.height
             const w = trayMenuWindow.width
@@ -124,10 +204,13 @@ Kirigami.ApplicationWindow {
     // window scope so it fires regardless of which column has focus.
     Shortcut {
         sequences: [StandardKey.Preferences]
+        enabled: !Whatevr.Settings.appLocked
         onActivated: settingsView.open()
     }
 
     function openSettings(moduleId) {
+        if (Whatevr.Settings.appLocked)
+            return
         if (moduleId)
             settingsView.open(moduleId)
         else
@@ -207,15 +290,16 @@ Kirigami.ApplicationWindow {
     }
 
     Component {
-        id: conversationPaneComponent
+        id: workspacePaneComponent
 
-        ConversationPane {}
+        WorkspacePane {}
     }
 
     function destroyChatPages() {
         pageStack.clear()
-        if (conversationPageItem) {
-            conversationPageItem.destroy()
+        if (workspacePageItem) {
+            workspacePageItem.destroy()
+            workspacePageItem = null
             conversationPageItem = null
         }
         if (chatListPageItem) {
@@ -260,13 +344,14 @@ Kirigami.ApplicationWindow {
             }
         }
 
-        if (!conversationPageItem) {
-            const conversationPage = conversationPaneComponent.createObject(pageStack)
-            if (conversationPage) {
-                conversationPageItem = conversationPage
-                pageStack.push(conversationPage)
-                if (conversationPage.closeChatRequested) {
-                    conversationPage.closeChatRequested.connect(closeConversation)
+        if (!workspacePageItem) {
+            const workspacePage = workspacePaneComponent.createObject(pageStack)
+            if (workspacePage) {
+                workspacePageItem = workspacePage
+                conversationPageItem = workspacePage.conversationPane
+                pageStack.push(workspacePage)
+                if (workspacePage.closeChatRequested) {
+                    workspacePage.closeChatRequested.connect(closeConversation)
                 }
             }
         }
@@ -275,7 +360,19 @@ Kirigami.ApplicationWindow {
         // the actual selection so the very first wide -> single-column switch
         // shows the right column instead of an empty conversation pane.
         navTargetChatId = Whatevr.ProtocolController.selectedChatId
+        workspacePageItem.openConversation()
         pageStack.currentIndex = Whatevr.ProtocolController.hasSelectedChat ? 1 : 0
+        navProgrammaticIndexChange = false
+    }
+
+    function openWorkspace(tab) {
+        if (currentMode !== "chat") {
+            return
+        }
+        ensureChatPages()
+        navProgrammaticIndexChange = true
+        workspacePageItem.openTab(String(tab))
+        pageStack.currentIndex = 1
         navProgrammaticIndexChange = false
     }
 
@@ -284,6 +381,7 @@ Kirigami.ApplicationWindow {
             return
         }
         navTargetChatId = chatId || Whatevr.ProtocolController.selectedChatId
+        workspacePageItem.openConversation()
         navProgrammaticIndexChange = true
         pageStack.currentIndex = 1
         navProgrammaticIndexChange = false

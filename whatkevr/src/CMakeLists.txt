@@ -19,6 +19,8 @@ set(WHATKEVR_SOURCES
     models/protocolsearchmodel.h
     media/audioplayer.cpp
     media/audioplayer.h
+    media/audiorecorder.cpp
+    media/audiorecorder.h
     media/mpvcore.cpp
     media/mpvcore.h
     media/mpvvideoitem.cpp
@@ -52,6 +54,7 @@ set(WHATKEVR_SOURCES
 set(WHATKEVR_LINK_LIBRARIES
     Qt6::Core
     Qt6::Gui
+    Qt6::Multimedia
     Qt6::Network
     Qt6::OpenGL
     Qt6::Qml
@@ -95,6 +98,7 @@ target_include_directories(whatkevr PRIVATE ${WHATKEVR_INCLUDE_DIRS})
 
 set(WHATKEVR_QML_FILES
         qml/Main.qml
+        qml/WorkspacePane.qml
         qml/I18n.qml
         qml/Palette.qml
         qml/components/AvatarImage.qml

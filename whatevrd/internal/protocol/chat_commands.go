@@ -80,6 +80,29 @@ func (h commandHandlers) chatPin(ctx context.Context, _ *conn, req request) (any
 	return nil, mapCommandError(err)
 }
 
+type chatFavoriteParams struct {
+	ChatID   string `json:"chat_id"`
+	Favorite *bool  `json:"favorite"`
+}
+
+func (h commandHandlers) chatFavorite(ctx context.Context, _ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p chatFavoriteParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(p.ChatID) == "" {
+		return nil, errorf(CodeInvalidParams, "chat_id is required")
+	}
+	if p.Favorite == nil {
+		return nil, errorf(CodeInvalidParams, "favorite is required")
+	}
+	_, err := h.actions.SetChatFavorite(ctx, strings.TrimSpace(p.ChatID), *p.Favorite)
+	return nil, mapCommandError(err)
+}
+
 type chatArchiveParams struct {
 	ChatID   string `json:"chat_id"`
 	Archived *bool  `json:"archived"`

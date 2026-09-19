@@ -150,6 +150,37 @@ Kirigami.ScrollablePage {
                     persistentSelection: true
                 }
             }
+
+            QQC2.Menu {
+                id: logContextMenu
+
+                QQC2.MenuItem {
+                    text: Whatevr.I18n.i18nc("@action:menu copy log row", "Copy row")
+                    icon.name: "edit-copy-symbolic"
+                    onTriggered: Whatevr.ProtocolController.copyToClipboard(
+                        ((logDelegate.item.time || "") + " " + logDelegate.level.toUpperCase() + " "
+                         + (logDelegate.item.text || "")).trim())
+                }
+
+                QQC2.MenuItem {
+                    text: Whatevr.I18n.i18nc("@action:menu copy all logs", "Copy all")
+                    icon.name: "edit-copy-symbolic"
+                    onTriggered: {
+                        const lines = []
+                        for (let i = 0; i < logsList.count; ++i) {
+                            const entry = logsList.model.itemById(logsList.model.idAt(i))
+                            if (entry)
+                                lines.push(((entry.time || "") + " " + (entry.level || "") + " " + (entry.text || "")).trim())
+                        }
+                        Whatevr.ProtocolController.copyToClipboard(lines.join("\n"))
+                    }
+                }
+            }
+
+            TapHandler {
+                acceptedButtons: Qt.RightButton
+                onTapped: logContextMenu.popup()
+            }
         }
     }
 }

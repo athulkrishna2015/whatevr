@@ -75,7 +75,7 @@ Kirigami.ScrollablePage {
                 group = {
                     "senderId": senderId,
                     "senderName": sender.name || senderId,
-                    "avatarPath": sender.avatarPath || "",
+                    "avatarPath": sender.avatar_path || "",
                     "thumbPath": "",
                     "latest": 0,
                     "total": 0,
@@ -87,8 +87,8 @@ Kirigami.ScrollablePage {
             }
             // A later row of the same sender may carry an avatar the first one
             // lacked; keep the freshest non-empty value.
-            if (!group.avatarPath && sender.avatarPath) {
-                group.avatarPath = sender.avatarPath
+            if (!group.avatarPath && sender.avatar_path) {
+                group.avatarPath = sender.avatar_path
             }
             // Rows arrive newest-first, so the first media thumbnail seen is
             // the latest status's: it becomes the ring's picture.
@@ -230,6 +230,34 @@ Kirigami.ScrollablePage {
                     "senderId": statusDelegate.group.senderId,
                     "senderName": root.contactLabel(statusDelegate.group)
                 })
+            }
+
+            QQC2.Menu {
+                id: statusContextMenu
+
+                QQC2.MenuItem {
+                    text: statusDelegate.group.kept
+                        ? Whatevr.I18n.i18nc("@action:menu remove status archive", "Remove from archive")
+                        : Whatevr.I18n.i18nc("@action:menu archive statuses", "Archive statuses")
+                    icon.name: statusDelegate.group.kept ? "bookmark-remove-symbolic" : "bookmark-new-symbolic"
+                    onTriggered: Whatevr.ProtocolController.setStatusKeepSender(
+                        statusDelegate.group.senderId, !statusDelegate.group.kept)
+                }
+
+                QQC2.MenuItem {
+                    text: statusDelegate.group.muted
+                        ? Whatevr.I18n.i18nc("@action:menu show hidden statuses", "Show hidden statuses")
+                        : Whatevr.I18n.i18nc("@action:menu hide statuses", "Hide statuses")
+                    icon.name: statusDelegate.group.muted
+                        ? "notifications-symbolic" : "notifications-disabled-symbolic"
+                    onTriggered: Whatevr.ProtocolController.setStatusMuteSender(
+                        statusDelegate.group.senderId, !statusDelegate.group.muted)
+                }
+            }
+
+            TapHandler {
+                acceptedButtons: Qt.RightButton
+                onTapped: statusContextMenu.popup()
             }
 
             contentItem: RowLayout {

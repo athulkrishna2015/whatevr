@@ -55,6 +55,25 @@ ItemDelegate {
         }
     }
 
+    QQC2.Menu {
+        id: searchContextMenu
+        QQC2.MenuItem {
+            text: Whatevr.I18n.i18nc("@action:menu open search result", "Open")
+            onTriggered: root.clicked()
+        }
+        QQC2.MenuItem {
+            text: Whatevr.I18n.i18nc("@action:menu copy search result", "Copy text")
+            icon.name: "edit-copy-symbolic"
+            enabled: root.subtitle.length > 0
+            onTriggered: Whatevr.ProtocolController.copyToClipboard(root.subtitle)
+        }
+    }
+
+    TapHandler {
+        acceptedButtons: Qt.RightButton
+        onTapped: searchContextMenu.popup()
+    }
+
     contentItem: RowLayout {
         spacing: Kirigami.Units.largeSpacing
 

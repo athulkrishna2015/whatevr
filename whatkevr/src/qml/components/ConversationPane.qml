@@ -834,6 +834,7 @@ Kirigami.Page {
             Layout.fillWidth: true
             visible: Whatevr.ProtocolController.hasSelectedChat
             enabledForChat: Whatevr.ProtocolController.composerEnabled
+            opacity: Whatevr.ProtocolController.selectedChatCanSend ? 1 : 0.72
             sending: Whatevr.ProtocolController.sendInFlight
             errorText: Whatevr.ProtocolController.composerErrorText
             replyToMessageId: root.replyToMessageId

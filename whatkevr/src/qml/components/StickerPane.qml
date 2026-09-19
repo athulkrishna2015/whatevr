@@ -444,10 +444,28 @@ Item {
 
                     MouseArea {
                         anchors.fill: parent
-                        acceptedButtons: Qt.LeftButton
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
                         hoverEnabled: false
 
-                        onClicked: mouse => {
+                        QQC2.Menu {
+                            id: stickerContextMenu
+
+                            QQC2.MenuItem {
+                                text: stickerTile.item.favorite === true
+                                    ? Whatevr.I18n.i18nc("@action:menu unfavorite sticker", "Remove favorite")
+                                    : Whatevr.I18n.i18nc("@action:menu favorite sticker", "Add to favorites")
+                                icon.name: "starred-symbolic"
+                                onTriggered: pane.stickers.setStickerFavorite(
+                                    stickerTile.cacheKey, "", stickerTile.item.favorite !== true)
+                            }
+                        }
+
+                        onPressed: mouse => {
+                            if (mouse.button === Qt.RightButton) {
+                                stickerContextMenu.popup()
+                                mouse.accepted = true
+                                return
+                            }
                             stickerGrid.currentIndex = stickerTile.index
                             pane.sendSticker(stickerTile.cacheKey, (mouse.modifiers & Qt.ControlModifier) !== 0)
                             mouse.accepted = true

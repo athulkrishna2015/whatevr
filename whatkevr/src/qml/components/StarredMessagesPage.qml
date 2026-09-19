@@ -142,6 +142,26 @@ Kirigami.ScrollablePage {
             }
 
             onClicked: root.showInChat(starredDelegate.row.chatId, starredDelegate.row.messageId)
+
+            QQC2.Menu {
+                id: starredContextMenu
+                QQC2.MenuItem {
+                    text: Whatevr.I18n.i18nc("@action:menu unstar message", "Remove star")
+                    icon.name: "starred-symbolic"
+                    onTriggered: Whatevr.ProtocolController.setMessageStarred(
+                        starredDelegate.row.messageId, false)
+                }
+                QQC2.MenuItem {
+                    text: Whatevr.I18n.i18nc("@action:menu show starred message", "Show in chat")
+                    icon.name: "go-jump-symbolic"
+                    onTriggered: root.showInChat(starredDelegate.row.chatId, starredDelegate.row.messageId)
+                }
+            }
+
+            TapHandler {
+                acceptedButtons: Qt.RightButton
+                onTapped: starredContextMenu.popup()
+            }
         }
     }
 }

@@ -49,6 +49,7 @@ type chatsView struct {
 type chatsParams struct {
 	Filter   string `json:"filter"`
 	Archived bool   `json:"archived"`
+	FolderID *int64 `json:"folder_id"`
 }
 
 type chatView struct {
@@ -104,7 +105,7 @@ func (v chatsView) Open(params json.RawMessage, invalidate func()) (ViewSession,
 	}
 	kind, ok := normalizeChatFilter(p.Filter)
 	if !ok {
-		return nil, nil, errorf(CodeInvalidParams, "filter must be one of all, direct, groups, unread")
+		return nil, nil, errorf(CodeInvalidParams, "filter must be one of all, direct, groups, unread, favorite")
 	}
 
 	events, cancel := v.daemon.SubscribeDaemonEvents()
@@ -112,7 +113,7 @@ func (v chatsView) Open(params json.RawMessage, invalidate func()) (ViewSession,
 	s := &chatsSession{
 		lister:       v.lister,
 		statuses:     v.statuses,
-		filter:       store.ChatListFilter{Kind: kind, Archived: p.Archived},
+		filter:       store.ChatListFilter{Kind: kind, Archived: p.Archived, FolderID: p.FolderID},
 		eventsCancel: cancel,
 		ctx:          ctx,
 		cancelCtx:    cancelCtx,
@@ -132,6 +133,8 @@ func normalizeChatFilter(filter string) (string, bool) {
 		return store.ChatFilterGroups, true
 	case store.ChatFilterUnread:
 		return store.ChatFilterUnread, true
+	case store.ChatFilterFavorite:
+		return store.ChatFilterFavorite, true
 	default:
 		return "", false
 	}
@@ -190,6 +193,7 @@ type chatItem struct {
 	Unread               int32  `json:"unread"`
 	Pinned               bool   `json:"pinned"`
 	PinnedOrder          uint32 `json:"pinned_order,omitempty"`
+	Favorite             bool   `json:"favorite"`
 	Archived             bool   `json:"archived"`
 	Muted                bool   `json:"muted"`
 	MuteEndTimestamp     int64  `json:"mute_end_timestamp,omitempty"`
@@ -348,6 +352,7 @@ func chatItemFromStore(c store.Chat) chatItem {
 		Unread:               c.UnreadCount,
 		Pinned:               c.IsPinned,
 		PinnedOrder:          c.PinnedOrder,
+		Favorite:             c.IsFavorite,
 		Archived:             c.IsArchived,
 		Muted:                c.IsMuted,
 		MuteEndTimestamp:     c.MuteEndTimestamp,

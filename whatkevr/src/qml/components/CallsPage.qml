@@ -106,6 +106,21 @@ Kirigami.ScrollablePage {
                     onClicked: Whatevr.ProtocolController.rejectCall(callDelegate.item.chat_id)
                 }
             }
+
+            QQC2.Menu {
+                id: callContextMenu
+
+                QQC2.MenuItem {
+                    text: Whatevr.I18n.i18nc("@action:menu reject call", "Reject call")
+                    icon.name: "call-stop-symbolic"
+                    onTriggered: Whatevr.ProtocolController.rejectCall(callDelegate.item.chat_id)
+                }
+            }
+
+            TapHandler {
+                acceptedButtons: Qt.RightButton
+                onTapped: callContextMenu.popup()
+            }
         }
     }
 }

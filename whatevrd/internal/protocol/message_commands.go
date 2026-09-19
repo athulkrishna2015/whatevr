@@ -4,10 +4,41 @@ import (
 	"context"
 	"math"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"whatevrd/internal/app"
 )
+
+type scheduleTextParams struct {
+	ChatID string `json:"chat_id"`
+	Text   string `json:"text"`
+	SendAt int64  `json:"send_at"`
+}
+
+func (h commandHandlers) scheduleText(_ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p scheduleTextParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(p.ChatID) == "" || strings.TrimSpace(p.Text) == "" {
+		return nil, errorf(CodeInvalidParams, "chat_id and text are required")
+	}
+	if utf8.RuneCountInString(p.Text) > maxCommandTextRunes {
+		return nil, errorf(CodeInvalidParams, "text must be <= %d characters", maxCommandTextRunes)
+	}
+	if p.SendAt <= 0 {
+		return nil, errorf(CodeInvalidParams, "send_at must be a Unix timestamp")
+	}
+	id, err := h.actions.ScheduleText(context.Background(), strings.TrimSpace(p.ChatID), p.Text, time.Unix(p.SendAt, 0))
+	if perr := mapCommandError(err); perr != nil {
+		return nil, perr
+	}
+	return map[string]any{"scheduled_id": id}, nil
+}
 
 type sendTextParams struct {
 	ChatID   string   `json:"chat_id"`

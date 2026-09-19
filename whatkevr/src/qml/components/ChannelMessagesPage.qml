@@ -21,6 +21,30 @@ Kirigami.ScrollablePage {
     Component.onCompleted: Whatevr.ProtocolController.openChannelMessages(root.channelJid, root.channelName)
     Component.onDestruction: Whatevr.ProtocolController.closeChannelMessages()
 
+    function markVisibleViewed() {
+        const model = Whatevr.ProtocolController.channelMessagesModel
+        const ids = []
+        if (!model)
+            return
+        for (let i = 0; i < model.count; ++i) {
+            const item = model.itemById(model.idAt(i))
+            if (item && Number(item.server_id) > 0)
+                ids.push(Number(item.server_id))
+        }
+        if (ids.length > 0)
+            Whatevr.ProtocolController.markChannelViewed(root.channelJid, ids)
+    }
+
+    Connections {
+        target: Whatevr.ProtocolController.channelMessagesModel
+        ignoreUnknownSignals: true
+        function onReadyChanged() {
+            if (Whatevr.ProtocolController.channelMessagesModel.ready)
+                root.markVisibleViewed()
+        }
+        function onCountChanged() { root.markVisibleViewed() }
+    }
+
     actions: [
         Kirigami.Action {
             icon.name: "list-remove-symbolic"
@@ -122,6 +146,35 @@ Kirigami.ScrollablePage {
                     font.italic: true
                     visible: (msgDelegate.item.media_kind || "").length > 0
                 }
+            }
+
+            QQC2.Menu {
+                id: messageContextMenu
+
+                QQC2.MenuItem {
+                    text: Whatevr.I18n.i18nc("@action:menu copy channel message", "Copy text")
+                    icon.name: "edit-copy-symbolic"
+                    enabled: (msgDelegate.item.text || "").length > 0
+                    onTriggered: Whatevr.ProtocolController.copyToClipboard(msgDelegate.item.text || "")
+                }
+                QQC2.MenuSeparator {}
+                QQC2.MenuItem {
+                    text: Whatevr.I18n.i18nc("@action:menu react to channel message", "Like")
+                    icon.name: "heart-symbolic"
+                    onTriggered: Whatevr.ProtocolController.reactToChannelMessage(
+                        root.channelJid, msgDelegate.item.server_id || 0, "❤️")
+                }
+                QQC2.MenuItem {
+                    text: Whatevr.I18n.i18nc("@action:menu remove channel reaction", "Remove reaction")
+                    icon.name: "edit-clear-symbolic"
+                    onTriggered: Whatevr.ProtocolController.reactToChannelMessage(
+                        root.channelJid, msgDelegate.item.server_id || 0, "")
+                }
+            }
+
+            TapHandler {
+                acceptedButtons: Qt.RightButton
+                onTapped: messageContextMenu.popup()
             }
         }
     }

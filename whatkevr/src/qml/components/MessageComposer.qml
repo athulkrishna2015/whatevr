@@ -33,6 +33,7 @@ Frame {
     // View-once arms the next attach only; it resets after every send. The
     // daemon rejects it for kinds with no view-once form (documents etc.).
     property bool viewOnceSend: false
+    property var recorder: null
 
     // Inline suggestion state, shared by the `:keyword` emoji bar and the `@`
     // mention bar. suggestionMode selects which kind the current results are.
@@ -516,6 +517,8 @@ Frame {
 
     onEnabledForChatChanged: {
         if (!enabledForChat) {
+            if (root.recorder && root.recorder.recording)
+                root.recorder.cancel()
             root.setComposing(false)
             emojiPicker.close()
             root.hideSuggestions()
@@ -706,6 +709,37 @@ Frame {
         RowLayout {
             Layout.fillWidth: true
             spacing: Kirigami.Units.smallSpacing
+
+            ToolButton {
+                id: recordButton
+                visible: !root.editing
+                icon.name: recorder && recorder.recording ? "media-playback-stop-symbolic" : "audio-input-microphone-symbolic"
+                text: recorder && recorder.recording
+                      ? Whatevr.I18n.i18nc("@action:button stop voice recording", "Stop recording")
+                      : Whatevr.I18n.i18nc("@action:button record voice message", "Record voice message")
+                display: AbstractButton.IconOnly
+                enabled: root.enabledForChat && !root.sending
+                onClicked: {
+                    if (!root.recorder)
+                        root.recorder = recorderComponent.createObject(root)
+                    if (root.recorder.recording) {
+                        root.recorder.stop()
+                    } else {
+                        root.recorder.start()
+                    }
+                }
+                Layout.alignment: Qt.AlignVCenter
+            }
+
+            ToolButton {
+                visible: !root.editing
+                icon.name: "appointment-new-symbolic"
+                text: Whatevr.I18n.i18nc("@action:button schedule message", "Schedule message")
+                display: AbstractButton.IconOnly
+                enabled: root.enabledForChat && !root.sending && input.text.trim().length > 0
+                onClicked: scheduleDialog.open()
+                Layout.alignment: Qt.AlignVCenter
+            }
 
             ToolButton {
                 id: emojiButton
@@ -923,6 +957,55 @@ Frame {
         }
     }
 
+    Component {
+        id: recorderComponent
+        Whatevr.AudioRecorder {}
+    }
+
+    QQC2.Dialog {
+        id: scheduleDialog
+        title: Whatevr.I18n.i18nc("@title:dialog schedule message", "Schedule message")
+        modal: true
+        standardButtons: QQC2.Dialog.Ok | QQC2.Dialog.Cancel
+        ColumnLayout {
+            width: parent.width
+            QQC2.Label { text: Whatevr.I18n.i18nc("@info", "Choose when this message should be sent.") }
+            QQC2.SpinBox {
+                id: scheduleMinutes
+                from: 1
+                to: 60 * 24 * 30
+                value: 10
+                editable: true
+                textFromValue: value => value + " min"
+            }
+        }
+        onAccepted: {
+            Whatevr.ProtocolController.scheduleText(input.text, Math.floor(Date.now() / 1000) + scheduleMinutes.value * 60)
+            input.clear()
+            root.hideSuggestions()
+            root.replyConsumed()
+        }
+    }
+
+    Connections {
+        target: root.recorder
+        ignoreUnknownSignals: true
+        function onRecordingFinished(path) {
+            if (path.length > 0 && root.enabledForChat) {
+                Whatevr.ProtocolController.sendMedia(
+                    Whatevr.ProtocolController.localFileUrl(path), "", root.replyToMessageId, "voice", false)
+                root.recorder.resetAfterSend()
+            } else if (root.recorder) {
+                root.recorder.cancel()
+            }
+        }
+        function onErrorOccurred(message) {
+            console.warn("Voice recording failed:", message)
+            if (root.recorder)
+                root.recorder.cancel()
+        }
+    }
+
     ExpressionPicker {
         id: emojiPicker
 
@@ -1096,7 +1179,7 @@ Frame {
         ]
         fileMode: Platform.FileDialog.OpenFiles
         onAccepted: {
-            attachConfirmDialog.stage(files, "document", root.viewOnceSend)
+            attachConfirmDialog.stage(files, "document", false)
         }
     }
 
@@ -1187,21 +1270,27 @@ Frame {
         title: Whatevr.I18n.i18nc("@title:window", "Attach location")
         fileMode: Platform.FileDialog.OpenFile
         onAccepted: {
+            let sent = false
             try {
                 const req = new XMLHttpRequest()
                 req.open("GET", file, false)
                 req.send(null)
                 const data = JSON.parse(req.responseText)
+                if (!Number.isFinite(Number(data.lat)) || !Number.isFinite(Number(data.long)))
+                    throw new Error("location requires numeric lat and long")
                 root.setComposing(false)
                 Whatevr.ProtocolController.sendLocation(
-                    data.lat || 0, data.long || 0,
+                    Number(data.lat), Number(data.long),
                     data.name || "", data.address || "", root.replyToMessageId)
+                sent = true
             } catch (e) {
                 console.warn("Location file parse error:", e)
             }
-            root.replyConsumed()
-            input.clear()
-            root.hideSuggestions()
+            if (sent) {
+                root.replyConsumed()
+                input.clear()
+                root.hideSuggestions()
+            }
         }
     }
 }

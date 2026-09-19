@@ -7,6 +7,45 @@ PROTOCOL.md (stable at version 1: additive changes only).
 
 ### Fixed
 
+- Channel message subscriptions now use the daemon's `channel_id` parameter,
+  so followed-channel timelines load correctly again.
+- Channel posts now carry their server IDs on the wire and support add/remove
+  reactions through the pinned whatsmeow newsletter API.
+- Opening a channel timeline now sends viewed receipts for the loaded posts.
+- Status replies use the existing `status.reply` backend path; status text and
+  captions linkify HTTP(S) URLs, and GIF statuses animate in the viewer.
+- Status posting exposes the daemon-supported text background/font fields and
+  image/video/audio file types.
+- Status rows, channel rows/messages, calls, logs, stickers, media galleries,
+  starred messages, and search results now expose appropriate right-click menus.
+- Synced sticker favorite dimensions are no longer swapped, preventing distorted
+  sticker tiles after phone reconciliation.
+- Backup export and keyring passphrase storage are available from Storage & Cache
+  settings; restore remains an offline `whatevrd --restore` operation.
+- Media streams inherit the daemon lifecycle, sparse-file progress is clamped to
+  the declared size, and subscription snapshots cannot be overtaken by live events.
+- Status, Calls, Channels, Logs, and Starred views now share a persistent second
+  workspace column with the chat list instead of rebuilding layer pages on each
+  switch.
+- Archived chats expand inline downward rather than overlaying earlier rows.
+- Group composers are disabled for members when the group is configured for
+  admin-only sending.
+- Message Info shows sent, delivered, read, and played/listened timestamps,
+  including per-participant group lists.
+- Added a frontend app lock with salted PIN verification, lock-screen focus, and
+  settings/shortcut guards. It intentionally does not claim to encrypt the
+  daemon database or authenticate other same-user socket clients.
+- Status viewing now auto-loads media, plays videos inline, advances still
+  statuses after 30 seconds, and proceeds through the next status/person like
+  the mobile viewer.
+- Added Qt Multimedia desktop voice recording through the existing voice-media
+  send path.
+- Added durable one-shot text scheduling with a daemon worker and composer time
+  picker.
+- Added local chat favorites and daemon-owned custom folder assignment/filtering.
+- Added schedule/favorite/folder protocol documentation and corrected the chat
+  row scanner after the new favorite column migration.
+- GIF provider/search, multi-account, and live SQLCipher work remain deferred.
 - Chat export: "Export chat…" in the conversation menu writes the transcript
   (.txt, official export shape) via a save dialog.
 - Document sends keep their real filenames end to end (regression-tested);

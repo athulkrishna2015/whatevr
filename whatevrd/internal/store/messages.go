@@ -2412,11 +2412,12 @@ func getChatRow(ctx context.Context, queryer interface {
 	var chat Chat
 	var isGroup int
 	var isPinned int
+	var isFavorite int
 	var isArchived int
 	var isMuted int
 	var historyExhausted int
 	err := queryer.QueryRowContext(ctx, `
-		SELECT c.id, c.name, c.name_source, c.last_message, c.last_message_time, c.last_message_direction, c.last_message_status, c.unread_count, c.is_group, c.is_pinned, c.pinned_order, c.updated_at, c.is_archived, c.is_muted, c.mute_end_timestamp, c.history_exhausted,
+		SELECT c.id, c.name, c.name_source, c.last_message, c.last_message_time, c.last_message_direction, c.last_message_status, c.unread_count, c.is_group, c.is_pinned, c.pinned_order, c.is_favorite, c.updated_at, c.is_archived, c.is_muted, c.mute_end_timestamp, c.history_exhausted,
 		       COALESCE(NULLIF(a.local_path, ''), c.avatar_local_path), COALESCE(NULLIF(a.picture_id, ''), c.avatar_picture_id), COALESCE(NULLIF(a.status, ''), c.avatar_status), COALESCE(NULLIF(a.checked_at, 0), c.avatar_checked_at)
 		FROM chats c
 		LEFT JOIN avatars a ON a.subject_kind = 'chat' AND a.subject_id = c.id
@@ -2433,6 +2434,7 @@ func getChatRow(ctx context.Context, queryer interface {
 		&isGroup,
 		&isPinned,
 		&chat.PinnedOrder,
+		&isFavorite,
 		&chat.UpdatedAt,
 		&isArchived,
 		&isMuted,
@@ -2445,6 +2447,7 @@ func getChatRow(ctx context.Context, queryer interface {
 	)
 	chat.IsGroup = isGroup != 0
 	chat.IsPinned = isPinned != 0
+	chat.IsFavorite = isFavorite != 0
 	chat.IsArchived = isArchived != 0
 	chat.IsMuted = isMuted != 0
 	chat.HistoryExhausted = historyExhausted != 0
@@ -2613,6 +2616,7 @@ func scanChat(scanner interface{ Scan(...any) error }) (Chat, error) {
 	var chat Chat
 	var isGroup int
 	var isPinned int
+	var isFavorite int
 	var isArchived int
 	var isMuted int
 	var historyExhausted int
@@ -2628,6 +2632,7 @@ func scanChat(scanner interface{ Scan(...any) error }) (Chat, error) {
 		&isGroup,
 		&isPinned,
 		&chat.PinnedOrder,
+		&isFavorite,
 		&chat.UpdatedAt,
 		&isArchived,
 		&isMuted,
@@ -2640,6 +2645,7 @@ func scanChat(scanner interface{ Scan(...any) error }) (Chat, error) {
 	)
 	chat.IsGroup = isGroup != 0
 	chat.IsPinned = isPinned != 0
+	chat.IsFavorite = isFavorite != 0
 	chat.IsArchived = isArchived != 0
 	chat.IsMuted = isMuted != 0
 	chat.HistoryExhausted = historyExhausted != 0

@@ -17,11 +17,13 @@ Kirigami.Page {
     property bool searchBarVisible: false
 
     // Sidebar chat-type filter: 0 = Home (all), 1 = DMs, 2 = Groups,
-    // 3 = Unread. A daemon-side `chats` subscribe param, so changing it
+    // 3 = Unread, 4 = Favorites. A daemon-side `chats` subscribe param, so changing it
     // re-subscribes — the frontend never filters the list itself.
     property int activeFilter: 0
+    property int activeFolder: 0
     onActiveFilterChanged: Whatevr.ProtocolController.chatFilter = activeFilter
     Component.onCompleted: Whatevr.ProtocolController.chatFilter = activeFilter
+    onActiveFolderChanged: Whatevr.ProtocolController.chatFolder = activeFolder
 
     function hideSearch() {
         searchBarVisible = false
@@ -104,6 +106,8 @@ Kirigami.Page {
             Layout.fillHeight: true
             activeFilter: root.activeFilter
             onActiveFilterChanged: root.activeFilter = activeFilter
+            activeFolder: root.activeFolder
+            onActiveFolderChanged: root.activeFolder = activeFolder
         }
 
         ColumnLayout {
@@ -181,6 +185,7 @@ Kirigami.Page {
 
                 property string contextChatId: ""
                 property bool contextChatPinned: false
+                property bool contextChatFavorite: false
                 property bool contextChatArchived: false
                 property bool contextChatMuted: false
                 // Whether the collapsible "Archived" section is expanded.
@@ -251,6 +256,7 @@ Kirigami.Page {
                         initials: Initials.firstLast(String(chat.name || ""))
                         unreadCount: Number(chat.unread || 0)
                         isPinned: Boolean(chat.pinned || false)
+                        isFavorite: Boolean(chat.favorite || false)
                         isArchived: Boolean(chat.archived || false)
                         isMuted: Boolean(chat.muted || false)
                         archivedExpanded: chatList.archivedExpanded
@@ -276,9 +282,10 @@ Kirigami.Page {
                             })
                         }
                         onPinToggled: (id, pinned) => Whatevr.ProtocolController.setChatPinned(id, pinned)
-                        onContextMenuRequested: (id, pinned, archived, muted, x, y) => {
+                         onContextMenuRequested: (id, pinned, favorite, archived, muted, x, y) => {
                             chatList.contextChatId = id
-                            chatList.contextChatPinned = pinned
+                             chatList.contextChatPinned = pinned
+                             chatList.contextChatFavorite = favorite
                             chatList.contextChatArchived = archived
                             chatList.contextChatMuted = muted
                             // Collapse the hidden mute/unmute row before open() so the
@@ -300,8 +307,12 @@ Kirigami.Page {
                 // at the top of the list. Reusing chatRowDelegate keeps the
                 // rows identical; each archived row collapses to nothing until the
                 // section is expanded (the delegate's own archived-collapse logic).
+                headerPositioning: ListView.InlineHeader
                 header: Column {
                     width: chatList.width
+                    // Keep the archive section in normal list flow: expanded
+                    // rows must grow downward instead of covering rows above it.
+                    z: 1
 
                     ItemDelegate {
                         id: archivedHeader
@@ -310,7 +321,11 @@ Kirigami.Page {
                         visible: Whatevr.ProtocolController.archivedCount > 0
                         implicitHeight: visible ? Kirigami.Units.gridUnit * 2.0 : 0
                         padding: 0
-                        onClicked: chatList.archivedExpanded = !chatList.archivedExpanded
+                        onClicked: {
+                            chatList.archivedExpanded = !chatList.archivedExpanded
+                            if (chatList.archivedExpanded)
+                                chatList.positionViewAtBeginning()
+                        }
 
                         contentItem: RowLayout {
                             spacing: Kirigami.Units.largeSpacing
@@ -418,13 +433,36 @@ Kirigami.Page {
                     // second menu flashing. Closing instantly removes the ghost.
                     exit: Transition {}
 
-                    MenuItem {
+                     MenuItem {
                         text: chatList.contextChatPinned
                               ? Whatevr.I18n.i18nc("@action:menu", "Unpin chat")
                               : Whatevr.I18n.i18nc("@action:menu", "Pin chat")
                         icon.name: chatList.contextChatPinned ? "window-unpin" : "window-pin"
                         onTriggered: Whatevr.ProtocolController.setChatPinned(chatList.contextChatId, !chatList.contextChatPinned)
-                    }
+                      }
+
+                     MenuSeparator {}
+                     Repeater {
+                         model: Whatevr.ProtocolController.chatFoldersModel
+                         delegate: MenuItem {
+                             required property var item
+                             text: qsTr("Move to %1").arg(item.name)
+                             onTriggered: Whatevr.ProtocolController.assignChatFolder(
+                                 chatList.contextChatId, Number(item.id))
+                         }
+                     }
+                     MenuItem {
+                         text: qsTr("Remove from folder")
+                         onTriggered: Whatevr.ProtocolController.assignChatFolder(chatList.contextChatId, 0)
+                     }
+
+                     MenuItem {
+                         text: chatList.contextChatFavorite
+                               ? Whatevr.I18n.i18nc("@action:menu", "Remove from favorites")
+                               : Whatevr.I18n.i18nc("@action:menu", "Add to favorites")
+                         icon.name: "favorite"
+                         onTriggered: Whatevr.ProtocolController.setChatFavorite(chatList.contextChatId, !chatList.contextChatFavorite)
+                     }
 
                     MenuItem {
                         text: chatList.contextChatArchived

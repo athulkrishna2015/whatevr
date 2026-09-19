@@ -244,6 +244,7 @@ func (c *Client) Start(ctx context.Context) {
 	runCtx := c.replaceRunContextLocked(ctx)
 	c.startRunGoroutine(func() { c.runConnectionSupervisor(runCtx) })
 	c.startRunGoroutine(func() { c.runSendQueue(runCtx) })
+	c.startRunGoroutine(func() { c.runScheduledMessages(runCtx) })
 	c.startRunGoroutine(func() { c.runVideoPosterWorker(runCtx) })
 	c.startRunGoroutine(c.repairCachedWebPAlphaFlags)
 	c.startAvatarWorker(runCtx)

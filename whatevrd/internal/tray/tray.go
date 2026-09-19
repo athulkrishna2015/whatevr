@@ -118,6 +118,9 @@ func (s *statusItem) ContextMenu(x, y int32) *dbus.Error {
 	if s.activator != nil && s.activator.ShowTrayMenu(x, y) {
 		return nil
 	}
+	// A right-click with no connected frontend cannot render the in-app menu;
+	// cold-starting is the only useful fallback and the new frontend will show
+	// the complete menu as soon as it connects.
 	protocol.ColdStartApp()
 	return nil
 }

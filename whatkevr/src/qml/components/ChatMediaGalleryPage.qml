@@ -232,12 +232,35 @@ Kirigami.ScrollablePage {
                 }
 
                 TapHandler {
+                    acceptedButtons: Qt.LeftButton | Qt.RightButton
                     onTapped: {
+                        if (point.device && point.device.type === PointerDevice.Mouse
+                                && point.button === Qt.RightButton) {
+                            galleryContextMenu.popup()
+                            return
+                        }
                         // Move the keyboard's idea of "current" to whatever was
                         // clicked, so arrowing on from here starts in the right
                         // place.
                         grid.currentIndex = cell.model.index
                         cell.activate()
+                    }
+                }
+
+                QQC2.Menu {
+                    id: galleryContextMenu
+
+                    QQC2.MenuItem {
+                        text: Whatevr.I18n.i18nc("@action:menu save gallery media", "Save as…")
+                        icon.name: "document-save-symbolic"
+                        enabled: cell.localPath.length > 0
+                        onTriggered: Whatevr.ProtocolController.openLocalFile(cell.localPath)
+                    }
+                    QQC2.MenuItem {
+                        text: Whatevr.I18n.i18nc("@action:menu copy gallery filename", "Copy path")
+                        icon.name: "edit-copy-symbolic"
+                        enabled: cell.localPath.length > 0
+                        onTriggered: Whatevr.ProtocolController.copyToClipboard(cell.localPath)
                     }
                 }
             }

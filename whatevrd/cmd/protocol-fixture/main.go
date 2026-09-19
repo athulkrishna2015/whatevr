@@ -34,11 +34,17 @@ func (fixtureCommands) Logout(context.Context) error                     { retur
 func (fixtureCommands) MarkChatReadUpTo(context.Context, string, string) (appstore.Chat, error) {
 	return appstore.Chat{}, nil
 }
+func (fixtureCommands) MarkChatRead(context.Context, string) (appstore.Chat, error) {
+	return appstore.Chat{}, nil
+}
 func (fixtureCommands) MarkAllChatsRead(context.Context) (int, error) { return 0, nil }
 func (fixtureCommands) ExportChat(_ context.Context, chatID, path string) (string, error) {
 	return path, nil
 }
 func (fixtureCommands) SetChatPinned(context.Context, string, bool) (appstore.Chat, error) {
+	return appstore.Chat{}, nil
+}
+func (fixtureCommands) SetChatFavorite(context.Context, string, bool) (appstore.Chat, error) {
 	return appstore.Chat{}, nil
 }
 func (fixtureCommands) SetChatArchived(context.Context, string, bool) (appstore.Chat, error) {
@@ -56,6 +62,9 @@ func (fixtureCommands) EnsureDirectChat(_ context.Context, jid string) (appstore
 }
 func (fixtureCommands) SendText(_ context.Context, chatID, text, _ string, _ []string) (appstore.SavedTextMessage, error) {
 	return appstore.SavedTextMessage{Message: appstore.Message{ID: chatID + ":fixture-text", ChatID: chatID, Text: text}}, nil
+}
+func (fixtureCommands) ScheduleText(context.Context, string, string, time.Time) (int64, error) {
+	return 1, nil
 }
 func (fixtureCommands) SendMediaWithMentions(_ context.Context, chatID, path, caption, _ string, _ []string) (appstore.SavedTextMessage, error) {
 	return appstore.SavedTextMessage{Message: appstore.Message{ID: chatID + ":fixture-media", ChatID: chatID, Text: caption, MediaLocalPath: path}}, nil
@@ -199,6 +208,9 @@ func (fixtureCommands) FollowChannelByInvite(_ context.Context, invite string) (
 func (fixtureCommands) UnfollowChannel(context.Context, string) error            { return nil }
 func (fixtureCommands) SetChannelMuted(context.Context, string, bool) error      { return nil }
 func (fixtureCommands) MarkChannelViewed(context.Context, string, []int64) error { return nil }
+func (fixtureCommands) ReactToChannelMessage(context.Context, string, int64, string) error {
+	return nil
+}
 func (fixtureCommands) SetPrivacySetting(context.Context, string, string, bool) (app.PrivacySettings, error) {
 	return app.PrivacySettings{}, nil
 }

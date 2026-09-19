@@ -15,6 +15,8 @@ Status key: **have** · **new** (this cycle) · **missing** (planned, safe) ·
 
 - Text/image/video/GIF/voice/audio/document/location/contact/poll send and
   receive, replies, edits, forwards, reactions, view-once send: **have**.
+- Status replies, status text/caption links, status archive/hidden context menus,
+  and channel post reactions: **new**.
 - HD photo mode, document filename override: **have**.
 - Drag-and-drop send, multi-file attach dialogs: **new**.
 - Composer `*bold*`/`_italic_`/`~strike~` shortcuts (Ctrl+B/I/U),
@@ -22,7 +24,7 @@ Status key: **have** · **new** (this cycle) · **missing** (planned, safe) ·
 - Emoji + sticker panels, GIF *playback*: **have**; GIF *search*: **missing**.
 - Sticker creation from a photo: **missing** (no new deps wanted; ffmpeg path
   possible).
-- Desktop voice recording: **missing**.
+- Desktop voice recording: **missing** (file-based voice sending is **have**).
 - 2 GB/700 MB/5-minute media caps: server-enforced, **refused** to bypass.
 - Anti-delete messages (content kept + Deleted mark, toggleable):
   **new**. Ghost story viewing and kept deleted statuses: inherent (no viewed
@@ -57,12 +59,15 @@ Status key: **have** · **new** (this cycle) · **missing** (planned, safe) ·
 - Per-contact keep with an Archived section for expired statuses: **new**.
 - Channel posts route to the Channels tab (never chats): **new**.
 - Status editor extras (stickers/music/trim/mentions): **missing**.
+- Status text background/font controls, media status selection, animated GIF
+  playback, and status reply input: **new**.
 
 ## Groups, communities, channels
 
 - Group create/manage/members/invites/permissions: **have**.
 - Community directory + link/unlink: **have** (API-level; no browser tab).
 - Channels tab (follow/unfollow/mute/messages/views): **have**.
+- Channel message loading, older-history paging, viewed receipts, and post reactions: **new**.
 
 ## Privacy, settings, desktop
 
@@ -72,3 +77,23 @@ Status key: **have** · **new** (this cycle) · **missing** (planned, safe) ·
 - Typing-indicator toggle: **new** (passive omission).
 - Keyboard shortcuts page: **have** (extended this cycle).
 - Logs tab with failure surfacing: **have**.
+- Backup export and keyring passphrase controls in Storage settings: **new**.
+- Right-click menus on chats, channels, statuses, calls, logs, stickers,
+  galleries, starred messages, and search results: **new**.
+- Persistent two-column workspace for chat, status, calls, channels, logs and
+  starred views: **new**.
+- Group announce-mode composer lockout for non-admin members: **new**.
+- Message info with sent/delivered/read/played timestamps and participant
+  lists: **have**.
+- Frontend app lock with salted PIN verification: **new**. This is a UI privacy
+  gate, not live database encryption or daemon-socket authentication.
+- Notification mark-read and capability-gated inline reply actions: **new**.
+- Mobile-style status viewer autoplay, embedded video playback, timed stills,
+  and next-status/person progression: **new**.
+- Desktop voice recording: **new** — Qt Multimedia Ogg/Opus capture through the
+  existing `send.media(kind=voice)` path.
+- Scheduled one-shot text messages: **new** — durable daemon queue and composer
+  time picker.
+- Custom chat folders and local favorite-chat filtering: **new** — daemon-owned
+  persistence and chat-view filtering.
+- GIF search/provider: **missing** — provider and MP4 conversion remain.

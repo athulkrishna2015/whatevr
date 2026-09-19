@@ -167,6 +167,19 @@ func (c *Client) MarkChannelViewed(ctx context.Context, channelID string, server
 	return client.NewsletterMarkViewed(ctx, jid, ids)
 }
 
+// ReactToChannelMessage adds or removes the current user's reaction.
+func (c *Client) ReactToChannelMessage(ctx context.Context, channelID string, serverID int64, emoji string) error {
+	client, err := c.requireConnectedClient()
+	if err != nil {
+		return err
+	}
+	jid, err := c.parseChannelJID(channelID)
+	if err != nil {
+		return err
+	}
+	return client.NewsletterSendReaction(ctx, jid, types.MessageServerID(serverID), strings.TrimSpace(emoji), "")
+}
+
 // GetChannelMessages fetches a channel's recent messages live (never stored).
 // before pages older; 0 means latest.
 func (c *Client) GetChannelMessages(ctx context.Context, channelID string, count int, before int64) ([]app.ChannelMessage, error) {

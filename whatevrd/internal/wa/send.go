@@ -95,6 +95,16 @@ func (c *Client) SendText(ctx context.Context, chatID, text, replyToMessageID st
 	return saved, nil
 }
 
+func (c *Client) ScheduleText(ctx context.Context, chatID, text string, sendAt time.Time) (int64, error) {
+	if _, err := types.ParseJID(chatID); err != nil {
+		return 0, app.NewCommandError(app.CommandErrorInvalidArgument, "invalid chat_id: %v", err)
+	}
+	if strings.TrimSpace(text) == "" {
+		return 0, app.NewCommandError(app.CommandErrorInvalidArgument, "text is required")
+	}
+	return c.store.ScheduleText(ctx, chatID, text, sendAt)
+}
+
 func (c *Client) SetChatPresence(ctx context.Context, chatID string, composing bool) error {
 	client := c.currentClient()
 	if client == nil || !client.IsLoggedIn() {
@@ -1965,6 +1975,38 @@ func (c *Client) SetChatArchived(ctx context.Context, chatID string, archived bo
 		c.daemon.PublishChatUpdated(toDaemonChat(updatedChat))
 	}
 	return updatedChat, nil
+}
+
+// SetChatFavorite is a local-only chat preference; it is not synced to WhatsApp.
+func (c *Client) SetChatFavorite(ctx context.Context, chatID string, favorite bool) (appstore.Chat, error) {
+	chat, err := types.ParseJID(chatID)
+	if err != nil {
+		return appstore.Chat{}, app.NewCommandError(app.CommandErrorInvalidArgument, "invalid chat_id: %v", err)
+	}
+	updated, changed, err := c.store.UpdateChatFavoriteState(ctx, c.normalizeJIDForChat(ctx, chat).String(), favorite)
+	if err != nil {
+		return appstore.Chat{}, err
+	}
+	if changed {
+		c.daemon.PublishChatUpdated(toDaemonChat(updated))
+	}
+	return updated, nil
+}
+
+func (c *Client) CreateChatFolder(ctx context.Context, name string) (appstore.ChatFolder, error) {
+	return c.store.CreateChatFolder(ctx, name)
+}
+func (c *Client) RenameChatFolder(ctx context.Context, id int64, name string) error {
+	return c.store.RenameChatFolder(ctx, id, name)
+}
+func (c *Client) DeleteChatFolder(ctx context.Context, id int64) error {
+	return c.store.DeleteChatFolder(ctx, id)
+}
+func (c *Client) SetChatFolder(ctx context.Context, chatID string, folderID *int64) error {
+	if err := c.store.SetChatFolder(ctx, chatID, folderID); err != nil {
+		return err
+	}
+	return nil
 }
 
 // SetChatMuted mutes or unmutes a chat and syncs it to the device. A zero

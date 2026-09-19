@@ -213,7 +213,7 @@ noted; this inventory fixes the shape of the protocol, not every field name.
 | `connection` | none | object | daemon/WhatsApp state (`starting`, `need_login`, `connecting`, `online`, `reconnecting`, `offline`), retry info, pending outgoing count |
 | `login` | none | object | subscribing starts/attaches to the QR pairing flow when logged out; item carries `state` and current `qr` (`code`, `expires_at`). Phone-number pairing later adds a field, not a new mechanism |
 | `sync` | none | object | history sync progress: type, phase, percent, counts; `stalled` phase included |
-| `chats` | `filter` (`all`\|`direct`\|`groups`), `archived` (bool), `limit` | chat rows | full row per old `Chat` incl. preview, unread, mute/pin/archive, `history_exhausted`; typing indicators live in the `typing` view |
+| `chats` | `filter` (`all`\|`direct`\|`groups`\|`unread`\|`favorite`), `archived` (bool), `limit` | chat rows | full row per old `Chat` incl. preview, unread, mute/pin/favorite/archive, `history_exhausted`; typing indicators live in the `typing` view |
 | `chat` | `chat_id` | object | the same live chat row emitted by `chats`, independent of chat-list filters and windows |
 | `messages` | `chat_id`, `limit`, `anchor` (`latest` \| `unread` \| `{message_id}`) | message rows | subscribe meta returns `anchor_id` when anchored at unread; `remove` on delete-for-me; revocation is an upsert with `revoked: true` |
 | `typing` | none | one item per chat with anyone composing | id is the `chat_id`; `senders` (jid + display name; frontends compose the localized label); `remove` when the last sender stops. Global, unwindowed, and tiny: chat lists and conversation headers both read it, everyone else skips it |
@@ -261,7 +261,13 @@ correlation (e.g. to scroll to your own just-sent message when it upserts).
 | method | params | result |
 | --- | --- | --- |
 | `chat.mark_read` | `chat_id`, `up_to_message_id` | `{}` |
+| `chat.mark_all_read` | none | `{count}` |
 | `chat.pin` | `chat_id`, `pinned` | `{}` |
+| `chat.favorite` | `chat_id`, `favorite` | `{}` |
+| `chat_folder.create` | `name` | `{id}` |
+| `chat_folder.rename` | `folder_id`, `name` | `{}` |
+| `chat_folder.delete` | `folder_id` | `{}` |
+| `chat_folder.set_chat` | `chat_id`, `folder_id` (nullable) | `{}` |
 | `chat.archive` | `chat_id`, `archived` | `{}` |
 | `chat.mute` | `chat_id`, `muted`, `duration_secs` (0 = forever) | `{}` |
 | `chat.typing` | `chat_id`, `composing` | `{}` |
@@ -279,6 +285,7 @@ views.
 | method | params | result |
 | --- | --- | --- |
 | `send.text` | `chat_id`, `text`, `reply_to`, `mentions` (jids) | `{message_id}` |
+| `schedule.text` | `chat_id`, `text`, `send_at` (Unix seconds) | `{scheduled_id}`: durable one-shot text send |
 | `send.media` | `chat_id`, `path`, `caption`, `reply_to`, `mentions`, `kind` (`image`\|`video`\|`audio`\|`voice`\|`document`, empty auto-classifies from the file), `view_once` (photo/video/audio only), `filename` (document display-name override) | `{message_id}`: daemon copies the file into its cache immediately; the caller may delete its copy on return |
 | `send.sticker` | `chat_id`, `cache_key`, `reply_to` | `{message_id}` |
 | `message.react` | `message_id`, `emoji` ("" removes) | `{}` |
@@ -333,6 +340,18 @@ views.
 | method | params | result |
 | --- | --- | --- |
 | `call.reject` | `chat_id` | `{}`: declines the latest ringing call; silent no-op when none is ringing. Answering from the desktop is impossible (no media stack upstream), so reject + "answer on your phone" is the whole surface |
+
+**Channels**
+
+| method | params | result |
+| --- | --- | --- |
+| `channels.refresh` | none | `{count}` |
+| `channel.follow` | `channel_id` | `{}` |
+| `channel.follow_link` | `invite` | `{channel_id}` |
+| `channel.unfollow` | `channel_id` | `{}` |
+| `channel.mute` | `channel_id`, `muted` | `{}` |
+| `channel.mark_viewed` | `channel_id`, `server_ids` | `{}` |
+| `channel.react` | `channel_id`, `server_id`, `emoji` (empty removes) | `{}` |
 
 **Daemon**
 

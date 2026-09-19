@@ -101,6 +101,8 @@ class Settings final : public QObject
     // --- Emoji ---
     // Default skin tone applied to tone-capable emoji; 0 == neutral, 1..5 == light..dark.
     Q_PROPERTY(int defaultSkinTone READ defaultSkinTone WRITE setDefaultSkinTone NOTIFY defaultSkinToneChanged FINAL)
+    Q_PROPERTY(bool appLockEnabled READ appLockEnabled NOTIFY appLockChanged FINAL)
+    Q_PROPERTY(bool appLocked READ appLocked NOTIFY appLockChanged FINAL)
 
 public:
     enum Density {
@@ -185,6 +187,11 @@ public:
 
     [[nodiscard]] int defaultSkinTone() const;
     void setDefaultSkinTone(int tone);
+    [[nodiscard]] bool appLockEnabled() const;
+    [[nodiscard]] bool appLocked() const;
+    Q_INVOKABLE bool setAppLockPin(const QString &pin);
+    Q_INVOKABLE bool unlockApp(const QString &pin);
+    Q_INVOKABLE void lockApp();
 
     // Color-scheme list for the Appearance combo: each entry is a map with
     // "id" and "name". The system-default entry has an empty "id".
@@ -245,6 +252,7 @@ Q_SIGNALS:
     void rememberColumnWidthChanged();
     void chatListColumnWidthChanged();
     void defaultSkinToneChanged();
+    void appLockChanged();
     // Emitted after the media cache is cleared so QML re-queries the size.
     void cacheChanged();
 
@@ -280,4 +288,5 @@ private:
     bool m_rememberColumnWidth = true;
     int m_chatListColumnWidth = 0;
     int m_defaultSkinTone = 0;
+    bool m_appLocked = false;
 };

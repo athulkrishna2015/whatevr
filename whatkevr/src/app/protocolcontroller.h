@@ -79,6 +79,8 @@ class ProtocolController final : public QObject
     // no frontend-side filtering. loading/empty drive the list placeholders.
     Q_PROPERTY(QAbstractItemModel *chatsModel READ chatsModel CONSTANT FINAL)
     Q_PROPERTY(int chatFilter READ chatFilter WRITE setChatFilter NOTIFY chatFilterChanged FINAL)
+    Q_PROPERTY(QAbstractItemModel *chatFoldersModel READ chatFoldersModel CONSTANT FINAL)
+    Q_PROPERTY(int chatFolder READ chatFolder WRITE setChatFolder NOTIFY chatFolderChanged FINAL)
     Q_PROPERTY(bool chatsLoading READ chatsLoading NOTIFY chatsChanged FINAL)
     Q_PROPERTY(bool chatsEmpty READ chatsEmpty NOTIFY chatsChanged FINAL)
     // The list is windowed (DN6): the sidebar extends it as it scrolls instead
@@ -157,6 +159,7 @@ class ProtocolController final : public QObject
     // applied locally — they arrive back through the `messages` view upsert
     // like any other message.
     Q_PROPERTY(bool composerEnabled READ composerEnabled NOTIFY composerChanged FINAL)
+    Q_PROPERTY(bool selectedChatCanSend READ selectedChatCanSend NOTIFY composerChanged FINAL)
     Q_PROPERTY(bool sendInFlight READ sendInFlight NOTIFY composerChanged FINAL)
     Q_PROPERTY(QString composerErrorText READ composerErrorText NOTIFY composerChanged FINAL)
 
@@ -324,8 +327,11 @@ public:
     [[nodiscard]] QString qrExpiryText() const;
 
     [[nodiscard]] QAbstractItemModel *chatsModel() const;
+    [[nodiscard]] QAbstractItemModel *chatFoldersModel() const;
     [[nodiscard]] int chatFilter() const { return m_chatFilter; }
+    [[nodiscard]] int chatFolder() const { return m_chatFolder; }
     void setChatFilter(int filter);
+    void setChatFolder(int folder);
     [[nodiscard]] bool chatsLoading() const;
     [[nodiscard]] bool chatsEmpty() const;
     [[nodiscard]] bool chatsExhausted() const;
@@ -388,6 +394,7 @@ public:
     [[nodiscard]] Q_INVOKABLE QVariantMap directMessageReceipt() const;
 
     [[nodiscard]] bool composerEnabled() const;
+    [[nodiscard]] bool selectedChatCanSend() const;
     [[nodiscard]] bool sendInFlight() const { return m_sendInFlight; }
     [[nodiscard]] QString composerErrorText() const { return m_composerErrorText; }
 
@@ -461,8 +468,9 @@ public:
     // Maps to `status.mark_viewed`; the row upserts viewed through the view.
     Q_INVOKABLE void markStatusViewed(const QString &statusId);
     // Maps to `status.post` (text or a media file with an optional caption).
-    Q_INVOKABLE void postStatusText(const QString &text);
-    Q_INVOKABLE void postStatusMedia(const QString &fileUrl, const QString &caption);
+    Q_INVOKABLE void postStatusText(const QString &text, int background = 0, int font = 0);
+    Q_INVOKABLE void postStatusMedia(const QString &fileUrl, const QString &caption, int background = 0, int font = 0);
+    Q_INVOKABLE void replyToStatus(const QString &statusId, const QString &text);
     // Maps to `status.download`; the row upserts with media.path on success.
     Q_INVOKABLE void downloadStatus(const QString &statusId);
     // Maps to `status.keep_sender`; kept contacts grow an archived section.
@@ -496,6 +504,8 @@ public:
     Q_INVOKABLE void followChannel(const QString &jidOrLink);
     Q_INVOKABLE void unfollowChannel(const QString &jid);
     Q_INVOKABLE void muteChannel(const QString &jid, bool muted);
+    Q_INVOKABLE void reactToChannelMessage(const QString &channelId, qint64 serverId, const QString &emoji);
+    Q_INVOKABLE void markChannelViewed(const QString &channelId, const QVariantList &serverIds);
     // Group management for the group info card. Invite-link fetch copies the
     // link to the clipboard on success.
     Q_INVOKABLE void leaveGroup(const QString &chatId);
@@ -509,6 +519,8 @@ public:
     // export shape) to a local file. Failures surface through
     // messageActionFailed; success through chatExported.
     Q_INVOKABLE void exportChat(const QString &chatId, const QUrl &destUrl);
+    Q_INVOKABLE void exportBackup(const QUrl &destUrl, const QString &passphrase, bool useKeyring);
+    Q_INVOKABLE void setBackupPassphrase(const QString &passphrase);
     // Display fields (`messageId`, `chatId`, `chatName`, `senderName`,
     // `preview`, `timeText`, `isOutgoing`) derived from one daemon message-row
     // item. A pure function of its argument, so a delegate can call it on the
@@ -575,6 +587,7 @@ public:
     // daemon acks with an id only, the rendered message arrives via the
     // `messages` view. mentionedJids/replyToMessageId/caption may be empty.
     Q_INVOKABLE void sendText(const QString &text, const QString &replyToMessageId, const QStringList &mentionedJids);
+    Q_INVOKABLE void scheduleText(const QString &text, qint64 sendAt);
     // kind is "", "image", "video", "audio", "voice" or "document" ("" classifies
     // from the file); viewOnce sends photo/video/audio view-once. QML may keep
     // calling with three arguments — the defaults preserve the old behavior.
@@ -655,8 +668,13 @@ public:
     // Chat-list mutations, mapped to the daemon's `chat.*` commands (acks only;
     // the row change lands back through the `chats` view — no local state).
     Q_INVOKABLE void setChatPinned(const QString &chatId, bool pinned);
+    Q_INVOKABLE void setChatFavorite(const QString &chatId, bool favorite);
     Q_INVOKABLE void setChatArchived(const QString &chatId, bool archived);
     Q_INVOKABLE void setChatMuted(const QString &chatId, bool muted, int durationSecs);
+    Q_INVOKABLE void createChatFolder(const QString &name);
+    Q_INVOKABLE void renameChatFolder(qint64 id, const QString &name);
+    Q_INVOKABLE void deleteChatFolder(qint64 id);
+    Q_INVOKABLE void assignChatFolder(const QString &chatId, qint64 id);
 
     Q_INVOKABLE void selectChat(const QString &chatId);
     Q_INVOKABLE void retryMessages();
@@ -719,7 +737,8 @@ public:
     // Empty if XDG_RUNTIME_DIR is unset.
     [[nodiscard]] static QString daemonSocketPath();
 
-Q_SIGNALS:
+    Q_SIGNALS:
+    void chatFolderChanged();
     void stateChanged();
     void chatFilterChanged();
     void chatsChanged();
@@ -747,6 +766,7 @@ Q_SIGNALS:
     void remoteMediaSaved(const QString &destPath);
     // Answer to exportChat: the transcript reached the destination path.
     void chatExported(const QString &destPath);
+    void backupExported(const QString &destPath);
     /// Answer to streamMessageMedia: where a player can read this message from
     /// while it is still downloading.
     void mediaStreamReady(const QString &messageId, const QString &streamId, const QUrl &url);
@@ -831,7 +851,7 @@ private:
     // Clears the models first so a filter switch never briefly shows the old
     // filter's rows.
     void subscribeChats();
-    // "all" / "direct" / "groups" / "unread" for the current m_chatFilter (0/1/2/3).
+    // "all" / "direct" / "groups" / "unread" / "favorite" for m_chatFilter (0..4).
     [[nodiscard]] QString chatFilterName() const;
 
     // Recompute the derived history-sync strip state from the `sync` view item.
@@ -891,9 +911,11 @@ private:
     whatevr::proto::ObjectViewModel *m_loginModel = nullptr;
     whatevr::proto::CollectionViewModel *m_chatsModel = nullptr;
     whatevr::proto::CollectionViewModel *m_archivedModel = nullptr;
+    whatevr::proto::CollectionViewModel *m_chatFoldersModel = nullptr;
     whatevr::proto::CollectionViewModel *m_typingModel = nullptr;
     whatevr::proto::ObjectViewModel *m_syncModel = nullptr;
     whatevr::proto::ObjectViewModel *m_selectedChatModel = nullptr;
+    whatevr::proto::ObjectViewModel *m_groupPolicyModel = nullptr;
     whatevr::proto::CollectionViewModel *m_messagesModel = nullptr;
     whatevr::proto::CollectionViewModel *m_presenceModel = nullptr;
     whatevr::proto::CollectionViewModel *m_receiptsModel = nullptr;
@@ -923,10 +945,12 @@ private:
     whatevr::proto::Subscription *m_connectionSub = nullptr;
     whatevr::proto::Subscription *m_loginSub = nullptr;
     whatevr::proto::Subscription *m_chatsSub = nullptr;
+    whatevr::proto::Subscription *m_chatFoldersSub = nullptr;
     whatevr::proto::Subscription *m_archivedSub = nullptr;
     whatevr::proto::Subscription *m_typingSub = nullptr;
     whatevr::proto::Subscription *m_syncSub = nullptr;
     whatevr::proto::Subscription *m_selectedChatSub = nullptr;
+    whatevr::proto::Subscription *m_groupPolicySub = nullptr;
     whatevr::proto::Subscription *m_messagesSub = nullptr;
     whatevr::proto::Subscription *m_presenceSub = nullptr;
     whatevr::proto::Subscription *m_receiptsSub = nullptr;
@@ -950,6 +974,7 @@ private:
     whatevr::proto::Subscription *m_preferencesSub = nullptr;
     whatevr::proto::Subscription *m_selfSub = nullptr;
     int m_chatFilter = 0; // 0 = all, 1 = direct, 2 = groups, 3 = unread
+    int m_chatFolder = 0; // 0 = all folders, otherwise the folder id
     int m_typingRevision = 0;
 
     // Derived history-sync strip state (see recomputeHistorySync).

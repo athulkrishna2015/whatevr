@@ -17,6 +17,7 @@ ItemDelegate {
     property string initials: "?"
     property int unreadCount: 0
     property bool isPinned: false
+    property bool isFavorite: false
     property bool isArchived: false
     property bool isMuted: false
     // Threaded from the pane: archived rows collapse to nothing until the
@@ -70,7 +71,7 @@ ItemDelegate {
     // Avatar tapped while the sender has an unexpired status: open it.
     signal openStatusRequested(string chatId)
     signal pinToggled(string chatId, bool pinned)
-    signal contextMenuRequested(string chatId, bool pinned, bool archived, bool muted, real x, real y)
+    signal contextMenuRequested(string chatId, bool pinned, bool favorite, bool archived, bool muted, real x, real y)
 
     // Archived rows stay in the model (so the section header can count them) but
     // collapse to zero height while the "Archived" section is collapsed.
@@ -106,7 +107,7 @@ ItemDelegate {
 
         onPressed: mouse => {
             if (mouse.button === Qt.RightButton) {
-                root.contextMenuRequested(root.chatId, root.isPinned, root.isArchived, root.isMuted, mouse.x, mouse.y)
+                root.contextMenuRequested(root.chatId, root.isPinned, root.isFavorite, root.isArchived, root.isMuted, mouse.x, mouse.y)
                 mouse.accepted = true
             } else if ((mouse.modifiers & Qt.ControlModifier) && mouse.button === Qt.LeftButton) {
                 // Ctrl+click pops the conversation into its own window.

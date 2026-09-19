@@ -41,6 +41,7 @@ CenteredDialog {
     // owns their order (rule 3), which each section preserves.
     readonly property var readBy: receipts.filter(r => Number(r.read_ts_unix) > 0)
     readonly property var deliveredTo: receipts.filter(r => Number(r.read_ts_unix) <= 0 && Number(r.delivered_ts_unix) > 0)
+    readonly property var playedBy: receipts.filter(r => Number(r.played_ts_unix) > 0)
 
     title: Whatevr.I18n.i18nc("@title:dialog delivery details of a message", "Message Info")
     standardButtons: Kirigami.Dialog.Close
@@ -240,6 +241,16 @@ CenteredDialog {
         }
 
         StatusRow {
+            visible: !root.loading && root.errorText.length === 0 && !root.isGroup
+                     && Number(root.directReceipt.played_ts_unix) > 0
+            iconName: "qrc:/data/icons/checkmark-bold.svg"
+            doubleTick: true
+            iconColor: activePalette.highlight
+            label: Whatevr.I18n.i18nc("@label time the message was listened to", "Played")
+            value: root.formatTimestamp(root.directReceipt.played_ts_unix)
+        }
+
+        StatusRow {
             visible: !root.loading && root.errorText.length === 0
             iconName: root.senderDevice > 0 ? "computer-symbolic" : "smartphone-symbolic"
             label: Whatevr.I18n.i18nc("@label which client sent the message", "Sent from")
@@ -280,6 +291,23 @@ CenteredDialog {
                 required property var modelData
                 receipt: modelData
                 timestampKey: "read_ts_unix"
+            }
+        }
+
+        SectionHeading {
+            visible: root.isGroup && root.playedBy.length > 0
+            iconName: "qrc:/data/icons/checkmark-bold.svg"
+            doubleTick: true
+            iconColor: activePalette.highlight
+            label: Whatevr.I18n.i18nc("@title group members who listened", "Played by %1", root.playedBy.length)
+        }
+
+        Repeater {
+            model: root.isGroup ? root.playedBy : []
+            delegate: ParticipantRow {
+                required property var modelData
+                receipt: modelData
+                timestampKey: "played_ts_unix"
             }
         }
 

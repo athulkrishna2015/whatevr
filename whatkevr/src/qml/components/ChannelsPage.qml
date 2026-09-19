@@ -61,7 +61,34 @@ Kirigami.ScrollablePage {
                     Qt.resolvedUrl("ChannelMessagesPage.qml"), {
                         "channelJid": channelDelegate.item.jid || channelDelegate.item.id || "",
                         "channelName": channelDelegate.item.name || ""
-                    })
+                })
+            }
+
+            QQC2.Menu {
+                id: channelContextMenu
+
+                QQC2.MenuItem {
+                    text: channelDelegate.item.muted === true
+                        ? Whatevr.I18n.i18nc("@action:menu unmute channel", "Unmute channel")
+                        : Whatevr.I18n.i18nc("@action:menu mute channel", "Mute channel")
+                    icon.name: channelDelegate.item.muted === true
+                        ? "audio-volume-high-symbolic" : "audio-volume-muted-symbolic"
+                    onTriggered: Whatevr.ProtocolController.muteChannel(
+                        channelDelegate.item.jid || channelDelegate.item.id || "",
+                        channelDelegate.item.muted !== true)
+                }
+
+                QQC2.MenuItem {
+                    text: Whatevr.I18n.i18nc("@action:menu unfollow channel", "Unfollow channel")
+                    icon.name: "list-remove-symbolic"
+                    onTriggered: Whatevr.ProtocolController.unfollowChannel(
+                        channelDelegate.item.jid || channelDelegate.item.id || "")
+                }
+            }
+
+            TapHandler {
+                acceptedButtons: Qt.RightButton
+                onTapped: channelContextMenu.popup()
             }
 
             contentItem: RowLayout {

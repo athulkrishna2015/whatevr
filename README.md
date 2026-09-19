@@ -169,7 +169,7 @@ Now with that, here is the current feature map, this is for whatevrd+whatkevr.
 | Message search | ✅ | |
 | Chat search | ✅ | |
 | Contact search/new chat | ✅ | |
-| Voice messages | ✅ | Receive, playback and send (file-based; in-app recording pending) |
+| Voice messages | ✅ | Receive, playback, file sending and desktop microphone recording |
 | Audio playback | ✅ | |
 | Video playback | ✅ | |
 | View-once messages sending | ✅ | Photo, video and voice notes |
@@ -188,14 +188,29 @@ Now with that, here is the current feature map, this is for whatevrd+whatkevr.
 | Group management | ✅ | Create/leave/rename/photo/members/invite links via the group card; join-request approvals pending |
 | Community management | ✅ | Sub-group directory + link/unlink (daemon + protocol; UI pending) |
 | Calls | ✅ | Ringing tab with reject + missed-call log; answering impossible upstream (no media stack in whatsmeow) |
-| Status/stories | ✅ | Per-contact tab with viewer, post and save; replies and mute pending |
+| Status/stories | ✅ | Per-contact tab with viewer, post/save, text styling, media links, replies, archive/hidden sections and mute |
 | Settings UI | ✅ | |
 | Account/profile editing | ✅ | Includes privacy settings |
-| Import/export backups | ✅ | Encrypted bundles + offline restore via commands/CLI; settings UI pending |
+| Import/export backups | ✅ | Encrypted bundles + offline restore via commands/CLI; export and keyring controls in Storage settings |
 | Backup encryption + OS keyring | ✅ | AES-256-GCM bundles, passphrase in Secret Service |
 | Live DB encryption at rest | ❌ | SQLCipher TODO |
 | Daemon SNI (Tray) | ✅ | Connection state + unread indicator |
 | Debug logs | ✅ | Rotated log file + `daemon.logs` query |
+| Channels | ✅ | Followed-channel list, live message loading, older-history paging, viewed receipts, mute, right-click actions and channel reactions |
+| Clickable links | ✅ | Chat text, media captions and status text/captions open external URLs |
+| Context menus | ✅ | Chats, messages, statuses, channels, calls, logs, stickers, gallery, starred and search rows |
+| Persistent two-column workspace | ✅ | Chat list remains mounted while channels, status, calls, logs and starred views switch in the second column |
+| Group announcement permissions | ✅ | Non-admin composers are disabled when only admins may send |
+| Message info | ✅ | Sent/delivered/read/played times plus group participant lists |
+| Frontend app lock | ✅ | Salted PIN lock for the frontend; daemon/database encryption remains separate |
+| Mobile-style status viewer | ✅ | Auto-downloads on open, embedded video playback, 30-second stills, and automatic next-status/next-person progression |
+| Desktop voice recording | ✅ | Qt Multimedia Ogg/Opus recording through the existing voice send path |
+| Scheduled messages | ✅ | Durable one-shot text scheduling with composer time picker and daemon queue worker |
+| Custom chat folders/favorites | ✅ | Local daemon-owned favorite flag, folder assignment/filtering and folder CRUD protocol |
+| GIF search/provider | ❌ | Requires a provider/privacy configuration and GIF-to-MP4 send path |
+| Notification actions | ✅ | Open chat, mark as read, and inline reply when the desktop notification server advertises support |
+| Chat export | ✅ | Official `.txt` transcript export through the conversation menu |
+| Sticker sync | ✅ | Phone favorite synchronization, recent usage persistence and lazy pack/media hydration |
   
 </details>
 
@@ -214,7 +229,7 @@ C++20/QML on Qt 6 and Kirigami. A TUI and a scriptable
 CLI are wanted and unclaimed (see *Write a frontend* above); that work needs no
 changes to the daemon.
 
-Whatevr will be Linux-first for now until its stable. I am open to contributions for porting functionality to other platforms as long as they don't affect existing performance and Linux functionality significantly. 
+Whatevr will be Linux-first for now until it is stable. I am open to contributions for porting functionality to other platforms as long as they do not significantly affect existing performance and Linux functionality.
 
 
 ## The protocol is the point

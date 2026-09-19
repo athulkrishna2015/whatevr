@@ -5,12 +5,13 @@ import (
 	"database/sql"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/mattn/go-sqlite3"
 )
 
-const schemaVersion = 8
+const schemaVersion = 10
 const SQLiteDriverName = "whatevrd-sqlite"
 
 // SQLiteReadDriverName backs the read-only connection pool. Its ConnectHook
@@ -213,10 +214,16 @@ func (db *DB) migrate(ctx context.Context) error {
 			is_group INTEGER NOT NULL DEFAULT 0,
 			is_pinned INTEGER NOT NULL DEFAULT 0,
 			pinned_order INTEGER NOT NULL DEFAULT 0,
+			is_favorite INTEGER NOT NULL DEFAULT 0,
 			is_archived INTEGER NOT NULL DEFAULT 0,
 			is_muted INTEGER NOT NULL DEFAULT 0,
 			mute_end_timestamp INTEGER NOT NULL DEFAULT 0,
 			history_exhausted INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE TABLE IF NOT EXISTS chat_folders (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL UNIQUE,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch())
 		)`,
 		`CREATE TABLE IF NOT EXISTS messages (
 			id TEXT PRIMARY KEY,
@@ -359,6 +366,14 @@ func (db *DB) migrate(ctx context.Context) error {
 			sender_id TEXT PRIMARY KEY,
 			muted_at INTEGER NOT NULL DEFAULT (unixepoch())
 		)`,
+		`CREATE TABLE IF NOT EXISTS scheduled_messages (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			chat_id TEXT NOT NULL,
+			text TEXT NOT NULL,
+			send_at INTEGER NOT NULL,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch())
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_scheduled_messages_send_at ON scheduled_messages(send_at, id)`,
 	}
 
 	for _, statement := range statements {
@@ -484,7 +499,18 @@ func (db *DB) migrate(ctx context.Context) error {
 			return err
 		}
 	}
+	if err := db.ensureChatFolderColumns(ctx); err != nil {
+		return err
+	}
 
+	return nil
+}
+
+func (db *DB) ensureChatFolderColumns(ctx context.Context) error {
+	_, err := db.conn.ExecContext(ctx, `ALTER TABLE chats ADD COLUMN folder_id INTEGER REFERENCES chat_folders(id) ON DELETE SET NULL`)
+	if err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return fmt.Errorf("add chats.folder_id: %w", err)
+	}
 	return nil
 }
 
@@ -816,6 +842,7 @@ func (db *DB) ensureChatPinColumns(ctx context.Context) error {
 	}{
 		{"is_pinned", `ALTER TABLE chats ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0`},
 		{"pinned_order", `ALTER TABLE chats ADD COLUMN pinned_order INTEGER NOT NULL DEFAULT 0`},
+		{"is_favorite", `ALTER TABLE chats ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0`},
 		{"is_archived", `ALTER TABLE chats ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0`},
 		{"is_muted", `ALTER TABLE chats ADD COLUMN is_muted INTEGER NOT NULL DEFAULT 0`},
 		{"mute_end_timestamp", `ALTER TABLE chats ADD COLUMN mute_end_timestamp INTEGER NOT NULL DEFAULT 0`},

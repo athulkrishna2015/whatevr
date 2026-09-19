@@ -12,8 +12,9 @@ import "Initials.js" as Initials
 Item {
     id: root
 
-    // 0 = Home (all), 1 = DMs, 2 = Groups, 3 = Unread. Two-way bound to the pane.
+    // 0 = Home, 1 = DMs, 2 = Groups, 3 = Unread, 4 = Favorites.
     property int activeFilter: 0
+    property int activeFolder: 0
 
     readonly property string userName: Whatevr.ProtocolController.currentUserName
 
@@ -62,6 +63,29 @@ Item {
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.text: text
             QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+        }
+
+
+        Repeater {
+            model: Whatevr.ProtocolController.chatFoldersModel
+            delegate: QQC2.ToolButton {
+                required property var item
+                Layout.alignment: Qt.AlignHCenter
+                icon.name: "folder-symbolic"
+                display: QQC2.AbstractButton.IconOnly
+                icon.width: root.railIconSize
+                icon.height: root.railIconSize
+                text: item.name
+                checkable: true
+                checked: root.activeFolder === Number(item.id)
+                onClicked: {
+                    root.activeFolder = Number(item.id)
+                    root.activeFilter = 0
+                }
+                QQC2.ToolTip.visible: hovered
+                QQC2.ToolTip.text: text
+                QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+            }
         }
 
         QQC2.ToolButton {
@@ -114,6 +138,21 @@ Item {
 
         QQC2.ToolButton {
             Layout.alignment: Qt.AlignHCenter
+            icon.name: "favorite"
+            display: QQC2.AbstractButton.IconOnly
+            icon.width: root.railIconSize
+            icon.height: root.railIconSize
+            text: Whatevr.I18n.i18nc("@action:button chat filter", "Favorites")
+            checkable: true
+            checked: root.activeFilter === 4
+            onClicked: root.activeFilter = 4
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.text: text
+            QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+        }
+
+        QQC2.ToolButton {
+            Layout.alignment: Qt.AlignHCenter
             icon.name: "starred-symbolic"
             display: QQC2.AbstractButton.IconOnly
             icon.width: root.railIconSize
@@ -122,10 +161,7 @@ Item {
             onClicked: {
                 // The page owns its own `starred` subscription for as long as
                 // it is on screen; pushing it is all this has to do.
-                applicationWindow().pageStack.layers.push(Qt.resolvedUrl("StarredMessagesPage.qml"), {
-                    chatId: "",
-                    headerTitle: Whatevr.I18n.i18nc("@title", "Starred messages")
-                })
+                applicationWindow().openWorkspace("starred")
             }
 
             QQC2.ToolTip.visible: hovered
@@ -143,7 +179,7 @@ Item {
             onClicked: {
                 // Like starred: the page owns its `status` subscription while
                 // on screen, grouped per contact inside the page itself.
-                applicationWindow().pageStack.layers.push(Qt.resolvedUrl("StatusPage.qml"))
+                applicationWindow().openWorkspace("status")
             }
 
             QQC2.ToolTip.visible: hovered
@@ -164,7 +200,7 @@ Item {
                 : Whatevr.I18n.i18nc("@action:button open the calls tab", "Calls")
             onClicked: {
                 // The page owns its `calls` subscription while on screen.
-                applicationWindow().pageStack.layers.push(Qt.resolvedUrl("CallsPage.qml"))
+                applicationWindow().openWorkspace("calls")
             }
 
             // Ringing dot while a call is coming in.
@@ -193,7 +229,7 @@ Item {
             icon.height: root.railIconSize
             text: Whatevr.I18n.i18nc("@action:button open the channels tab", "Channels")
             onClicked: {
-                applicationWindow().pageStack.layers.push(Qt.resolvedUrl("ChannelsPage.qml"))
+                applicationWindow().openWorkspace("channels")
             }
 
             QQC2.ToolTip.visible: hovered
@@ -227,7 +263,7 @@ Item {
             icon.height: root.railIconSize
             text: Whatevr.I18n.i18nc("@action:button open the daemon logs view", "Logs")
             onClicked: {
-                applicationWindow().pageStack.layers.push(Qt.resolvedUrl("LogsPage.qml"))
+                applicationWindow().openWorkspace("logs")
             }
 
             QQC2.ToolTip.visible: hovered

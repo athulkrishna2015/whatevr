@@ -24,6 +24,9 @@ Kirigami.ScrollablePage {
 
     property var statusIds: []
     property int currentIndex: -1
+    property var senderIds: []
+    property int senderIndex: -1
+    readonly property int stillDurationMs: 30 * 1000
 
     readonly property var currentItem: currentIndex >= 0 && currentIndex < statusIds.length
         ? Whatevr.ProtocolController.statusModel.itemById(statusIds[currentIndex])
@@ -48,6 +51,41 @@ Kirigami.ScrollablePage {
         } else if (root.currentIndex >= ids.length) {
             root.currentIndex = ids.length - 1
         }
+    }
+
+    function collectSenders() {
+        const model = Whatevr.ProtocolController.statusModel
+        const latest = {}
+        const count = model ? model.count : 0
+        for (let i = 0; i < count; ++i) {
+            const item = model.itemById(model.idAt(i))
+            if (item && item.sender && item.sender.id) {
+                const id = item.sender.id
+                latest[id] = Math.max(Number(latest[id] || 0), Number(item.timestamp || 0))
+            }
+        }
+        const ids = Object.keys(latest)
+        ids.sort((a, b) => latest[b] - latest[a])
+        root.senderIds = ids
+        root.senderIndex = Math.max(0, ids.indexOf(root.senderId))
+    }
+
+    function advanceStatus() {
+        if (root.currentIndex < root.statusIds.length - 1) {
+            root.currentIndex += 1
+            return
+        }
+        if (root.senderIndex >= 0 && root.senderIndex < root.senderIds.length - 1) {
+            root.senderIndex += 1
+            root.senderId = root.senderIds[root.senderIndex]
+            const next = root.currentItem
+            root.senderName = next && next.sender ? (next.sender.name || root.senderId) : root.senderId
+            root.currentIndex = -1
+            root.collectStatuses()
+            root.refreshCurrent()
+            return
+        }
+        applicationWindow().pageStack.layers.pop()
     }
 
     function markCurrentViewed() {
@@ -134,7 +172,14 @@ Kirigami.ScrollablePage {
         }
     }
 
+    function statusTextWithLinks(text) {
+        let escaped = (text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+        return escaped.replace(/(https?:\/\/[^\s<]+)/g,
+                               "<a href=\"$1\">$1</a>")
+    }
+
     function refreshCurrent() {
+        root.collectSenders()
         root.collectStatuses()
         root.stopStaleAudio()
         root.markCurrentViewed()
@@ -180,6 +225,18 @@ Kirigami.ScrollablePage {
         root.markCurrentViewed()
         root.ensureDownloaded()
         root.maybeAutoplay()
+        stillTimer.restart()
+    }
+
+    Timer {
+        id: stillTimer
+        interval: root.stillDurationMs
+        repeat: false
+        running: root.currentItem !== null
+                 && root.currentItem.kind !== "video"
+                 && root.currentItem.kind !== "voice"
+                 && root.currentItem.kind !== "audio"
+        onTriggered: root.advanceStatus()
     }
 
     header: RowLayout {
@@ -227,17 +284,40 @@ Kirigami.ScrollablePage {
             Layout.fillWidth: true
             Layout.topMargin: Kirigami.Units.gridUnit * 2
             visible: root.currentItem && root.currentItem.kind === "text"
-            text: root.currentItem ? (root.currentItem.text || "") : ""
+            text: root.currentItem ? root.statusTextWithLinks(root.currentItem.text || "") : ""
+            textFormat: Text.RichText
+            onLinkActivated: link => Qt.openUrlExternally(link)
             wrapMode: Text.WordWrap
             horizontalAlignment: Text.AlignHCenter
             font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.4
+        }
+
+        QQC2.TextField {
+            id: replyField
+            Layout.fillWidth: true
+            visible: root.currentItem !== null
+            placeholderText: Whatevr.I18n.i18nc("@info:placeholder reply to status", "Reply to this status…")
+            onAccepted: {
+                if (text.trim().length === 0 || !root.currentItem)
+                    return
+                Whatevr.ProtocolController.replyToStatus(root.currentItem.id, text)
+                clear()
+            }
+        }
+
+        QQC2.Button {
+            Layout.alignment: Qt.AlignRight
+            visible: replyField.visible
+            enabled: replyField.text.trim().length > 0
+            text: Whatevr.I18n.i18nc("@action:button reply to status", "Reply")
+            onClicked: replyField.accepted()
         }
 
         // Photo status: thumbnail-first — the sender thumbnail cached at
         // ingest renders instantly; the full image replaces it once the
         // auto-download (ensureDownloaded) lands. Load button stays for
         // retrying a failed fetch.
-        Image {
+        AnimatedImage {
             Layout.fillWidth: true
             Layout.preferredHeight: Math.min(implicitHeight > 0 ? implicitHeight : 0, root.height * 0.6)
             readonly property var statusMedia: root.currentItem ? root.currentItem.media : null
@@ -256,6 +336,17 @@ Kirigami.ScrollablePage {
             }
             fillMode: Image.PreserveAspectFit
             asynchronous: true
+            playing: root.currentItem && root.currentItem.kind === "gif"
+        }
+
+        QQC2.Label {
+            Layout.fillWidth: true
+            visible: root.currentItem && root.currentItem.kind !== "text"
+                     && (root.currentItem.text || "").length > 0
+            text: root.currentItem ? root.statusTextWithLinks(root.currentItem.text || "") : ""
+            textFormat: Text.RichText
+            wrapMode: Text.WordWrap
+            onLinkActivated: link => Qt.openUrlExternally(link)
         }
 
         QQC2.Button {
@@ -287,13 +378,19 @@ Kirigami.ScrollablePage {
                 asynchronous: true
             }
 
-            QQC2.Button {
-                anchors.centerIn: parent
-                enabled: parent.videoPath.length > 0
-                text: Whatevr.I18n.i18nc("@action:button play the status video", "Play")
-                icon.name: "media-playback-start-symbolic"
-                onClicked: root.playCurrentVideo()
+            VideoSurface {
+                anchors.fill: parent
+                visible: parent.videoPath.length > 0
+                messageId: root.currentItem ? root.currentItem.id : ""
+                source: parent.videoPath.length > 0
+                        ? Whatevr.ProtocolController.localFileUrl(parent.videoPath) : ""
+                engaged: visible
+                playing: visible
+                muted: false
+                loop: false
+                onEndOfFile: root.advanceStatus()
             }
+
         }
 
         // Voice/audio status: play through the shared AudioPlayer singleton
@@ -338,6 +435,17 @@ Kirigami.ScrollablePage {
                 text: MediaFormat.clockTime(parent.elapsedSecs) + " / " + MediaFormat.clockTime(parent.totalSecs)
                 font.pointSize: Kirigami.Theme.smallFont.pointSize
                 color: Kirigami.Theme.disabledTextColor
+            }
+
+            Connections {
+                target: Whatevr.AudioPlayer
+                function onPlayingChanged() {
+                    if (!Whatevr.AudioPlayer.playing
+                            && Whatevr.AudioPlayer.messageId === root.currentItem?.id
+                            && Whatevr.AudioPlayer.position > 0) {
+                        root.advanceStatus()
+                    }
+                }
             }
         }
 

@@ -79,9 +79,11 @@ type CommandActions interface {
 	Logout(context.Context) error
 
 	MarkChatReadUpTo(context.Context, string, string) (appstore.Chat, error)
+	MarkChatRead(context.Context, string) (appstore.Chat, error)
 	MarkAllChatsRead(context.Context) (int, error)
 	ExportChat(context.Context, string, string) (string, error)
 	SetChatPinned(context.Context, string, bool) (appstore.Chat, error)
+	SetChatFavorite(context.Context, string, bool) (appstore.Chat, error)
 	SetChatArchived(context.Context, string, bool) (appstore.Chat, error)
 	SetChatMuted(context.Context, string, bool, time.Duration) (appstore.Chat, error)
 	SetChatPresence(context.Context, string, bool) error
@@ -89,6 +91,7 @@ type CommandActions interface {
 	EnsureDirectChat(context.Context, string) (appstore.Chat, error)
 
 	SendText(context.Context, string, string, string, []string) (appstore.SavedTextMessage, error)
+	ScheduleText(context.Context, string, string, time.Time) (int64, error)
 	SendMediaWithMentions(context.Context, string, string, string, string, []string) (appstore.SavedTextMessage, error)
 	SendMediaWithOptions(context.Context, string, string, string, string, []string, app.MediaSendOptions) (appstore.SavedTextMessage, error)
 	SendPoll(context.Context, string, string, []string, bool) (appstore.SavedTextMessage, error)
@@ -148,6 +151,7 @@ type CommandActions interface {
 	UnfollowChannel(context.Context, string) error
 	SetChannelMuted(context.Context, string, bool) error
 	MarkChannelViewed(context.Context, string, []int64) error
+	ReactToChannelMessage(context.Context, string, int64, string) error
 
 	SetPrivacySetting(context.Context, string, string, bool) (app.PrivacySettings, error)
 	UpdateAppPreferences(context.Context, func(*app.AppPreferences)) (app.AppPreferences, error)
@@ -178,13 +182,19 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("chat.mark_read", backgroundNet(cmd.chatMarkRead, false))
 	s.RegisterCommand("chat.mark_all_read", backgroundNet(cmd.chatMarkAllRead, false))
 	s.RegisterCommand("chat.pin", backgroundNet(cmd.chatPin, false))
+	s.RegisterCommand("chat.favorite", backgroundNet(cmd.chatFavorite, false))
 	s.RegisterCommand("chat.archive", backgroundNet(cmd.chatArchive, false))
 	s.RegisterCommand("chat.mute", backgroundNet(cmd.chatMute, false))
+	s.RegisterCommand("chat_folder.create", backgroundNet(cmd.folderCreate, false))
+	s.RegisterCommand("chat_folder.rename", backgroundNet(cmd.folderRename, false))
+	s.RegisterCommand("chat_folder.delete", backgroundNet(cmd.folderDelete, false))
+	s.RegisterCommand("chat_folder.set_chat", backgroundNet(cmd.folderSetChat, false))
 	s.RegisterCommand("chat.typing", backgroundNet(cmd.chatTyping, false))
 	s.RegisterCommand("chat.request_older", backgroundNet(cmd.chatRequestOlder, false))
 	s.RegisterCommand("chat.ensure_direct", cmd.chatEnsureDirect)
 	s.RegisterCommand("chat.export", backgroundNet(cmd.chatExport, false))
 	s.RegisterCommand("send.text", cmd.sendText)
+	s.RegisterCommand("schedule.text", cmd.scheduleText)
 	s.RegisterCommand("send.media", cmd.sendMedia)
 	s.RegisterCommand("send.media_batch", cmd.sendMediaBatch)
 	s.RegisterCommand("send.sticker", backgroundNet(cmd.sendSticker, false))
@@ -236,6 +246,7 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("channel.unfollow", backgroundNet(cmd.channelUnfollow, false))
 	s.RegisterCommand("channel.mute", backgroundNet(cmd.channelMute, false))
 	s.RegisterCommand("channel.mark_viewed", backgroundNet(cmd.channelMarkViewed, false))
+	s.RegisterCommand("channel.react", backgroundNet(cmd.channelReact, false))
 	// Phase C3 settings/contact/sticker commands and transient queries.
 	s.RegisterCommand("privacy.set", backgroundNet(cmd.privacySet, false))
 	s.RegisterCommand("preferences.set", cmd.preferencesSet)

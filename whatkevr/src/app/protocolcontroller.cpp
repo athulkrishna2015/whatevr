@@ -256,10 +256,13 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
     m_archivedModel = new CollectionViewModel(this);
     connect(m_archivedModel, &CollectionViewModel::countChanged, this, &ProtocolController::archivedChanged);
     connect(m_archivedModel, &CollectionViewModel::readyChanged, this, &ProtocolController::archivedChanged);
+    m_chatFoldersModel = new CollectionViewModel(this);
 
     // The selected conversation has its own `chat` object view, independent of
     // the sidebar's current filter and loaded window.
     m_selectedChatModel = new ObjectViewModel(this);
+    m_groupPolicyModel = new ObjectViewModel(this);
+    connect(m_groupPolicyModel, &ObjectViewModel::valueChanged, this, [this] { Q_EMIT composerChanged(); });
     connect(m_selectedChatModel, &ObjectViewModel::valueChanged, this, [this] {
         if (!m_selectedChatId.isEmpty()) {
             if (m_phoneHistoryRequesting && selectedChatHistoryExhausted()) {
@@ -561,9 +564,11 @@ ProtocolController::~ProtocolController()
     delete m_loginSub;
     delete m_chatsSub;
     delete m_archivedSub;
+    delete m_chatFoldersSub;
     delete m_typingSub;
     delete m_syncSub;
     delete m_messagesSub;
+    delete m_groupPolicySub;
     delete m_presenceSub;
     delete m_receiptsSub;
     delete m_pinnedSub;
@@ -595,11 +600,13 @@ ProtocolController::~ProtocolController()
     m_loginSub = nullptr;
     m_chatsSub = nullptr;
     m_archivedSub = nullptr;
+    m_chatFoldersSub = nullptr;
     m_chatsExtendPending = false;
     m_archivedExtendPending = false;
     m_typingSub = nullptr;
     m_syncSub = nullptr;
     m_messagesSub = nullptr;
+    m_groupPolicySub = nullptr;
     m_presenceSub = nullptr;
     m_receiptsSub = nullptr;
     m_pinnedSub = nullptr;
@@ -641,6 +648,7 @@ void ProtocolController::start()
     // reports state otherwise).
     m_connectionSub = m_client->subscribe(QStringLiteral("connection"), {}, m_connectionModel);
     m_loginSub = m_client->subscribe(QStringLiteral("login"), {}, m_loginModel);
+    m_chatFoldersSub = m_client->subscribe(QStringLiteral("chat_folders"), {}, m_chatFoldersModel);
     subscribeChats();
     // The typing, sync and transfers views are global (unfiltered) and observed
     // for the whole session, like connection/login. `transfers` carries only
@@ -667,6 +675,8 @@ QString ProtocolController::chatFilterName() const
         return QStringLiteral("groups");
     case 3:
         return QStringLiteral("unread");
+    case 4:
+        return QStringLiteral("favorite");
     default:
         return QStringLiteral("all");
     }
@@ -691,14 +701,16 @@ void ProtocolController::subscribeChats()
     // way the active list does.
     m_chatsSub = m_client->subscribe(
         QStringLiteral("chats"),
-        {{QStringLiteral("filter"), chatFilterName()},
-         {QStringLiteral("archived"), false},
+         {{QStringLiteral("filter"), chatFilterName()},
+          {QStringLiteral("archived"), false},
+          {QStringLiteral("folder_id"), m_chatFolder > 0 ? QJsonValue(m_chatFolder) : QJsonValue()},
          {QStringLiteral("limit"), kChatPageSize}},
         m_chatsModel);
     m_archivedSub = m_client->subscribe(
         QStringLiteral("chats"),
-        {{QStringLiteral("filter"), chatFilterName()},
-         {QStringLiteral("archived"), true},
+         {{QStringLiteral("filter"), chatFilterName()},
+          {QStringLiteral("archived"), true},
+          {QStringLiteral("folder_id"), m_chatFolder > 0 ? QJsonValue(m_chatFolder) : QJsonValue()},
          {QStringLiteral("limit"), kChatPageSize}},
         m_archivedModel);
     // A rejected extend must not leave the list stuck refusing to ask again.
@@ -751,6 +763,19 @@ QAbstractItemModel *ProtocolController::chatsModel() const
     return m_chatsModel;
 }
 
+QAbstractItemModel *ProtocolController::chatFoldersModel() const
+{
+    return m_chatFoldersModel;
+}
+
+void ProtocolController::setChatFolder(int folder)
+{
+    if (folder < 0 || folder == m_chatFolder) return;
+    m_chatFolder = folder;
+    if (m_chatsSub) subscribeChats();
+    Q_EMIT chatFolderChanged();
+}
+
 QAbstractItemModel *ProtocolController::archivedChatsModel() const
 {
     return m_archivedModel;
@@ -780,7 +805,7 @@ bool ProtocolController::chatTyping(const QString &chatId) const
 
 void ProtocolController::setChatFilter(int filter)
 {
-    if (filter < 0 || filter > 3) {
+    if (filter < 0 || filter > 4) {
         filter = 0;
     }
     if (filter == m_chatFilter) {
@@ -821,6 +846,15 @@ void ProtocolController::setChatPinned(const QString &chatId, bool pinned)
                       {{QStringLiteral("chat_id"), chatId}, {QStringLiteral("pinned"), pinned}});
 }
 
+void ProtocolController::setChatFavorite(const QString &chatId, bool favorite)
+{
+    if (chatId.isEmpty()) {
+        return;
+    }
+    m_client->request(QStringLiteral("chat.favorite"),
+                      {{QStringLiteral("chat_id"), chatId}, {QStringLiteral("favorite"), favorite}});
+}
+
 void ProtocolController::setChatArchived(const QString &chatId, bool archived)
 {
     if (chatId.isEmpty()) {
@@ -839,6 +873,40 @@ void ProtocolController::setChatMuted(const QString &chatId, bool muted, int dur
                       {{QStringLiteral("chat_id"), chatId},
                        {QStringLiteral("muted"), muted},
                        {QStringLiteral("duration_secs"), durationSecs}});
+}
+
+void ProtocolController::createChatFolder(const QString &name)
+{
+    m_client->request(QStringLiteral("chat_folder.create"), {{QStringLiteral("name"), name}},
+                      [this](const QJsonObject &, const ProtocolError &) {
+                          delete m_chatFoldersSub;
+                          m_chatFoldersModel->onReset();
+                          m_chatFoldersSub = m_client->subscribe(QStringLiteral("chat_folders"), {}, m_chatFoldersModel);
+                      });
+}
+void ProtocolController::renameChatFolder(qint64 id, const QString &name)
+{
+    m_client->request(QStringLiteral("chat_folder.rename"), {{QStringLiteral("id"), id}, {QStringLiteral("name"), name}},
+                      [this](const QJsonObject &, const ProtocolError &) {
+                          delete m_chatFoldersSub;
+                          m_chatFoldersModel->onReset();
+                          m_chatFoldersSub = m_client->subscribe(QStringLiteral("chat_folders"), {}, m_chatFoldersModel);
+                      });
+}
+void ProtocolController::deleteChatFolder(qint64 id)
+{
+    m_client->request(QStringLiteral("chat_folder.delete"), {{QStringLiteral("id"), id}},
+                      [this](const QJsonObject &, const ProtocolError &) {
+                          delete m_chatFoldersSub;
+                          m_chatFoldersModel->onReset();
+                          m_chatFoldersSub = m_client->subscribe(QStringLiteral("chat_folders"), {}, m_chatFoldersModel);
+                      });
+}
+void ProtocolController::assignChatFolder(const QString &chatId, qint64 id)
+{
+    QJsonObject params{{QStringLiteral("chat_id"), chatId}};
+    if (id > 0) params.insert(QStringLiteral("folder_id"), id);
+    m_client->request(QStringLiteral("chat_folder.set_chat"), params);
 }
 
 // --- conversation + messages (D3b) ---------------------------------------
@@ -947,6 +1015,9 @@ void ProtocolController::setSelectedChat(const QString &chatId, const QString &a
         m_waitingForSelectedChatItem = false;
         delete m_selectedChatSub;
         m_selectedChatSub = nullptr;
+        delete m_groupPolicySub;
+        m_groupPolicySub = nullptr;
+        m_groupPolicyModel->onReset();
         m_selectedChatModel->onReset();
         if (!chatId.isEmpty()) {
             // Waiting on the `chat` view before asking for messages made every
@@ -967,6 +1038,10 @@ void ProtocolController::setSelectedChat(const QString &chatId, const QString &a
             m_waitingForSelectedChatItem = anchor.isEmpty() && resolvedAnchor.isEmpty();
             m_selectedChatSub = m_client->subscribe(
                 QStringLiteral("chat"), {{QStringLiteral("chat_id"), chatId}}, m_selectedChatModel);
+            if (chatId.endsWith(QStringLiteral("@g.us"))) {
+                m_groupPolicySub = m_client->subscribe(
+                    QStringLiteral("group"), {{QStringLiteral("chat_id"), chatId}}, m_groupPolicyModel);
+            }
             connect(m_selectedChatSub, &Subscription::failed, this,
                     [this, chatId](const QString &code, const QString &message) {
                         selectedChatLookupFailed(chatId, code, message);
@@ -1607,7 +1682,18 @@ QVariantMap ProtocolController::directMessageReceipt() const
 
 bool ProtocolController::composerEnabled() const
 {
-    return hasSelectedChat() && m_clientReady;
+    return hasSelectedChat() && m_clientReady && selectedChatCanSend();
+}
+
+bool ProtocolController::selectedChatCanSend() const
+{
+    if (!m_selectedChatId.endsWith(QStringLiteral("@g.us"))) {
+        return true;
+    }
+    const QVariantMap policy = m_groupPolicyModel->value();
+    const QString role = policy.value(QStringLiteral("my_role")).toString();
+    return !policy.value(QStringLiteral("announce")).toBool()
+           || role == QLatin1String("admin") || role == QLatin1String("superadmin");
 }
 
 void ProtocolController::dismissUnreadAnchor()
@@ -1624,7 +1710,7 @@ void ProtocolController::dismissUnreadAnchor()
 void ProtocolController::sendText(const QString &text, const QString &replyToMessageId, const QStringList &mentionedJids)
 {
     const QString trimmed = plainTextFromQtRichText(text).trimmed();
-    if (m_selectedChatId.isEmpty() || trimmed.isEmpty() || m_sendInFlight) {
+    if (m_selectedChatId.isEmpty() || trimmed.isEmpty() || m_sendInFlight || !selectedChatCanSend()) {
         return;
     }
 
@@ -1653,9 +1739,28 @@ void ProtocolController::sendText(const QString &text, const QString &replyToMes
     });
 }
 
+void ProtocolController::scheduleText(const QString &text, qint64 sendAt)
+{
+    const QString trimmed = plainTextFromQtRichText(text).trimmed();
+    if (m_selectedChatId.isEmpty() || trimmed.isEmpty() || sendAt <= QDateTime::currentSecsSinceEpoch()) {
+        return;
+    }
+    m_client->request(QStringLiteral("schedule.text"),
+                      {{QStringLiteral("chat_id"), m_selectedChatId},
+                       {QStringLiteral("text"), trimmed},
+                       {QStringLiteral("send_at"), sendAt}},
+                      [this](const QJsonObject &, const ProtocolError &error) {
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(error.message.isEmpty()
+                                                             ? i18nc("@info", "Unable to schedule message")
+                                                             : error.message);
+                          }
+                      });
+}
+
 void ProtocolController::sendMedia(const QString &fileUrl, const QString &caption, const QString &replyToMessageId, const QString &kind, bool viewOnce)
 {
-    if (m_selectedChatId.isEmpty() || fileUrl.isEmpty() || m_sendInFlight) {
+    if (m_selectedChatId.isEmpty() || fileUrl.isEmpty() || m_sendInFlight || !selectedChatCanSend()) {
         return;
     }
 
@@ -1700,7 +1805,7 @@ void ProtocolController::sendMedia(const QString &fileUrl, const QString &captio
 // that the single in-flight guard would drop after the first.
 void ProtocolController::sendMediaBatch(const QVariantList &fileUrls, const QString &caption, const QString &replyToMessageId, const QString &kind, bool viewOnce)
 {
-    if (m_selectedChatId.isEmpty() || fileUrls.isEmpty() || m_sendInFlight) {
+    if (m_selectedChatId.isEmpty() || fileUrls.isEmpty() || m_sendInFlight || !selectedChatCanSend()) {
         return;
     }
     QJsonArray files;
@@ -1834,7 +1939,7 @@ bool ProtocolController::sendClipboardImage(const QString &caption, const QStrin
 void ProtocolController::sendPoll(const QString &question, const QStringList &options, bool multiSelect, const QString &replyToMessageId)
 {
     const QString trimmed = question.trimmed();
-    if (m_selectedChatId.isEmpty() || trimmed.isEmpty() || options.isEmpty() || m_sendInFlight) {
+    if (m_selectedChatId.isEmpty() || trimmed.isEmpty() || options.isEmpty() || m_sendInFlight || !selectedChatCanSend()) {
         return;
     }
 
@@ -1872,7 +1977,7 @@ void ProtocolController::sendPoll(const QString &question, const QStringList &op
 
 void ProtocolController::sendContact(const QString &name, const QString &phone, const QString &replyToMessageId)
 {
-    if (m_selectedChatId.isEmpty() || name.trimmed().isEmpty() || phone.trimmed().isEmpty() || m_sendInFlight) {
+    if (m_selectedChatId.isEmpty() || name.trimmed().isEmpty() || phone.trimmed().isEmpty() || m_sendInFlight || !selectedChatCanSend()) {
         return;
     }
 
@@ -1902,7 +2007,7 @@ void ProtocolController::sendContact(const QString &name, const QString &phone, 
 
 void ProtocolController::sendLocation(double latitude, double longitude, const QString &name, const QString &address, const QString &replyToMessageId)
 {
-    if (m_selectedChatId.isEmpty() || (latitude == 0.0 && longitude == 0.0) || m_sendInFlight) {
+    if (m_selectedChatId.isEmpty() || (latitude == 0.0 && longitude == 0.0) || m_sendInFlight || !selectedChatCanSend()) {
         return;
     }
 
@@ -2659,12 +2764,14 @@ void ProtocolController::markStatusViewed(const QString &statusId)
                        i18nc("@info", "Unable to mark the status viewed"));
 }
 
-void ProtocolController::postStatusText(const QString &text)
+void ProtocolController::postStatusText(const QString &text, int background, int font)
 {
     if (text.trimmed().isEmpty()) {
         return;
     }
-    m_client->request(QStringLiteral("status.post"), {{QStringLiteral("text"), text}},
+    m_client->request(QStringLiteral("status.post"), {{QStringLiteral("text"), text},
+                                                       {QStringLiteral("background"), background},
+                                                       {QStringLiteral("font"), font}},
                       [this](const QJsonObject &, const ProtocolError &error) {
                           if (error.isError()) {
                               Q_EMIT messageActionFailed(error.message.isEmpty() ? i18nc("@info", "Unable to post the status")
@@ -2673,7 +2780,7 @@ void ProtocolController::postStatusText(const QString &text)
                       });
 }
 
-void ProtocolController::postStatusMedia(const QString &fileUrl, const QString &caption)
+void ProtocolController::postStatusMedia(const QString &fileUrl, const QString &caption, int background, int font)
 {
     const QUrl url(fileUrl);
     const QString filePath = url.isLocalFile() ? url.toLocalFile() : fileUrl;
@@ -2681,11 +2788,28 @@ void ProtocolController::postStatusMedia(const QString &fileUrl, const QString &
         return;
     }
     m_client->request(QStringLiteral("status.post"),
-                      {{QStringLiteral("path"), filePath}, {QStringLiteral("caption"), caption.trimmed()}},
+                      {{QStringLiteral("path"), filePath}, {QStringLiteral("caption"), caption.trimmed()},
+                       {QStringLiteral("background"), background}, {QStringLiteral("font"), font}},
                       [this](const QJsonObject &, const ProtocolError &error) {
                           if (error.isError()) {
                               Q_EMIT messageActionFailed(error.message.isEmpty() ? i18nc("@info", "Unable to post the status")
                                                                                  : error.message);
+                          }
+                      });
+}
+
+void ProtocolController::replyToStatus(const QString &statusId, const QString &text)
+{
+    if (statusId.trimmed().isEmpty() || text.trimmed().isEmpty()) {
+        return;
+    }
+    m_client->request(QStringLiteral("status.reply"),
+                      {{QStringLiteral("status_id"), statusId}, {QStringLiteral("text"), text.trimmed()}},
+                      [this](const QJsonObject &, const ProtocolError &error) {
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(error.message.isEmpty()
+                                                             ? i18nc("@info", "Unable to reply to the status")
+                                                             : error.message);
                           }
                       });
 }
@@ -2758,6 +2882,49 @@ void ProtocolController::exportChat(const QString &chatId, const QUrl &destUrl)
                               return;
                           }
                           Q_EMIT chatExported(result.value(QStringLiteral("path")).toString());
+                      });
+}
+
+void ProtocolController::exportBackup(const QUrl &destUrl, const QString &passphrase, bool useKeyring)
+{
+    if (!destUrl.isLocalFile()) {
+        Q_EMIT messageActionFailed(i18nc("@info", "Choose a local backup file"));
+        return;
+    }
+    const QString path = destUrl.toLocalFile();
+    if (path.isEmpty()) {
+        Q_EMIT messageActionFailed(i18nc("@info", "Choose a backup destination"));
+        return;
+    }
+    m_client->request(QStringLiteral("daemon.backup_export"),
+                      {{QStringLiteral("path"), path},
+                       {QStringLiteral("passphrase"), passphrase},
+                       {QStringLiteral("use_keyring"), useKeyring}},
+                      [this](const QJsonObject &result, const ProtocolError &error) {
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(error.message.isEmpty()
+                                                             ? i18nc("@info", "Unable to export backup")
+                                                             : error.message);
+                              return;
+                          }
+                          Q_EMIT backupExported(result.value(QStringLiteral("path")).toString());
+                      });
+}
+
+void ProtocolController::setBackupPassphrase(const QString &passphrase)
+{
+    if (passphrase.trimmed().isEmpty()) {
+        Q_EMIT messageActionFailed(i18nc("@info", "Enter a backup passphrase"));
+        return;
+    }
+    m_client->request(QStringLiteral("daemon.backup_set_passphrase"),
+                      {{QStringLiteral("passphrase"), passphrase}},
+                      [this](const QJsonObject &, const ProtocolError &error) {
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(error.message.isEmpty()
+                                                             ? i18nc("@info", "Unable to store backup passphrase")
+                                                             : error.message);
+                          }
                       });
 }
 
@@ -2966,6 +3133,51 @@ void ProtocolController::muteChannel(const QString &jid, bool muted)
     }
     m_client->request(QStringLiteral("channel.mute"),
                       {{QStringLiteral("jid"), jid}, {QStringLiteral("muted"), muted}});
+}
+
+void ProtocolController::reactToChannelMessage(const QString &channelId, qint64 serverId, const QString &emoji)
+{
+    if (channelId.trimmed().isEmpty() || serverId <= 0) {
+        return;
+    }
+    m_client->request(QStringLiteral("channel.react"),
+                      {{QStringLiteral("channel_id"), channelId},
+                       {QStringLiteral("server_id"), serverId},
+                       {QStringLiteral("emoji"), emoji}},
+                      [this](const QJsonObject &, const ProtocolError &error) {
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(error.message.isEmpty()
+                                                             ? i18nc("@info", "Unable to react to channel post")
+                                                             : error.message);
+                          }
+                      });
+}
+
+void ProtocolController::markChannelViewed(const QString &channelId, const QVariantList &serverIds)
+{
+    if (channelId.trimmed().isEmpty() || serverIds.isEmpty()) {
+        return;
+    }
+    QJsonArray ids;
+    for (const QVariant &value : serverIds) {
+        const qint64 id = value.toLongLong();
+        if (id > 0) {
+            ids.append(id);
+        }
+    }
+    if (ids.isEmpty()) {
+        return;
+    }
+    m_client->request(QStringLiteral("channel.mark_viewed"),
+                      {{QStringLiteral("channel_id"), channelId},
+                       {QStringLiteral("server_ids"), ids}},
+                      [this](const QJsonObject &, const ProtocolError &error) {
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(error.message.isEmpty()
+                                                             ? i18nc("@info", "Unable to mark channel posts viewed")
+                                                             : error.message);
+                          }
+                      });
 }
 
 void ProtocolController::leaveGroup(const QString &chatId)

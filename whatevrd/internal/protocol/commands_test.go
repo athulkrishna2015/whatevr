@@ -207,6 +207,9 @@ func (f *fakeCommandActions) MarkChatReadUpTo(_ context.Context, chatID, upTo st
 	f.markReadChat, f.markReadUpTo = chatID, upTo
 	return appstore.Chat{ID: chatID}, f.err
 }
+func (f *fakeCommandActions) MarkChatRead(context.Context, string) (appstore.Chat, error) {
+	return appstore.Chat{}, nil
+}
 func (f *fakeCommandActions) MarkAllChatsRead(context.Context) (int, error) {
 	return 3, f.err
 }
@@ -217,6 +220,12 @@ func (f *fakeCommandActions) SetChatPinned(_ context.Context, chatID string, pin
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.pinnedChat, f.pinned = chatID, pinned
+	return appstore.Chat{ID: chatID}, f.err
+}
+func (f *fakeCommandActions) SetChatFavorite(_ context.Context, chatID string, favorite bool) (appstore.Chat, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.pinnedChat, f.pinned = chatID, favorite
 	return appstore.Chat{ID: chatID}, f.err
 }
 func (f *fakeCommandActions) SetChatArchived(_ context.Context, chatID string, archived bool) (appstore.Chat, error) {
@@ -254,6 +263,12 @@ func (f *fakeCommandActions) SendText(_ context.Context, chatID, text, reply str
 	defer f.mu.Unlock()
 	f.sendTextChat, f.sendTextText, f.sendTextReply, f.sendTextMentions = chatID, text, reply, append([]string(nil), mentions...)
 	return appstore.SavedTextMessage{Message: appstore.Message{ID: "text-id", ChatID: chatID}}, f.err
+}
+func (f *fakeCommandActions) ScheduleText(_ context.Context, chatID, text string, sendAt time.Time) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sendTextChat, f.sendTextText = chatID, text
+	return 42, f.err
 }
 func (f *fakeCommandActions) SendMediaWithMentions(_ context.Context, chatID, path, caption, reply string, mentions []string) (appstore.SavedTextMessage, error) {
 	f.mu.Lock()
@@ -625,6 +640,10 @@ func (f *fakeCommandActions) MarkChannelViewed(_ context.Context, channelID stri
 	defer f.mu.Unlock()
 	f.viewedChannel, f.viewedServerIDs = channelID, serverIDs
 	return f.err
+}
+
+func (f *fakeCommandActions) ReactToChannelMessage(context.Context, string, int64, string) error {
+	return nil
 }
 func (f *fakeCommandActions) SetPrivacySetting(_ context.Context, category, audience string, readReceipts bool) (app.PrivacySettings, error) {
 	f.mu.Lock()
