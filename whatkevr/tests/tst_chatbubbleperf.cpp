@@ -258,6 +258,7 @@ private Q_SLOTS:
     void flingingThroughAMediaHeavyChatReusesItsRows();
     void aDownloadedStickerIsActuallyDrawn();
     void aReadChatReopensAtItsNewestMessage();
+    void aCompactLinkPreviewSurvivesANarrowPane();
 
 private:
     QQuickWindow *m_window = nullptr;
@@ -2554,6 +2555,114 @@ void ChatBubblePerf::aReadChatReopensAtItsNewestMessage()
 
     m_window->hide();
     viewItem->setParentItem(nullptr);
+}
+
+// The compact link preview in a narrow pane, which is where it fell apart.
+//
+// Its square thumbnail was sized from the height of the text column beside it,
+// and that is a loop: a taller column makes a wider square, a wider square
+// leaves less room for the words, and less room wraps them onto more lines. At a
+// comfortable width it settles after a pass or two; at a narrow one it settles
+// with a huge placeholder next to a sliver of text. The host chip had no width
+// to elide against either, so a long hostname pushed it out past the bubble.
+void ChatBubblePerf::aCompactLinkPreviewSurvivesANarrowPane()
+{
+    const QString body = QStringLiteral("have a look https://subdomain.example-news-network.com/a/very/long/path");
+    const QVariantMap preview{
+        {QStringLiteral("url"), QStringLiteral("https://subdomain.example-news-network.com/a/very/long/path")},
+        // Long enough that an unbounded chip is obvious.
+        {QStringLiteral("host"), QStringLiteral("subdomain.example-news-network.com")},
+        {QStringLiteral("title"), QStringLiteral("A headline long enough that it has to wrap more than once in a narrow pane")},
+        {QStringLiteral("description"), QStringLiteral("And a description under it that also wraps, which is what used to feed the square.")},
+        // No type, so this is the compact layout with a placeholder square.
+        {QStringLiteral("type"), QString()},
+    };
+    const QVariantMap props =
+        withProps(baseProps(), {{QStringLiteral("messageId"), QStringLiteral("lp-narrow")},
+                                {QStringLiteral("listWidth"), 320},
+                                {QStringLiteral("text"), body},
+                                {QStringLiteral("layoutText"), body},
+                                {QStringLiteral("senderName"), QStringLiteral("A sender whose name is also rather long")},
+                                {QStringLiteral("showSenderHeader"), true},
+                                {QStringLiteral("showSenderAvatar"), true},
+                                {QStringLiteral("showSenderGutter"), true},
+                                {QStringLiteral("linkPreview"), preview}});
+
+    QQmlComponent component(
+        m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/ChatBubble.qml")));
+    QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+    std::unique_ptr<QObject> bubble(component.createWithInitialProperties(props));
+    QVERIFY2(bubble, qPrintable(component.errorString()));
+    auto *bubbleItem = qobject_cast<QQuickItem *>(bubble.get());
+    bubbleItem->setParentItem(m_window->contentItem());
+    m_window->show();
+    QVERIFY(QTest::qWaitForWindowExposed(m_window));
+
+    QQuickItem *card = findVisualChild(bubbleItem, QStringLiteral("linkPreviewCard"));
+    QVERIFY2(card, "no card was drawn");
+    QTRY_VERIFY(card->width() > 0 && card->height() > 0);
+    QVERIFY(!card->property("largeLayout").toBool());
+
+    // The square is the fixed thumb size, not something the words decide.
+    const qreal thumbSize = card->property("thumbSize").toReal();
+    QQuickItem *content = findVisualChild(card, QStringLiteral("cardContent"));
+    QVERIFY(content);
+    QQuickItem *square = content->childItems().isEmpty() ? nullptr : content->childItems().first();
+    QVERIFY(square);
+    QVERIFY2(qAbs(square->width() - thumbSize) < 1.0 && qAbs(square->height() - thumbSize) < 1.0,
+             qPrintable(QStringLiteral("the placeholder is %1x%2 for a thumb size of %3: it is "
+                                       "still being sized by the text beside it")
+                            .arg(square->width())
+                            .arg(square->height())
+                            .arg(thumbSize)));
+
+    // Nothing the card draws reaches past its own edges, in either direction.
+    const qreal margin = card->property("contentMargin").toReal();
+    const auto descendants = card->findChildren<QQuickItem *>();
+    for (QQuickItem *child : descendants) {
+        if (!child->isVisible() || child->width() <= 0) {
+            continue;
+        }
+        const qreal right = child->mapToItem(card, QPointF(child->width(), 0)).x();
+        QVERIFY2(right <= card->width() + 0.5,
+                 qPrintable(QStringLiteral("something in the card reaches %1 in a %2-wide card")
+                                .arg(right)
+                                .arg(card->width())));
+    }
+    QVERIFY2(deepestBottom(card, card) <= card->height() + 0.5,
+             qPrintable(QStringLiteral("the card draws %1 past its own bottom")
+                            .arg(deepestBottom(card, card) - card->height())));
+    Q_UNUSED(margin)
+
+    // And the sender name shares the bubble's content edge with the body, rather
+    // than sitting a few pixels to its left.
+    QQuickItem *bodyText = nullptr;
+    const auto rowChildren = bubbleItem->findChildren<QQuickItem *>();
+    for (QQuickItem *child : rowChildren) {
+        if (child->property("text").toString() == body) {
+            bodyText = child;
+            break;
+        }
+    }
+    QVERIFY2(bodyText, "the body text is not on screen");
+    QQuickItem *senderLabel = nullptr;
+    for (QQuickItem *child : rowChildren) {
+        if (child->property("text").toString()
+            == QStringLiteral("A sender whose name is also rather long")) {
+            senderLabel = child;
+            break;
+        }
+    }
+    QVERIFY2(senderLabel, "the sender header is not on screen");
+    const qreal senderLeft = senderLabel->mapToItem(bubbleItem, QPointF(0, 0)).x();
+    const qreal bodyLeft = bodyText->mapToItem(bubbleItem, QPointF(0, 0)).x();
+    QVERIFY2(qAbs(senderLeft - bodyLeft) < 0.5,
+             qPrintable(QStringLiteral("the sender name starts at %1 and the words under it at %2")
+                            .arg(senderLeft)
+                            .arg(bodyLeft)));
+
+    m_window->hide();
+    bubbleItem->setParentItem(nullptr);
 }
 
 // What a fast scroll through a chat full of pictures, video and voice notes

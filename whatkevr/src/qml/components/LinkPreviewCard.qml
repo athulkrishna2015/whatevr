@@ -113,6 +113,19 @@ Item {
     /// it.
     readonly property real hostChipPadding: Math.round(hostMetrics.height * 0.42)
 
+    /// Room the words have, worked out from the card's own width rather than
+    /// read back off the laid-out column.
+    ///
+    /// The column's width is decided by its children, so a child that bounds
+    /// itself by that width is asking the layout a question whose answer it is
+    /// part of. Everything in here that has to elide needs a ceiling that does
+    /// not depend on it, and the card's width is one: it is handed down by the
+    /// row before any of this arranges.
+    readonly property real textColumnWidth: Math.max(0, width - contentMargin * 2
+                                                        - (largeLayout
+                                                           ? 0
+                                                           : thumbSize + Kirigami.Units.smallSpacing))
+
     function openLink() {
         if (url.length > 0) {
             Qt.openUrlExternally(url)
@@ -248,15 +261,18 @@ Item {
             readonly property real pictureWidth: Math.min(width, height * pictureAspect)
             readonly property real pictureHeight: Math.min(height, width / pictureAspect)
 
-            /// A square as tall as the words beside it. Both halves of that
-            /// matter: a picture that stops short of the text reads as one that
-            /// failed to load, and a picture stretched to the text's height on
-            /// a fixed width is a shape nothing on the page has.
+            /// A fixed square, deliberately not one that grows with the words
+            /// beside it.
             ///
-            /// It is bounded rather than open: the title and the description
-            /// are each capped at two lines, so the column this follows cannot
-            /// grow past about five, and the square cannot chase it forever.
-            readonly property real side: Math.max(root.thumbSize, previewText.implicitHeight)
+            /// Following the text's height reads well at a comfortable width and
+            /// runs away at a narrow one: a taller column makes a wider square,
+            /// a wider square leaves less room for the words, less room wraps
+            /// them onto more lines, and the column gets taller again. In a
+            /// narrow pane that settles with an enormous placeholder beside a
+            /// sliver of text, which is the broken preview people actually see.
+            /// The height cap on the labels does not bound it, because each pass
+            /// through the loop re-wraps before the cap applies.
+            readonly property real side: root.thumbSize
 
             Layout.alignment: Qt.AlignTop
             Layout.preferredWidth: side
@@ -313,6 +329,7 @@ Item {
                 id: titleLabel
 
                 Layout.fillWidth: true
+                Layout.maximumWidth: root.textColumnWidth
                 visible: root.title.length > 0
                 text: root.title
                 wrapMode: Text.Wrap
@@ -329,8 +346,14 @@ Item {
                 id: hostChip
 
                 Layout.alignment: Qt.AlignLeft
+                // Bounded by the column it sits in. A long host on a narrow card
+                // otherwise pushed the chip straight out past the bubble edge:
+                // the label asks to elide, but neither it nor the chip had a
+                // width to elide against.
+                Layout.maximumWidth: root.textColumnWidth
                 visible: root.host.length > 0
-                implicitWidth: hostLabel.implicitWidth + root.hostChipPadding * 2
+                implicitWidth: Math.min(hostLabel.implicitWidth + root.hostChipPadding * 2,
+                                        root.textColumnWidth)
                 implicitHeight: hostLabel.implicitHeight + Math.round(hostMetrics.height * 0.18) * 2
                 radius: height / 2
                 color: Qt.alpha(Kirigami.Theme.textColor, 0.07)
@@ -339,6 +362,8 @@ Item {
                     id: hostLabel
 
                     anchors.centerIn: parent
+                    width: Math.min(implicitWidth,
+                                    Math.max(0, hostChip.width - root.hostChipPadding * 2))
                     text: root.host
                     color: Kirigami.Theme.disabledTextColor
                     elide: Text.ElideRight
@@ -351,6 +376,7 @@ Item {
                 id: descriptionLabel
 
                 Layout.fillWidth: true
+                Layout.maximumWidth: root.textColumnWidth
                 visible: root.description.length > 0
                 text: root.description
                 color: Kirigami.Theme.disabledTextColor

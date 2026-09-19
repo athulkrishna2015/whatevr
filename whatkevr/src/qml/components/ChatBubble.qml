@@ -1727,9 +1727,14 @@ Item {
                 id: senderHeader
 
                 visible: root.senderName.length > 0
-                x: bubble.x + root.innerPadding / 2
+                // The bubble's own content edge, the same one the body, the
+                // cards and the reply quote all start at. Half the padding put
+                // the name a few pixels left of every glyph under it, and the
+                // width ran to the row's edge rather than the bubble's, so a
+                // long name overhung the plate instead of eliding inside it.
+                x: bubble.x + root.innerPadding
                 y: root.dateSeparatorHeight + root.unreadSeparatorHeight + Math.max(0, (root.senderHeaderHeight - height) / 2)
-                width: Math.max(0, root.width - x - root.outerMargin)
+                width: Math.max(0, bubble.x + bubble.width - root.innerPadding - x)
                 text: root.senderName
                 elide: Text.ElideRight
                 maximumLineCount: 1
