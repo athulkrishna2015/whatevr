@@ -452,6 +452,13 @@ Kirigami.Page {
 
     property list<Kirigami.Action> defaultActions: [
         Kirigami.Action {
+            icon.name: "view-more-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button chat header menu", "Chat menu")
+            displayHint: Kirigami.DisplayHint.IconOnly
+            visible: Whatevr.ProtocolController.hasSelectedChat
+            onTriggered: chatHeaderMenu.open()
+        },
+        Kirigami.Action {
             icon.name: "search-symbolic"
             text: Whatevr.I18n.i18nc("@action:button search within this chat", "Search")
             displayHint: Kirigami.DisplayHint.IconOnly
@@ -603,6 +610,53 @@ Kirigami.Page {
     ColumnLayout {
         anchors.fill: parent
         spacing: 0
+
+        // Explicit in-page header. Kirigami's titleDelegate is not consistently
+        // rendered when this pane lives inside WorkspacePane's StackLayout.
+        // Keep the chat identity/actions in normal layout flow so they cannot
+        // disappear when switching between workspace tabs.
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Kirigami.Units.gridUnit * 3.2
+            Layout.leftMargin: Kirigami.Units.largeSpacing
+            Layout.rightMargin: Kirigami.Units.smallSpacing
+            spacing: Kirigami.Units.smallSpacing
+            visible: Whatevr.ProtocolController.hasSelectedChat
+
+            AvatarImage {
+                Layout.preferredWidth: Kirigami.Units.gridUnit * 2.1
+                Layout.preferredHeight: Kirigami.Units.gridUnit * 2.1
+                avatarLocalPath: Whatevr.ProtocolController.selectedChatAvatarLocalPath
+                initials: Initials.firstTwo(Whatevr.ProtocolController.selectedChatName)
+                TapHandler { onTapped: root.openChatInfo() }
+            }
+
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: 0
+                Label {
+                    Layout.fillWidth: true
+                    text: Whatevr.ProtocolController.selectedChatName
+                    elide: Text.ElideRight
+                    font.weight: Font.DemiBold
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: Whatevr.ProtocolController.selectedChatPresenceText
+                    visible: text.length > 0
+                    color: Kirigami.Theme.disabledTextColor
+                    font: Kirigami.Theme.smallFont
+                    elide: Text.ElideRight
+                }
+            }
+
+            ToolButton {
+                icon.name: "view-more-symbolic"
+                display: AbstractButton.IconOnly
+                text: Whatevr.I18n.i18nc("@action:button chat header menu", "Chat menu")
+                onClicked: chatHeaderMenu.open()
+            }
+        }
 
         // In-chat search strip: matches navigation with a live n/m counter.
         // Driven entirely by the protocol controller's chat-search state.
