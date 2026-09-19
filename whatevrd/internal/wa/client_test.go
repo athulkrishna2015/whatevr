@@ -92,8 +92,11 @@ func TestDesiredPresenceNoSessionsUnavailable(t *testing.T) {
 	}
 }
 
+// A QR retry stays on the login screen rather than falling through to the
+// offline backoff. An expired code retries immediately; a failed attempt backs
+// off, which is the only difference between the two.
 func TestConnectionRetryKeepsQRLoginOnLoginRetry(t *testing.T) {
-	retry := connectionRetry(3, fmt.Errorf("wrapped: %w", errQRLoginRetry))
+	retry := connectionRetry(3, fmt.Errorf("wrapped: %w", errQRCodeExpired))
 
 	if retry.attempt != 0 {
 		t.Fatalf("attempt = %d, want 0", retry.attempt)

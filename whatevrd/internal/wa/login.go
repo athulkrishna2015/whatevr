@@ -22,6 +22,7 @@ const (
 	connBackoffBase = 5 * time.Second
 	connBackoffMax  = 60 * time.Second
 	qrRetryDelay    = 300 * time.Millisecond
+	qrBackoffMax    = 30 * time.Second
 
 	waVersionTimeout  = 10 * time.Second
 	waVersionInterval = 6 * time.Hour
@@ -33,7 +34,14 @@ const (
 // hang the supervisor for minutes before backoff even started.
 var waVersionClient = &http.Client{Timeout: waVersionTimeout}
 
-var errQRLoginRetry = errors.New("retry QR login")
+var (
+	// errQRCodeExpired is the ordinary case: nobody scanned in time. A fresh
+	// code has to appear straight away, so this one is never backed off.
+	errQRCodeExpired = errors.New("QR code expired")
+	// errQRLoginRetry is a QR attempt that actually failed. Retrying those at
+	// the same speed is a hammer, so they back off.
+	errQRLoginRetry = errors.New("retry QR login")
+)
 
 // runConnectionSupervisor replaces the old one-shot start(). It loops
 // forever (until ctx is cancelled), connecting and retrying with
@@ -224,15 +232,28 @@ func (c *Client) connectOnce(ctx context.Context) error {
 	return nil
 }
 
-func (c *Client) startQRLogin(ctx context.Context, client *whatsmeow.Client) error {
+func (c *Client) startQRLogin(ctx context.Context, client *whatsmeow.Client) (err error) {
 	c.daemon.SetStateDetail(app.StateNeedLogin, "Waiting for WhatsApp QR scan")
+
+	// GetQRChannel refuses to run on a connected socket, so an attempt that
+	// ended with the socket still up makes every attempt after it fail before
+	// it starts, and the QR flow never recovers. Leave the socket down unless
+	// the scan actually succeeded and pairing is continuing on it.
+	if client.IsConnected() {
+		client.Disconnect()
+	}
+	defer func() {
+		if err != nil && client.IsConnected() {
+			client.Disconnect()
+		}
+	}()
 
 	qrChan, err := client.GetQRChannel(ctx)
 	if err != nil {
 		return fmt.Errorf("create QR channel: %w", err)
 	}
 
-	if err := client.ConnectContext(ctx); err != nil {
+	if err := client.ConnectContext(ctx); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
 		return fmt.Errorf("connect for QR login: %w", err)
 	}
 
@@ -253,7 +274,7 @@ func (c *Client) startQRLogin(ctx context.Context, client *whatsmeow.Client) err
 				return nil
 			case whatsmeow.QRChannelTimeout.Event:
 				c.daemon.SetStateDetail(app.StateNeedLogin, "QR login timed out; scan a new code")
-				return fmt.Errorf("QR login timed out: %w", errQRLoginRetry)
+				return fmt.Errorf("QR login timed out: %w", errQRCodeExpired)
 			case whatsmeow.QRChannelClientOutdated.Event:
 				c.daemon.SetConnection(app.StateOffline, "WhatsApp client is outdated. Update whatevr/whatevrd.", 0, 0, false)
 				return fmt.Errorf("client outdated")
@@ -281,10 +302,20 @@ type retryPlan struct {
 }
 
 func connectionRetry(attempt int, err error) retryPlan {
-	if errors.Is(err, errQRLoginRetry) {
+	// An expired code is not a failure; the user is still looking at the
+	// screen and needs the next one immediately.
+	if errors.Is(err, errQRCodeExpired) {
 		return retryPlan{
 			attempt: 0,
 			delay:   qrRetryDelay,
+			state:   app.StateNeedLogin,
+		}
+	}
+	if errors.Is(err, errQRLoginRetry) {
+		attempt++
+		return retryPlan{
+			attempt: attempt,
+			delay:   qrBackoffDelay(attempt),
 			state:   app.StateNeedLogin,
 		}
 	}
@@ -492,6 +523,23 @@ func (c *Client) resetInMemoryAccountState() {
 // restartRunLoopsLocked restarts the background loops torn down by a wipe.
 func (c *Client) restartRunLoopsLocked() {
 	c.startRunLoopsLocked(context.Background())
+}
+
+// qrBackoffDelay grows from the fast retry up to qrBackoffMax, so a QR attempt
+// that keeps failing stops hammering without ever giving up on the user.
+func qrBackoffDelay(attempt int) time.Duration {
+	if attempt <= 1 {
+		return qrRetryDelay
+	}
+	shift := attempt - 1
+	if shift > 7 {
+		shift = 7
+	}
+	delay := qrRetryDelay * (1 << uint(shift))
+	if delay > qrBackoffMax {
+		delay = qrBackoffMax
+	}
+	return delay
 }
 
 func connBackoffDelay(attempt int) time.Duration {
