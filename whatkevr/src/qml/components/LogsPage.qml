@@ -17,6 +17,49 @@ Kirigami.ScrollablePage {
     Component.onCompleted: Whatevr.ProtocolController.openLogs()
     Component.onDestruction: Whatevr.ProtocolController.closeLogs()
 
+    header: RowLayout {
+        width: parent.width
+        spacing: Kirigami.Units.smallSpacing
+        Layout.margins: Kirigami.Units.smallSpacing
+
+        QQC2.Button {
+            icon.name: "edit-copy-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button copy all visible log lines", "Copy all")
+            onClicked: root.copyAll()
+        }
+        QQC2.Button {
+            icon.name: "edit-select-all-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button select all visible log text", "Select all")
+            onClicked: root.selectAll()
+        }
+        QQC2.Button {
+            icon.name: "folder-open-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button open the daemon log folder", "Open folder")
+            onClicked: Whatevr.ProtocolController.openLogDirectory()
+        }
+    }
+
+    function copyAll() {
+        const lines = []
+        for (let i = 0; i < logsList.count; ++i) {
+            const entry = logsList.model.itemById(logsList.model.idAt(i))
+            if (entry)
+                lines.push(((entry.time || "") + " " + (entry.level || "") + " " + (entry.text || "")).trim())
+        }
+        if (lines.length > 0)
+            Whatevr.ProtocolController.copyToClipboard(lines.join("\n"))
+    }
+
+    function selectAll() {
+        for (let i = 0; i < logsList.count; ++i) {
+            const delegate = logsList.itemAtIndex(i)
+            if (delegate && delegate.logText) {
+                delegate.logText.forceActiveFocus()
+                delegate.logText.selectAll()
+            }
+        }
+    }
+
     actions: [
         Kirigami.Action {
             icon.name: "edit-copy-symbolic"
@@ -32,6 +75,19 @@ Kirigami.ScrollablePage {
                 }
                 if (lines.length > 0) {
                     Whatevr.ProtocolController.copyToClipboard(lines.join("\n"))
+                }
+            }
+        },
+        Kirigami.Action {
+            icon.name: "edit-select-all-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button select all visible log text", "Select all")
+            onTriggered: {
+                for (let i = 0; i < logsList.count; ++i) {
+                    const delegate = logsList.itemAtIndex(i)
+                    if (delegate && delegate.logText) {
+                        delegate.logText.forceActiveFocus()
+                        delegate.logText.selectAll()
+                    }
                 }
             }
         },
@@ -137,6 +193,8 @@ Kirigami.ScrollablePage {
                 }
 
                 TextEdit {
+                    id: logText
+                    objectName: "logText"
                     Layout.fillWidth: true
                     Layout.alignment: Qt.AlignTop
                     text: (logDelegate.item && logDelegate.item.text) ? logDelegate.item.text : ""
@@ -153,6 +211,15 @@ Kirigami.ScrollablePage {
 
             QQC2.Menu {
                 id: logContextMenu
+
+                QQC2.MenuItem {
+                    text: Whatevr.I18n.i18nc("@action:menu select log row", "Select row")
+                    icon.name: "edit-select-all-symbolic"
+                    onTriggered: {
+                        logText.forceActiveFocus()
+                        logText.selectAll()
+                    }
+                }
 
                 QQC2.MenuItem {
                     text: Whatevr.I18n.i18nc("@action:menu copy log row", "Copy row")
