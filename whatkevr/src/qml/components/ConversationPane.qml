@@ -652,6 +652,18 @@ Kirigami.Page {
             }
 
             ToolButton {
+                icon.name: "search-symbolic"
+                display: AbstractButton.IconOnly
+                text: Whatevr.I18n.i18nc("@action:button search this chat", "Search in chat")
+                onClicked: {
+                    if (Whatevr.ProtocolController.chatSearchActive)
+                        Whatevr.ProtocolController.closeChatSearch()
+                    else
+                        Whatevr.ProtocolController.openChatSearch()
+                }
+            }
+
+            ToolButton {
                 icon.name: "view-more-symbolic"
                 display: AbstractButton.IconOnly
                 text: Whatevr.I18n.i18nc("@action:button chat header menu", "Chat menu")
