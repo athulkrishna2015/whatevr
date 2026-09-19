@@ -7,9 +7,47 @@ import (
 	"time"
 )
 
-// Deleting a message removes its row, but the phone still has the message, so
-// the next backfill of that conversation carries it again. Without a record of
-// the deletion the message comes straight back.
+// deleting a message removes its row, but the phone still has it, so a
+// tombstone must block the next backfill
+func TestDeleteBeforeSyncPreventsLaterBackfill(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	const messageID = "chat-1:msg-before-sync"
+	if _, _, existed, err := db.DeleteMessageForMe(ctx, messageID); err != nil || existed {
+		t.Fatalf("delete before sync: existed=%t err=%v", existed, err)
+	}
+
+	saved, err := db.SaveTextMessage(ctx, TextMessageInput{
+		ID:        messageID,
+		ChatID:    "chat-1",
+		ChatName:  "Test Chat",
+		SenderID:  "sender-1",
+		Text:      "already deleted on the phone",
+		Timestamp: time.Unix(1_700_000_000, 0),
+		Direction: DirectionIncoming,
+		Status:    StatusDelivered,
+	})
+	if err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	if saved.Inserted {
+		t.Fatal("a message deleted before sync was written by backfill")
+	}
+
+	messages, err := db.ListMessages(ctx, "chat-1", 10, "")
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(messages) != 0 {
+		t.Fatalf("chat holds %d rows after backfill, want 0", len(messages))
+	}
+}
+
 func TestDeletedMessageIsNotResurrectedByBackfill(t *testing.T) {
 	ctx := context.Background()
 	db, err := Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))

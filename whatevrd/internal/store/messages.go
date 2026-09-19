@@ -1967,8 +1967,8 @@ func (db *DB) chatNamesByID(ctx context.Context, messages []Message) (map[string
 	return names, rows.Err()
 }
 
-// DeleteMessageForMe removes a message row locally (receipts cascade via FK).
-// Returns the deleted message, the refreshed chat, and whether a row existed.
+// DeleteMessageForMe removes a local row and blocks later backfill
+// returns the deleted message, refreshed chat, and whether a row existed
 func (db *DB) DeleteMessageForMe(ctx context.Context, id string) (Message, Chat, bool, error) {
 	tx, err := db.conn.BeginTx(ctx, nil)
 	if err != nil {
@@ -1977,24 +1977,29 @@ func (db *DB) DeleteMessageForMe(ctx context.Context, id string) (Message, Chat,
 	defer tx.Rollback()
 
 	message, err := getMessageTx(ctx, tx, id)
+	existed := true
 	if errors.Is(err, sql.ErrNoRows) {
-		return Message{}, Chat{}, false, nil
-	}
-	if err != nil {
+		existed = false
+		message = Message{}
+	} else if err != nil {
 		return Message{}, Chat{}, false, err
 	}
 
-	if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE id = ?`, id); err != nil {
-		return Message{}, Chat{}, false, err
-	}
-
-	// Remember the id. The phone still has this message, so the next backfill
-	// of this conversation carries it again and would undo the deletion.
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO deleted_messages (id, chat_id, deleted_at)
 		VALUES (?, ?, ?)
 		ON CONFLICT(id) DO NOTHING
 	`, id, message.ChatID, time.Now().Unix()); err != nil {
+		return Message{}, Chat{}, false, err
+	}
+	if !existed {
+		if err := tx.Commit(); err != nil {
+			return Message{}, Chat{}, false, err
+		}
+		return Message{}, Chat{}, false, nil
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM messages WHERE id = ?`, id); err != nil {
 		return Message{}, Chat{}, false, err
 	}
 
