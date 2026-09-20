@@ -19,6 +19,7 @@
 #include <QImage>
 #include <QJsonObject>
 #include <QQmlComponent>
+#include <QDirIterator>
 #include <QQmlEngine>
 #include <QQuickItem>
 #include <QQuickStyle>
@@ -259,6 +260,7 @@ private Q_SLOTS:
     void aDownloadedStickerIsActuallyDrawn();
     void aReadChatReopensAtItsNewestMessage();
     void aCompactLinkPreviewSurvivesANarrowPane();
+    void everyQmlComponentCompiles();
 
 private:
     QQuickWindow *m_window = nullptr;
@@ -2573,6 +2575,37 @@ void ChatBubblePerf::aReadChatReopensAtItsNewestMessage()
 // comfortable width it settles after a pass or two; at a narrow one it settles
 // with a huge placeholder next to a sliver of text. The host chip had no width
 // to elide against either, so a long hostname pushed it out past the bubble.
+
+// Every QML file in the module compiles against the types it names.
+//
+// The rest of this file loads MessageView.qml directly, which is why a missing
+// property on it went unnoticed: nothing here ever loaded ConversationPane.qml,
+// and a property that does not exist is only an error at the point something
+// tries to assign it. The app failed to start with "Cannot assign to
+// non-existent property" on a line no test had ever compiled.
+//
+// Loading is enough; these are not instantiated. A QQmlComponent resolves every
+// type and every property assignment when it compiles, which is exactly the
+// class of error this missed.
+void ChatBubblePerf::everyQmlComponentCompiles()
+{
+    QDirIterator it(QStringLiteral(":/qt/qml/Whatevr/qml"), QStringList{QStringLiteral("*.qml")},
+                    QDir::Files, QDirIterator::Subdirectories);
+    QStringList broken;
+    int checked = 0;
+    while (it.hasNext()) {
+        const QString path = it.next();
+        QQmlComponent component(m_engine, QUrl(QStringLiteral("qrc") + path));
+        ++checked;
+        if (component.isError()) {
+            broken << component.errorString().trimmed();
+        }
+    }
+    QVERIFY2(checked > 0, "no QML was found in the module, so this checked nothing");
+    QVERIFY2(broken.isEmpty(), qPrintable(broken.join(QStringLiteral("\n"))));
+    qInfo("%d QML component(s) compile", checked);
+}
+
 void ChatBubblePerf::aCompactLinkPreviewSurvivesANarrowPane()
 {
     const QString body = QStringLiteral("have a look https://subdomain.example-news-network.com/a/very/long/path");

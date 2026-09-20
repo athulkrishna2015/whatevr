@@ -106,6 +106,10 @@ Item {
     property real lastScrollY: 0
     property string pendingJumpMessageId: ""
 
+    // The transcript this pane draws. Set by ConversationPane from the pool
+    // slot; null only for a slot that holds no chat yet.
+    property var session: null
+
     // Unread divider anchor returned in the messages subscribe metadata.
     readonly property string unreadAnchorMessageId: session ? session.unreadAnchorMessageId : ""
     readonly property int unreadAnchorCount: session ? session.unreadAnchorCount : 0
@@ -115,6 +119,7 @@ Item {
     property bool userScrolledSinceOpen: false
     // The viewport was already placed at the unread divider for this open.
     property bool unreadAnchorPositioned: false
+
     signal loadOlderMessagesRequested()
     signal loadNewerMessagesRequested()
     signal loadPhoneHistoryRequested()
