@@ -307,11 +307,18 @@ func (c *Client) DownloadMessageMedia(ctx context.Context, messageID string) (ap
 	}
 	if err := client.DownloadToFile(ctx, media, progress); err != nil {
 		if staleMediaDownloadError(err) {
+			// Every step of the retry says what it did. A media fetch that
+			// quietly falls back and fails again is indistinguishable in the
+			// log from one that never tried, which is exactly how long the
+			// missing hash-mismatch case took to find.
+			c.log.Infof("Media for %s did not verify (%v); asking the sender for a fresh path", message.ID, err)
 			message, err = c.refreshMediaForDownload(ctx, client, message, media)
 			if err != nil {
+				c.log.Warnf("Media retry for %s got nowhere: %v", message.ID, err)
 				state.err = err
 				return appstore.Message{}, state.err
 			}
+			c.log.Infof("Media retry for %s returned a fresh path; downloading again", message.ID)
 			media, err = downloadableMediaMessage(message)
 			if err != nil {
 				state.err = err
@@ -325,6 +332,14 @@ func (c *Client) DownloadMessageMedia(ctx context.Context, messageID string) (ap
 			}
 		}
 		if err != nil {
+			if staleMediaDownloadError(err) {
+				// The sender handed over a fresh path and it still does not
+				// verify, so the media itself is gone rather than moved. Say
+				// that, rather than repeating a hash mismatch nobody can act on.
+				state.err = app.NewCommandError(app.CommandErrorNotFound,
+					"this media is no longer available from the sender")
+				return appstore.Message{}, state.err
+			}
 			state.err = app.NewCommandError(app.CommandErrorNotConnected, "download media: %v", err)
 			return appstore.Message{}, state.err
 		}
