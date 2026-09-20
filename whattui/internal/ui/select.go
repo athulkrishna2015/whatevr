@@ -61,6 +61,18 @@ const clickBurst = 400 * time.Millisecond
 // thing that knows where a message's text landed is the thing that put it
 // there.
 func (a *App) noteBlock(win vaxis.Window, col, row, w, h int) {
+	// Clamped to the window, because a message taller than the pane hangs off
+	// both ends of it and an unclamped block would claim rows belonging to
+	// whatever is drawn below.
+	winW, winH := win.Size()
+	if row < 0 {
+		h, row = h+row, 0
+	}
+	if col < 0 {
+		w, col = w+col, 0
+	}
+	h = minInt(h, winH-row)
+	w = minInt(w, winW-col)
 	if w <= 0 || h <= 0 {
 		return
 	}

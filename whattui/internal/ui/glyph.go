@@ -112,8 +112,14 @@ func (a *App) clipPlain(s string, width int) string {
 // chat name full of emoji is not as many cells wide as it is long, and
 // guessing is how a column loses its edge.
 func (a *App) print(win vaxis.Window, col, row int, style vaxis.Style, s string) int {
-	w, _ := win.Size()
-	if row < 0 || col >= w || s == "" {
+	w, h := win.Size()
+	// Below the window as well as above it. A message taller than the pane is
+	// drawn with its top off one end and its tail off the other, and a
+	// rasterised word is an image with a position of its own: the terminal
+	// clamps one placed past the last row onto the last row rather than
+	// dropping it, which is a phrase piling up at the bottom of the
+	// transcript instead of scrolling out of it.
+	if row < 0 || row >= h || col >= w || s == "" {
 		return col
 	}
 	if !a.shaping || !textrun.Complex(s) {
@@ -210,6 +216,9 @@ func (a *App) flushRuns() {
 		return
 	}
 	for _, p := range a.placements {
+		if cols, rows := p.win.Size(); cols < 1 || rows < 1 {
+			continue
+		}
 		img, key := p.run.Image(p.cells, false, p.cells < p.run.Cells(), p.ink)
 		if img == nil {
 			continue

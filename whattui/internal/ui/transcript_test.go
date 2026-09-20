@@ -3,8 +3,11 @@ package ui
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"whattui/internal/proto"
+	"whattui/internal/term"
+	"whattui/internal/textrun"
 )
 
 // A message taller than the pane has to be readable a row at a time. Scrolling
@@ -95,5 +98,57 @@ func TestResizingRelaysTheWholeTranscript(t *testing.T) {
 	a.paint()
 	if narrow := a.conversation.contentRows; narrow <= wide {
 		t.Fatalf("content is %d rows at 50 columns and %d at 120", narrow, wide)
+	}
+}
+
+// A message taller than the pane hangs off both ends of it. Text off the end
+// is clipped by the terminal, but a rasterised word is an image with a
+// position, and one placed past the last row is clamped onto the last row
+// rather than dropped: the phrase piles up at the bottom of the transcript
+// instead of scrolling out of it.
+func TestNothingIsPlacedOutsideTheTranscript(t *testing.T) {
+	a := benchApp(100, 26, 4, 0)
+	a.caps = term.Caps{Tier: term.TierShm, RGB: true}
+	a.shaper = textrun.New(textrun.Options{})
+	a.shaper.SetCellSize(10, 21)
+	deadline := time.Now().Add(30 * time.Second)
+	for !a.shaper.Begin() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !a.shaper.Begin() {
+		t.Skip("no usable font index on this machine")
+	}
+
+	c := a.conversation
+	c.msgs.Reset()
+	body := ""
+	for i := 0; i < 60; i++ {
+		body += "नमस्ते सर, Khatabook के इंस्टेंट लोन के साथ अपने बिजनेस के सपनों को हकीकत बनाएँ। "
+	}
+	c.msgs.Upsert("00000000000000000000", mustJSON(proto.MessageRow{
+		ID: "tall", Kind: "text", Direction: "incoming", Text: body,
+		Sender: proto.Sender{ID: "x", Name: "Khatabook"},
+	}))
+	c.msgs.Ready(true, true)
+
+	pane := a.layout().Transcript
+	a.paint()
+	if c.maxScroll(pane.Height) < 8 {
+		t.Fatalf("content is %d rows in a pane of %d, want something to scroll",
+			c.contentRows, pane.Height)
+	}
+	for scroll := 0; scroll <= c.maxScroll(pane.Height)+4; scroll++ {
+		a.paint()
+		for _, p := range a.placements {
+			if p.row < pane.Row || p.row >= pane.Row+pane.Height {
+				t.Fatalf("scroll %d placed a run on row %d, outside rows %d..%d",
+					scroll, p.row, pane.Row, pane.Row+pane.Height-1)
+			}
+			if p.col < pane.Col || p.col+p.cells > pane.Col+pane.Width {
+				t.Fatalf("scroll %d placed a run at columns %d..%d, outside %d..%d",
+					scroll, p.col, p.col+p.cells, pane.Col, pane.Col+pane.Width)
+			}
+		}
+		a.scrollTranscript(1)
 	}
 }
