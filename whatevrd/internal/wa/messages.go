@@ -12,6 +12,7 @@ import (
 
 	"github.com/nyaruka/phonenumbers"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	waHistorySync "go.mau.fi/whatsmeow/proto/waHistorySync"
@@ -1256,15 +1257,24 @@ func (c *Client) stickerMessageInput(ctx context.Context, evt *events.Message, o
 // payload whatevr cannot render yet (documents, voice notes, video, polls,
 // view-once media, ...). The human-readable label rides in the text column so
 // bubbles, chat previews and notifications all pick it up for free. Protocol
-// noise (poll votes, app-state keys, ...) is not on the label whitelist and
-// stays invisible, exactly as before.
+// noise (poll votes, app-state keys, ...) carries no row and stays invisible.
+//
+// A kind this build has never heard of gets a generic tombstone rather than
+// nothing: WhatsApp ships new message types faster than whatevr learns them,
+// and a grey bubble is a hole somebody can see and report. The payload is kept
+// so the row can be upgraded once the kind is understood.
 func (c *Client) unsupportedMessageInput(ctx context.Context, evt *events.Message, opts ingestOptions) (appstore.MediaMessageInput, bool) {
 	if evt == nil || evt.Message == nil {
 		return appstore.MediaMessageInput{}, false
 	}
 	label, ok := unsupportedMessageLabel(evt)
 	if !ok {
-		return appstore.MediaMessageInput{}, false
+		field, unknown := unrecognizedPayloadField(evt.Message)
+		if !unknown {
+			return appstore.MediaMessageInput{}, false
+		}
+		c.log.Warnf("Storing a tombstone for message %s: nothing handles payload %q", evt.Info.ID, field)
+		label = "Unsupported message"
 	}
 
 	base, _, ok := c.mediaInputBase(ctx, evt, opts, label, unsupportedContextInfo(evt.Message))
@@ -1368,6 +1378,58 @@ func unwrapNestedMessage(msg *waE2E.Message) *waE2E.Message {
 // whatevr cannot draw yet. A label is the difference between an honest grey row
 // and a hole in the transcript, and the payload is kept with it so a later
 // build can upgrade the row in place.
+// silentMessageFields are the payload fields that never become a transcript row:
+// session plumbing, and the events that modify an existing message rather than
+// being one. Anything else set on a message is something a person sent.
+//
+// It is a denylist on purpose. The allowlist below it can only ever describe
+// the kinds this build already knows, and WhatsApp adds them faster than that;
+// listing what is definitely not a message is the only version that stays
+// correct as the protocol grows.
+var silentMessageFields = map[string]bool{
+	"senderKeyDistributionMessage":               true,
+	"fastRatchetKeySenderKeyDistributionMessage": true,
+	"protocolMessage":                            true,
+	"messageContextInfo":                         true,
+	"stickerSyncRmrMessage":                      true,
+	"placeholderMessage":                         true,
+	"groupRootKeyShare":                          true,
+	"rootSecretDistributeMessage":                true,
+	"botPlatformRegistrationSuccessMessage":      true,
+	"acp2SettingMessage":                         true,
+	// Edits to something that already has a row.
+	"reactionMessage":                true,
+	"encReactionMessage":             true,
+	"pollUpdateMessage":              true,
+	"pollAddOptionMessage":           true,
+	"pollCreationOptionImageMessage": true,
+	"encEventResponseMessage":        true,
+	"keepInChatMessage":              true,
+	"pinInChatMessage":               true,
+	"eventCoverImage":                true,
+	"statusLinkPreviewMetadata":      true,
+	// Status and newsletter housekeeping, none of which is a chat message.
+	"statusAddYours":                      true,
+	"statusNotificationMessage":           true,
+	"newsletterAdminProfileMessage":       true,
+	"newsletterAdminProfileStatusMessage": true,
+}
+
+// unrecognizedPayloadField names a set field that is neither plumbing nor
+// anything the builders above claimed, which is how a message type nobody has
+// written code for is told apart from an empty envelope.
+func unrecognizedPayloadField(msg *waE2E.Message) (string, bool) {
+	found := ""
+	msg.ProtoReflect().Range(func(fd protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
+		if silentMessageFields[string(fd.Name())] {
+			return true
+		}
+		found = string(fd.Name())
+		return false
+	})
+	return found, found != ""
+}
+
 func unsupportedMessageLabel(evt *events.Message) (string, bool) {
 	msg := evt.Message
 	if evt.IsViewOnce {
