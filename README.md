@@ -36,13 +36,18 @@ For other systems, for now you can follow the build instructions below:
     <summary>
       Build Instructions</summary>
     
-whatevr builds through a single top-level `justfile` that compiles **both** the
-daemon (`whatevrd`) and the Qt/Kirigami frontend (`whatkevr`). The daemon must be
-running for any frontend to work.
+whatevr builds through a single top-level `justfile` that compiles the daemon
+(`whatevrd`), the Qt/Kirigami frontend (`whatkevr`) and the terminal frontend
+(`whattui`). The daemon must be running for any frontend to work.
+
+`whattui` builds against a fork of vaxis carried as a git submodule, so clone
+with `git clone --recursive`, or run
+`git submodule update --init --recursive` in an existing checkout.
 
 #### 1. Install dependencies
 
 **Daemon:** Go 1.26+, just, a C compiler, SQLite dev files, pkg-config.
+**Terminal frontend:** the same Go toolchain, nothing else.
 **Frontend:** C++20 compiler, CMake 3.21+, Ninja, Qt 6.8+, KDE Frameworks 6.5+
 (KCoreAddons, KDBusAddons, KI18n, Kirigami, Prison, QQC2 Desktop Style),
 Kirigami Addons 1.0+, rlottie, Vulkan headers.
@@ -79,7 +84,7 @@ just install "$HOME/.local"           # user-local release install
 sudo just install /usr
 ```
 
-`just install` places the `whatevrd` and `whatkevr` binaries, desktop entry,
+`just install` places the `whatevrd`, `whatkevr` and `whattui` binaries, desktop entry,
 icon, AppStream metainfo and the systemd user units under the selected prefix.
 Make sure the chosen `bin` directory is on your `PATH` (e.g. `~/.local/bin`).
 
@@ -92,8 +97,15 @@ Start the daemon, then the frontend:
 
 ```sh
 whatevrd      # or run it via systemd (below)
-whatkevr
+whatkevr      # desktop
+whattui       # terminal
 ```
+
+`whattui` is keyboard and mouse driven and needs nothing memorised: `ctrl+p`
+opens the command palette, `/` in the composer opens the same commands inline,
+and `?` lists every binding. It looks best in a terminal with the kitty
+graphics protocol, and degrades by tier down to 16 colours without moving a
+single glyph. `whattui --caps` prints what it found.
 
 #### Run the daemon via systemd (optional)
 
@@ -226,10 +238,11 @@ same daemon, and each sees the same rows in the same order because the daemon
 computed that order.
 
 The daemon is Go (`whatevrd/`); the flagship frontend is `whatkevr`, in
-C++20/QML on Qt 6 and Kirigami. `whatgevr`, a primitive GTK4/libadwaita
-frontend, is unmaintained and excluded from the build. A TUI and a scriptable
-CLI are wanted and unclaimed (see *Write a frontend* above); that work needs no
-changes to the daemon.
+C++20/QML on Qt 6 and Kirigami; the terminal frontend is `whattui`, in Go on a
+fork of vaxis (`whattui/`). `whatgevr`, a primitive GTK4/libadwaita frontend, is
+unmaintained and excluded from the build. A scriptable CLI is wanted and
+unclaimed (see *Write a frontend* above); that work needs no changes to the
+daemon.
 
 Whatevr will be Linux-first for now until its stable. I am open to contributions for porting functionality to other platforms as long as they don't affect existing performance and Linux functionality significantly. 
 
