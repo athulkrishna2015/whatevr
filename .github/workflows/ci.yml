@@ -212,6 +212,26 @@ jobs:
       - name: Test protocol conformance
         run: scripts/conformance
 
+      # Weekly only. A soak is minutes rather than seconds, and its value is in
+      # running the same frames over and over with faults armed, which is a
+      # schedule's job rather than a push's. There is no recorded stream in the
+      # repository (a recording is real conversation data), so this soaks the
+      # synthetic fixture: what it still exercises is the fault paths, which is
+      # the half a recording does not add.
+      - name: Soak the protocol engine
+        if: github.event_name == 'schedule'
+        run: |
+          python3 - <<'EOF' > "$RUNNER_TEMP/synthetic.ndjson"
+          import json
+          for i in range(200):
+              print(json.dumps({"view": "messages", "event": "upsert",
+                                "sort": "%08d" % i,
+                                "item": {"id": "m%04d" % i, "kind": "text",
+                                         "text": "row %d" % i}}))
+          print(json.dumps({"view": "messages", "event": "ready", "exhausted": False}))
+          EOF
+          scripts/conformance --replay "$RUNNER_TEMP/synthetic.ndjson" --soak 300 --fault all:7
+
       - name: Test frontend
         env:
           QT_QPA_PLATFORM: offscreen

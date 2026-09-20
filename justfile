@@ -54,6 +54,32 @@ sanitize dir=build_dir:
     done
 
 
+# The whole suite: daemon, frontend, and the protocol grammar.
+test dir=build_dir:
+    @cd whatevrd && go test -tags sqlite_fts5 ./...
+    @just build "{{dir}}"
+    @ctest --test-dir "{{dir}}/debug/whatkevr" --output-on-failure
+    @just conformance
+
+# Protocol conformance. With no stream it checks the handshake and the view
+# grammar; with one it replays real frames and holds the window invariants
+# after every one of them.
+#
+# Record a stream first with `scripts/record-stream --out stream.ndjson`
+# against a running daemon. A recording is real conversation data, so keep it
+# out of the repository.
+conformance stream="":
+    @if [ -n "{{stream}}" ]; then \
+        scripts/conformance --replay "{{stream}}"; \
+    else \
+        scripts/conformance; \
+    fi
+
+# Replay a recorded stream repeatedly with faults armed. Not part of `just
+# test`: it is minutes, not seconds, and it belongs on a schedule.
+soak stream seconds="300" fault="all:7":
+    @scripts/conformance --replay "{{stream}}" --soak "{{seconds}}" --fault "{{fault}}"
+
 validate:
     @desktop-file-validate whatkevr/data/in.codelif.Whatevr.desktop
     @appstreamcli validate --no-net whatkevr/data/in.codelif.Whatevr.metainfo.xml
