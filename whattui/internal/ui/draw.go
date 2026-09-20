@@ -13,12 +13,25 @@ import (
 )
 
 func (a *App) draw() {
+	a.paint()
+	a.flushRuns()
+	a.vx.Render()
+}
+
+// paint lays the whole frame into the cell buffer and stops there. Split out
+// from draw because it is the half worth measuring and the half a test can
+// run: an offscreen window has cells but no terminal to render to.
+func (a *App) paint() {
 	// Asked once, before anything is measured: a frame that measures in cells
 	// and draws in pixels is a frame with a hole in it.
 	a.shaping = a.shaper.Begin()
+	// Both are where the last frame put things, and this is a new one.
+	a.blocks = a.blocks[:0]
+	a.placements = a.placements[:0]
 
+	// No clear: the panes tile the screen between them, so clearing first is a
+	// write to every cell that every one of them is about to write again.
 	win := a.vx.Window()
-	win.Clear()
 	l := a.layout()
 
 	a.drawChatList(win, l)
@@ -38,8 +51,7 @@ func (a *App) draw() {
 	if !l.HintBar.Empty() {
 		a.drawHintBar(win, l.HintBar)
 	}
-	a.flushRuns()
-	a.vx.Render()
+	a.paintSelection()
 }
 
 // sub is a vaxis window for a layout rect.
@@ -60,7 +72,6 @@ func (a *App) drawChatList(win vaxis.Window, l layout.Layout) {
 		return
 	}
 	pane := sub(win, l.ChatList)
-	fill(pane, a.theme.BackgroundPanel)
 	w, h := pane.Size()
 
 	a.mu.Lock()
@@ -73,17 +84,20 @@ func (a *App) drawChatList(win vaxis.Window, l layout.Layout) {
 	// panes without the layout having to reserve a third.
 	if l.Shape == layout.ShapeWide || l.Shape == layout.ShapeCompact {
 		bx := boxFor(a.caps)
-		for row := 0; row < h; row++ {
-			a.print(pane, w-1, row, vaxis.Style{
+		pane.New(w-1, 0, 1, h).Fill(vaxis.Cell{
+			Character: vaxis.Character{Grapheme: bx.vertical, Width: 1},
+			Style: vaxis.Style{
 				Foreground: a.theme.Border, Background: a.theme.BackgroundPanel,
-			}, bx.vertical)
-		}
+			},
+		})
 		w--
 	}
 
 	perRow := l.ChatRowHeight()
+	drawn := 0
 	a.chats.Read(func(items []view.Item[proto.ChatRow]) {
 		if len(items) == 0 {
+			fill(pane.New(0, 0, w, h), a.theme.BackgroundPanel)
 			a.drawEmptyList(pane)
 			return
 		}
@@ -92,6 +106,7 @@ func (a *App) drawChatList(win vaxis.Window, l layout.Layout) {
 			if row+perRow > h || top+i >= len(items) {
 				break
 			}
+			drawn = row + perRow
 			it := items[top+i]
 			a.drawChatRow(pane, row, w, perRow, it.Value, rowState{
 				selected: top+i == selected && focus == FocusList,
@@ -101,6 +116,11 @@ func (a *App) drawChatList(win vaxis.Window, l layout.Layout) {
 			})
 		}
 	})
+	// Only the ground the rows did not cover, rather than the whole pane
+	// before they did.
+	if drawn < h {
+		fill(pane.New(0, drawn, w, h-drawn), a.theme.BackgroundPanel)
+	}
 }
 
 func (a *App) drawEmptyList(pane vaxis.Window) {
@@ -143,6 +163,7 @@ func (a *App) ground(st rowState) vaxis.Color {
 func (a *App) drawChatRow(pane vaxis.Window, row, w, height int, c proto.ChatRow, st rowState) {
 	bg := a.ground(st)
 	fill(pane.New(0, row, w, height), bg)
+	a.noteBlock(pane, 1, row, w-1, height)
 	line := pane.New(0, row, w, 1)
 
 	unread := c.Unread > 0
@@ -272,6 +293,7 @@ func (a *App) drawHeader(win vaxis.Window, r layout.Rect) {
 			title = it.Value.Name
 		}
 	}
+	a.noteBlock(pane, 1, 0, maxInt(a.width(title), 1), 1)
 	a.print(pane, 1, 0, style, title)
 
 	if msg, colour, show := a.status(); show {
@@ -288,6 +310,7 @@ func (a *App) drawHeader(win vaxis.Window, r layout.Rect) {
 // is wrong, and the line that fixes it. Left-aligned as a block and centred as
 // a block, so the command in it is still a command somebody can read.
 func (a *App) drawNotice(pane vaxis.Window, title string, colour vaxis.Color, body []string) {
+	fill(pane, a.theme.Background)
 	w, h := pane.Size()
 	block := make([]string, 0, len(body)+2)
 	block = append(block, title, "")
@@ -300,6 +323,7 @@ func (a *App) drawNotice(pane vaxis.Window, title string, colour vaxis.Color, bo
 	left := maxInt((w-widest)/2, 1)
 	top := maxInt((h-len(block))/2, 0)
 
+	a.noteBlock(pane, left, top, widest, minInt(len(block), h-top))
 	for i, line := range block {
 		if top+i >= h {
 			break
@@ -318,6 +342,7 @@ func (a *App) drawNotice(pane vaxis.Window, title string, colour vaxis.Color, bo
 
 func (a *App) drawTranscript(win vaxis.Window, r layout.Rect) {
 	pane := sub(win, r)
+	fill(pane, a.theme.Background)
 	w, h := pane.Size()
 
 	a.mu.Lock()
@@ -336,42 +361,28 @@ func (a *App) drawTranscript(win vaxis.Window, r layout.Rect) {
 			if c.msgs.IsReady() {
 				msg = "no messages yet, say something"
 			}
-			a.print(pane, 2, h/2, vaxis.Style{Foreground: a.theme.TextMuted}, msg)
+			a.print(pane, 2, h/2, vaxis.Style{
+				Foreground: a.theme.TextMuted, Background: a.theme.Background,
+			}, msg)
 			return
 		}
+		a.refreshTranscript(c, items, w, h)
+		if c.scroll > c.maxScroll(h) {
+			c.scroll = c.maxScroll(h)
+		}
+		scroll := c.scroll
 
 		// Laid out from the bottom up, because the live edge is where the
 		// reader already is and a message arriving must not shift what they
-		// are reading.
-		bottom := h
-		for i := c.scroll; i < len(items) && bottom > 0; i++ {
-			m := items[i].Value
-
-			if m.Centred() {
-				lines := a.wrap(m.Body(), w-4)
-				bottom -= len(lines)
-				style := vaxis.Style{Foreground: a.theme.TextMuted, Attribute: vaxis.AttrItalic}
-				for j, line := range lines {
-					indent := (w - a.vx.RenderedWidth(line)) / 2
-					if indent < 0 {
-						indent = 0
-					}
-					a.print(pane, indent, bottom+j, style, line)
-				}
-				bottom--
-				continue
+		// are reading. The scroll pushes the first message below the pane,
+		// and everything above it follows.
+		bottom := h + scroll
+		for i := 0; i < len(items) && bottom > 0; i++ {
+			e := c.cache[items[i].ID]
+			bottom -= e.height
+			if bottom < h {
+				a.drawEntry(pane, e, bottom, w)
 			}
-
-			b := a.layoutMessage(m, w)
-			bottom -= a.bubbleHeight(b)
-			col := 2
-			if m.Outgoing() {
-				col = w - b.Width() - 2
-				if col < 2 {
-					col = 2
-				}
-			}
-			a.drawBubble(pane, b, col, bottom)
 			bottom--
 		}
 	})
@@ -498,6 +509,7 @@ func (a *App) drawComposer(win vaxis.Window, r layout.Rect) {
 
 	style := vaxis.Style{Foreground: a.theme.Text, Background: a.theme.BackgroundPanel}
 	lines := a.wrap(text, w-composerGutter)
+	a.noteBlock(pane, 3, 0, w-composerGutter, h)
 	// The tail is what is being written, so that is the end that stays on
 	// screen when the draft outgrows the rows it has.
 	if len(lines) > h {
@@ -558,6 +570,13 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 		// Without the kitty keyboard protocol the terminal cannot tell
 		// shift+enter from enter, so the hint has to name the one that works.
 		newline = "^j"
+	}
+
+	if msg := a.toastNow(); msg != "" {
+		// A toast takes the hint line rather than a corner of its own: it is
+		// gone in a moment, and the hints are the thing worth its place.
+		a.print(pane, 1, 0, vaxis.Style{Foreground: a.theme.Success}, a.clip(msg, r.Width-2))
+		return
 	}
 
 	var hints []string

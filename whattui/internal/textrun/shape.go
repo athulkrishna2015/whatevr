@@ -203,6 +203,9 @@ type Run struct {
 	// and a long phrase then measures cells wider than it draws, which is
 	// dead space between the ellipsis and whatever comes after it.
 	adv []fixed.Int26_6
+	// cellStart is the column each cluster begins at, so a selection over the
+	// blank cells the run occupies can say which of them it took.
+	cellStart []int
 	// width is the phrase's real advance, ellipse the width of one ellipsis.
 	width   fixed.Int26_6
 	ellipse fixed.Int26_6
@@ -281,7 +284,46 @@ func (s *fontset) measure(text string, aspect font.Aspect) *Run {
 	if r.cells < 1 {
 		r.cells = 1
 	}
+
+	at := fixed.Int26_6(0)
+	r.cellStart = make([]int, len(r.adv))
+	for i, a := range r.adv {
+		r.cellStart[i] = minInt(at.Floor()/s.cellW, r.cells-1)
+		at += a
+	}
 	return r
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// ClusterAt is the shaping cluster drawn at a column of the run, and the
+// columns it covers. A cluster is the smallest thing there is: it is one
+// shaped unit of ink, and half of one is not text.
+//
+// cell is relative to the run's first column. An empty text means the column
+// is past the end.
+func (r *Run) ClusterAt(cell int) (text string, from int, span int) {
+	if r == nil || cell < 0 || cell >= r.cells || len(r.cellStart) == 0 {
+		return "", cell, 1
+	}
+	i := 0
+	for i+1 < len(r.cellStart) && r.cellStart[i+1] <= cell {
+		i++
+	}
+	from = r.cellStart[i]
+	end := r.cells
+	if i+1 < len(r.cellStart) {
+		end = r.cellStart[i+1]
+	}
+	if end <= from {
+		end = from + 1
+	}
+	return string(r.runes[r.cuts[i]:r.cuts[i+1]]), from, end - from
 }
 
 // shapeLine shapes runes into visually ordered runs, one per script, face and

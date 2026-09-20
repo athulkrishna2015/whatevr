@@ -181,6 +181,7 @@ func (a *App) drawBubble(pane vaxis.Window, b bubble, col, row int) {
 		return
 	}
 
+	a.noteBlock(pane, col+bubblePadX+1, r, inner, len(b.body))
 	for i, l := range b.body {
 		a.print(pane, col, r, border, bx.vertical)
 		c := a.print(pane, col+1, r, text, " ")

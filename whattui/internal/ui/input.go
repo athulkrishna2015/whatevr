@@ -38,6 +38,11 @@ func (a *App) onKey(k vaxis.Key) {
 		return
 	}
 
+	// Esc pops exactly one level, and a live selection is the outermost one.
+	if k.Matches(vaxis.KeyEsc) && a.clearSelection() {
+		return
+	}
+
 	a.mu.Lock()
 	focus := a.focus
 	a.mu.Unlock()
@@ -195,34 +200,36 @@ func (a *App) openSelected() {
 	}
 }
 
-// scrollTranscript moves up the history. Positive is back in time, because
-// that is the direction the reader thinks in.
+// scrollTranscript moves up the history, in rows. Positive is back in time,
+// because that is the direction the reader thinks in.
 func (a *App) scrollTranscript(by int) {
+	a.clearSelection()
+	viewport := a.transcriptPage()
+
 	a.mu.Lock()
 	c := a.conversation
+	a.mu.Unlock()
 	if c == nil {
-		a.mu.Unlock()
 		return
 	}
+
 	c.scroll += by
 	if c.scroll < 0 {
 		c.scroll = 0
 	}
-	if n := c.msgs.Len(); c.scroll > n-1 {
-		c.scroll = n - 1
-		if c.scroll < 0 {
-			c.scroll = 0
-		}
+	if max := c.maxScroll(viewport); c.scroll > max {
+		c.scroll = max
 	}
-	near := c.scroll > c.msgs.Len()-messagePageSize/2
-	a.mu.Unlock()
-
 	// Reaching for history the window does not hold yet is what asks for more
-	// of it. Asking early keeps the scroll from ever hitting a wall.
-	if near {
+	// of it. Asking a page early keeps the scroll from ever hitting a wall.
+	if c.scroll+viewport > c.contentRows-viewport {
 		a.loadOlder()
 	}
 }
+
+// wheelRows is how far one notch of the wheel moves the transcript. Three is
+// what every other application does.
+const wheelRows = 3
 
 func (a *App) listPage() int {
 	a.mu.Lock()
@@ -258,60 +265,87 @@ func (a *App) onMouse(m vaxis.Mouse) bool {
 		}
 	}
 	dirty := a.hover(over)
-	a.pointer(shapeFor(l, m, over))
+	a.pointer(a.shapeFor(m, over))
 
 	switch m.Button {
 	case vaxis.MouseWheelUp:
+		// The content moves out from under a selection made on the screen, so
+		// the selection goes with it.
+		a.clearSelection()
 		if inRect(m, l.ChatList) {
 			a.scrollList(-1)
 			return true
 		}
-		a.scrollTranscript(1)
+		a.scrollTranscript(wheelRows)
 		return true
 	case vaxis.MouseWheelDown:
+		a.clearSelection()
 		if inRect(m, l.ChatList) {
 			a.scrollList(1)
 			return true
 		}
-		a.scrollTranscript(-1)
+		a.scrollTranscript(-wheelRows)
 		return true
 	case vaxis.MouseLeftButton:
-		if m.EventType != vaxis.EventPress {
-			return dirty
-		}
-		if over >= 0 {
-			a.setFocus(FocusList)
-			a.setSelection(over)
-			a.openSelected()
+		p := point{m.Col, m.Row}
+		switch m.EventType {
+		case vaxis.EventPress:
+			// A press is only ever the start of a selection. What the click
+			// meant waits for the release, because a click that acts on the
+			// way down cannot also be a drag.
+			if a.onSelectPress(p) {
+				return true
+			}
+			a.mu.Lock()
+			a.drag.chat = over
+			a.mu.Unlock()
 			return true
-		}
-		if inRect(m, l.Composer) {
-			a.setFocus(FocusComposer)
-			return true
-		}
-		if inRect(m, l.Transcript) {
-			a.setFocus(FocusTranscript)
+		case vaxis.EventMotion:
+			return a.onSelectMotion(p)
+		case vaxis.EventRelease:
+			if a.onSelectRelease() {
+				return true
+			}
+			a.mu.Lock()
+			chat := a.drag.chat
+			a.drag.chat = -1
+			a.mu.Unlock()
+			switch {
+			case chat >= 0:
+				a.setFocus(FocusList)
+				a.setSelection(chat)
+				a.openSelected()
+			case inRect(m, l.Composer):
+				a.setFocus(FocusComposer)
+			case inRect(m, l.Transcript):
+				a.setFocus(FocusTranscript)
+			}
 			return true
 		}
 	}
 	return dirty
 }
 
-// shapeFor is what the pointer looks like where it is. A chat row is a thing
-// you click, the composer is a thing you type in, and a link in the transcript
-// is a link; anything else is the terminal's own arrow. A pointer that never
-// changes is a pointer that never tells you anything.
-func shapeFor(l layout.Layout, m vaxis.Mouse, overChat int) vaxis.MouseShape {
+// shapeFor is what the pointer looks like where it is: a beam over text you
+// can select, a hand over something you can click, and the terminal's own
+// arrow over everything else. A pointer that never changes is a pointer that
+// never tells you anything, and one that is always a beam is the same thing.
+func (a *App) shapeFor(m vaxis.Mouse, overChat int) vaxis.MouseShape {
+	p := point{m.Col, m.Row}
 	switch {
 	case overChat >= 0:
 		return vaxis.MouseShapeClickable
-	case inRect(m, l.Composer):
-		return vaxis.MouseShapeTextInput
-	case inRect(m, l.Transcript):
-		return vaxis.MouseShapeTextInput
-	case inRect(m, l.HintBar):
+	case a.vx.Cell(p.col, p.row).Style.Hyperlink != "":
 		return vaxis.MouseShapeClickable
+	case wordish(a.vx.Cell(p.col, p.row).Grapheme):
+		return vaxis.MouseShapeTextInput
 	default:
+		// The gaps inside a block are still text as far as a drag across them
+		// is concerned. The ground between two bubbles is not, and a beam
+		// over it would be a promise of something to select.
+		if _, ok := a.blockAt(p); ok {
+			return vaxis.MouseShapeTextInput
+		}
 		return vaxis.MouseShapeDefault
 	}
 }

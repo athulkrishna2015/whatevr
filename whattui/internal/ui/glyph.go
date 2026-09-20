@@ -108,9 +108,9 @@ func (a *App) clipPlain(s string, width int) string {
 // returns the column after it. Every pane goes through this, which is how a
 // column of glyphs keeps one left edge.
 //
-// The advance is measured with the terminal's own width rules rather than by
-// counting runes: a chat name full of emoji is not as many cells wide as it is
-// long, and guessing is how a column loses its edge.
+// The advance is the terminal's own width rules rather than a rune count: a
+// chat name full of emoji is not as many cells wide as it is long, and
+// guessing is how a column loses its edge.
 func (a *App) print(win vaxis.Window, col, row int, style vaxis.Style, s string) int {
 	w, _ := win.Size()
 	if row < 0 || col >= w || s == "" {
@@ -140,8 +140,10 @@ func (a *App) print(win vaxis.Window, col, row int, style vaxis.Style, s string)
 			Character: vaxis.Character{Grapheme: " ", Width: 1},
 			Style:     style,
 		})
+		oc, or := win.Origin()
 		a.placements = append(a.placements, placement{
 			win: win.New(col, row, span, 1), run: run, cells: span, ink: a.ink(style),
+			col: oc + col, row: or + row,
 		})
 		col += span
 	}
@@ -153,11 +155,30 @@ func (a *App) printPlain(win vaxis.Window, col, row int, style vaxis.Style, s st
 	if col >= w || s == "" {
 		return col
 	}
-	win.New(col, row, w-col, 1).PrintTruncate(0, vaxis.Segment{Text: s, Style: style})
-	if advance := a.vx.RenderedWidth(s); col+advance <= w {
-		return col + advance
+	// The advance comes back from the print rather than being measured again:
+	// measuring is the expensive half of drawing a string, and doing it twice
+	// for every string on screen is the whole frame's budget.
+	return col + win.New(col, row, w-col, 1).PrintTruncate(0, vaxis.Segment{Text: s, Style: style})
+}
+
+// blank paints n cells of ground, and rule paints n cells of one single-width
+// glyph. Both are cheaper than printing the same thing as a string: a string
+// has to be measured a grapheme at a time, and a run of cells that are all the
+// same cell does not.
+func (a *App) blank(win vaxis.Window, col, row, n int, style vaxis.Style) int {
+	return a.rule(win, col, row, n, " ", style)
+}
+
+func (a *App) rule(win vaxis.Window, col, row, n int, glyph string, style vaxis.Style) int {
+	if n <= 0 {
+		return col
 	}
-	return w
+	win.New(col, row, n, 1).Fill(vaxis.Cell{
+		Character: vaxis.Character{Grapheme: glyph, Width: 1},
+		Style:     style,
+	})
+	w, _ := win.Size()
+	return minInt(col+n, w)
 }
 
 // placement is one rasterised word waiting for the end of the frame. Held
@@ -169,6 +190,9 @@ type placement struct {
 	run   *textrun.Run
 	cells int
 	ink   color.NRGBA
+	// col and row are absolute, so a selection can ask the run what the blank
+	// cells it left behind actually say.
+	col, row int
 }
 
 // imgKey identifies a rasterised image. The pixel cell is part of it because a
@@ -183,7 +207,6 @@ type imgKey struct {
 func (a *App) flushRuns() {
 	cellW, cellH := a.shaper.CellSize()
 	if cellW <= 0 || cellH <= 0 {
-		a.placements = a.placements[:0]
 		return
 	}
 	for _, p := range a.placements {
@@ -200,8 +223,6 @@ func (a *App) flushRuns() {
 		}
 		kimg.Draw(p.win)
 	}
-	a.placements = a.placements[:0]
-
 	// Swept on probation rather than every frame: a word that scrolls off and
 	// back would otherwise be rasterised and uploaded again each time it
 	// crossed the edge.

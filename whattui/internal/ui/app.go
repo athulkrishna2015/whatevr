@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"go.rockorager.dev/vaxis"
 
@@ -50,6 +51,18 @@ type App struct {
 	images     map[imgKey]*vaxis.KittyImage
 	seen       map[imgKey]bool
 
+	// What the pointer has taken, what it is taking, and the runs of text a
+	// triple click can take whole. All three are screen coordinates from the
+	// last frame, so all three are dropped whenever the screen moves.
+	sel    selection
+	drag   drag
+	blocks []layout.Rect
+
+	// toastText is the transient line that says what just happened, and
+	// toastUntil is when it stops being true.
+	toastText  string
+	toastUntil time.Time
+
 	// State the UI owns. Presentation only: scroll positions, what is
 	// selected, what is typed. Everything renderable lives in a view.
 	mu         sync.Mutex
@@ -86,6 +99,7 @@ func New(vx *vaxis.Vaxis, caps term.Caps, client *proto.Client) *App {
 		shape:   vaxis.MouseShapeDefault,
 		images:  map[imgKey]*vaxis.KittyImage{},
 		seen:    map[imgKey]bool{},
+		drag:    drag{chat: -1},
 	}
 	a.shaper = shaperFor(vx, caps)
 	a.setCell()
@@ -139,6 +153,32 @@ func shaperFor(vx *vaxis.Vaxis, caps term.Caps) *textrun.Shaper {
 		// goroutine and only asks for a repaint.
 		Notify: func() { vx.PostEvent(redraw{}) },
 	})
+}
+
+func itoa(n int) string { return strconv.Itoa(n) }
+
+// toast says what just happened, briefly, without taking the screen. It is
+// posted from wherever the thing happened, including off the event loop.
+func (a *App) toast(msg string) {
+	a.mu.Lock()
+	a.toastText = msg
+	a.toastUntil = time.Now().Add(toastLife)
+	a.mu.Unlock()
+	// One wake-up when it expires, so the line actually leaves rather than
+	// sitting there until the next keystroke.
+	time.AfterFunc(toastLife, func() { a.vx.PostEvent(redraw{}) })
+	a.vx.PostEvent(redraw{})
+}
+
+const toastLife = 2500 * time.Millisecond
+
+func (a *App) toastNow() string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if time.Now().After(a.toastUntil) {
+		return ""
+	}
+	return a.toastText
 }
 
 func atoi(s string) int {
@@ -198,39 +238,67 @@ func (a *App) Run() error {
 	a.subscribeChats()
 
 	a.draw()
-	for ev := range a.vx.Events() {
-		switch ev := ev.(type) {
-		case vaxis.Key:
-			a.onKey(ev)
-		case vaxis.Mouse:
-			// Motion arrives for every pixel the pointer crosses. Laying the
-			// whole transcript out again for a move that changed nothing is
-			// the difference between a responsive pointer and a hot cpu.
-			if !a.onMouse(ev) {
-				continue
+	events := a.vx.Events()
+	for ev := range events {
+		dirty := a.handle(ev)
+		if a.done() {
+			return nil
+		}
+		// Everything already queued is handled before anything is drawn.
+		// Pointer motion arrives for every pixel crossed, and a frame per
+		// pixel is a pointer the highlight trails behind.
+		drained := true
+		for drained {
+			select {
+			case next, ok := <-events:
+				if !ok {
+					return nil
+				}
+				dirty = a.handle(next) || dirty
+				if a.done() {
+					return nil
+				}
+			default:
+				drained = false
 			}
-		case vaxis.Resize:
-			// vaxis does not resize itself: the size arrives as an event and
-			// the application says when to believe it. Geometry follows the
-			// size and nothing else, so believing it is the whole handler.
-			a.vx.Resize(ev)
-			// A resize can also be a font size change, and every rasterised
-			// word is measured off the cell.
-			a.recell()
-		case vaxis.Redraw, redraw:
-		case vaxis.QuitEvent:
-			return nil
 		}
-
-		a.mu.Lock()
-		quit := a.quit
-		a.mu.Unlock()
-		if quit {
-			return nil
+		if dirty {
+			a.draw()
 		}
-		a.draw()
 	}
 	return nil
+}
+
+// handle applies one event and reports whether the screen has to be drawn
+// again because of it.
+func (a *App) handle(ev vaxis.Event) bool {
+	switch ev := ev.(type) {
+	case vaxis.Key:
+		a.onKey(ev)
+	case vaxis.Mouse:
+		return a.onMouse(ev)
+	case vaxis.Resize:
+		// vaxis does not resize itself: the size arrives as an event and the
+		// application says when to believe it. Geometry follows the size and
+		// nothing else, so believing it is the whole handler.
+		a.vx.Resize(ev)
+		a.clearSelection()
+		// A resize can also be a font size change, and every rasterised word
+		// is measured off the cell.
+		a.recell()
+	case vaxis.QuitEvent:
+		a.mu.Lock()
+		a.quit = true
+		a.mu.Unlock()
+		return false
+	}
+	return true
+}
+
+func (a *App) done() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.quit
 }
 
 func (a *App) subscribeChats() {

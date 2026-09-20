@@ -10,6 +10,11 @@ import (
 //
 // All of it is presentation state. The messages themselves live in the
 // collection, which the daemon keeps correct.
+//
+// Everything on it except the extend guards is touched only from the event
+// loop, which is why the drawing code reads it without a lock. The guards are
+// the exception because an extend can fail on the client's goroutine, and
+// those are the fields App.mu covers.
 type conversation struct {
 	chatID string
 	sub    *proto.Subscription
@@ -17,7 +22,22 @@ type conversation struct {
 
 	// scroll counts rows up from the live edge. Zero is pinned to the bottom,
 	// which is where a chat opens and where it stays while messages arrive.
+	//
+	// Rows, not messages. Scrolling a message at a time means a long one
+	// leaves the screen in a single notch, which reads as the transcript
+	// jumping rather than moving.
 	scroll int
+	// contentRows is how tall everything in the window is, gaps included, so
+	// the scroll knows where its end is.
+	contentRows int
+
+	// The laid-out form of every message in the window, which is the
+	// expensive half of drawing one. Thrown away when the pane changes size,
+	// and refreshed per message when the daemon changes one.
+	cache      map[string]entry
+	cacheWidth int
+	cacheRows  int
+	cacheVer   uint64
 	// selected is the message the actions act on, by id, or empty for none.
 	selected string
 
@@ -30,6 +50,7 @@ type conversation struct {
 }
 
 func (a *App) openChat(chatID string) {
+	a.clearSelection()
 	a.mu.Lock()
 	if a.conversation != nil && a.conversation.chatID == chatID {
 		a.activeChat = chatID

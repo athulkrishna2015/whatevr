@@ -28,6 +28,10 @@ type Theme struct {
 	Border       vaxis.Color
 	BorderActive vaxis.Color
 
+	// Selection is the ground under text the pointer has taken. Bright enough
+	// to find, dark enough to still read the words through.
+	Selection vaxis.Color
+
 	Accent  vaxis.Color
 	Success vaxis.Color
 	Warning vaxis.Color
@@ -61,6 +65,7 @@ func Default() Theme {
 		BackgroundPanel:  vaxis.IndexColor(0),
 		BackgroundHover:  vaxis.IndexColor(0),
 		BackgroundActive: vaxis.IndexColor(8),
+		Selection:        vaxis.IndexColor(4),
 		Border:           vaxis.IndexColor(8),
 		BorderActive:     vaxis.IndexColor(6),
 		Accent:           vaxis.IndexColor(6),
@@ -136,6 +141,7 @@ func Derive(bg, fg vaxis.Color) Theme {
 		BackgroundHover:  step(0.12),
 		BackgroundActive: step(0.19),
 		Border:           step(0.26),
+		Selection:        colorOf(mix(ground, accent, 0.40)),
 		BorderActive:     colorOf(accent),
 		Accent:           colorOf(accent),
 		Success:          colorOf(readable(ground, hex(successHue))),
