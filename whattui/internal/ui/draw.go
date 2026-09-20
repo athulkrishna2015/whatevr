@@ -200,7 +200,7 @@ func (a *App) drawChatRow(pane vaxis.Window, row, w, height int, c proto.ChatRow
 	// The time goes on the name's line and the badge on the preview's, which
 	// is where every chat application in the world puts them. With no preview
 	// line the badge is worth more than the time, so it takes the slot.
-	right, rightStyle := "", vaxis.Style{Foreground: a.theme.TextFaint, Background: bg}
+	right, rightStyle := "", vaxis.Style{Foreground: a.theme.TextMuted, Background: bg}
 	switch {
 	case height < 2 && badge != "":
 		right = badge

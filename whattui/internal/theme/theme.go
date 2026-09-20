@@ -56,16 +56,22 @@ type Theme struct {
 
 // Default is the indexed palette: correct at the plain tier, and whatever the
 // user's own sixteen colours happen to be everywhere else.
+//
+// Sixteen colours cannot carry a ramp, so the steps collapse onto four indices
+// and the rule becomes a flat one: no ink may land on a ground of its own
+// index. That is why muted text is the text colour here and only the faintest
+// step is index 8, and why an outgoing bubble keeps the plain ground rather
+// than the grey the derived palettes tint it with.
 func Default() Theme {
 	return Theme{
 		Text:             vaxis.IndexColor(7),
-		TextMuted:        vaxis.IndexColor(8),
+		TextMuted:        vaxis.IndexColor(7),
 		TextFaint:        vaxis.IndexColor(8),
 		Background:       0,
 		BackgroundPanel:  vaxis.IndexColor(0),
-		BackgroundHover:  vaxis.IndexColor(0),
-		BackgroundActive: vaxis.IndexColor(8),
-		Selection:        vaxis.IndexColor(4),
+		BackgroundHover:  vaxis.IndexColor(8),
+		BackgroundActive: vaxis.IndexColor(4),
+		Selection:        vaxis.IndexColor(5),
 		Border:           vaxis.IndexColor(8),
 		BorderActive:     vaxis.IndexColor(6),
 		Accent:           vaxis.IndexColor(6),
@@ -73,7 +79,7 @@ func Default() Theme {
 		Warning:          vaxis.IndexColor(3),
 		Error:            vaxis.IndexColor(1),
 		BubbleIn:         vaxis.IndexColor(0),
-		BubbleOut:        vaxis.IndexColor(8),
+		BubbleOut:        vaxis.IndexColor(0),
 		Identity: []vaxis.Color{
 			vaxis.IndexColor(1), vaxis.IndexColor(2), vaxis.IndexColor(3),
 			vaxis.IndexColor(4), vaxis.IndexColor(5), vaxis.IndexColor(6),
