@@ -1,0 +1,4 @@
+[submodule "whattui/vaxis"]
+	path = whattui/vaxis
+	url = https://git.sr.ht/~codelif/vaxis
+	branch = main
