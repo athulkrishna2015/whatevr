@@ -299,6 +299,14 @@ func (a *App) handle(ev vaxis.Event) bool {
 		// A resize can also be a font size change, and every rasterised word
 		// is measured off the cell.
 		a.recell()
+	case vaxis.VisibilityUpdate:
+		// Nothing was drawn while the window was hidden, and a terminal is
+		// free to reflow or clear what is on it in the meantime. Coming back
+		// with a diff against a screen nobody can vouch for is how a stale
+		// frame survives a resize; come back with the whole thing.
+		if ev.Visible {
+			a.vx.Refresh()
+		}
 	case vaxis.QuitEvent:
 		a.mu.Lock()
 		a.quit = true
