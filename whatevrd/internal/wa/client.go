@@ -111,6 +111,12 @@ type Client struct {
 	// Serializes sticker store index refreshes (cheap, but no point racing).
 	stickerIndexMu sync.Mutex
 
+	privacyPublishMu      sync.Mutex
+	privacyPublishRunning bool
+	privacyPublishAgain   bool
+	// Overridden in tests. nil means the real read.
+	privacyFetch func(context.Context) (app.PrivacySettings, error)
+
 	historySyncMu      sync.Mutex
 	historySyncRunning bool
 	historySyncWake    bool

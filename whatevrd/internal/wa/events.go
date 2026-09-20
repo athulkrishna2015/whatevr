@@ -188,13 +188,9 @@ func (c *Client) handleEvent(eventGen uint64, raw any) bool {
 	case *events.PrivacySettings:
 		// Privacy changed (here or on the phone): push a fresh snapshot so an
 		// open settings window updates live. The event only carries the changed
-		// categories (evt.NewSettings is empty), so read the full, already-updated
-		// settings from the cache rather than the event.
-		if settings, err := c.GetPrivacySettings(c.backgroundContext()); err == nil {
-			c.daemon.PublishPrivacySettingsChanged(settings)
-		} else {
-			c.log.Warnf("Failed to read privacy settings after change event: %v", err)
-		}
+		// categories (evt.NewSettings is empty), so the full, already-updated
+		// settings are read instead of the event.
+		c.signalPrivacySettingsPublish()
 	case *events.UserAbout:
 		// A user's About/status changed. For our own account, re-fetch the self
 		// profile: that path resolves the status with the same normalized JID the
