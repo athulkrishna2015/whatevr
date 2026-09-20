@@ -168,17 +168,26 @@ Kirigami.ScrollablePage {
             contentItem: RowLayout {
                 spacing: Kirigami.Units.largeSpacing
 
-                QQC2.Label {
+                // Time and level are read-only TextEdits, not Labels, so the
+                // whole row — not just the message — is mouse/keyboard
+                // selectable. Fixed single-line metrics keep the columns
+                // aligned; overflow clips instead of eliding.
+                TextEdit {
                     Layout.preferredWidth: Kirigami.Units.gridUnit * 8
                     Layout.alignment: Qt.AlignTop
                     text: (logDelegate.item && logDelegate.item.time) ? logDelegate.item.time : ""
                     font.family: "monospace"
                     font.pixelSize: Kirigami.Theme.smallFont.pixelSize
                     color: Kirigami.Theme.disabledTextColor
-                    elide: Text.ElideRight
+                    wrapMode: TextEdit.NoWrap
+                    readOnly: true
+                    selectByMouse: true
+                    selectByKeyboard: true
+                    persistentSelection: true
+                    clip: true
                 }
 
-                QQC2.Label {
+                TextEdit {
                     Layout.preferredWidth: Kirigami.Units.gridUnit * 3
                     Layout.alignment: Qt.AlignTop
                     text: logDelegate.level.toUpperCase()
@@ -190,7 +199,12 @@ Kirigami.ScrollablePage {
                            : logDelegate.isWarn
                              ? Kirigami.Theme.neutralTextColor
                              : Kirigami.Theme.disabledTextColor
-                    elide: Text.ElideRight
+                    wrapMode: TextEdit.NoWrap
+                    readOnly: true
+                    selectByMouse: true
+                    selectByKeyboard: true
+                    persistentSelection: true
+                    clip: true
                 }
 
                 TextEdit {

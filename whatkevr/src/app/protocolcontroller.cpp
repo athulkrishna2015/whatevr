@@ -3023,7 +3023,8 @@ void ProtocolController::openLogs()
 
     m_logsSub = m_client->subscribe(
         QStringLiteral("daemon.logs"),
-        {{QStringLiteral("limit"), 200}},
+        // Full ring for debug: the daemon caps at its 1000-line ring anyway.
+        {{QStringLiteral("limit"), 1000}},
         m_logsModel);
     connect(m_logsSub, &Subscription::failed, this,
             [this](const QString &code, const QString &message) {
