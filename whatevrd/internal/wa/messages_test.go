@@ -335,7 +335,7 @@ func TestMessageTimestampPrefersOutgoingHistoryC2STimestamp(t *testing.T) {
 	}
 	webMsg := &waWeb.WebMessageInfo{MessageC2STimestamp: &c2s}
 
-	got := messageTimestamp(info, ingestOptions{source: sourceHistorySync}, webMsg)
+	got := (&Client{}).messageTimestamp(info, ingestOptions{source: sourceHistorySync}, webMsg)
 	if want := time.Unix(1_700_000_100, 0); !got.Equal(want) {
 		t.Fatalf("messageTimestamp() = %v, want %v", got, want)
 	}
@@ -349,7 +349,7 @@ func TestMessageTimestampParsesMillisecondC2STimestamp(t *testing.T) {
 	}
 	webMsg := &waWeb.WebMessageInfo{MessageC2STimestamp: &c2s}
 
-	got := messageTimestamp(info, ingestOptions{source: sourceHistorySync}, webMsg)
+	got := (&Client{}).messageTimestamp(info, ingestOptions{source: sourceHistorySync}, webMsg)
 	if want := time.UnixMilli(1_700_000_100_123); !got.Equal(want) {
 		t.Fatalf("messageTimestamp() = %v, want %v", got, want)
 	}
@@ -388,7 +388,7 @@ func TestMessageTimestampFallsBackForIncomingLiveAndInvalidC2S(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := messageTimestamp(tc.info, tc.opts, tc.webMsg); !got.Equal(fallback) {
+			if got := (&Client{}).messageTimestamp(tc.info, tc.opts, tc.webMsg); !got.Equal(fallback) {
 				t.Fatalf("messageTimestamp() = %v, want fallback %v", got, fallback)
 			}
 		})
@@ -405,7 +405,7 @@ func TestMessageTimestampPrefersRetryTimestampOverride(t *testing.T) {
 	}
 	webMsg := &waWeb.WebMessageInfo{MessageC2STimestamp: &c2s}
 
-	got := messageTimestamp(info, ingestOptions{source: sourceHistorySync, timestampOverride: override}, webMsg)
+	got := (&Client{}).messageTimestamp(info, ingestOptions{source: sourceHistorySync, timestampOverride: override}, webMsg)
 	if !got.Equal(override) {
 		t.Fatalf("messageTimestamp() = %v, want override %v", got, override)
 	}

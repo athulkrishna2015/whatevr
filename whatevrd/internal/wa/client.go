@@ -140,6 +140,11 @@ type Client struct {
 	offlineSyncChangedChats      map[string]uint32
 	offlineSyncLastPublish       time.Time
 
+	// Arrival order within one second, so two messages WhatsApp stamped the
+	// same second do not fall back to a random id tiebreak; see live_order.go.
+	liveOrderMu sync.Mutex
+	liveOrder   map[int64][]string
+
 	sendQueueMu   sync.Mutex
 	sendQueueWake chan struct{}
 	sendTimingsMu sync.Mutex

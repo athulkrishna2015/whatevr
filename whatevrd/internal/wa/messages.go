@@ -946,7 +946,7 @@ func (c *Client) mediaInputBase(ctx context.Context, evt *events.Message, opts i
 		SenderID:       senderID(info),
 		SenderName:     c.senderName(ctx, senderJID(info)),
 		Text:           text,
-		Timestamp:      messageTimestamp(info, opts, evt.SourceWebMsg),
+		Timestamp:      c.messageTimestamp(info, opts, evt.SourceWebMsg),
 		Direction:      direction,
 		Status:         status,
 		IsGroup:        info.IsGroup,
@@ -1182,7 +1182,7 @@ func (c *Client) imageMessageInput(ctx context.Context, evt *events.Message, opt
 			SenderID:       senderID(info),
 			SenderName:     c.senderName(ctx, senderJID(info)),
 			Text:           caption,
-			Timestamp:      messageTimestamp(info, opts, evt.SourceWebMsg),
+			Timestamp:      c.messageTimestamp(info, opts, evt.SourceWebMsg),
 			Direction:      direction,
 			Status:         status,
 			IsGroup:        info.IsGroup,
@@ -1235,7 +1235,7 @@ func (c *Client) stickerMessageInput(ctx context.Context, evt *events.Message, o
 			ChatNameSource: c.chatNameSource(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
 			SenderID:       senderID(info),
 			SenderName:     c.senderName(ctx, senderJID(info)),
-			Timestamp:      messageTimestamp(info, opts, evt.SourceWebMsg),
+			Timestamp:      c.messageTimestamp(info, opts, evt.SourceWebMsg),
 			Direction:      direction,
 			Status:         status,
 			IsGroup:        info.IsGroup,
@@ -1581,7 +1581,7 @@ func (c *Client) textMessageInput(ctx context.Context, evt *events.Message, opts
 		SenderID:       senderID(info),
 		SenderName:     c.senderName(ctx, senderJID(info)),
 		Text:           text,
-		Timestamp:      messageTimestamp(info, opts, evt.SourceWebMsg),
+		Timestamp:      c.messageTimestamp(info, opts, evt.SourceWebMsg),
 		Direction:      direction,
 		Status:         status,
 		IsGroup:        info.IsGroup,
@@ -1918,8 +1918,9 @@ func messageDirectionAndStatus(info types.MessageInfo, opts ingestOptions) (stri
 // because nothing that arrives later can ever sort above it.
 const futureTimestampSlack = 12 * time.Hour
 
-func messageTimestamp(info types.MessageInfo, opts ingestOptions, webMsg *waWeb.WebMessageInfo) time.Time {
-	return clampFutureTimestamp(rawMessageTimestamp(info, opts, webMsg), time.Now())
+func (c *Client) messageTimestamp(info types.MessageInfo, opts ingestOptions, webMsg *waWeb.WebMessageInfo) time.Time {
+	stated := clampFutureTimestamp(rawMessageTimestamp(info, opts, webMsg), time.Now())
+	return c.liveOrderedTimestamp(info, opts, stated)
 }
 
 func rawMessageTimestamp(info types.MessageInfo, opts ingestOptions, webMsg *waWeb.WebMessageInfo) time.Time {
