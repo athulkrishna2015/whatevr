@@ -184,11 +184,14 @@ func (a *App) drawChatRow(pane vaxis.Window, row, w, height int, c proto.ChatRow
 		return
 	}
 
-	// A bar in the first column, in the chat's own colour, for the chat the
-	// transcript is showing. Position rather than hue, so it survives a
-	// terminal that cannot show the hue.
+	// A bar in the first column, for the chat the transcript is showing. It
+	// runs the whole height of the row: half a bar down the side of a two row
+	// entry marks the name rather than the chat.
 	if st.active || st.selected {
-		a.print(line, 0, 0, vaxis.Style{Foreground: a.theme.Accent, Background: bg}, "▎")
+		pane.New(0, row, 1, height).Fill(vaxis.Cell{
+			Character: vaxis.Character{Grapheme: "▎", Width: 1},
+			Style:     vaxis.Style{Foreground: a.theme.Accent, Background: bg},
+		})
 	}
 
 	col := a.drawAvatar(pane, row, height, c, bg) + 1
@@ -436,12 +439,13 @@ func (a *App) drawTranscript(win vaxis.Window, r layout.Rect) {
 // layoutMessage turns one row into a bubble. Every kind ends up here, and a
 // kind whattui does not draw itself renders the daemon's fallback, so the
 // transcript is never blank because of a message nobody taught it.
-func (a *App) layoutMessage(m proto.MessageRow, paneWidth int) bubble {
+func (a *App) layoutMessage(m proto.MessageRow, paneWidth int, named bool) bubble {
 	header := ""
 	headerStyle := vaxis.Style{}
 	// Who is talking is the first thing you need in a group, and it is the
-	// main place colour earns its keep.
-	if !m.Outgoing() && m.Sender.Name != "" {
+	// main place colour earns its keep. Said once per run of messages, and
+	// never in a chat with one other person, where it is noise.
+	if named && !m.Outgoing() && m.Sender.Name != "" {
 		header = m.Sender.Name
 		headerStyle = vaxis.Style{
 			Foreground: a.theme.IdentityFor(m.Sender.ID),

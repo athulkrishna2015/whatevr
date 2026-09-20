@@ -7,22 +7,35 @@ import (
 	"whattui/internal/term"
 )
 
-// bubbleBox is where the first bubble's border glyphs are, in cells.
+// bubbleBox is where the first bubble's side glyphs are, in cells. A bubble is
+// as tall as its content and has an edge down either side of it, so the box is
+// the first pair of edges and every row they run for.
 func bubbleBox(a *App) (col, row, w, h int, ok bool) {
-	cols, rows := a.vx.Window().Size()
-	col, row = -1, -1
-	for r := 0; r < rows; r++ {
-		for c := 0; c < cols; c++ {
-			switch a.vx.Cell(c, r).Grapheme {
-			case "╭", "+":
-				if col < 0 {
-					col, row = c, r
-				}
-			case "╯":
-				if col >= 0 {
-					return col, row, c - col + 1, r - row + 1, true
-				}
+	// Inside the transcript only: the chat list's own rule is the same glyph
+	// running the whole height of the screen.
+	pane := a.layout().Transcript
+	cols, rows := pane.Col+pane.Width, pane.Row+pane.Height
+	edge := func(c, r int) bool {
+		g := a.vx.Cell(c, r).Grapheme
+		return g == "│" || g == "|"
+	}
+	for r := pane.Row; r < rows; r++ {
+		for c := pane.Col; c < cols; c++ {
+			if !edge(c, r) {
+				continue
 			}
+			right := c + 1
+			for right < cols && !edge(right, r) {
+				right++
+			}
+			if right >= cols {
+				continue
+			}
+			bottom := r
+			for bottom+1 < rows && edge(c, bottom+1) && edge(right, bottom+1) {
+				bottom++
+			}
+			return c, r, right - c + 1, bottom - r + 1, true
 		}
 	}
 	return 0, 0, 0, 0, false

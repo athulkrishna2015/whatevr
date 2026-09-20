@@ -21,6 +21,20 @@ type entry struct {
 	lines   []string
 	bubble  bubble
 	height  int
+	// above is who spoke immediately before this message. A run of messages
+	// from one person says their name once, so the layout of a message
+	// depends on its neighbour and has to be thrown away when that changes.
+	above string
+}
+
+// speaker identifies a run of messages from one person. A message nobody
+// wrote breaks the run rather than joining it, which is why the id is in
+// here: two texts either side of a system line are not one run.
+func speaker(m proto.MessageRow, id string) string {
+	if m.Centred() {
+		return id
+	}
+	return m.Direction + "\x00" + m.Sender.ID
 }
 
 // refreshTranscript brings the layout cache up to date with the window.
@@ -30,19 +44,33 @@ type entry struct {
 // away would re-wrap four hundred messages because one of them was read.
 func (a *App) refreshTranscript(c *conversation, items []view.Item[proto.MessageRow], w, rows int) {
 	ver := c.msgs.Version()
-	if c.cache != nil && c.cacheWidth == w && c.cacheRows == rows && c.cacheVer == ver {
+	// Only a group needs to say who is talking. In a chat with one other
+	// person, both names are on the screen already and every one of them
+	// costs a row.
+	group := false
+	if it, ok := a.chats.Get(c.chatID); ok {
+		group = it.Value.IsGroup
+	}
+	if c.cache != nil && c.cacheWidth == w && c.cacheRows == rows && c.cacheVer == ver && c.cacheGroup == group {
 		return
 	}
-	if c.cache == nil || c.cacheWidth != w || c.cacheRows != rows {
+	if c.cache == nil || c.cacheWidth != w || c.cacheRows != rows || c.cacheGroup != group {
 		c.cache = make(map[string]entry, len(items))
 	}
-	c.cacheWidth, c.cacheRows, c.cacheVer = w, rows, ver
+	c.cacheWidth, c.cacheRows, c.cacheVer, c.cacheGroup = w, rows, ver, group
 
 	total := 0
-	for _, it := range items {
+	for i, it := range items {
+		// The window runs newest first, so the message above this one on the
+		// screen is the next one along.
+		above := ""
+		if i+1 < len(items) {
+			above = speaker(items[i+1].Value, items[i+1].ID)
+		}
 		e, ok := c.cache[it.ID]
-		if !ok || !bytes.Equal(e.raw, it.Raw) {
-			e = a.layoutEntry(it, w)
+		if !ok || !bytes.Equal(e.raw, it.Raw) || e.above != above {
+			e = a.layoutEntry(it, w, group && above != speaker(it.Value, it.ID))
+			e.above = above
 			c.cache[it.ID] = e
 		}
 		total += e.height + 1
@@ -64,13 +92,13 @@ func (a *App) refreshTranscript(c *conversation, items []view.Item[proto.Message
 	}
 }
 
-func (a *App) layoutEntry(it view.Item[proto.MessageRow], w int) entry {
+func (a *App) layoutEntry(it view.Item[proto.MessageRow], w int, named bool) entry {
 	m := it.Value
 	if m.Centred() {
 		lines := a.wrap(m.Body(), w-4)
 		return entry{raw: it.Raw, centred: true, lines: lines, height: len(lines)}
 	}
-	b := a.layoutMessage(m, w)
+	b := a.layoutMessage(m, w, named)
 	return entry{raw: it.Raw, bubble: b, height: a.bubbleHeight(b)}
 }
 

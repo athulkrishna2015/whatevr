@@ -59,10 +59,14 @@ type bubble struct {
 // padding, plus its border.
 func (b bubble) Width() int { return b.inner + 2*bubblePadX + 2 }
 
-// Height is the border, the optional header and quote, the body, and the
-// footer when it did not fit beside the last line of text.
+// Height is the optional header and quote, the body, and the footer on the
+// rare occasion it could not be tucked beside the last line of text.
+//
+// A bubble is exactly as tall as what is in it. A row of chrome above and
+// below reads as breathing room on one message and as a wall of boxes on a
+// screenful, and a screenful is what a transcript always is.
 func (a *App) bubbleHeight(b bubble) int {
-	n := 2 + len(b.body)*b.scale
+	n := len(b.body) * b.scale
 	if b.header != "" {
 		n++
 	}
@@ -75,15 +79,18 @@ func (a *App) bubbleHeight(b bubble) int {
 	return n
 }
 
+// footerGap is the space between the end of a sentence and the time it was
+// sent. Two columns, because one reads as a word of the sentence.
+const footerGap = 2
+
 // footerFitsInline says whether the time and ticks can sit at the end of the
-// last line of text rather than claiming a row of their own. One space of gap
-// is the minimum that still reads as two things.
+// last line of text rather than claiming a row of their own.
 func (a *App) footerFitsInline(b bubble) bool {
 	if len(b.body) == 0 || b.footer == "" {
 		return false
 	}
 	last := a.lineWidth(b.body[len(b.body)-1])
-	return last+1+a.width(b.footer) <= b.inner
+	return last+footerGap+a.width(b.footer) <= b.inner
 }
 
 // layoutBubble wraps a message into a bubble no wider than max. The width is
@@ -108,10 +115,14 @@ func (a *App) layoutBubble(header, quote, body, footer string, max int, headerSt
 	b.inner = maxInt(b.inner, a.width(b.header))
 	b.inner = maxInt(b.inner, a.width(b.quote))
 	b.inner = minInt(b.inner, innerMax)
-	// A footer that cannot tuck in beside the last line gets a row of its
-	// own, and a row of its own has to be wide enough to hold it. Checked
-	// after the content width is known, because whether it tucks in depends
-	// on that width.
+	// A footer that does not tuck in beside the last line widens the bubble
+	// until it does. A row costs every message on the screen and a few
+	// columns cost nothing, so the time only takes a row of its own when even
+	// the widest bubble allowed cannot hold it.
+	if !a.footerFitsInline(b) && len(b.body) > 0 && b.footer != "" {
+		last := a.lineWidth(b.body[len(b.body)-1])
+		b.inner = minInt(maxInt(b.inner, last+footerGap+a.width(b.footer)), innerMax)
+	}
 	if !a.footerFitsInline(b) {
 		b.inner = minInt(maxInt(b.inner, a.width(b.footer)), innerMax)
 	}
@@ -144,21 +155,14 @@ func (a *App) drawBubble(pane vaxis.Window, b bubble, col, row int) {
 	text := vaxis.Style{Foreground: a.theme.Text, Background: fillColor}
 	faint := vaxis.Style{Foreground: a.theme.TextFaint, Background: fillColor}
 
-	// The border is a row and a column of cells whatever the tier. Painted,
-	// the image draws the edge and the cells are only kept clean; typed, the
+	// The border is a column either side whatever the tier. Painted, the
+	// image draws the edge and the cells are only kept clean; typed, the
 	// glyphs are the edge. Identical geometry either way.
-	vertical, horizontal := bx.vertical, bx.horizontal
+	vertical := bx.vertical
 	if painted {
-		vertical, horizontal = " ", " "
+		vertical = " "
 	}
-	rule := func(left, right string) string {
-		if painted {
-			return strings.Repeat(" ", total)
-		}
-		return left + strings.Repeat(horizontal, total-2) + right
-	}
-	a.print(pane, col, row, border, rule(bx.topLeft, bx.topRight))
-	r := row + 1
+	r := row
 
 	line := func(s string, style vaxis.Style) {
 		a.print(pane, col, r, border, vertical)
@@ -199,7 +203,6 @@ func (a *App) drawBubble(pane vaxis.Window, b bubble, col, row int) {
 		if b.footer != "" {
 			line(a.padLeft(b.footer, inner), faint)
 		}
-		a.print(pane, col, r, border, rule(bx.bottomLeft, bx.bottomRight))
 		return
 	}
 
@@ -224,8 +227,6 @@ func (a *App) drawBubble(pane vaxis.Window, b bubble, col, row int) {
 	if !a.footerFitsInline(b) && b.footer != "" {
 		line(a.padLeft(b.footer, inner), faint)
 	}
-
-	a.print(pane, col, r, border, rule(bx.bottomLeft, bx.bottomRight))
 }
 
 // paintBubble reserves the bubble's own cells for its chrome. The square

@@ -38,6 +38,9 @@ type conversation struct {
 	cacheWidth int
 	cacheRows  int
 	cacheVer   uint64
+	// cacheGroup is whether the chat is a group, because whether a message
+	// says who sent it depends on that and on nothing in the message.
+	cacheGroup bool
 	// selected is the message the actions act on, by id, or empty for none.
 	selected string
 

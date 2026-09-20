@@ -25,7 +25,11 @@ row 01
   023-023 w=1 size=0 fg=0x1000006 bg=0x1000000 ul=0x0 us=0 attr=2 link="" params="" ["1"]
   024-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
   025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
-  026-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  026-034 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  035-035 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
+  036-064 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" ","i","m","p","l","e","m","e","n","t","s"," ","t","h","e"," ","d","o","c","u","m","e","n","t"," ","a","n","d"," "]
+  065-065 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
+  066-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
 row 02
   000-001 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   002-002 w=0 size=0 fg=0x1000004 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["C"]
@@ -35,9 +39,11 @@ row 02
   023-023 w=1 size=0 fg=0x1000006 bg=0x1000000 ul=0x0 us=0 attr=2 link="" params="" ["2"]
   024-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
   025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
-  026-027 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-  028-058 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["+","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","+"]
-  059-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  026-034 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  035-035 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
+  036-064 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" ","n","o","t"," ","t","h","e"," ","o","t","h","e","r"," ","w","a","y"," ","a","r","o","u","n","d",","," "," "," "]
+  065-065 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
+  066-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
 row 03
   000-001 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   002-002 w=0 size=0 fg=0x1000003 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["C"]
@@ -47,11 +53,11 @@ row 03
   023-023 w=1 size=0 fg=0x1000006 bg=0x1000000 ul=0x0 us=0 attr=2 link="" params="" ["3"]
   024-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
   025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
-  026-027 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-  028-028 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
-  029-057 w=1 size=0 fg=0x1000002 bg=0x1000000 ul=0x0 us=0 attr=2 link="" params="" [" ","c","o","n","t","a","c","t"," ","0"," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
-  058-058 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
-  059-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  026-034 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  035-035 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
+  036-064 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" ","s","e","e"," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  065-065 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
+  066-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
 row 04
   000-001 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   002-002 w=0 size=0 fg=0x1000002 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["C"]
@@ -61,11 +67,13 @@ row 04
   019-023 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["1","6","/","0","9"]
   024-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
   025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
-  026-027 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-  028-028 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
-  029-057 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" ","P","R","O","T","O","C","O","L",".","m","d"," ","i","s"," ","t","h","e"," ","s","o","u","r","c","e"," "," "," "]
-  058-058 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
-  059-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  026-034 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  035-035 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
+  036-036 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  037-060 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=1 attr=0 link="https://example.com/spec" params="" ["h","t","t","p","s",":","/","/","e","x","a","m","p","l","e",".","c","o","m","/","s","p","e","c"]
+  061-064 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "]
+  065-065 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
+  066-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
 row 05
   000-001 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   002-002 w=0 size=0 fg=0x1000001 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["C"]
@@ -75,11 +83,9 @@ row 05
   023-023 w=1 size=0 fg=0x1000006 bg=0x1000000 ul=0x0 us=0 attr=2 link="" params="" ["1"]
   024-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
   025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
-  026-027 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-  028-028 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
-  029-057 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" ","o","f"," ","t","r","u","t","h",","," ","t","h","e"," ","d","a","e","m","o","n"," "," "," "," "," "," "," "," "]
-  058-058 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
-  059-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  026-034 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  035-065 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," ","0","5",":","2","2"," ","✔","✔"," ","|"]
+  066-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
 row 06
   000-001 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   002-002 w=0 size=0 fg=0x100000e bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["C"]
@@ -89,11 +95,7 @@ row 06
   023-023 w=1 size=0 fg=0x1000006 bg=0x1000000 ul=0x0 us=0 attr=2 link="" params="" ["2"]
   024-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
   025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
-  026-027 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-  028-028 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
-  029-057 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" ","i","m","p","l","e","m","e","n","t","s"," ","t","h","e"," ","d","o","c","u","m","e","n","t"," ","a","n","d"," "]
-  058-058 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
-  059-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  026-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
 row 07
   000-001 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   002-002 w=0 size=0 fg=0x100000d bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["C"]
@@ -105,7 +107,7 @@ row 07
   025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   026-027 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   028-028 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
-  029-057 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" ","n","o","t"," ","t","h","e"," ","o","t","h","e","r"," ","w","a","y"," ","a","r","o","u","n","d",","," "," "," "]
+  029-057 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" ","P","R","O","T","O","C","O","L",".","m","d"," ","i","s"," ","t","h","e"," ","s","o","u","r","c","e"," "," "," "]
   058-058 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   059-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
 row 08
@@ -113,10 +115,34 @@ row 08
   025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   026-027 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   028-028 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
-  029-057 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" ","s","e","e"," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  029-057 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" ","o","f"," ","t","r","u","t","h",","," ","t","h","e"," ","d","a","e","m","o","n"," "," "," "," "," "," "," "," "]
   058-058 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   059-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
 row 09
+  000-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
+  026-027 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
+  028-028 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
+  029-057 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" ","i","m","p","l","e","m","e","n","t","s"," ","t","h","e"," ","d","o","c","u","m","e","n","t"," ","a","n","d"," "]
+  058-058 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
+  059-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+row 10
+  000-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
+  026-027 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
+  028-028 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
+  029-057 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" ","n","o","t"," ","t","h","e"," ","o","t","h","e","r"," ","w","a","y"," ","a","r","o","u","n","d",","," "," "," "]
+  058-058 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
+  059-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+row 11
+  000-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
+  026-027 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
+  028-028 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
+  029-057 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" ","s","e","e"," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  058-058 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
+  059-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+row 12
   000-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   026-027 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -126,29 +152,17 @@ row 09
   054-057 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "]
   058-058 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   059-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
-row 10
+row 13
   000-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   026-027 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   028-058 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," ","0","5",":","2","3"," ","|"]
   059-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
-row 11
-  000-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
-  025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
-  026-027 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-  028-058 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["+","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","+"]
-  059-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
-row 12
+row 14
   000-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   026-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
-row 13
-  000-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
-  025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
-  026-034 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
-  035-065 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["+","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","+"]
-  066-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 14
+row 15
   000-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   026-034 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
@@ -156,7 +170,7 @@ row 14
   036-064 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" ","P","R","O","T","O","C","O","L",".","m","d"," ","i","s"," ","t","h","e"," ","s","o","u","r","c","e"," "," "," "]
   065-065 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   066-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 15
+row 16
   000-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   026-034 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
@@ -164,7 +178,7 @@ row 15
   036-064 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" ","o","f"," ","t","r","u","t","h",","," ","t","h","e"," ","d","a","e","m","o","n"," "," "," "," "," "," "," "," "]
   065-065 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   066-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 16
+row 17
   000-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   026-034 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
@@ -172,7 +186,7 @@ row 16
   036-064 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" ","i","m","p","l","e","m","e","n","t","s"," ","t","h","e"," ","d","o","c","u","m","e","n","t"," ","a","n","d"," "]
   065-065 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   066-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 17
+row 18
   000-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   026-034 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
@@ -180,7 +194,7 @@ row 17
   036-064 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" ","n","o","t"," ","t","h","e"," ","o","t","h","e","r"," ","w","a","y"," ","a","r","o","u","n","d",","," "," "," "]
   065-065 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   066-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 18
+row 19
   000-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   026-034 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
@@ -188,7 +202,7 @@ row 18
   036-064 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" ","s","e","e"," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   065-065 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   066-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 19
+row 20
   000-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   026-034 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
@@ -198,17 +212,11 @@ row 19
   061-064 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "]
   065-065 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   066-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 20
-  000-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
-  025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
-  026-034 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
-  035-065 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," ","0","5",":","2","4"," ","✔","✔"," ","|"]
-  066-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
 row 21
   000-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   026-034 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
-  035-065 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["+","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","-","+"]
+  035-065 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," ","0","5",":","2","4"," ","✔","✔"," ","|"]
   066-067 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
 row 22
   000-024 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
@@ -255,7 +263,11 @@ row 01
   023-023 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=2 link="" params="" ["1"]
   024-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  026-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  035-035 w=1 size=0 fg=0x2494a4e bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  036-064 w=1 size=0 fg=0x2e4e4e6 bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" [" ","i","m","p","l","e","m","e","n","t","s"," ","t","h","e"," ","d","o","c","u","m","e","n","t"," ","a","n","d"," "]
+  065-065 w=1 size=0 fg=0x2494a4e bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
 row 02
   000-001 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   002-002 w=0 size=0 fg=0x298c379 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
@@ -265,9 +277,11 @@ row 02
   023-023 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=2 link="" params="" ["2"]
   024-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-  028-058 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["╭","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","╮"]
-  059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  035-035 w=1 size=0 fg=0x2494a4e bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  036-064 w=1 size=0 fg=0x2e4e4e6 bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" [" ","n","o","t"," ","t","h","e"," ","o","t","h","e","r"," ","w","a","y"," ","a","r","o","u","n","d",","," "," "," "]
+  065-065 w=1 size=0 fg=0x2494a4e bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
 row 03
   000-001 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   002-002 w=0 size=0 fg=0x2d8c04a bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
@@ -277,11 +291,11 @@ row 03
   023-023 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=2 link="" params="" ["3"]
   024-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-  028-028 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  029-057 w=1 size=0 fg=0x2e5a03d bg=0x225272b ul=0x0 us=0 attr=2 link="" params="" [" ","c","o","n","t","a","c","t"," ","0"," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
-  058-058 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  035-035 w=1 size=0 fg=0x2494a4e bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  036-064 w=1 size=0 fg=0x2e4e4e6 bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" [" ","s","e","e"," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  065-065 w=1 size=0 fg=0x2494a4e bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
 row 04
   000-001 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   002-002 w=0 size=0 fg=0x2e5a03d bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
@@ -291,11 +305,13 @@ row 04
   019-023 w=1 size=0 fg=0x2909194 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["1","6","/","0","9"]
   024-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-  028-028 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  029-057 w=1 size=0 fg=0x2e4e4e6 bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" [" ","P","R","O","T","O","C","O","L",".","m","d"," ","i","s"," ","t","h","e"," ","s","o","u","r","c","e"," "," "," "]
-  058-058 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  035-035 w=1 size=0 fg=0x2494a4e bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  036-036 w=1 size=0 fg=0x2e4e4e6 bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  037-060 w=1 size=0 fg=0x2e4e4e6 bg=0x21e2f46 ul=0x0 us=1 attr=0 link="https://example.com/spec" params="" ["h","t","t","p","s",":","/","/","e","x","a","m","p","l","e",".","c","o","m","/","s","p","e","c"]
+  061-064 w=1 size=0 fg=0x2e4e4e6 bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "]
+  065-065 w=1 size=0 fg=0x2494a4e bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
 row 05
   000-001 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   002-002 w=0 size=0 fg=0x2e06c75 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
@@ -305,11 +321,11 @@ row 05
   023-023 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=2 link="" params="" ["1"]
   024-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-  028-028 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  029-057 w=1 size=0 fg=0x2e4e4e6 bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" [" ","o","f"," ","t","r","u","t","h",","," ","t","h","e"," ","d","a","e","m","o","n"," "," "," "," "," "," "," "," "]
-  058-058 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  035-035 w=1 size=0 fg=0x2494a4e bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  036-064 w=1 size=0 fg=0x26a6b6f bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," ","0","5",":","2","2"," ","✔","✔"," "]
+  065-065 w=1 size=0 fg=0x2494a4e bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
 row 06
   000-001 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   002-002 w=0 size=0 fg=0x2d19a66 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
@@ -319,11 +335,7 @@ row 06
   023-023 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=2 link="" params="" ["2"]
   024-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-  028-028 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  029-057 w=1 size=0 fg=0x2e4e4e6 bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" [" ","i","m","p","l","e","m","e","n","t","s"," ","t","h","e"," ","d","o","c","u","m","e","n","t"," ","a","n","d"," "]
-  058-058 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  026-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
 row 07
   000-001 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   002-002 w=0 size=0 fg=0x2e06cb8 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
@@ -335,7 +347,7 @@ row 07
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   028-028 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  029-057 w=1 size=0 fg=0x2e4e4e6 bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" [" ","n","o","t"," ","t","h","e"," ","o","t","h","e","r"," ","w","a","y"," ","a","r","o","u","n","d",","," "," "," "]
+  029-057 w=1 size=0 fg=0x2e4e4e6 bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" [" ","P","R","O","T","O","C","O","L",".","m","d"," ","i","s"," ","t","h","e"," ","s","o","u","r","c","e"," "," "," "]
   058-058 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["│"]
   059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
 row 08
@@ -343,10 +355,34 @@ row 08
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   028-028 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  029-057 w=1 size=0 fg=0x2e4e4e6 bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" [" ","s","e","e"," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  029-057 w=1 size=0 fg=0x2e4e4e6 bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" [" ","o","f"," ","t","r","u","t","h",","," ","t","h","e"," ","d","a","e","m","o","n"," "," "," "," "," "," "," "," "]
   058-058 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["│"]
   059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
 row 09
+  000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
+  028-028 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  029-057 w=1 size=0 fg=0x2e4e4e6 bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" [" ","i","m","p","l","e","m","e","n","t","s"," ","t","h","e"," ","d","o","c","u","m","e","n","t"," ","a","n","d"," "]
+  058-058 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+row 10
+  000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
+  028-028 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  029-057 w=1 size=0 fg=0x2e4e4e6 bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" [" ","n","o","t"," ","t","h","e"," ","o","t","h","e","r"," ","w","a","y"," ","a","r","o","u","n","d",","," "," "," "]
+  058-058 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+row 11
+  000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
+  028-028 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  029-057 w=1 size=0 fg=0x2e4e4e6 bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" [" ","s","e","e"," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  058-058 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+row 12
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -356,7 +392,7 @@ row 09
   054-057 w=1 size=0 fg=0x2e4e4e6 bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "]
   058-058 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["│"]
   059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
-row 10
+row 13
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -364,23 +400,11 @@ row 10
   029-057 w=1 size=0 fg=0x26a6b6f bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," ","0","5",":","2","3"," "]
   058-058 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["│"]
   059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
-row 11
-  000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
-  025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-  028-058 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["╰","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","╯"]
-  059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
-row 12
+row 14
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
-row 13
-  000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
-  025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
-  035-065 w=1 size=0 fg=0x2494a4e bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" ["╭","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","╮"]
-  066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 14
+row 15
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
@@ -388,7 +412,7 @@ row 14
   036-064 w=1 size=0 fg=0x2e4e4e6 bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" [" ","P","R","O","T","O","C","O","L",".","m","d"," ","i","s"," ","t","h","e"," ","s","o","u","r","c","e"," "," "," "]
   065-065 w=1 size=0 fg=0x2494a4e bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 15
+row 16
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
@@ -396,7 +420,7 @@ row 15
   036-064 w=1 size=0 fg=0x2e4e4e6 bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" [" ","o","f"," ","t","r","u","t","h",","," ","t","h","e"," ","d","a","e","m","o","n"," "," "," "," "," "," "," "," "]
   065-065 w=1 size=0 fg=0x2494a4e bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 16
+row 17
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
@@ -404,7 +428,7 @@ row 16
   036-064 w=1 size=0 fg=0x2e4e4e6 bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" [" ","i","m","p","l","e","m","e","n","t","s"," ","t","h","e"," ","d","o","c","u","m","e","n","t"," ","a","n","d"," "]
   065-065 w=1 size=0 fg=0x2494a4e bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 17
+row 18
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
@@ -412,7 +436,7 @@ row 17
   036-064 w=1 size=0 fg=0x2e4e4e6 bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" [" ","n","o","t"," ","t","h","e"," ","o","t","h","e","r"," ","w","a","y"," ","a","r","o","u","n","d",","," "," "," "]
   065-065 w=1 size=0 fg=0x2494a4e bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 18
+row 19
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
@@ -420,7 +444,7 @@ row 18
   036-064 w=1 size=0 fg=0x2e4e4e6 bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" [" ","s","e","e"," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   065-065 w=1 size=0 fg=0x2494a4e bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 19
+row 20
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
@@ -430,19 +454,13 @@ row 19
   061-064 w=1 size=0 fg=0x2e4e4e6 bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "]
   065-065 w=1 size=0 fg=0x2494a4e bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 20
+row 21
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
   035-035 w=1 size=0 fg=0x2494a4e bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   036-064 w=1 size=0 fg=0x26a6b6f bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," ","0","5",":","2","4"," ","✔","✔"," "]
   065-065 w=1 size=0 fg=0x2494a4e bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 21
-  000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
-  025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
-  035-065 w=1 size=0 fg=0x2494a4e bg=0x21e2f46 ul=0x0 us=0 attr=0 link="" params="" ["╰","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","─","╯"]
   066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
 row 22
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
@@ -466,7 +484,7 @@ tier graphics
 layout {Shape:compact Chrome:2 ChatList:{Col:0 Row:0 Width:26 Height:24} Header:{Col:26 Row:0 Width:42 Height:1} Transcript:{Col:26 Row:1 Width:42 Height:21} Composer:{Col:26 Row:22 Width:42 Height:1} HintBar:{Col:26 Row:23 Width:42 Height:1} ListFocused:false}
 size 68x24
 cursor {Column:29 Row:22 Style:6 Visible:true}
-placements [{Column:1 Row:0 Width:3 Height:1 ImageID:2 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:1 Width:3 Height:1 ImageID:3 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:2 Width:3 Height:1 ImageID:4 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:3 Width:3 Height:1 ImageID:5 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:4 Width:3 Height:1 ImageID:6 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:5 Width:3 Height:1 ImageID:7 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:6 Width:3 Height:1 ImageID:8 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:7 Width:3 Height:1 ImageID:9 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:28 Row:2 Width:31 Height:10 ImageID:11 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:35 Row:13 Width:31 Height:9 ImageID:10 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:66 Row:1 Width:1 Height:1 ImageID:1 XOffset:2 YOffset:3 ZIndex:-2 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0}]
+placements [{Column:1 Row:0 Width:3 Height:1 ImageID:2 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:1 Width:3 Height:1 ImageID:3 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:2 Width:3 Height:1 ImageID:4 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:3 Width:3 Height:1 ImageID:5 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:4 Width:3 Height:1 ImageID:6 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:5 Width:3 Height:1 ImageID:7 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:6 Width:3 Height:1 ImageID:8 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:7 Width:3 Height:1 ImageID:9 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:28 Row:7 Width:31 Height:7 ImageID:11 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:35 Row:1 Width:31 Height:5 ImageID:10 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:40 SourceWidth:310 SourceHeight:100} {Column:35 Row:15 Width:31 Height:7 ImageID:10 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:66 Row:1 Width:1 Height:1 ImageID:1 XOffset:2 YOffset:3 ZIndex:-2 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0}]
 row 00
   000-000 w=1 size=0 fg=0x24c9aff bg=0x22b2d31 ul=0x0 us=0 attr=0 link="" params="" ["▎"]
   001-001 w=1 size=0 fg=0x0 bg=0x22b2d31 ul=0x0 us=0 attr=0 link="" params="" [" "]
@@ -489,7 +507,11 @@ row 01
   023-023 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=2 link="" params="" ["1"]
   024-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  026-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  035-035 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  036-064 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" ","i","m","p","l","e","m","e","n","t","s"," ","t","h","e"," ","d","o","c","u","m","e","n","t"," ","a","n","d"," "]
+  065-065 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
 row 02
   000-001 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   002-002 w=0 size=0 fg=0x298c379 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
@@ -499,9 +521,11 @@ row 02
   023-023 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=2 link="" params="" ["2"]
   024-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-  028-058 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
-  059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  035-035 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  036-064 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" ","n","o","t"," ","t","h","e"," ","o","t","h","e","r"," ","w","a","y"," ","a","r","o","u","n","d",","," "," "," "]
+  065-065 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
 row 03
   000-001 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   002-002 w=0 size=0 fg=0x2d8c04a bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
@@ -511,11 +535,11 @@ row 03
   023-023 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=2 link="" params="" ["3"]
   024-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-  028-028 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  029-057 w=1 size=0 fg=0x2e5a03d bg=0x2121418 ul=0x0 us=0 attr=2 link="" params="" [" ","c","o","n","t","a","c","t"," ","0"," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
-  058-058 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  035-035 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  036-064 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" ","s","e","e"," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  065-065 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
 row 04
   000-001 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   002-002 w=0 size=0 fg=0x2e5a03d bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
@@ -525,11 +549,13 @@ row 04
   019-023 w=1 size=0 fg=0x2909194 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["1","6","/","0","9"]
   024-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-  028-028 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  029-057 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" ","P","R","O","T","O","C","O","L",".","m","d"," ","i","s"," ","t","h","e"," ","s","o","u","r","c","e"," "," "," "]
-  058-058 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  035-035 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  036-036 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  037-060 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=1 attr=0 link="https://example.com/spec" params="" ["h","t","t","p","s",":","/","/","e","x","a","m","p","l","e",".","c","o","m","/","s","p","e","c"]
+  061-064 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "]
+  065-065 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
 row 05
   000-001 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   002-002 w=0 size=0 fg=0x2e06c75 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
@@ -539,11 +565,11 @@ row 05
   023-023 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=2 link="" params="" ["1"]
   024-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-  028-028 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  029-057 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" ","o","f"," ","t","r","u","t","h",","," ","t","h","e"," ","d","a","e","m","o","n"," "," "," "," "," "," "," "," "]
-  058-058 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  035-035 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  036-064 w=1 size=0 fg=0x26a6b6f bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," ","0","5",":","2","2"," ","✔","✔"," "]
+  065-065 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
 row 06
   000-001 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   002-002 w=0 size=0 fg=0x2d19a66 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
@@ -553,11 +579,7 @@ row 06
   023-023 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=2 link="" params="" ["2"]
   024-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-  028-028 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  029-057 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" ","i","m","p","l","e","m","e","n","t","s"," ","t","h","e"," ","d","o","c","u","m","e","n","t"," ","a","n","d"," "]
-  058-058 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+  026-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
 row 07
   000-001 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   002-002 w=0 size=0 fg=0x2e06cb8 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
@@ -569,7 +591,7 @@ row 07
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   028-028 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  029-057 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" ","n","o","t"," ","t","h","e"," ","o","t","h","e","r"," ","w","a","y"," ","a","r","o","u","n","d",","," "," "," "]
+  029-057 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" ","P","R","O","T","O","C","O","L",".","m","d"," ","i","s"," ","t","h","e"," ","s","o","u","r","c","e"," "," "," "]
   058-058 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
   059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
 row 08
@@ -577,10 +599,34 @@ row 08
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   028-028 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  029-057 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" ","s","e","e"," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  029-057 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" ","o","f"," ","t","r","u","t","h",","," ","t","h","e"," ","d","a","e","m","o","n"," "," "," "," "," "," "," "," "]
   058-058 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
   059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
 row 09
+  000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
+  028-028 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  029-057 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" ","i","m","p","l","e","m","e","n","t","s"," ","t","h","e"," ","d","o","c","u","m","e","n","t"," ","a","n","d"," "]
+  058-058 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+row 10
+  000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
+  028-028 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  029-057 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" ","n","o","t"," ","t","h","e"," ","o","t","h","e","r"," ","w","a","y"," ","a","r","o","u","n","d",","," "," "," "]
+  058-058 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+row 11
+  000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
+  026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
+  028-028 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  029-057 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" ","s","e","e"," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  058-058 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
+row 12
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -590,7 +636,7 @@ row 09
   054-057 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "]
   058-058 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
   059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
-row 10
+row 13
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -598,23 +644,11 @@ row 10
   029-057 w=1 size=0 fg=0x26a6b6f bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," ","0","5",":","2","3"," "]
   058-058 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
   059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
-row 11
-  000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
-  025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  026-027 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-  028-058 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
-  059-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
-row 12
+row 14
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
-row 13
-  000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
-  025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
-  035-065 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
-  066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 14
+row 15
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
@@ -622,7 +656,7 @@ row 14
   036-064 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" ","P","R","O","T","O","C","O","L",".","m","d"," ","i","s"," ","t","h","e"," ","s","o","u","r","c","e"," "," "," "]
   065-065 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
   066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 15
+row 16
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
@@ -630,7 +664,7 @@ row 15
   036-064 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" ","o","f"," ","t","r","u","t","h",","," ","t","h","e"," ","d","a","e","m","o","n"," "," "," "," "," "," "," "," "]
   065-065 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
   066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 16
+row 17
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
@@ -638,7 +672,7 @@ row 16
   036-064 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" ","i","m","p","l","e","m","e","n","t","s"," ","t","h","e"," ","d","o","c","u","m","e","n","t"," ","a","n","d"," "]
   065-065 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
   066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 17
+row 18
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
@@ -646,7 +680,7 @@ row 17
   036-064 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" ","n","o","t"," ","t","h","e"," ","o","t","h","e","r"," ","w","a","y"," ","a","r","o","u","n","d",","," "," "," "]
   065-065 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
   066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 18
+row 19
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
@@ -654,7 +688,7 @@ row 18
   036-064 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" ","s","e","e"," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   065-065 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
   066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 19
+row 20
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
@@ -664,19 +698,13 @@ row 19
   061-064 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "]
   065-065 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
   066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 20
+row 21
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
   026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
   035-035 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
   036-064 w=1 size=0 fg=0x26a6b6f bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," ","0","5",":","2","4"," ","✔","✔"," "]
   065-065 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-row 21
-  000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
-  025-025 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  026-034 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
-  035-065 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   066-067 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
 row 22
   000-024 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]

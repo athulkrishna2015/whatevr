@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"go.rockorager.dev/vaxis"
 
@@ -308,6 +309,10 @@ func (a *App) paintSelection() {
 		if !ok {
 			continue
 		}
+		// Chrome is drawn over the cell background, so a bubble would paint
+		// straight over the selection under it. The selected cells take the
+		// chrome's place for as long as they are selected.
+		a.occludeSurfaces(layout.Rect{Col: lo, Row: row, Width: hi - lo + 1, Height: 1})
 		for col := lo; col <= hi; col++ {
 			c := a.vx.Cell(col, row)
 			if c.Size != 0 {
@@ -378,7 +383,7 @@ func (a *App) copySelection() {
 		return
 	}
 	a.vx.ClipboardPush(text)
-	a.toast("copied " + plural(len(strings.Split(text, "\n")), "line") + " to the clipboard")
+	a.toast("copied " + plural(utf8.RuneCountInString(text), "character") + " to the clipboard")
 }
 
 func plural(n int, word string) string {
