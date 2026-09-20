@@ -12,6 +12,8 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
+#include <functional>
+#include <memory>
 
 #include <utility>
 
@@ -74,6 +76,29 @@ public:
             ev.insert(QStringLiteral("exhausted"), exhausted);
         }
         sendEvent(sub, ev);
+    }
+
+    // Several frames in one write, so the client sees them as a single drain.
+    // Two separate writes usually coalesce, but "usually" is not a test.
+    void writeTogether(const QList<QJsonObject> &objs)
+    {
+        QByteArray payload;
+        for (const QJsonObject &obj : objs) {
+            payload += QJsonDocument(obj).toJson(QJsonDocument::Compact) + '\n';
+        }
+        if (m_conn && m_conn->state() == QLocalSocket::ConnectedState) {
+            m_conn->write(payload);
+        }
+    }
+
+    static QJsonObject upsertFrame(int sub, const QString &sort, const QJsonObject &item)
+    {
+        return QJsonObject{
+            {QStringLiteral("sub"), sub},
+            {QStringLiteral("event"), QStringLiteral("upsert")},
+            {QStringLiteral("sort"), sort},
+            {QStringLiteral("item"), item},
+        };
     }
 
     void sendReset(int sub)
@@ -200,6 +225,71 @@ private:
     QLocalSocket *m_conn = nullptr;
     QByteArray m_buf;
     int m_heldSubscribeId = -1;
+};
+
+// What the eviction test below watches. It outlives the sink it describes, so a
+// sink destroyed mid-drain can still be asked what happened to it.
+struct BatchLog {
+    int victimBegan = 0;
+    int victimEnded = 0;
+    int survivorEnded = 0;
+    bool victimDestroyed = false;
+};
+
+// A sink that runs an arbitrary action the first time it is given a row. Stands
+// in for a handler that reacts to an event by evicting a warm window.
+class ActingSink final : public ViewSink
+{
+public:
+    std::function<void()> action;
+    std::shared_ptr<BatchLog> log;
+
+    void onUpsert(const QString &, const QJsonObject &) override
+    {
+        if (action) {
+            auto once = std::exchange(action, {});
+            once();
+        }
+    }
+    void onRemove(const QString &) override {}
+    void onReady(bool, bool) override {}
+    void onReset() override {}
+    void onBatchEnd() override
+    {
+        if (log) {
+            ++log->survivorEnded;
+        }
+    }
+};
+
+// The sink the action above destroys, part way through the drain that batched it.
+class VictimSink final : public ViewSink
+{
+public:
+    std::shared_ptr<BatchLog> log;
+
+    ~VictimSink() override
+    {
+        if (log) {
+            log->victimDestroyed = true;
+        }
+    }
+    void onUpsert(const QString &, const QJsonObject &) override {}
+    void onRemove(const QString &) override {}
+    void onReady(bool, bool) override {}
+    void onReset() override {}
+    void onBatchBegin() override
+    {
+        if (log) {
+            ++log->victimBegan;
+        }
+    }
+    void onBatchEnd() override
+    {
+        if (log) {
+            ++log->victimEnded;
+        }
+    }
 };
 
 QJsonObject item(const QString &id, const QString &name)
@@ -633,6 +723,61 @@ private Q_SLOTS:
                           });
         m_client->start();
         QTRY_VERIFY(called);
+    }
+
+    // A sink destroyed part way through a drain must not be called at the end of
+    // it, and must not take the surviving sinks down with it.
+    //
+    // The client batches every sink a drain touches and closes them all once the
+    // socket buffer is empty, so it holds those pointers across every handler
+    // that runs in between. One of those handlers evicting a warm window frees a
+    // sink that is already on that list, and closing its batch afterwards reads
+    // freed memory. Nothing in the suite could reach this before: it needs two
+    // sinks in one drain and a handler that deletes one of them.
+    void aSinkDestroyedMidDrainIsNotClosedAfterwards()
+    {
+        auto log = std::make_shared<BatchLog>();
+
+        ActingSink survivor;
+        survivor.log = log;
+        auto victim = std::make_unique<VictimSink>();
+        victim->log = log;
+
+        QSignalSpy readySpy(m_client, &ProtocolClient::ready);
+        m_client->start();
+        QVERIFY(readySpy.wait());
+
+        Subscription *survivorSub = m_client->subscribe(QStringLiteral("a"), QJsonObject{}, &survivor);
+        Subscription *victimSub = m_client->subscribe(QStringLiteral("b"), QJsonObject{}, victim.get());
+        QVERIFY(survivorSub);
+        QVERIFY(victimSub);
+        QTRY_COMPARE(m_daemon->subscribeCount, 2);
+
+        // The eviction: the subscription goes first, then the sink, which is the
+        // order ProtocolController tears a warm window down in.
+        survivor.action = [&] {
+            delete victimSub;
+            victimSub = nullptr;
+            victim.reset();
+        };
+
+        // One write, so one drain. The victim is batched first, then the row
+        // that reaches the handler which frees it.
+        m_daemon->writeTogether({
+            FakeDaemon::upsertFrame(2, QStringLiteral("0001"), item(QStringLiteral("v"), QStringLiteral("victim"))),
+            FakeDaemon::upsertFrame(1, QStringLiteral("0001"), item(QStringLiteral("s"), QStringLiteral("survivor"))),
+        });
+
+        QTRY_VERIFY(log->victimDestroyed);
+        QTRY_COMPARE(log->survivorEnded, 1);
+
+        // The victim opened a batch and was freed before the drain ended, so the
+        // close must never have been delivered.
+        QCOMPARE(log->victimBegan, 1);
+        QVERIFY2(log->victimEnded == 0,
+                 "a batch was closed on a sink that had already been destroyed");
+
+        delete survivorSub;
     }
 
 private:

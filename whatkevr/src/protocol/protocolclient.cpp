@@ -204,10 +204,18 @@ void ProtocolClient::onReadyRead()
     // Close the batch for every sink this drain touched. A fill arrives as one
     // frame per item, and the daemon flushes a burst in one write, so this is
     // where a whole window becomes a single model transaction.
-    const QList<ViewSink *> touched = std::move(m_batchedSinks);
+    const QList<BatchedSink> touched = std::move(m_batchedSinks);
     m_batchedSinks.clear();
-    for (ViewSink *sink : touched) {
-        sink->onBatchEnd();
+    for (const BatchedSink &entry : touched) {
+        // A sink can be destroyed part way through the drain that batched it:
+        // an event delivered above reaches a handler that evicts the warm
+        // window this sink belongs to, and the eviction deletes it. Closing the
+        // batch on that pointer is a use-after-free, so the token it left
+        // behind is what says whether there is still anything to close.
+        if (entry.alive.expired()) {
+            continue;
+        }
+        entry.sink->onBatchEnd();
     }
     if (m_readBuffer.size() > kMaxLineBytes) {
         Q_EMIT errorOccurred(QStringLiteral("oversized protocol frame; dropping connection"));
@@ -221,10 +229,17 @@ void ProtocolClient::onReadyRead()
 // so this is cheaper than hashing.
 void ProtocolClient::noteBatched(ViewSink *sink)
 {
-    if (!m_batchedSinks.contains(sink)) {
-        m_batchedSinks.append(sink);
-        sink->onBatchBegin();
+    for (const BatchedSink &entry : m_batchedSinks) {
+        // Address alone is not identity across a drain that freed something: a
+        // new sink can land exactly where a dead one was, and matching it would
+        // leave the live sink without the batch it just asked for. An entry
+        // whose token has expired describes a sink that is gone, never this one.
+        if (entry.sink == sink && !entry.alive.expired()) {
+            return;
+        }
     }
+    m_batchedSinks.append({sink, sink->lifetime()});
+    sink->onBatchBegin();
 }
 
 void ProtocolClient::dispatchLine(const QByteArray &line)
