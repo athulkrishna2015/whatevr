@@ -407,13 +407,13 @@ func readOutboundMedia(filePath string, opts MediaSendOptions) (data []byte, mim
 		mediaKind = appstore.MediaKindVideo
 		return data, mimeType, outboundVideoExtension(sourceBase, mimeType), mediaKind, "", nil
 	case kindHint == "audio":
-		if !strings.HasPrefix(mimeType, "audio/") {
+		if !isAudioMime(mimeType, sourceBase) {
 			return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file must be audio")
 		}
 		mediaKind = appstore.MediaKindAudio
 		return data, mimeType, outboundAudioExtension(sourceBase, mimeType), mediaKind, "", nil
 	case kindHint == "voice":
-		if !strings.HasPrefix(mimeType, "audio/") {
+		if !isAudioMime(mimeType, sourceBase) {
 			return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "voice notes must be audio files")
 		}
 		mediaKind = appstore.MediaKindVoice
@@ -499,6 +499,25 @@ func outboundVideoExtension(sourceBase, mimeType string) string {
 
 func outboundAudioExtension(sourceBase, mimeType string) string {
 	return outboundPreservedExtension(sourceBase, mimeType, ".ogg")
+}
+
+// isAudioMime reports whether a sniffed MIME type (plus filename fallback)
+// is an audio payload. Go's http.DetectContentType returns
+// "application/ogg" for Ogg Opus voice notes, not "audio/ogg", so the Ogg
+// container must be accepted explicitly. A .ogg/.oga/.opus filename is also
+// accepted when the sniffer returns a generic octet-stream.
+func isAudioMime(mimeType, sourceBase string) bool {
+	if strings.HasPrefix(mimeType, "audio/") {
+		return true
+	}
+	if mimeType == "application/ogg" || mimeType == "application/x-ogg" {
+		return true
+	}
+	if mimeType == "application/octet-stream" {
+		lower := strings.ToLower(sourceBase)
+		return strings.HasSuffix(lower, ".ogg") || strings.HasSuffix(lower, ".oga") || strings.HasSuffix(lower, ".opus")
+	}
+	return false
 }
 
 func outboundDocumentExtension(sourceBase, mimeType string) string {

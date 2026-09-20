@@ -21,7 +21,11 @@ Kirigami.ScrollablePage {
     Component.onCompleted: Whatevr.ProtocolController.openChannelMessages(root.channelJid, root.channelName)
     Component.onDestruction: Whatevr.ProtocolController.closeChannelMessages()
 
+    property string lastMarkedKey: ""
+
     function markVisibleViewed() {
+        if (!root.channelJid || root.channelJid.length === 0)
+            return
         const model = Whatevr.ProtocolController.channelMessagesModel
         const ids = []
         if (!model)
@@ -31,8 +35,15 @@ Kirigami.ScrollablePage {
             if (item && Number(item.server_id) > 0)
                 ids.push(Number(item.server_id))
         }
-        if (ids.length > 0)
-            Whatevr.ProtocolController.markChannelViewed(root.channelJid, ids)
+        if (ids.length === 0)
+            return
+        // Break the viewed→invalidate→countChanged→viewed feedback loop:
+        // only send when the held id set actually grew.
+        const key = root.channelJid + ":" + ids.join(",")
+        if (key === root.lastMarkedKey)
+            return
+        root.lastMarkedKey = key
+        Whatevr.ProtocolController.markChannelViewed(root.channelJid, ids)
     }
 
     Connections {

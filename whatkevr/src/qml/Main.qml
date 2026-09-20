@@ -383,7 +383,18 @@ Kirigami.ApplicationWindow {
             return
         }
         ensureChatPages()
-        chatListPageItem.workspaceMode = (tab === "status" || tab === "channels") ? tab : "chats"
+        // Status/Channels lists live in the left column; their content opens
+        // in the right column only once an item is picked. Other tabs render
+        // directly in the right column.
+        if (tab === "status" || tab === "channels") {
+            chatListPageItem.workspaceMode = tab
+            navProgrammaticIndexChange = true
+            workspacePageItem.openConversation()
+            pageStack.currentIndex = 1
+            navProgrammaticIndexChange = false
+            return
+        }
+        chatListPageItem.workspaceMode = "chats"
         navProgrammaticIndexChange = true
         workspacePageItem.openTab(String(tab))
         pageStack.currentIndex = 1
@@ -405,6 +416,8 @@ Kirigami.ApplicationWindow {
             return
         }
         navTargetChatId = chatId || Whatevr.ProtocolController.selectedChatId
+        if (chatListPageItem)
+            chatListPageItem.workspaceMode = "chats"
         workspacePageItem.openConversation()
         navProgrammaticIndexChange = true
         pageStack.currentIndex = 1

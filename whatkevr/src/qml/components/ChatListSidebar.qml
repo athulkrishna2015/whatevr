@@ -15,7 +15,12 @@ Item {
     // 0 = Home, 1 = DMs, 2 = Groups, 3 = Unread, 4 = Favorites.
     property int activeFilter: 0
     property int activeFolder: 0
-    readonly property string activeWorkspace: applicationWindow()?.workspacePageItem?.workspaceName ?? "conversation"
+    readonly property string activeWorkspace: {
+        const left = applicationWindow()?.chatListPageItem?.workspaceMode ?? "chats"
+        if (left === "status" || left === "channels")
+            return left
+        return applicationWindow()?.workspacePageItem?.workspaceName ?? "conversation"
+    }
 
     readonly property string userName: Whatevr.ProtocolController.currentUserName
 
@@ -184,7 +189,7 @@ Item {
             icon.height: root.railIconSize
             text: Whatevr.I18n.i18nc("@action:button open the status tab", "Status")
             checkable: true
-            checked: root.activeWorkspace === "status"
+            checked: root.activeWorkspace === "status" || root.activeWorkspace === "status-viewer"
             onClicked: {
                 // Like starred: the page owns its `status` subscription while
                 // on screen, grouped per contact inside the page itself.
@@ -240,7 +245,7 @@ Item {
             icon.height: root.railIconSize
             text: Whatevr.I18n.i18nc("@action:button open the channels tab", "Channels")
             checkable: true
-            checked: root.activeWorkspace === "channels"
+            checked: root.activeWorkspace === "channels" || root.activeWorkspace === "channel-messages"
             onClicked: {
                 applicationWindow().openWorkspace("channels")
             }

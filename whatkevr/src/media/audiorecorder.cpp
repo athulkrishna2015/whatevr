@@ -43,6 +43,13 @@ bool AudioRecorder::start()
     if (m_recording) {
         return false;
     }
+    // Drop an unsent previous recording (never handed to the daemon).
+    // Files already handed off have m_outputPath cleared by resetAfterSend
+    // and are left for the daemon to copy.
+    if (!m_outputPath.isEmpty()) {
+        QFile::remove(m_outputPath);
+        m_outputPath.clear();
+    }
     QString dir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
     if (dir.isEmpty()) {
         dir = QDir::tempPath();
@@ -71,10 +78,10 @@ QString AudioRecorder::stop()
 
 void AudioRecorder::resetAfterSend()
 {
-    // Qt finalizes the container asynchronously; the caller owns the returned
-    // path until the daemon has copied it, then this removes the temp file.
-    if (!m_outputPath.isEmpty())
-        QFile::remove(m_outputPath);
+    // The daemon copies the file asynchronously after sendMedia returns, so
+    // the temp file must NOT be deleted here — doing so produced
+    // "media file is not accessible". The file is removed on the next
+    // start()/cancel() or on destruction; /tmp aging reclaims any leftovers.
     m_outputPath.clear();
     Q_EMIT outputPathChanged();
 }
