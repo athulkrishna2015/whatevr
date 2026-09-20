@@ -1357,6 +1357,63 @@ func (db *DB) UpdateMessageStatusFromHistory(ctx context.Context, id, status str
 	return db.updateMessageStatus(ctx, id, status, nextHistoryMessageStatus)
 }
 
+// UpdateMessagesStatus applies one receipt's status to every message it names,
+// in a single transaction. A receipt can carry hundreds of ids and it arrives on
+// whatsmeow's serialized handler queue, so a transaction each meant hundreds of
+// commits on the one write connection with every other event waiting behind
+// them. Ids with no row are skipped; the result holds only the messages that
+// actually moved.
+func (db *DB) UpdateMessagesStatus(ctx context.Context, ids []string, status string) ([]Message, error) {
+	defer db.timeOp("UpdateMessagesStatus", time.Now())
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	tx, err := db.conn.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	changed := make([]Message, 0, len(ids))
+	for _, id := range ids {
+		message, err := getMessageTx(ctx, tx, id)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			return nil, err
+		}
+		if err := db.attachMessageExtrasOne(ctx, tx, &message); err != nil {
+			return nil, err
+		}
+		updatedStatus, moved := nextMessageStatus(message.Status, status)
+		if !moved {
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE messages
+			SET status = ?
+			WHERE id = ?
+		`, updatedStatus, id); err != nil {
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE chats
+			SET last_message_status = ?
+			WHERE id = ? AND last_message_time = ?
+		`, updatedStatus, message.ChatID, message.TimestampUnix); err != nil {
+			return nil, err
+		}
+		message.Status = updatedStatus
+		changed = append(changed, message)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return changed, nil
+}
+
 func (db *DB) updateMessageStatus(ctx context.Context, id, status string, nextStatus func(string, string) (string, bool)) (Message, bool, error) {
 	defer db.timeOp("updateMessageStatus", time.Now())
 	tx, err := db.conn.BeginTx(ctx, nil)

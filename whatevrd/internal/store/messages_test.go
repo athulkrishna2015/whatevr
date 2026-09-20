@@ -2260,3 +2260,65 @@ func TestListMessagesBatchesExtrasPastSQLiteVariableLimit(t *testing.T) {
 		t.Fatalf("unexpected message bounds: %q .. %q", messages[0].ID, messages[len(messages)-1].ID)
 	}
 }
+
+// One receipt names many messages and the batch has to behave exactly like the
+// loop it replaced: an id with no row is skipped, a status that does not advance
+// is skipped, and only the rows that moved come back.
+func TestUpdateMessagesStatusAppliesOneReceiptAtOnce(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	for i, status := range []string{StatusSent, StatusSent, StatusRead} {
+		if _, err := db.SaveTextMessage(ctx, TextMessageInput{
+			ID:        fmt.Sprintf("chat-1:sent-%d", i),
+			ChatID:    "chat-1",
+			ChatName:  "Test Chat",
+			SenderID:  "me",
+			Text:      "hello",
+			Timestamp: time.Unix(int64(100+i), 0),
+			Direction: DirectionOutgoing,
+			Status:    status,
+		}); err != nil {
+			t.Fatalf("save message %d: %v", i, err)
+		}
+	}
+
+	changed, err := db.UpdateMessagesStatus(ctx, []string{
+		"chat-1:sent-0",
+		"chat-1:sent-1",
+		"chat-1:sent-2", // already read, a delivered receipt must not move it
+		"chat-1:missing",
+	}, StatusDelivered)
+	if err != nil {
+		t.Fatalf("batch delivered: %v", err)
+	}
+	if len(changed) != 2 {
+		t.Fatalf("expected the two sent messages to move, got %d: %+v", len(changed), changed)
+	}
+	for _, message := range changed {
+		if message.Status != StatusDelivered {
+			t.Fatalf("returned message carries the wrong status: %+v", message)
+		}
+	}
+
+	stored, err := db.GetMessage(ctx, "chat-1:sent-2")
+	if err != nil {
+		t.Fatalf("read the already-read message: %v", err)
+	}
+	if stored.Status != StatusRead {
+		t.Fatalf("a delivered receipt downgraded a read message: %+v", stored)
+	}
+
+	// The chat's summary follows the message that is actually last.
+	chat, err := db.GetChat(ctx, "chat-1")
+	if err != nil {
+		t.Fatalf("read chat: %v", err)
+	}
+	if chat.LastMessageStatus != StatusRead {
+		t.Fatalf("chat summary status is %q, want %q", chat.LastMessageStatus, StatusRead)
+	}
+}
