@@ -205,10 +205,6 @@ func (a *App) drawBubble(pane vaxis.Window, b bubble, col, row int) {
 	a.print(pane, col, r, border, bx.bottomLeft+strings.Repeat(bx.horizontal, total-2)+bx.bottomRight)
 }
 
-// width is how many cells a string takes, asked of the terminal rather than
-// guessed. Everything that lines anything up goes through it.
-func (a *App) width(s string) int { return a.vx.RenderedWidth(s) }
-
 func (a *App) pad(s string, width int) string {
 	if n := width - a.width(s); n > 0 {
 		return s + strings.Repeat(" ", n)
@@ -221,27 +217,6 @@ func (a *App) padLeft(s string, width int) string {
 		return strings.Repeat(" ", n) + s
 	}
 	return a.clip(s, width)
-}
-
-// clip cuts a string to a cell width, never mid-grapheme and never leaving
-// half of a wide one behind.
-func (a *App) clip(s string, width int) string {
-	if width <= 0 {
-		return ""
-	}
-	if a.width(s) <= width {
-		return s
-	}
-	out, used := make([]rune, 0, len(s)), 0
-	for _, r := range s {
-		w := a.width(string(r))
-		if used+w > width {
-			break
-		}
-		out = append(out, r)
-		used += w
-	}
-	return string(out)
 }
 
 func maxInt(a, b int) int {

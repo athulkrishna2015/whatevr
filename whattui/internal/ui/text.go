@@ -116,6 +116,34 @@ func (a *App) wrapSpans(s string, width int, links bool) []line {
 	return out
 }
 
+// linkLine turns one row's worth of text into spans, marking any url in it.
+// Unlike wrapSpans it never breaks: the caller has exactly one row and cuts it
+// with clipLine.
+func (a *App) linkLine(s string) line {
+	var out line
+	for i, w := range strings.Fields(s) {
+		if i > 0 {
+			out = appendSpan(out, span{text: " "})
+		}
+		for _, sp := range linkSpans(w) {
+			out = appendSpan(out, sp)
+		}
+	}
+	return out
+}
+
+// clipLine cuts a line to a width, keeping every surviving fragment's link.
+// This is what makes a chat list preview worth clicking: the row shows
+// "https://music.youtube.com/wat" because that is all the column holds, and
+// the escape under it still carries the whole url.
+func (a *App) clipLine(l line, width int) line {
+	if a.lineWidth(l) <= width {
+		return l
+	}
+	head, _ := a.splitLine(l, width)
+	return head
+}
+
 // wrap is wrapSpans for the panes with nothing to decorate.
 func (a *App) wrap(s string, width int) []string {
 	lines := a.wrapSpans(s, width, false)

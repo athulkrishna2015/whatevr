@@ -4,6 +4,9 @@ package ui
 
 import (
 	"fmt"
+	"os"
+	"strconv"
+	"strings"
 	"sync"
 
 	"go.rockorager.dev/vaxis"
@@ -11,6 +14,7 @@ import (
 	"whattui/internal/layout"
 	"whattui/internal/proto"
 	"whattui/internal/term"
+	"whattui/internal/textrun"
 	"whattui/internal/theme"
 	"whattui/internal/view"
 )
@@ -37,6 +41,15 @@ type App struct {
 	conn    *view.Object[proto.Connection]
 	connSub *proto.Subscription
 
+	// The rasteriser for the scripts a cell grid cannot hold, and the images
+	// it has already produced. shaping is snapshotted once per frame so
+	// measuring and drawing cannot disagree across the moment it comes up.
+	shaper     *textrun.Shaper
+	shaping    bool
+	placements []placement
+	images     map[imgKey]*vaxis.KittyImage
+	seen       map[imgKey]bool
+
 	// State the UI owns. Presentation only: scroll positions, what is
 	// selected, what is typed. Everything renderable lives in a view.
 	mu         sync.Mutex
@@ -47,7 +60,9 @@ type App struct {
 	// hovered is the chat under the pointer, as an index into the list, or
 	// -1. Anything clickable answers the pointer, and a chat row is the most
 	// clickable thing whattui has.
-	hovered   int
+	hovered int
+	// shape is the mouse cursor the terminal was last told to wear.
+	shape     vaxis.MouseShape
 	transport proto.State
 	lastErr   error
 	quit      bool
@@ -68,7 +83,12 @@ func New(vx *vaxis.Vaxis, caps term.Caps, client *proto.Client) *App {
 		conn:    view.NewObject[proto.Connection](),
 		focus:   FocusList,
 		hovered: -1,
+		shape:   vaxis.MouseShapeDefault,
+		images:  map[imgKey]*vaxis.KittyImage{},
+		seen:    map[imgKey]bool{},
 	}
+	a.shaper = shaperFor(vx, caps)
+	a.setCell()
 
 	client.OnState = a.onTransport
 	client.OnDrain = func() { vx.PostEvent(redraw{}) }
@@ -94,6 +114,63 @@ func paletteFor(vx *vaxis.Vaxis, caps term.Caps) theme.Theme {
 		bg, fg = vx.QueryBackground(), vx.QueryForeground()
 	}
 	return theme.Derive(bg, fg)
+}
+
+// shaperFor builds the complex-script rasteriser, or does not.
+//
+// It needs kitty graphics to place what it draws, so below that tier the text
+// stays terminal text: wrong, but honestly wrong, and the same wrong every
+// other terminal application is.
+func shaperFor(vx *vaxis.Vaxis, caps term.Caps) *textrun.Shaper {
+	if !caps.CanPaint() {
+		return nil
+	}
+	kitty := ""
+	if strings.HasPrefix(os.Getenv("TERM"), "xterm-kitty") {
+		// Only kitty is asked for its own metrics, and only because it will
+		// answer. Everything else derives them from the face we resolve.
+		kitty = "kitty"
+	}
+	return textrun.New(textrun.Options{
+		Kitty:         kitty,
+		Family:        os.Getenv("WHATTUI_FONT"),
+		BaselineNudge: atoi(os.Getenv("WHATTUI_BASELINE_NUDGE")),
+		// The shaper comes up in the background, so this fires off the main
+		// goroutine and only asks for a repaint.
+		Notify: func() { vx.PostEvent(redraw{}) },
+	})
+}
+
+func atoi(s string) int {
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// setCell hands the shaper the terminal's cell in pixels. Everything it draws
+// is measured off the cell, so this is what keeps a rasterised word the same
+// size as the text beside it.
+func (a *App) setCell() {
+	if a.shaper == nil {
+		return
+	}
+	size := a.vx.Size()
+	if size.Cols <= 0 || size.Rows <= 0 {
+		return
+	}
+	a.shaper.SetCellSize(size.XPixel/size.Cols, size.YPixel/size.Rows)
+}
+
+// recell re-measures the cell and throws the rasterised images away if it
+// moved, because every one of them is now the wrong size.
+func (a *App) recell() {
+	before, beforeH := a.shaper.CellSize()
+	a.setCell()
+	if w, h := a.shaper.CellSize(); w != before || h != beforeH {
+		a.dropRuns()
+	}
 }
 
 // redraw wakes the event loop after the client applied a batch.
@@ -137,6 +214,9 @@ func (a *App) Run() error {
 			// the application says when to believe it. Geometry follows the
 			// size and nothing else, so believing it is the whole handler.
 			a.vx.Resize(ev)
+			// A resize can also be a font size change, and every rasterised
+			// word is measured off the cell.
+			a.recell()
 		case vaxis.Redraw, redraw:
 		case vaxis.QuitEvent:
 			return nil

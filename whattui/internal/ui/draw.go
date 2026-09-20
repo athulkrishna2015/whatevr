@@ -13,6 +13,10 @@ import (
 )
 
 func (a *App) draw() {
+	// Asked once, before anything is measured: a frame that measures in cells
+	// and draws in pixels is a frame with a hole in it.
+	a.shaping = a.shaper.Begin()
+
 	win := a.vx.Window()
 	win.Clear()
 	l := a.layout()
@@ -34,32 +38,13 @@ func (a *App) draw() {
 	if !l.HintBar.Empty() {
 		a.drawHintBar(win, l.HintBar)
 	}
+	a.flushRuns()
 	a.vx.Render()
 }
 
 // sub is a vaxis window for a layout rect.
 func sub(win vaxis.Window, r layout.Rect) vaxis.Window {
 	return win.New(r.Col, r.Row, r.Width, r.Height)
-}
-
-// print writes a string clipped to the window width, from one column, and
-// returns the column after it. Every pane goes through this, which is how a
-// column of glyphs keeps one left edge.
-//
-// The advance is measured with the terminal's own width rules rather than by
-// counting runes: a chat name full of emoji is not as many cells wide as it is
-// long, and guessing is how a column loses its edge.
-func (a *App) print(win vaxis.Window, col, row int, style vaxis.Style, s string) int {
-	w, _ := win.Size()
-	if row < 0 || col >= w || s == "" {
-		return col
-	}
-	win.New(col, row, w-col, 1).PrintTruncate(0, vaxis.Segment{Text: s, Style: style})
-	advance := a.vx.RenderedWidth(s)
-	if col+advance > w {
-		return w
-	}
-	return col + advance
 }
 
 // fill paints a rectangle with a background.
@@ -226,19 +211,13 @@ func (a *App) drawChatRow(pane vaxis.Window, row, w, height int, c proto.ChatRow
 	}
 	// The preview shares the name's left edge rather than the avatar's, so the
 	// two lines of a row line up as one block.
-	a.print(preview, 3, 0, vaxis.Style{Foreground: a.theme.TextMuted, Background: bg},
-		a.clip(oneLine(c.Preview), room))
+	a.printLine(preview, 3, 0, vaxis.Style{Foreground: a.theme.TextMuted, Background: bg},
+		a.clipLine(a.linkLine(c.Preview), room))
 	if badge != "" {
 		a.print(preview, w-badgeW-1, 0, vaxis.Style{
 			Foreground: a.theme.Accent, Background: bg, Attribute: vaxis.AttrBold,
 		}, badge)
 	}
-}
-
-// oneLine flattens a preview: a newline in a chat row is a row that eats the
-// one below it.
-func oneLine(s string) string {
-	return strings.Join(strings.Fields(strings.ReplaceAll(s, "\n", " ")), " ")
 }
 
 // relTime is the short form a chat list uses: a time today, a weekday this

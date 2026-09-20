@@ -258,6 +258,7 @@ func (a *App) onMouse(m vaxis.Mouse) bool {
 		}
 	}
 	dirty := a.hover(over)
+	a.pointer(shapeFor(l, m, over))
 
 	switch m.Button {
 	case vaxis.MouseWheelUp:
@@ -294,6 +295,37 @@ func (a *App) onMouse(m vaxis.Mouse) bool {
 		}
 	}
 	return dirty
+}
+
+// shapeFor is what the pointer looks like where it is. A chat row is a thing
+// you click, the composer is a thing you type in, and a link in the transcript
+// is a link; anything else is the terminal's own arrow. A pointer that never
+// changes is a pointer that never tells you anything.
+func shapeFor(l layout.Layout, m vaxis.Mouse, overChat int) vaxis.MouseShape {
+	switch {
+	case overChat >= 0:
+		return vaxis.MouseShapeClickable
+	case inRect(m, l.Composer):
+		return vaxis.MouseShapeTextInput
+	case inRect(m, l.Transcript):
+		return vaxis.MouseShapeTextInput
+	case inRect(m, l.HintBar):
+		return vaxis.MouseShapeClickable
+	default:
+		return vaxis.MouseShapeDefault
+	}
+}
+
+// pointer sets the mouse shape, and only when it changed: the escape goes out
+// of band, so writing it on every motion event is a write per pixel.
+func (a *App) pointer(shape vaxis.MouseShape) {
+	a.mu.Lock()
+	same := a.shape == shape
+	a.shape = shape
+	a.mu.Unlock()
+	if !same {
+		a.vx.SetMouseShape(shape)
+	}
 }
 
 // scrollList moves the window without moving the selection, which is what a
