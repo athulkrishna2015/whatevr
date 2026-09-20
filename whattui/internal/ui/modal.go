@@ -33,9 +33,11 @@ type modalState struct {
 	cursor   int
 	selector selector[modalChoice]
 	rect     layout.Rect
-	listRow  int
-	visible  int
-	request  uint64
+	// list is where the results actually are: the rows inside the frame, not
+	// the panel. A pointer anywhere else is over the panel, not over a row.
+	list    layout.Rect
+	visible int
+	request uint64
 }
 
 func (a *App) openModal(kind modalKind) {
@@ -49,6 +51,15 @@ func (a *App) openModal(kind modalKind) {
 	}
 	a.refreshModalLocked()
 	a.mu.Unlock()
+}
+
+// dismissModalLocked closes whatever is open without acting on it, and
+// remembers a slash draft so the menu does not spring straight back up.
+func (a *App) dismissModalLocked() {
+	if a.modal.kind == modalSlash {
+		a.slashDismissed = a.composer.String()
+	}
+	a.modal = modalState{}
 }
 
 func (a *App) closeModal() {
@@ -123,11 +134,11 @@ func (a *App) onModalKey(k vaxis.Key) bool {
 	}
 	visible := maxInt(a.modal.visible, 1)
 	switch {
-	case k.Matches(vaxis.KeyEsc):
-		if a.modal.kind == modalSlash {
-			a.slashDismissed = a.composer.String()
-		}
-		a.modal = modalState{}
+	// Escape pops one level, and the two keys every terminal user reaches for
+	// when they want out pop the same one. A panel is dismissed the same way
+	// wherever it came from.
+	case k.Matches(vaxis.KeyEsc), k.Matches('c', vaxis.ModCtrl), k.Matches('g', vaxis.ModCtrl):
+		a.dismissModalLocked()
 		a.mu.Unlock()
 		return true
 	case k.Matches(vaxis.KeyUp), k.Matches('p', vaxis.ModCtrl):
@@ -234,12 +245,17 @@ func (a *App) syncSlashModal() {
 		a.mu.Unlock()
 		return
 	}
+	opened := false
 	if a.modal.kind == modalNone && draft != a.slashDismissed {
 		a.modal = modalState{kind: modalSlash}
+		opened = true
 	}
 	if a.modal.kind == modalSlash {
 		query := strings.TrimPrefix(draft, "/")
-		if string(a.modal.query) != query {
+		// A menu that just opened has no results yet, and a bare slash is the
+		// query that matches everything rather than the one that matches
+		// nothing.
+		if opened || string(a.modal.query) != query {
 			a.modal.query = []rune(query)
 			a.modal.cursor = len(a.modal.query)
 			a.refreshModalLocked()
@@ -248,15 +264,39 @@ func (a *App) syncSlashModal() {
 	a.mu.Unlock()
 }
 
+// modalShape is the pointer over an open panel: a hand on a row that will do
+// something, and the ordinary arrow everywhere else, panel or not.
+func (a *App) modalShape(m vaxis.Mouse) vaxis.MouseShape {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.modal.kind == modalNone {
+		return vaxis.MouseShapeDefault
+	}
+	if inRect(m, a.modal.list) {
+		if at := a.modal.selector.top + m.Row - a.modal.list.Row; at < len(a.modal.selector.items) {
+			return vaxis.MouseShapeClickable
+		}
+	}
+	// The query line is a line you type on.
+	if m.Row == a.modal.list.Row-2 && m.Col >= a.modal.list.Col &&
+		m.Col < a.modal.list.Col+a.modal.list.Width {
+		return vaxis.MouseShapeTextInput
+	}
+	return vaxis.MouseShapeDefault
+}
+
 func (a *App) onModalMouse(m vaxis.Mouse) (bool, bool) {
 	a.mu.Lock()
 	if a.modal.kind == modalNone {
 		a.mu.Unlock()
 		return false, false
 	}
-	r, row, visible := a.modal.rect, a.modal.listRow, a.modal.visible
+	r, list, visible := a.modal.rect, a.modal.list, a.modal.visible
 	inside := inRect(m, r)
-	itemRow := m.Row - row
+	itemRow := -1
+	if inRect(m, list) {
+		itemRow = m.Row - list.Row
+	}
 	dirty := false
 	if m.EventType == vaxis.EventMotion || m.Button == vaxis.MouseNoButton {
 		dirty = a.modal.selector.Hover(itemRow, visible)
@@ -269,6 +309,14 @@ func (a *App) onModalMouse(m vaxis.Mouse) (bool, bool) {
 		a.modal.selector.Wheel(1, visible)
 		dirty = true
 	case vaxis.MouseLeftButton:
+		// Clicking off a panel dismisses it, the way clicking off a dialog
+		// does everywhere else. The press is swallowed as well, so the click
+		// that closes it never also lands on what was behind it.
+		if m.EventType == vaxis.EventRelease && !inside {
+			a.dismissModalLocked()
+			a.mu.Unlock()
+			return true, true
+		}
 		if m.EventType == vaxis.EventRelease && inside {
 			choice, ok := a.modal.selector.Click(itemRow, visible)
 			if ok && choice.Disabled != "" {
@@ -327,6 +375,7 @@ func (a *App) drawModal(win vaxis.Window) {
 	// A run is an image over the cell background: covering it with a panel
 	// hides the text under it and leaves the picture.
 	a.occlude(outer)
+	a.guardSpill(win, outer)
 
 	title, prompt := "Commands", "> "
 	switch kind {
@@ -363,6 +412,9 @@ func (a *App) drawModal(win vaxis.Window) {
 		return
 	}
 
+	// Everything else fades, the way a dialog fades the page behind it.
+	a.dimBehind(win, outer)
+
 	body := sub(win, inner)
 	a.print(body, 0, 0, vaxis.Style{Foreground: a.theme.Text, Background: panel}, a.clip(prompt+query, inner.Width))
 
@@ -373,7 +425,7 @@ func (a *App) drawModal(win vaxis.Window) {
 
 	a.mu.Lock()
 	a.modal.rect = outer
-	a.modal.listRow = listRow
+	a.modal.list = layout.Rect{Col: inner.Col, Row: listRow, Width: inner.Width, Height: visible}
 	a.modal.visible = visible
 	shown := append([]modalChoice(nil), a.modal.selector.Visible(visible)...)
 	top := a.modal.selector.top
@@ -402,4 +454,63 @@ func (a *App) drawModal(win vaxis.Window) {
 				a.clip(detail, inner.Width-split))
 		}
 	}
+}
+
+// dimBehind fades every cell the panel does not cover, and the rasterised
+// words with them: a phrase is an image, and an image ignores an attribute.
+func (a *App) dimBehind(win vaxis.Window, r layout.Rect) {
+	w, h := win.Size()
+	for row := 0; row < h; row++ {
+		if row >= r.Row && row < r.Row+r.Height {
+			a.dimCells(win, 0, r.Col, row)
+			a.dimCells(win, r.Col+r.Width, w, row)
+			continue
+		}
+		a.dimCells(win, 0, w, row)
+	}
+	for i := range a.placements {
+		p := &a.placements[i]
+		if p.row >= r.Row && p.row < r.Row+r.Height &&
+			p.col+p.span > r.Col && p.col < r.Col+r.Width {
+			continue
+		}
+		p.ink.A = uint8(uint32(p.ink.A) * dimPercent / 100)
+	}
+}
+
+// dimPercent is how much of the ink survives behind a panel. Enough to read
+// what is there, little enough that the panel is plainly in front of it.
+const dimPercent = 45
+
+func (a *App) dimCells(win vaxis.Window, from, to, row int) {
+	for col := from; col < to; col++ {
+		c := a.vx.Cell(col, row)
+		if c.Style.Attribute&vaxis.AttrDim != 0 {
+			continue
+		}
+		c.Style.Attribute |= vaxis.AttrDim
+		// The attribute alone is a hint the terminal is free to ignore, and
+		// several do. Where the colours are real the fade is computed.
+		c.Style.Foreground = a.faded(c.Style.Foreground, c.Style.Background)
+		win.SetCell(col, row, c)
+	}
+}
+
+// faded mixes an ink toward the ground it sits on. Indexed colours are the
+// terminal's own and cannot be mixed, so those keep the attribute and nothing
+// else.
+func (a *App) faded(ink, ground vaxis.Color) vaxis.Color {
+	fg, bg := ink.Params(), ground.Params()
+	if len(fg) != 3 {
+		return ink
+	}
+	if len(bg) != 3 {
+		if bg = a.theme.Background.Params(); len(bg) != 3 {
+			return ink
+		}
+	}
+	mix := func(f, b uint8) uint8 {
+		return uint8((uint32(f)*dimPercent + uint32(b)*(100-dimPercent)) / 100)
+	}
+	return vaxis.RGBColor(mix(fg[0], bg[0]), mix(fg[1], bg[1]), mix(fg[2], bg[2]))
 }

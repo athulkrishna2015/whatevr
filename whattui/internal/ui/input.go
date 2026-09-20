@@ -269,7 +269,7 @@ func (a *App) transcriptPage() int {
 func (a *App) onMouse(m vaxis.Mouse) bool {
 	if handled, dirty := a.onModalMouse(m); handled {
 		if m.EventType == vaxis.EventMotion || m.Button == vaxis.MouseNoButton {
-			a.pointer(vaxis.MouseShapeClickable)
+			a.pointer(a.modalShape(m))
 		}
 		return dirty
 	}
