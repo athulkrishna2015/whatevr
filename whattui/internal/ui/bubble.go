@@ -47,7 +47,7 @@ type bubble struct {
 	header      string
 	headerStyle vaxis.Style
 	quote       string
-	body        []string
+	body        []line
 	footer      string
 	outgoing    bool
 	// inner is the content width, not counting padding or border.
@@ -81,7 +81,7 @@ func (a *App) footerFitsInline(b bubble) bool {
 	if len(b.body) == 0 || b.footer == "" {
 		return false
 	}
-	last := a.width(b.body[len(b.body)-1])
+	last := a.lineWidth(b.body[len(b.body)-1])
 	return last+1+a.width(b.footer) <= b.inner
 }
 
@@ -99,10 +99,10 @@ func (a *App) layoutBubble(header, quote, body, footer string, max int, headerSt
 	if quote != "" {
 		b.quote = "│ " + quote
 	}
-	b.body = a.wrap(body, innerMax)
+	b.body = a.wrapSpans(body, innerMax, true)
 
-	for _, s := range b.body {
-		b.inner = maxInt(b.inner, a.width(s))
+	for _, l := range b.body {
+		b.inner = maxInt(b.inner, a.lineWidth(l))
 	}
 	b.inner = maxInt(b.inner, a.width(b.header))
 	b.inner = maxInt(b.inner, a.width(b.quote))
@@ -159,12 +159,12 @@ func (a *App) drawBubble(pane vaxis.Window, b bubble, col, row int) {
 		// whatever the terminal can do: without the scale key vaxis paints
 		// the reserved cells and draws the glyph small in the top left, so
 		// the bubble is the same size either way and nothing shifts.
-		for _, s := range b.body {
+		for _, l := range b.body {
 			a.print(pane, col, r, border, bx.vertical)
 			a.print(pane, col+1, r, text, " ")
 			slot := pane.New(col+bubblePadX+1, r, b.inner, b.scale)
 			slot.PrintScaled(0, vaxis.Segment{
-				Text:  s,
+				Text:  lineText(l),
 				Style: text,
 				Size:  vaxis.Scaled(b.scale, 0),
 			})
@@ -181,20 +181,21 @@ func (a *App) drawBubble(pane vaxis.Window, b bubble, col, row int) {
 		return
 	}
 
-	for i, s := range b.body {
-		last := i == len(b.body)-1
-		if last && a.footerFitsInline(b) {
+	for i, l := range b.body {
+		a.print(pane, col, r, border, bx.vertical)
+		c := a.print(pane, col+1, r, text, " ")
+		c = a.printLine(pane, c, r, text, l)
+		if i == len(b.body)-1 && a.footerFitsInline(b) {
 			// The time tucks in at the end of the last line, which is where
 			// a chat app puts it and where it costs no row.
-			gap := inner - a.width(s) - a.width(b.footer)
-			a.print(pane, col, r, border, bx.vertical)
-			c := a.print(pane, col+1, r, text, " "+s+strings.Repeat(" ", gap))
+			gap := inner - a.lineWidth(l) - a.width(b.footer)
+			c = a.print(pane, c, r, text, strings.Repeat(" ", gap))
 			a.print(pane, c, r, faint, b.footer+" ")
-			a.print(pane, col+total-1, r, border, bx.vertical)
-			r++
-			continue
+		} else {
+			a.print(pane, c, r, text, strings.Repeat(" ", maxInt(inner-a.lineWidth(l), 0))+" ")
 		}
-		line(s, text)
+		a.print(pane, col+total-1, r, border, bx.vertical)
+		r++
 	}
 
 	if !a.footerFitsInline(b) && b.footer != "" {

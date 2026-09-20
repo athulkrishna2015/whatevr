@@ -439,8 +439,9 @@ func (a *App) layoutMessage(m proto.MessageRow, paneWidth int) bubble {
 		// character that does not fit, so an unclamped scale is not a big
 		// emoji, it is a missing one.
 		room := max - 2*bubblePadX - 2
-		b.scale = layout.Clamp(bigEmojiScale(n), a.width(b.body[0]), room, a.transcriptPage())
-		b.inner = minInt(maxInt(b.inner, a.width(b.body[0])*b.scale), room)
+		glyphs := lineText(b.body[0])
+		b.scale = layout.Clamp(bigEmojiScale(n), a.width(glyphs), room, a.transcriptPage())
+		b.inner = minInt(maxInt(b.inner, a.width(glyphs)*b.scale), room)
 		if !a.footerFitsInline(b) {
 			b.inner = minInt(maxInt(b.inner, a.width(b.footer)), room)
 		}
@@ -602,44 +603,4 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 		col = a.print(pane, col, 0, vaxis.Style{Foreground: a.theme.TextFaint}, h)
 		col += 2
 	}
-}
-
-// wrap breaks text to a cell width, on spaces where it can and mid-word where
-// it must, so a long url never runs off the pane. Widths are the terminal's,
-// not rune counts.
-func (a *App) wrap(s string, width int) []string {
-	if width < 1 {
-		width = 1
-	}
-	var out []string
-	for _, para := range strings.Split(s, "\n") {
-		if para == "" {
-			out = append(out, "")
-			continue
-		}
-		cur := ""
-		for _, word := range strings.Fields(para) {
-			switch {
-			case cur == "":
-				cur = word
-			case a.width(cur)+1+a.width(word) <= width:
-				cur += " " + word
-			default:
-				out = append(out, cur)
-				cur = word
-			}
-			for a.width(cur) > width {
-				head := a.clip(cur, width)
-				if head == "" {
-					break
-				}
-				out = append(out, head)
-				cur = cur[len(head):]
-			}
-		}
-		if cur != "" {
-			out = append(out, cur)
-		}
-	}
-	return out
 }
