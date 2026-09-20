@@ -29,6 +29,7 @@ SIZES = ((120, 40), (90, 30), (60, 24), (38, 14))
 # on screen before it is photographed. name -> (cols, rows, keys, marker).
 SURFACES = {
     "palette-120x40": (120, 40, ["ctrl+p"], "Command palette"),
+    "palette-90x30": (90, 30, ["ctrl+p"], "Command palette"),
     "palette-38x14": (38, 14, ["ctrl+p"], "Command palette"),
     "palette-chats-120x40": (120, 40, ["ctrl+p", "/", "a", "n"], "> /an"),
     "slash-120x40": (120, 40, ["/"], "Slash commands"),
