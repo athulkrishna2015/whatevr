@@ -15,26 +15,41 @@ func (a *App) onKey(k vaxis.Key) {
 	if k.EventType == vaxis.EventRelease {
 		return
 	}
+	if a.onModalKey(k) {
+		return
+	}
 
-	// Quit is the one binding that works from everywhere, because a terminal
-	// application that can trap you is a terminal application people
-	// uninstall. Ctrl+C clears the line first when there is one, which is
-	// what it does in every shell.
-	if k.Matches('q', vaxis.ModCtrl) {
+	// Ctrl+X is a level, not a timer. It remains armed until one key resolves
+	// it, or Escape explicitly cancels it.
+	a.mu.Lock()
+	leader := a.leader
+	a.mu.Unlock()
+	if leader {
+		if k.Matches(vaxis.KeyEsc) {
+			a.mu.Lock()
+			a.leader = false
+			a.mu.Unlock()
+			return
+		}
 		a.mu.Lock()
-		a.quit = true
+		a.leader = false
+		a.mu.Unlock()
+		if id, ok := a.leaderCommand(k); ok {
+			a.execute(id)
+		} else {
+			a.toast("unknown ^x command")
+		}
+		return
+	}
+	if k.Matches('x', vaxis.ModCtrl) {
+		a.mu.Lock()
+		a.leader = true
 		a.mu.Unlock()
 		return
 	}
-	if k.Matches('c', vaxis.ModCtrl) {
-		a.mu.Lock()
-		typed := !a.composer.empty()
-		if typed {
-			a.composer.clear()
-		} else {
-			a.quit = true
-		}
-		a.mu.Unlock()
+
+	if id, ok := a.directCommand(k); ok {
+		a.execute(id)
 		return
 	}
 
@@ -46,6 +61,12 @@ func (a *App) onKey(k vaxis.Key) {
 	a.mu.Lock()
 	focus := a.focus
 	a.mu.Unlock()
+	if k.Matches('?') && focus != FocusComposer {
+		if id, ok := a.commandForDirect("?"); ok {
+			a.execute(id)
+		}
+		return
+	}
 
 	switch focus {
 	case FocusList:
@@ -72,11 +93,7 @@ func (a *App) onListKey(k vaxis.Key) {
 	case k.Matches(vaxis.KeyPgDown):
 		a.moveSelection(a.listPage())
 	case k.Matches(vaxis.KeyEnter) || k.Matches(vaxis.KeyRight) || k.Matches('l'):
-		a.openSelected()
-	case k.Matches(vaxis.KeyTab):
-		a.cycleFocus(1)
-	case k.Matches(vaxis.KeyTab, vaxis.ModShift):
-		a.cycleFocus(-1)
+		a.execute(cmdOpenChat)
 	default:
 		// Typing in a list is trying to talk, not trying to navigate. Hand
 		// the keystroke to the composer rather than swallowing it.
@@ -108,10 +125,6 @@ func (a *App) onTranscriptKey(k vaxis.Key) {
 		a.scrollTranscript(-a.transcriptPage())
 	case k.Matches(vaxis.KeyEsc):
 		a.setFocus(FocusComposer)
-	case k.Matches(vaxis.KeyTab):
-		a.cycleFocus(1)
-	case k.Matches(vaxis.KeyTab, vaxis.ModShift):
-		a.cycleFocus(-1)
 	default:
 		if k.Text != "" && a.activeChat != "" && !isTranscriptNav(k) {
 			a.setFocus(FocusComposer)
@@ -254,6 +267,12 @@ func (a *App) transcriptPage() int {
 // the pointer can do too. It reports whether the frame needs drawing again,
 // because motion arrives for every pixel and most of it changes nothing.
 func (a *App) onMouse(m vaxis.Mouse) bool {
+	if handled, dirty := a.onModalMouse(m); handled {
+		if m.EventType == vaxis.EventMotion || m.Button == vaxis.MouseNoButton {
+			a.pointer(vaxis.MouseShapeClickable)
+		}
+		return dirty
+	}
 	l := a.layout()
 	over := -1
 	if inRect(m, l.ChatList) && !l.ChatList.Empty() {
@@ -314,7 +333,7 @@ func (a *App) onMouse(m vaxis.Mouse) bool {
 			case chat >= 0:
 				a.setFocus(FocusList)
 				a.setSelection(chat)
-				a.openSelected()
+				a.execute(cmdOpenChat)
 			case inRect(m, l.Composer):
 				a.setFocus(FocusComposer)
 			case inRect(m, l.Transcript):

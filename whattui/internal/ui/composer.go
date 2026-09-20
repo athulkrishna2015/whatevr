@@ -138,6 +138,7 @@ func (c *composer) multiline() bool {
 // enter and shift+enter split from every chat application. Nothing is a
 // whattui invention, which is the point.
 func (a *App) onComposerKey(k vaxis.Key) {
+	defer a.syncSlashModal()
 	a.mu.Lock()
 	c := &a.composer
 	a.mu.Unlock()
@@ -150,18 +151,13 @@ func (a *App) onComposerKey(k vaxis.Key) {
 		k.Matches(vaxis.KeyEnter, vaxis.ModAlt):
 		c.insert("\n")
 	case k.Matches(vaxis.KeyEnter):
-		a.send()
+		a.execute(cmdSend)
 	case k.Matches(vaxis.KeyEsc):
 		if !c.empty() {
 			c.clear()
 			return
 		}
 		a.setFocus(FocusList)
-	case k.Matches(vaxis.KeyTab):
-		a.cycleFocus(1)
-	case k.Matches(vaxis.KeyTab, vaxis.ModShift):
-		a.cycleFocus(-1)
-
 	case k.Matches(vaxis.KeyBackspace):
 		c.deleteBack()
 	case k.Matches(vaxis.KeyDelete), k.Matches('d', vaxis.ModCtrl):

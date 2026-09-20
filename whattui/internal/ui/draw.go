@@ -53,6 +53,7 @@ func (a *App) paint() {
 		a.drawHintBar(win, l.HintBar)
 	}
 	a.paintSelection()
+	a.drawModal(win)
 }
 
 // sub is a vaxis window for a layout rect.
@@ -580,22 +581,33 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 		return
 	}
 
-	var hints []string
+	type hint struct {
+		id   commandID
+		text string
+	}
+	var hints []hint
 	switch focus {
 	case FocusList:
-		hints = []string{"\u23ce open", "\u2191\u2193 move", "tab chat", "^q quit"}
+		hints = []hint{{cmdOpenChat, "open"}, {"", "\u2191\u2193 move"}, {cmdFocusNext, "chat"}, {cmdQuit, "quit"}}
 	case FocusTranscript:
-		hints = []string{"\u2191\u2193 scroll", "esc composer", "tab chats"}
+		hints = []hint{{"", "\u2191\u2193 scroll"}, {"", "esc composer"}, {cmdFocusNext, "chats"}}
 	default:
-		hints = []string{"\u23ce send", newline + " newline", "esc chats", "tab list"}
+		hints = []hint{{cmdSend, "send"}, {"", newline + " newline"}, {"", "esc chats"}, {cmdFocusNext, "list"}}
 		if !typed {
-			hints = []string{"\u23ce send", "\u2191 scroll back", "esc chats", "tab list"}
+			hints = []hint{{cmdSend, "send"}, {"", "\u2191 scroll back"}, {"", "esc chats"}, {cmdFocusNext, "list"}}
 		}
 	}
 
 	w, _ := pane.Size()
 	col := 1
-	for _, h := range hints {
+	for _, hint := range hints {
+		h := hint.text
+		if hint.id != "" {
+			a.initCommands()
+			if c := a.commands.byID[hint.id]; c != nil && c.Direct != "" {
+				h = c.Direct + " " + hint.text
+			}
+		}
 		if col+a.width(h) >= w {
 			break
 		}

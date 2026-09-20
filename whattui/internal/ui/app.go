@@ -81,6 +81,14 @@ type App struct {
 	quit      bool
 
 	composer composer
+	commands commandRegistry
+	modal    modalState
+	leader   bool
+	// slashDismissed prevents an escaped slash menu reopening until the draft
+	// changes. Escape closes UI, never text.
+	slashDismissed string
+	request        func(string, proto.Params, proto.ResponseFunc)
+	searchRequest  uint64
 
 	conversation *conversation
 }
@@ -102,6 +110,8 @@ func New(vx *vaxis.Vaxis, caps term.Caps, client *proto.Client) *App {
 		drag:    drag{chat: -1},
 	}
 	a.shaper = shaperFor(vx, caps)
+	a.request = client.Do
+	a.initCommands()
 	a.setCell()
 
 	client.OnState = a.onTransport
