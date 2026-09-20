@@ -14,7 +14,9 @@ import Whatevr as Whatevr
 Item {
     id: pane
 
-    // keepOpen is true for Ctrl+click multi-send.
+    // keepOpen is true for plain click/Enter multi-send: the picker stays
+    // open so several stickers can go out in a row, like WhatsApp mobile.
+    // Ctrl+click closes it and returns focus to the composer.
     signal stickerChosen(bool keepOpen)
 
     property Item searchField: null
@@ -60,7 +62,7 @@ Item {
         stickerGrid.currentIndex = 0
         const item = stickerGrid.itemAtIndex(0)
         if (item) {
-            pane.sendSticker(item.cacheKey, false)
+            pane.sendSticker(item.cacheKey, true)
             event.accepted = true
         }
     }
@@ -312,14 +314,14 @@ Item {
                 Keys.onReturnPressed: event => {
                     const item = stickerGrid.itemAtIndex(stickerGrid.currentIndex)
                     if (item) {
-                        pane.sendSticker(item.cacheKey, (event.modifiers & Qt.ControlModifier) !== 0)
+                        pane.sendSticker(item.cacheKey, (event.modifiers & Qt.ControlModifier) === 0)
                         event.accepted = true
                     }
                 }
                 Keys.onEnterPressed: event => {
                     const item = stickerGrid.itemAtIndex(stickerGrid.currentIndex)
                     if (item) {
-                        pane.sendSticker(item.cacheKey, (event.modifiers & Qt.ControlModifier) !== 0)
+                        pane.sendSticker(item.cacheKey, (event.modifiers & Qt.ControlModifier) === 0)
                         event.accepted = true
                     }
                 }
@@ -468,7 +470,7 @@ Item {
                                 return
                             }
                             stickerGrid.currentIndex = stickerTile.index
-                            pane.sendSticker(stickerTile.cacheKey, (mouse.modifiers & Qt.ControlModifier) !== 0)
+                            pane.sendSticker(stickerTile.cacheKey, (mouse.modifiers & Qt.ControlModifier) === 0)
                             mouse.accepted = true
                         }
                     }
@@ -653,7 +655,7 @@ Item {
                 if (pane.hoverInfo.length > 0) {
                     return pane.hoverInfo
                 }
-                return Whatevr.I18n.i18nc("@info", "Click to send · Ctrl+click to send several")
+                return Whatevr.I18n.i18nc("@info", "Click to send · Ctrl+click to send and close")
             }
             color: pane.sendErrorText.length > 0 ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.disabledTextColor
             font: Kirigami.Theme.smallFont

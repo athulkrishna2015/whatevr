@@ -679,6 +679,7 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 		} else if ok {
 			saved.Message = updated
 		}
+		c.recordInboundStickerRecency(ctx, mediaInput)
 		if opts.source == sourceLive {
 			c.log.Infof("Stored media message %s from %s", saved.Message.ID, saved.Message.SenderID)
 		} else if opts.source == sourceOfflineSync {
@@ -704,6 +705,36 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 	}
 
 	return appstore.SavedTextMessage{}, false
+}
+
+// recordInboundStickerRecency files a received sticker in the local Recents
+// library, so stickers arriving from the phone (or any sender) show up in
+// the picker the way the phone's own recents do. Own sends are already
+// recorded by SendSticker, and history sync seeds recents with weights, so
+// only inbound live/offline rows land here. The row is created when needed
+// (files download lazily on first picker display); existing rows only move
+// up via last_used, and phone-initiated removals still win through
+// ClearStickerRecency.
+func (c *Client) recordInboundStickerRecency(ctx context.Context, input appstore.MediaMessageInput) {
+	if input.MediaKind != appstore.MediaKindSticker || input.MediaCacheKey == "" {
+		return
+	}
+	if input.Direction != appstore.DirectionIncoming {
+		return
+	}
+	if err := c.store.TouchRecentSticker(ctx, appstore.Sticker{
+		CacheKey:       input.MediaCacheKey,
+		MimeType:       input.MediaMimeType,
+		IsAnimated:     input.MediaAnimated,
+		Width:          input.MediaWidth,
+		Height:         input.MediaHeight,
+		StickerPayload: input.MediaPayload,
+		LastUsed:       time.Now().Unix(),
+	}); err != nil {
+		c.log.Debugf("Failed to record inbound sticker recency for %s: %v", input.ID, err)
+		return
+	}
+	c.publishStickerLibraryChangedDebounced(app.StickerSourceRecent)
 }
 
 func (c *Client) clearComposingAfterLiveIncomingMessage(message app.Message) {
