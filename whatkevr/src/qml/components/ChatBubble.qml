@@ -839,6 +839,16 @@ Item {
     // is there.
     readonly property bool footerOverArtwork: footerOverPicture && mediaArtworkShown
 
+    /// Where the footer's scrim starts, as a fraction of its own height: the
+    /// footer's top edge, so nothing above the line of text is darkened at all.
+    /// The strip is tntHeight tall sitting footerInset off the bottom, inside a
+    /// rectangle of tntHeight + footerInset * 2, which puts that edge exactly
+    /// one inset down from its top.
+    readonly property real footerScrimOnset: footerInset / Math.max(1, tntHeight + footerInset * 2)
+    /// How dark it gets at the very bottom. Enough to carry white on a bright
+    /// photograph and no more: this sits on someone's picture.
+    readonly property real footerScrimPeak: 0.42
+
     // Rows whose time and ticks land on a picture rather than on a plate. An
     // album is one of them without being `imageOnly`: that flag means media
     // that drives the bubble's width and runs edge to edge, which a mosaic
@@ -1233,9 +1243,22 @@ Item {
                                 easing.type: Easing.OutCubic
                             }
                         }
+                        // Shaped rather than a straight ramp, and that is the
+                        // difference between a reading aid and a smudge. A
+                        // linear fade to the peak starts darkening at the very
+                        // top of the strip, so a grey wash sits on the picture
+                        // above the line it is meant to serve. Holding it at
+                        // nothing until the footer's own top edge, then bending
+                        // the ramp so most of the darkening lands in the last
+                        // third, keeps it under the text and off the photograph.
                         gradient: Gradient {
                             GradientStop { position: 0.0; color: "transparent" }
-                            GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.55) }
+                            GradientStop { position: root.footerScrimOnset; color: "transparent" }
+                            GradientStop {
+                                position: root.footerScrimOnset + (1 - root.footerScrimOnset) * 0.55
+                                color: Qt.rgba(0, 0, 0, root.footerScrimPeak * 0.28)
+                            }
+                            GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, root.footerScrimPeak) }
                         }
                     }
                 }
