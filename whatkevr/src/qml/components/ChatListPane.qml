@@ -83,6 +83,7 @@ Kirigami.Page {
             icon.name: "search-symbolic"
             text: Whatevr.I18n.i18nc("@action:button toggle the chat search bar", "Search")
             displayHint: Kirigami.DisplayHint.IconOnly
+            visible: root.workspaceMode === "chats"
             checkable: true
             checked: root.searchBarVisible
             onTriggered: {
@@ -97,7 +98,19 @@ Kirigami.Page {
             icon.name: "mail-mark-read-symbolic"
             text: Whatevr.I18n.i18nc("@action:button mark every chat read", "Mark all as read")
             displayHint: Kirigami.DisplayHint.IconOnly
+            visible: root.workspaceMode === "chats"
             onTriggered: Whatevr.ProtocolController.markAllChatsRead()
+        },
+        // StatusPage's own New-status action never reaches a toolbar: the
+        // page is loaded list-only inside this column, not pushed on the
+        // page stack (same reason ConversationPane grew an explicit
+        // in-page header). Forward to the loaded page's dialog.
+        Kirigami.Action {
+            icon.name: "list-add-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button post a status", "New status")
+            displayHint: Kirigami.DisplayHint.IconOnly
+            visible: root.workspaceMode === "status"
+            onTriggered: statusIndexLoader.item?.openPostDialog()
         }
     ]
 

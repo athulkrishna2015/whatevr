@@ -150,6 +150,13 @@ Kirigami.ScrollablePage {
         return group.senderName
     }
 
+    // Entry point for the embedding column's header button: the page's own
+    // actions never reach a toolbar when it is loaded list-only inside
+    // ChatListPane rather than pushed on the page stack.
+    function openPostDialog() {
+        postDialog.open()
+    }
+
     Connections {
         target: Whatevr.ProtocolController
 

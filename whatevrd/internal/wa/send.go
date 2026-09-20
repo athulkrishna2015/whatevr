@@ -425,7 +425,7 @@ func readOutboundMedia(filePath string, opts MediaSendOptions) (data []byte, mim
 			return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "voice notes must be audio files")
 		}
 		mediaKind = appstore.MediaKindVoice
-		return data, mimeType, outboundAudioExtension(sourceBase, mimeType), mediaKind, "", nil
+		return data, outboundVoiceMime(mimeType, sourceBase), outboundAudioExtension(sourceBase, mimeType), mediaKind, "", nil
 	case kindHint == "document":
 		mediaKind = appstore.MediaKindDocument
 		fileName = outboundDocumentName(sourceBase, opts.Filename)
@@ -507,6 +507,28 @@ func outboundVideoExtension(sourceBase, mimeType string) string {
 
 func outboundAudioExtension(sourceBase, mimeType string) string {
 	return outboundPreservedExtension(sourceBase, mimeType, ".ogg")
+}
+
+// outboundVoiceMime normalizes the sniffed MIME type of a voice note to what
+// official clients send: "audio/ogg; codecs=opus". Go's http.DetectContentType
+// reports Ogg Opus as "application/ogg", a mimetype no phone client sends for
+// PTT — desktop recordings went out with it and never appeared on mobile.
+// Only Ogg containers are rewritten; anything else passes through unchanged.
+func outboundVoiceMime(mimeType, sourceBase string) string {
+	switch {
+	case strings.HasPrefix(mimeType, "audio/ogg"),
+		mimeType == "audio/opus",
+		mimeType == "application/ogg",
+		mimeType == "application/x-ogg":
+		return "audio/ogg; codecs=opus"
+	}
+	if mimeType == "application/octet-stream" {
+		lower := strings.ToLower(sourceBase)
+		if strings.HasSuffix(lower, ".ogg") || strings.HasSuffix(lower, ".oga") || strings.HasSuffix(lower, ".opus") {
+			return "audio/ogg; codecs=opus"
+		}
+	}
+	return mimeType
 }
 
 // isAudioMime reports whether a sniffed MIME type (plus filename fallback)

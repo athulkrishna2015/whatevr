@@ -7,6 +7,13 @@ PROTOCOL.md (stable at version 1: additive changes only).
 
 ### Fixed
 
+- Desktop-recorded voice notes now appear on mobile: the outbound path sends
+  them as `audio/ogg; codecs=opus` like official clients instead of Go's
+  sniffed `application/ogg`, which phones never rendered for PTT.
+- The Status column header has a New-status button again: StatusPage's own
+  action never reaches a toolbar when embedded list-only, so the column
+  forwards to the page's post dialog (and chat-only actions hide outside
+  chats mode).
 - Text messages with links now render the sender-provided link preview card
   (title, description, thumbnail) between the reply quote and the body;
   tapping opens the URL. Previews are stored at ingest, so rendering never

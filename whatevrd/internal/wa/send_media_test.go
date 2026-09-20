@@ -87,3 +87,25 @@ func TestDocumentSendKeepsFilename(t *testing.T) {
 		t.Fatalf("wire FileName = %q, want the source basename", doc.GetFileName())
 	}
 }
+
+// TestVoiceSendNormalizesOggMime locks in the cross-device voice contract:
+// desktop recordings sniff as "application/ogg" under Go's sniffer, but no
+// phone client sends PTT with that mimetype — such notes never appeared on
+// mobile. The outbound path rewrites Ogg voice to "audio/ogg; codecs=opus".
+func TestVoiceSendNormalizesOggMime(t *testing.T) {
+	cases := map[string]string{
+		"application/ogg":   "audio/ogg; codecs=opus",
+		"application/x-ogg": "audio/ogg; codecs=opus",
+		"audio/ogg":         "audio/ogg; codecs=opus",
+		"audio/opus":        "audio/ogg; codecs=opus",
+	}
+	for in, want := range cases {
+		if got := outboundVoiceMime(in, "whatevr-voice-1.ogg"); got != want {
+			t.Fatalf("outboundVoiceMime(%q) = %q, want %q", in, got, want)
+		}
+	}
+	// Non-Ogg audio passes through untouched.
+	if got := outboundVoiceMime("audio/mpeg", "note.mp3"); got != "audio/mpeg" {
+		t.Fatalf("outboundVoiceMime(audio/mpeg) = %q, want passthrough", got)
+	}
+}
