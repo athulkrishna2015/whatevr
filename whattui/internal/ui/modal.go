@@ -447,9 +447,14 @@ func (a *App) drawModal(win vaxis.Window) {
 			style.Foreground = a.theme.TextFaint
 			detail = item.Disabled
 		}
-		split := inner.Width / 2
+		// Two columns need room for two columns. Below that the label takes
+		// the panel, because a name cut in half helps nobody.
+		split := inner.Width
+		if inner.Width >= 44 {
+			split = inner.Width / 2
+		}
 		a.print(line, 0, 0, style, a.clip(item.Label, maxInt(split-1, 1)))
-		if inner.Width > 20 {
+		if split < inner.Width {
 			a.print(line, split, 0, vaxis.Style{Foreground: a.theme.TextMuted, Background: bg},
 				a.clip(detail, inner.Width-split))
 		}
