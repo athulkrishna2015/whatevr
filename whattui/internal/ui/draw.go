@@ -229,6 +229,11 @@ func (a *App) drawChatRow(pane vaxis.Window, row, w, height int, c proto.ChatRow
 	preview := pane.New(0, row+1, w, 1)
 	badgeW := a.width(badge)
 	room := w - 3 - badgeW - 1
+	if badge != "" {
+		// A preview that runs into the badge reads as one word, so the count
+		// keeps a column of its own the way the timestamp does.
+		room--
+	}
 	if room < 1 {
 		room = 1
 	}
