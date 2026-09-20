@@ -208,3 +208,27 @@ target_link_libraries(tst_waveformitem PRIVATE
 )
 
 add_test(NAME tst_waveformitem COMMAND tst_waveformitem)
+
+# The transcript's height index. Needs a window because rows are measured from
+# real delegates, but no scene graph beyond that.
+qt_add_executable(tst_transcriptview
+    tst_transcriptview.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/ui/transcriptview.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/ui/transcriptview.h
+)
+
+target_include_directories(tst_transcriptview PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/ui
+)
+
+target_link_libraries(tst_transcriptview PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Qml
+    Qt6::Quick
+    Qt6::QuickPrivate
+    Qt6::QmlModelsPrivate
+    Qt6::Test
+)
+
+add_test(NAME tst_transcriptview COMMAND tst_transcriptview)

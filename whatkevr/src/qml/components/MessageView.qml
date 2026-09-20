@@ -105,11 +105,6 @@ Item {
     property bool programmaticScroll: false
     property real lastScrollY: 0
     property string pendingJumpMessageId: ""
-    property double pendingJumpDeadlineMs: 0
-
-    // The transcript this pane draws. Set by ConversationPane from the pool
-    // slot; null only for a slot that holds no chat yet.
-    property var session: null
 
     // Unread divider anchor returned in the messages subscribe metadata.
     readonly property string unreadAnchorMessageId: session ? session.unreadAnchorMessageId : ""
@@ -120,14 +115,6 @@ Item {
     property bool userScrolledSinceOpen: false
     // The viewport was already placed at the unread divider for this open.
     property bool unreadAnchorPositioned: false
-    // Deadline for the re-centring passes that follow the first placement of
-    // the unread divider (see settleUnreadAnchor).
-    property double unreadAnchorSettleDeadlineMs: 0
-    // Absolute caps on how long a placement may wait for the pane to become
-    // laid out (see viewportReady). Only a pane that never appears hits these.
-    property double unreadAnchorHiddenDeadlineMs: 0
-    property double pendingJumpHiddenDeadlineMs: 0
-
     signal loadOlderMessagesRequested()
     signal loadNewerMessagesRequested()
     signal loadPhoneHistoryRequested()
@@ -178,41 +165,6 @@ Item {
         interval: 1200
         repeat: false
         onTriggered: root.floatingDateActive = false
-    }
-
-    Timer {
-        id: jumpSettleTimer
-
-        interval: 50
-        repeat: false
-        onTriggered: root.settlePendingJump()
-    }
-
-    // Open-at-bottom settle window: while running, late contentHeight
-    // revisions (rows parsed after the eager window, image thumbnails
-    // resolving, the delayed height binding) re-pin the view to the newest
-    // message instead of leaving it a few pixels off the bottom.
-    Timer {
-        id: bottomSettleTimer
-
-        interval: 600
-        repeat: false
-    }
-
-    Timer {
-        id: jumpTimeoutTimer
-
-        interval: 1200
-        repeat: false
-        onTriggered: root.finishPendingJump()
-    }
-
-    Timer {
-        id: unreadAnchorSettleTimer
-
-        interval: 50
-        repeat: false
-        onTriggered: root.settleUnreadAnchor()
     }
 
     DragHandler {
@@ -685,70 +637,17 @@ Item {
 
     function scrollToNewest() {
         traceViewport("scrollToNewest")
-        cancelUnreadAnchorSettle()
         if (list.count > 0) {
             programmaticScroll = true
             list.positionViewAtBeginning()
             floatingDateActive = false
             floatingDateIdleTimer.stop()
-            bottomSettleTimer.restart()
             refreshBottomPin()
             Qt.callLater(() => { root.programmaticScroll = false })
         }
         pendingNewestMessageCount = 0
         followNewest = true
         atNewest = true
-    }
-
-    // Coalesces the settle-window re-pin to at most one per event-loop turn.
-    // positionViewAtBeginning() forces a synchronous layout of the whole materialised
-    // band, so calling it once per content-height revision was the dominant
-    // cost of the frames after a chat opened.
-    property bool bottomRepinQueued: false
-    function queueBottomRepin() {
-        if (bottomRepinQueued) {
-            return
-        }
-        bottomRepinQueued = true
-        Qt.callLater(applyBottomRepin)
-    }
-
-    property int bottomRepinRetries: 0
-    function applyBottomRepin() {
-        bottomRepinQueued = false
-        if (!followNewest || pendingJumpMessageId.length > 0 || list.count === 0) {
-            bottomRepinRetries = 0
-            return
-        }
-        if (programmaticScroll) {
-            // Something else is placing the viewport this turn. Its own reset
-            // of the flag is already queued ahead of us, so ask again behind it
-            // rather than dropping the request: the row that settles its height
-            // and moves the bottom of the transcript regularly does so in the
-            // very turn a jump-to-bottom is still holding this flag, and a
-            // dropped request is a reader left short of the newest message with
-            // nothing to tell them why.
-            if (bottomRepinRetries < 3) {
-                bottomRepinRetries += 1
-                bottomRepinQueued = true
-                Qt.callLater(applyBottomRepin)
-            }
-            return
-        }
-        bottomRepinRetries = 0
-        // positionViewAtBeginning() forces a synchronous layout of the whole
-        // materialised band, and the settle window fires on every content-height
-        // revision, several per send while the new row settles. Skip it when
-        // the viewport did not actually drift, which is the ordinary case for a
-        // list that was already parked at the bottom.
-        if (Math.abs(distanceFromBottom()) < 1) {
-            return
-        }
-        traceViewport("applyBottomRepin")
-        programmaticScroll = true
-        list.positionViewAtBeginning()
-        refreshBottomPin()
-        Qt.callLater(() => { root.programmaticScroll = false })
     }
 
     // Gap between the bottom of the content and the bottom of the viewport.
@@ -961,70 +860,38 @@ Item {
         return n
     }
 
-    // Whether the list can actually answer geometry questions. ConversationPane
-    // keeps this pane hidden until the messages *and* the pinned-banner layout
-    // have both settled, and a hidden view materialises no delegates: every
-    // itemAtIndex() is null and positionViewAtIndex() works purely off the
-    // estimated content height. Placing a viewport in that state lands nowhere
-    // useful, so both settle loops wait for this instead of burning their
-    // deadline against a view that cannot answer.
-    function viewportReady() {
-        return visible && list.height > 0 && list.count > 0
-    }
-
-    // Put a row in the middle of the viewport. positionViewAtIndex(Center)
-    // alone is not enough: while the target row is still unmaterialised the
-    // view centres against an *estimated* content height, so the row lands
-    // visibly off centre once its real delegate exists. Correcting contentY
-    // against the materialised item afterwards is what makes a jump land
-    // centred. Rows near either end cannot be centred at all — the clamp
-    // leaves them as close as the bounds allow, which is the "when possible".
+    // Put a row in the middle of the viewport.
+    //
+    // One call, because the view owns the height index: it places the row,
+    // measures it, and places it again off the corrected height, all before
+    // returning. The retry loop that used to live here existed because a
+    // ListView centred against an estimate and revised it afterwards.
     function centerOnIndex(index) {
         if (index < 0 || index >= list.count) {
             traceViewport("centerOnIndex:out-of-range", "index=" + index)
-            return
+            return false
         }
-        list.positionViewAtIndex(index, ListView.Center)
-        list.forceLayout()
-        const item = list.itemAtIndex(index)
-        if (item === null || item.height <= 0) {
-            traceViewport("centerOnIndex:unmaterialised", "index=" + index
-                          + " item=" + (item === null ? "NULL" : "h=" + item.height))
-            return
-        }
-        traceViewport("centerOnIndex:ok", "index=" + index + " itemY=" + item.y.toFixed(0)
-                      + " itemH=" + item.height.toFixed(0))
-        list.contentY = Math.max(kineticWheelScroller.minimumY(),
-                                 Math.min(kineticWheelScroller.maximumY(),
-                                          item.y + (item.height - list.height) / 2))
+        list.positionViewAtIndex(index, TranscriptView.Center)
+        traceViewport("centerOnIndex:ok", "index=" + index)
+        return true
     }
 
-    // Put the unread divider — not the anchor row — in the middle of the
-    // viewport. The divider is drawn at the *top* of the anchor row, so
-    // centring the row itself pushes the divider (item.height - list.height)/2
-    // above the viewport whenever the anchor message is taller than the screen,
-    // which is ordinary for a long message or a media bubble: a 1021px row in a
-    // 758px viewport hid the marker by 131px. Placing the row's top at the
-    // viewport centre puts the marker on screen with the unread messages
-    // reading downward from it, and the clamp is the "when possible" at either
-    // end of a chat.
+    // The unread divider is drawn at the top of its row, so centring the row
+    // hides the marker whenever the row is taller than the screen, which is
+    // ordinary for a long message or a media bubble. Put the row's *top* at the
+    // viewport centre instead: the marker is on screen with the unread messages
+    // reading downward from it, and the clamp inside the view is the "when
+    // possible" at either end of a chat.
     function centerDividerOnIndex(index) {
         if (index < 0 || index >= list.count) {
             traceViewport("centerDividerOnIndex:out-of-range", "index=" + index)
             return false
         }
-        list.positionViewAtIndex(index, ListView.Center)
-        list.forceLayout()
-        const item = list.itemAtIndex(index)
-        if (item === null || item.height <= 0) {
-            traceViewport("centerDividerOnIndex:unmaterialised", "index=" + index)
-            return false
-        }
+        list.positionViewAtIndex(index, TranscriptView.Beginning)
         list.contentY = Math.max(kineticWheelScroller.minimumY(),
                                  Math.min(kineticWheelScroller.maximumY(),
-                                          item.y - list.height / 2))
-        traceViewport("centerDividerOnIndex:ok", "index=" + index + " itemY=" + item.y.toFixed(0)
-                      + " itemH=" + item.height.toFixed(0))
+                                          list.contentY - list.height / 2))
+        traceViewport("centerDividerOnIndex:ok", "index=" + index)
         return true
     }
 
@@ -1050,7 +917,7 @@ Item {
             return
         }
         programmaticScroll = true
-        list.positionViewAtIndex(index, ListView.Visible)
+        list.positionViewAtIndex(index, TranscriptView.Visible)
         list.forceLayout()
         const item = list.itemAtIndex(index)
         if (item !== null) {
@@ -1081,7 +948,7 @@ Item {
             return
         }
         programmaticScroll = true
-        list.positionViewAtIndex(index, ListView.Visible)
+        list.positionViewAtIndex(index, TranscriptView.Visible)
         list.forceLayout()
         const item = list.itemAtIndex(index)
         if (item !== null) {
@@ -1109,7 +976,7 @@ Item {
             traceViewport("positionAtUnreadAnchor:not-in-model", "index=" + index)
             return false
         }
-        traceViewport("positionAtUnreadAnchor", "index=" + index + " ready=" + viewportReady())
+        traceViewport("positionAtUnreadAnchor", "index=" + index)
         programmaticScroll = true
         floatingDateActive = false
         floatingDateIdleTimer.stop()
@@ -1117,89 +984,17 @@ Item {
         if (list.flicking) list.cancelFlick()
         openingChat = false
         pendingNewestMessageCount = 0
-        // The first pass centres against estimates for every row that is not
-        // materialised yet — including the divider's own height, which the
-        // anchor delegate only gains once it is built — and cannot do even that
-        // while the pane is still hidden. Keep re-centring until the row is
-        // real. Claiming the placement here (returning true) is what stops
-        // afterModelReset falling back to the newest message meanwhile.
-        unreadAnchorSettleDeadlineMs = Date.now() + 1000
-        unreadAnchorHiddenDeadlineMs = Date.now() + 10000
-        if (viewportReady()) {
-            centerDividerOnIndex(index)
-        }
-        unreadAnchorSettleTimer.restart()
-        return true
-    }
-
-    // Re-centre the unread divider until its row is materialised, then hand the
-    // viewport back. Mirrors settlePendingJump; programmaticScroll stays true
-    // for the duration so the bottom re-pin paths (list.onHeightChanged,
-    // onContentHeightChanged) do not drag the view to the newest message while
-    // the divider is still settling.
-    function settleUnreadAnchor() {
-        traceViewport("settleUnreadAnchor", "ready=" + viewportReady())
-        if (unreadAnchorMessageId.length === 0 || !list.model
-                || typeof list.model.indexOf !== "function") {
-            finishUnreadAnchorSettle()
-            return
-        }
-        // The user taking over always wins; the settle must never fight a drag.
-        if (list.dragging || list.flicking || kineticWheelScroller.interactionActive
-                || kineticWheelScroller.kineticActive) {
-            userScrolledSinceOpen = true
-            finishUnreadAnchorSettle()
-            return
-        }
-        // Still hidden: hold the placement open rather than spend its deadline
-        // on a view that cannot lay out. The divider was never placed at all in
-        // this state, so giving up here is what left it off screen.
-        if (!viewportReady()) {
-            if (Date.now() <= unreadAnchorHiddenDeadlineMs) {
-                unreadAnchorSettleDeadlineMs = Date.now() + 1000
-                unreadAnchorSettleTimer.restart()
-                return
-            }
-            finishUnreadAnchorSettle()
-            return
-        }
-
-        const index = list.model.indexOf(unreadAnchorMessageId)
-        if (index < 0 || index >= list.count) {
-            finishUnreadAnchorSettle()
-            return
-        }
-
-        const item = list.itemAtIndex(index)
-        if (item === null || item.pooled || item.messageId !== unreadAnchorMessageId) {
-            if (Date.now() <= unreadAnchorSettleDeadlineMs) {
-                centerDividerOnIndex(index)
-                unreadAnchorSettleTimer.restart()
-                return
-            }
-            finishUnreadAnchorSettle()
-            return
-        }
-
+        // One placement. The view builds and measures the divider's row inside
+        // this call, so there is no estimate left to re-centre against and no
+        // reason to wait for the pane to become visible first: a hidden pane
+        // lays out just the same.
         centerDividerOnIndex(index)
         unreadAnchorPositioned = true
-        finishUnreadAnchorSettle()
-    }
-
-    function finishUnreadAnchorSettle() {
-        unreadAnchorSettleTimer.stop()
-        unreadAnchorSettleDeadlineMs = 0
         programmaticScroll = false
         lastScrollY = list.contentY
         updateScrollState()
         maybeMarkViewedRead()
-    }
-
-    // Drop a settle that has been superseded (a jump, an explicit scroll to the
-    // newest message). The caller owns programmaticScroll from here on.
-    function cancelUnreadAnchorSettle() {
-        unreadAnchorSettleTimer.stop()
-        unreadAnchorSettleDeadlineMs = 0
+        return true
     }
 
     // Single decision point for clearing a chat's unread state, mirroring how
@@ -1243,62 +1038,36 @@ Item {
     }
 
     function beginProgrammaticJump(messageId) {
-        cancelUnreadAnchorSettle()
         pendingJumpMessageId = messageId
-        pendingJumpDeadlineMs = Date.now() + 1000
-        pendingJumpHiddenDeadlineMs = Date.now() + 10000
         programmaticScroll = true
         followNewest = false
         atNewest = false
         floatingDateActive = false
         floatingDateIdleTimer.stop()
-        jumpSettleTimer.stop()
-        jumpTimeoutTimer.restart()
         kineticWheelScroller.stopKinetic()
         if (list.flicking) list.cancelFlick()
     }
 
     function finishPendingJump() {
-        jumpSettleTimer.stop()
-        jumpTimeoutTimer.stop()
         pendingJumpMessageId = ""
-        pendingJumpDeadlineMs = 0
-        pendingJumpHiddenDeadlineMs = 0
         programmaticScroll = false
         lastScrollY = list.contentY
         Qt.callLater(updateScrollState)
     }
 
-    function retryOrFailPendingJump() {
-        if (Date.now() <= pendingJumpDeadlineMs) {
-            jumpSettleTimer.restart()
-            return
-        }
-
-        finishPendingJump()
-    }
-
+    // The jump, in one pass.
+    //
+    // This used to be a retry loop against a 1 s deadline, plus a second 10 s
+    // one for the case where the pane was still hidden, because centring worked
+    // off estimated heights and a hidden view materialised nothing. The view
+    // builds and measures the target row inside positionViewAtIndex now, and it
+    // does so whether or not the pane is on screen, so the row is either in the
+    // window or it is not: there is nothing to wait for either way.
     function settlePendingJump() {
-        traceViewport("settlePendingJump", "ready=" + viewportReady())
-        if (pendingJumpMessageId.length === 0 || !list.model || typeof list.model.indexOf !== "function") {
+        traceViewport("settlePendingJump")
+        if (pendingJumpMessageId.length === 0 || !list.model
+                || typeof list.model.indexOf !== "function") {
             finishPendingJump()
-            return
-        }
-        // A jump can land while ConversationPane still has this pane hidden
-        // (the pinned-banner layout settles on its own schedule). Nothing is
-        // materialised then, so the 1 s deadline used to expire against a view
-        // that could not answer, the jump was abandoned without ever moving or
-        // glowing, and the visibility flip that followed scrolled to the newest
-        // message. Hold the jump open until the pane can actually lay out.
-        if (!viewportReady()) {
-            if (Date.now() <= pendingJumpHiddenDeadlineMs) {
-                pendingJumpDeadlineMs = Date.now() + 1000
-                jumpSettleTimer.restart()
-                jumpTimeoutTimer.restart()
-                return
-            }
-            finishPendingJump()
-            showReferencedMessageUnavailable()
             return
         }
 
@@ -1309,24 +1078,11 @@ Item {
             return
         }
 
-        const item = list.itemAtIndex(index)
-        if (item === null || item.pooled || item.messageId !== pendingJumpMessageId) {
-            // Re-position on the way round: this is also what forces the row to
-            // materialise. A jump whose first centring happened while the pane
-            // was hidden has nothing near the target yet, so waiting alone would
-            // never produce the delegate we are waiting for.
-            centerOnIndex(index)
-            retryOrFailPendingJump()
-            return
-        }
-
-        // The row is real now, so its height is no longer an estimate. Re-centre
-        // before glowing: a jump into unmaterialised history is centred against
-        // estimated heights first time round and settles off centre otherwise.
         centerOnIndex(index)
-        const centred = list.itemAtIndex(index)
-        const glowTarget = centred !== null && !centred.pooled ? centred : item
-        glowTarget.triggerReplyGlow()
+        const item = list.itemAtIndex(index)
+        if (item !== null && !item.pooled && item.messageId === pendingJumpMessageId) {
+            item.triggerReplyGlow()
+        }
         finishPendingJump()
     }
 
@@ -1611,7 +1367,6 @@ Item {
         if (pendingJumpMessageId.length > 0) {
             finishPendingJump()
         }
-        cancelUnreadAnchorSettle()
         clearReplyGlow()
         programmaticScroll = false
     }
@@ -1625,7 +1380,6 @@ Item {
         // A settle can still be holding programmaticScroll for the chat we are
         // leaving; releasing it here keeps user-scroll detection alive in the
         // chat we are entering.
-        cancelUnreadAnchorSettle()
         programmaticScroll = false
         clearSelection()
         expandedMessageTextIds = ({})
@@ -1672,86 +1426,29 @@ Item {
 
     onLoadingMessagesChanged: if (!loadingMessages && chatId.length > 0) Qt.callLater(afterModelReset)
 
-    ListView {
+    TranscriptView {
         id: list
 
         objectName: "messageList"
+
+        Accessible.role: Accessible.List
+        Accessible.name: Whatevr.I18n.i18nc("@info:whatsthis", "Conversation")
 
         anchors.fill: parent
         clip: true
 
         // The transcript is drawn from the bottom up: row 0 is the newest
         // message and sits against the composer, and the rows climb away from
-        // it into history.
-        //
-        // This is the whole reason the model is held newest-first, and it fixes
-        // a class of problem rather than an instance of one. A ListView's
-        // contentHeight is an *estimate* built from the average height of the
-        // rows it has actually built, and it is revised every time another one
-        // materialises. Laid out top-down, that revision lands above the reader
-        // and shoves everything below it, which is why this file grew a
-        // scroll-anchoring apparatus (noteRowResized, applyBottomRepin, the
-        // delayed contentHeight-to-height binding, the settle timers) whose
-        // entire job was to undo the shove. Laid out bottom-up, the estimate is
-        // revised at the far end of the list, thousands of pixels up in history
-        // where nobody is looking, and the newest message never moves because
-        // it is the fixed point the layout is measured from.
-        //
-        // Two things stay exactly as they were, which is what makes this
-        // tractable: contentY is still a plain top-down coordinate over the
-        // content, so every geometric test in here (distanceFromBottom, the
-        // wheel scroller's bounds, atYEnd) reads the same. What inverts is only
-        // what a row *index* means, and Qt's naming is genuinely confusing about
-        // it: the model's beginning (index 0, the newest message) is at the
-        // geometric end, so positionViewAtBeginning() is what scrolls to the
-        // bottom of the screen.
-        verticalLayoutDirection: ListView.BottomToTop
+        // it into history. TranscriptView only draws this way, which is why it
+        // exists: it owns the height index, so contentHeight is the index total
+        // and originY is always zero. Measuring a row up in history corrects
+        // the total without moving anything on screen, and a placement is one
+        // arithmetic write with nothing to settle afterwards.
 
-        // A viewport-height change (the pinned banner appearing above, the
-        // composer growing below) has to be answered differently depending on
-        // where the reader is, and a bottom-up list makes both answers explicit.
-        //
-        // Parked at the newest message, the bottom is where they want to stay,
-        // so re-pin. Scrolled up in history, the bottom is not where they are
-        // looking: the layout is measured from it, so shrinking the viewport
-        // slides everything they *are* looking at by the same amount. Undoing
-        // that by the height delta is the one piece of scroll anchoring this
-        // list still needs, and unlike the old apparatus it fires on an
-        // isolated, exactly-known event rather than on every revised estimate.
-        property real lastViewportHeight: 0
-        onHeightChanged: {
-            const shrankBy = height - lastViewportHeight
-            lastViewportHeight = height
-
-            if (!root.followNewest && !root.programmaticScroll
-                    && root.pendingJumpMessageId.length === 0
-                    && list.count > 0 && Math.abs(shrankBy) >= 0.5) {
-                const wasProgrammatic = root.programmaticScroll
-                root.programmaticScroll = true
-                list.contentY += shrankBy
-                root.programmaticScroll = wasProgrammatic
-                return
-            }
-
-            if (root.followNewest && !root.programmaticScroll
-                    && root.pendingJumpMessageId.length === 0) {
-                // Re-pin synchronously so no drifted intermediate frame is
-                // painted (the late pinned-banner pop-in on first open would
-                // otherwise flash the viewport off the bottom); the deferred
-                // scrollToNewest then settles followNewest/atNewest state.
-                // Viewport-height changes are isolated events, not the burst
-                // that contentHeight sees, so this one stays inline — except
-                // while the chat is opening, where its own positioning runs
-                // straight after and this would only add a forced layout.
-                root.traceViewport("list.onHeightChanged:repin")
-                if (list.count > 0 && !root.openingChat) {
-                    root.programmaticScroll = true
-                    list.positionViewAtBeginning()
-                    Qt.callLater(() => { root.programmaticScroll = false })
-                }
-                Qt.callLater(root.scrollToNewest)
-            }
-        }
+        // A viewport-height change needs no answer here. The view holds the
+        // scroll distance from the bottom, not contentY, so the composer
+        // growing or the pinned banner appearing moves the content with the
+        // viewport's bottom edge, which is where the reader is looking.
 
         // Once the daemon's local history is fully loaded, the strip at the
         // visual top offers pulling older messages from the phone, or states
@@ -1762,7 +1459,7 @@ Item {
         // after the ends of the *model*, and the model runs newest-first. The
         // header would draw this under the newest message, which is the one
         // place in the transcript where older history certainly is not.
-        footer: Item {
+        footerItem: Item {
             width: list.width
             height: phoneHistoryColumn.visible
                     ? phoneHistoryColumn.implicitHeight + Kirigami.Units.largeSpacing * 2
@@ -1872,7 +1569,6 @@ Item {
         // band is not it.
         readonly property real steadyCacheBuffer: Math.max(height * 2, Kirigami.Units.gridUnit * 60)
         cacheBuffer: (root.openingChat && cacheBandDelay.running) ? 0 : steadyCacheBuffer
-        reuseItems: true
 
         Timer {
             id: cacheBandDelay
@@ -2045,8 +1741,8 @@ Item {
             // properties, an onYChanged and an onHeightChanged on every row in
             // the chat) went with the anchoring itself: a bottom-up list holds
             // the reader still on its own. See the note by noteRowResized.
-            ListView.onPooled: pooledByListView = true
-            ListView.onReused: pooledByListView = false
+            TranscriptView.onPooled: pooledByListView = true
+            TranscriptView.onReused: pooledByListView = false
         }
 
         onContentYChanged: {
@@ -2067,26 +1763,10 @@ Item {
             root.noteScroll()
         }
         onContentHeightChanged: {
-            // Content-height revisions (late row parses, thumbnails resolving
-            // their intrinsic size, a card measuring its own text) move the
-            // bottom of the transcript. A view that was sitting on that bottom
-            // has to go with it, or the reader is left short of the newest
-            // message with nothing to tell them why. pinnedToBottom is the
-            // durable half of that; the post-open settle window is the other,
-            // covering the moments while a chat is still placing itself and the
-            // viewport has not yet come to rest anywhere.
-            //
-            // Coalesced through the event queue rather than run inline: rows
-            // settle their heights in bursts, and positionViewAtBeginning() forces a
-            // full layout every time it is called. One re-pin per frame is
-            // indistinguishable on screen and turns a burst of forced layouts
-            // into a single one.
-            if ((root.pinnedToBottom || bottomSettleTimer.running)
-                    && root.followNewest
-                    && root.pendingJumpMessageId.length === 0
-                    && list.count > 0) {
-                root.queueBottomRepin()
-            }
+            // No re-pin here any more. The view holds the scroll distance from
+            // the bottom, so a row settling its height corrects the total
+            // without taking the viewport off the newest message: what used to
+            // need a queued re-pin on every revision now needs nothing at all.
             if (!root.openingChat) {
                 root.queueScrollStateUpdate()
             }
@@ -2099,7 +1779,6 @@ Item {
                 root.finishPendingJump()
             }
             if (dragging) {
-                root.cancelUnreadAnchorSettle()
             }
         }
 
@@ -2207,7 +1886,6 @@ Item {
             // mid-history the sent message is not delivered into it at all
             // (PROTOCOL.md, "Windows"), so there would be nothing to scroll to.
             // Same pair the go-to-bottom button uses.
-            root.cancelUnreadAnchorSettle()
             if (root.pendingJumpMessageId.length > 0) {
                 root.finishPendingJump()
             }
@@ -2277,7 +1955,6 @@ Item {
             if (root.pendingJumpMessageId.length > 0) {
                 root.finishPendingJump()
             }
-            root.cancelUnreadAnchorSettle()
         }
         // The top edge is only final once all history is loaded; until then the
         // prefetched page usually fills any overshoot before it becomes visible.
@@ -2329,7 +2006,7 @@ Item {
             const fraction = rowsAbove - whole
             // positionViewAtIndex materialises the row near the viewport; the
             // exact alignment is done through contentY below.
-            list.positionViewAtIndex(index, ListView.Visible)
+            list.positionViewAtIndex(index, TranscriptView.Visible)
             const item = list.itemAtIndex(index)
             if (item !== null && item.height > 0) {
                 // item.y puts the row top at the viewport top; hide `fraction`

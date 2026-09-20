@@ -23,6 +23,16 @@ Item {
     // MessageView's delegate block: one JS evaluation and one type coercion per
     // role per row, and the single biggest reason qmlcachegen could not compile
     // that block (DN9).
+    // Screen-reader name for the whole row. The transcript had no
+    // accessibility at all before TranscriptView replaced the ListView; this is
+    // the one string a reader needs per row: who, what, when.
+    Accessible.role: Accessible.ListItem
+    Accessible.name: (root.isOutgoing
+                      ? Whatevr.I18n.i18nc("@info:whatsthis own message", "You")
+                      : (root.senderName.length > 0 ? root.senderName : ""))
+                     + (root.textPreview.length > 0 ? ". " + root.textPreview : "")
+                     + (root.timeText.length > 0 ? ". " + root.timeText : "")
+
     required property string messageId
     required property string timeText
     required property string dateSeparatorText

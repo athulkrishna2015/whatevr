@@ -39,6 +39,8 @@ set(WHATKEVR_SOURCES
     protocol/objectviewmodel.h
     ui/rlottiestickeritem.cpp
     ui/rlottiestickeritem.h
+    ui/transcriptview.cpp
+    ui/transcriptview.h
     ui/waveformitem.cpp
     ui/waveformitem.h
     util/messagemarkup.cpp
@@ -58,6 +60,8 @@ set(WHATKEVR_LINK_LIBRARIES
     Qt6::OpenGL
     Qt6::Qml
     Qt6::Quick
+    Qt6::QuickPrivate
+    Qt6::QmlModelsPrivate
     Qt6::QuickControls2
     Qt6::Widgets
     KF6::ColorScheme
