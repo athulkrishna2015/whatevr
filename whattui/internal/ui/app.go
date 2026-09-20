@@ -412,6 +412,16 @@ func (a *App) status() (string, vaxis.Color, bool) {
 	}
 }
 
+// redraw throws away everything the terminal is showing and draws the frame
+// again, which is what ctrl+l has meant for forty years. Here it also drops
+// every graphic, because the ink a terminal is holding for us is the half we
+// cannot overwrite by writing cells.
+func (a *App) redraw() {
+	a.vx.DropGraphics()
+	a.dropImages()
+	a.vx.Refresh()
+}
+
 // hoverMessage records which message the pointer is over and reports whether
 // that changed. Runs are one shape each, so this is the only thing that says
 // where one message in a run ends and the next begins.
