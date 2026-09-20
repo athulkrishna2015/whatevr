@@ -1023,7 +1023,20 @@ ProtocolController::MessageWindow *ProtocolController::warmWindowFor(const QStri
         return nullptr;
     }
     for (MessageWindow *window : m_messageWindows) {
-        if (window && window->chatId == chatId && window->anchor == anchor) {
+        // A window whose subscribe was rejected is not warm, whatever else it
+        // still holds: taking it back would hand the reader the same error
+        // again and never ask the daemon, which is what made Retry do nothing.
+        if (window && !window->failed && window->chatId == chatId && window->anchor == anchor) {
+            return window;
+        }
+    }
+    return nullptr;
+}
+
+ProtocolController::MessageWindow *ProtocolController::activeMessageWindow() const
+{
+    for (MessageWindow *window : m_messageWindows) {
+        if (window && window->source == m_messagesModel) {
             return window;
         }
     }
@@ -1398,6 +1411,9 @@ void ProtocolController::onMessagesSubscribed(const QVariantMap &meta)
 {
     markChatOpenPhase(QStringLiteral("subscribed"));
     m_messageErrorText.clear();
+    if (MessageWindow *window = activeMessageWindow()) {
+        window->failed = false;
+    }
     if (m_requestedAnchor == QLatin1String("unread")) {
         m_unreadAnchorMessageId = meta.value(QStringLiteral("anchor_id")).toString();
         m_unreadAnchorResolving = false;
@@ -1512,6 +1528,12 @@ void ProtocolController::onMessagesFailed(const QString &code, const QString &me
     } else {
         m_messageErrorText = message;
         m_messagesReloading = false;
+    }
+    // Whatever the caller does next, this window will never fill: the daemon
+    // refused it. Say so on the entry itself so a re-open, and the Retry button
+    // in particular, builds a new subscription instead of finding this one warm.
+    if (MessageWindow *window = activeMessageWindow()) {
+        window->failed = true;
     }
     Q_EMIT unreadAnchorChanged();
     Q_EMIT messagesChanged();

@@ -96,6 +96,9 @@ public:
         }
     }
     void setRejectNextExtend(bool reject) { m_rejectNextExtend = reject; }
+    // Reject the next `messages` subscribe outright, the way the daemon does
+    // when the window it was asked for cannot be served.
+    void setRejectNextMessagesSubscribe(bool reject) { m_rejectNextMessagesSubscribe = reject; }
     void setRejectNextSend(bool reject) { m_rejectNextSend = reject; }
     void setRejectMessageCommands(bool reject) { m_rejectMessageCommands = reject; }
 
@@ -282,6 +285,14 @@ private:
             if (view == QLatin1String("messages")
                 && params.value(QStringLiteral("anchor")).toString() == QLatin1String("not-found")) {
                 error(id, QStringLiteral("not_found"), QStringLiteral("message not found"));
+                return;
+            }
+            if (view == QLatin1String("messages")
+                && std::exchange(m_rejectNextMessagesSubscribe, false)) {
+                lastMessagesParams = params;
+                ++messagesSubscribeCount;
+                error(id, QStringLiteral("internal"), QStringLiteral("window unavailable"));
+                Q_EMIT messagesSubscribed();
                 return;
             }
             QJsonObject result{{QStringLiteral("sub"), sub}};
@@ -565,6 +576,7 @@ private:
     int m_activeChatsSub = -1;
     int m_heldExtendSub = -1;
     bool m_rejectNextExtend = false;
+    bool m_rejectNextMessagesSubscribe = false;
     bool m_rejectNextSend = false;
     bool m_rejectMessageCommands = false;
     QJsonArray m_searchChats;
@@ -1448,6 +1460,42 @@ private Q_SLOTS:
         auto [heldAtEdge, activeAtEdge] = census(QStringLiteral("a@s"));
         QCOMPARE(heldAtEdge, 2);
         QCOMPARE(activeAtEdge, 1);
+    }
+
+    // Retrying a window the daemon refused has to ask the daemon again.
+    //
+    // A rejected subscribe left its entry sitting in the warm pool at the anchor
+    // it had failed at, and the pool answers by anchor, so the retry found it
+    // "warm", took it back, restored the error it was holding and never sent a
+    // thing. The Retry button under "Messages could not be loaded" did nothing
+    // at all, for the life of the pool slot.
+    void retryingARejectedWindowSubscribesAgain()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats({chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});
+        daemon.setMessages({messageRow(QStringLiteral("m1"), QStringLiteral("0001"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_VERIFY(!ctrl.chatsLoading());
+        ctrl.setConversationVisible(true);
+
+        daemon.setRejectNextMessagesSubscribe(true);
+        ctrl.selectChat(QStringLiteral("a@s"));
+        QTRY_COMPARE(daemon.messagesSubscribeCount, 1);
+        QTRY_VERIFY(!ctrl.messageErrorText().isEmpty());
+        QVERIFY(ctrl.displayedMessagesChatId().isEmpty());
+
+        // The retry must reach the daemon, and this time it is served.
+        ctrl.retryMessages();
+        QTRY_COMPARE(daemon.messagesSubscribeCount, 2);
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("a@s"));
+        QVERIFY(ctrl.messageErrorText().isEmpty());
+
+        auto *messages = qobject_cast<ProtocolMessageModel *>(ctrl.messageListModel());
+        QVERIFY(messages);
+        QCOMPARE(messages->rowCount(), 1);
     }
 
     void hiddenConversationClearsTheSessionButKeepsItsTranscriptWarm()

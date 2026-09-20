@@ -801,6 +801,8 @@ private:
     // divider and one at the live edge put the reader in different places, so
     // they are different windows even over the same chat.
     [[nodiscard]] MessageWindow *warmWindowFor(const QString &chatId, const QString &anchor) const;
+    // The entry the controller's single-valued members currently describe.
+    [[nodiscard]] MessageWindow *activeMessageWindow() const;
     // Where this chat should be opened: the anchor it is already parked at if
     // it is warm, otherwise the one the caller worked out.
     [[nodiscard]] QString anchorForOpening(const QString &chatId, const QString &requested) const;
@@ -956,6 +958,10 @@ private:
         whatevr::proto::CollectionViewModel *source = nullptr;
         ProtocolMessageModel *presentation = nullptr;
         whatevr::proto::Subscription *sub = nullptr;
+        // The daemon rejected this window's subscribe. Its rows will never
+        // arrive, so it is not warm: a re-open has to build a fresh
+        // subscription rather than take this one back and show its error again.
+        bool failed = false;
         // Everything about "where this transcript was left" that the controller
         // otherwise holds in single-valued members. Swapped in and out around
         // those members on a chat change, so the ~180 places that read them
