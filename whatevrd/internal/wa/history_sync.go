@@ -15,9 +15,14 @@ import (
 	appstore "whatevrd/internal/store"
 )
 
-func (c *Client) handleManualHistorySyncNotification(ctx context.Context, evt *events.Message) bool {
+// The first result says the event was a history sync notification and nothing
+// else should look at it. The second is the ack: the saved row is the only
+// record that this chunk exists, and the media it points at is the only copy of
+// a slice of history, so a failed insert must stay unacked and be delivered
+// again rather than vanish behind a log line.
+func (c *Client) handleManualHistorySyncNotification(ctx context.Context, evt *events.Message) (bool, bool) {
 	if evt == nil || evt.Info.ID == "" {
-		return false
+		return false, true
 	}
 	protocol := evt.Message.GetProtocolMessage()
 	if protocol == nil {
@@ -25,18 +30,18 @@ func (c *Client) handleManualHistorySyncNotification(ctx context.Context, evt *e
 	}
 	notif := protocol.GetHistorySyncNotification()
 	if notif == nil {
-		return false
+		return false, true
 	}
 	syncType := historySyncTypeFromNotification(notif.GetSyncType())
 
 	chunk := historySyncChunkFromNotification(evt.Info.ID, notif)
 	if _, err := c.store.SaveHistorySyncChunk(ctx, chunk); err != nil {
 		c.log.Errorf("Failed to persist history sync notification %s: %v", evt.Info.ID, err)
-		return true
+		return true, false
 	}
 	c.publishHistorySyncChunkProgress(chunk, syncType, app.HistorySyncPhaseQueued)
 	c.signalHistorySyncWorker()
-	return true
+	return true, true
 }
 
 func historySyncChunkFromNotification(id string, notif *waE2E.HistorySyncNotification) appstore.HistorySyncChunk {

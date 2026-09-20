@@ -439,15 +439,15 @@ func historySyncConversationPinState(conv *waHistorySync.Conversation) (present 
 }
 
 // handleMessage returns false only when the message could not be stored, which
-// leaves whatsmeow's ack unsent so the server delivers it again. Events consumed
-// by a sub-handler (a revoke, a reaction, a vote) report success: their own
-// failures are not covered by this yet.
+// leaves whatsmeow's ack unsent so the server delivers it again. Sub-handlers
+// mostly report success regardless; history sync is the exception, because a
+// dropped chunk notification costs a whole slice of history.
 func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offlineSync bool) bool {
 	if evt != nil && evt.Message != nil {
 		evt.Message = unwrapNestedMessage(evt.Message)
 	}
-	if c.handleManualHistorySyncNotification(ctx, evt) {
-		return true
+	if handled, stored := c.handleManualHistorySyncNotification(ctx, evt); handled {
+		return stored
 	}
 	if c.handleRevokeMessage(ctx, evt, offlineSync) {
 		return true
