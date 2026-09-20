@@ -160,3 +160,58 @@ func TestTextInABoxKeepsThePanesGround(t *testing.T) {
 		t.Fatal("no boxes on this frame")
 	}
 }
+
+// A terminal can have graphics and still not scale text. The disc has to stay
+// a disc with a letter in the middle of it, rather than a block reserved for a
+// letter twice the size that the terminal then draws in the corner.
+func TestADiscWithoutTextScalingKeepsItsLetterInTheMiddle(t *testing.T) {
+	a := goldenApp(120, 40, term.TierGraphics)
+	a.caps.TextScale = false
+	a.paint()
+
+	var disc *surface
+	for i, s := range a.surfaces {
+		if _, ok := s.spec.(paint.Disc); ok {
+			disc = &a.surfaces[i]
+			break
+		}
+	}
+	if disc == nil {
+		t.Fatal("no disc on the frame")
+	}
+	if disc.w != 3 || disc.h != 1 {
+		t.Fatalf("disc is %dx%d cells, want 3x1 where the letter can be centred", disc.w, disc.h)
+	}
+
+	middle := a.vx.Cell(disc.col+1, disc.row)
+	if middle.Grapheme == " " || middle.Grapheme == "" {
+		t.Fatalf("the middle of the disc holds %q, want the initial", middle.Grapheme)
+	}
+	if middle.Size != 0 {
+		t.Fatalf("the initial claims a multicell block (size %d) on a terminal that cannot scale", middle.Size)
+	}
+}
+
+// And with scaling it is the bigger disc, with the letter across the whole of
+// it rather than in one cell of it.
+func TestADiscWithTextScalingIsTwiceTheSize(t *testing.T) {
+	a := goldenApp(120, 40, term.TierGraphics)
+	a.paint()
+
+	for _, s := range a.surfaces {
+		if _, ok := s.spec.(paint.Disc); !ok {
+			continue
+		}
+		if s.h < 2 {
+			continue
+		}
+		if s.w != 4 {
+			t.Fatalf("disc is %d cells wide, want 4 around a doubled letter", s.w)
+		}
+		if size := a.vx.Cell(s.col+1, s.row).Size; size == 0 {
+			t.Fatal("the initial claims no block, so nothing reserved the room it needs")
+		}
+		return
+	}
+	t.Fatal("no two row disc on the frame")
+}

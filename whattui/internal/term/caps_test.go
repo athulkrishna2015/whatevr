@@ -93,3 +93,20 @@ func TestReportNamesTheTierAndEveryCapability(t *testing.T) {
 		t.Error("an unforced tier must not claim it was forced")
 	}
 }
+
+// Graphics and text sizing are two different capabilities. A terminal can have
+// the first without the second, and the override exists so that terminal can
+// be stood in for on a machine that has both.
+func TestTextScalingCanBeTurnedOffOnItsOwn(t *testing.T) {
+	t.Setenv("WHATTUI_NO_TEXT_SCALE", "1")
+	got := applyEnv(Caps{Tier: TierShm, KittyGraphics: true, ShmGraphics: true, TextScale: true})
+	if got.TextScale {
+		t.Error("text scaling survived the override")
+	}
+	if got.Tier != TierShm {
+		t.Errorf("tier = %s, want the graphics tier untouched", got.Tier)
+	}
+	if !got.Forced {
+		t.Error("an overridden capability is not reported as forced")
+	}
+}

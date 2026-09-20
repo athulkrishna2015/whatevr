@@ -81,6 +81,7 @@ test-whattui:
 #   just screenshot --list
 #   just screenshot --size 100x30 --scenario palette
 #   just screenshot --size 72x20 --keys ctrl+p,/,a,n --wait "> /an"
+#   just screenshot --env WHATTUI_NO_TEXT_SCALE=1     # degradation, photographed
 screenshot *args:
     @scripts/whattui-screenshot {{args}}
 

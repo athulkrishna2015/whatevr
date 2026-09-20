@@ -14,6 +14,13 @@
 - Modal input takes precedence over pane input. Escape pops exactly one level.
 - Text over kitty graphics sets foreground only. A cell background hides graphics at negative z-index.
 - Geometry stays identical across capability tiers.
+- Text sizing is its own capability, not part of the tier: a terminal with
+  kitty graphics and no OSC 66 scaling is a real terminal. Anything that asks
+  for a scaled glyph checks `caps.TextScale` and picks a layout that works at
+  natural size, because vaxis correctly draws an unscalable glyph in the top
+  left of the block it reserved. `WHATTUI_NO_TEXT_SCALE=1` stands that
+  terminal in, and `just screenshot --env WHATTUI_NO_TEXT_SCALE=1` photographs
+  it.
 - Anything clickable visibly responds to pointer hover or press.
 - Frames are tested offscreen, by cells and placements: `just test-whattui`.
   Nothing compares screenshots; a png diff says a pixel moved and never says

@@ -278,12 +278,25 @@ func (a *App) drawRailRow(line vaxis.Window, c proto.ChatRow, bg vaxis.Color, un
 // it. A row with the room draws it two rows tall with the initial at twice the
 // size, which is the size an avatar is in every chat application there is.
 func (a *App) drawAvatar(pane vaxis.Window, row, height int, c proto.ChatRow, bg vaxis.Color) int {
-	width, scale := 3, 1
-	if height >= 2 {
-		width, scale = 4, 2
-	}
+	width, scale := a.avatarBox(height)
 	a.avatar(pane, 1, row, width, scale, c.ID, c.Name, bg)
 	return 1 + width
+}
+
+// avatarBox is how many cells a disc takes and how big the initial in it is.
+//
+// The letter has to land on the middle of the circle, which is an even number
+// of columns and two rows at twice the size and an odd number and one row at
+// natural size. A terminal with graphics but without OSC 66 scaling gets the
+// smaller disc: the alternative is vaxis doing what it correctly does with a
+// scale it cannot emit, which is to draw the letter unscaled in the top left
+// of the block, and a big circle with a small letter in the corner of it is
+// worse than a small circle with the letter in the middle.
+func (a *App) avatarBox(rows int) (width, scale int) {
+	if rows >= 2 && a.caps.TextScale {
+		return 4, 2
+	}
+	return 3, 1
 }
 
 // avatar is the disc and the letter in the middle of it. The disc is an even
@@ -450,7 +463,7 @@ func (a *App) layoutMessage(m proto.MessageRow, paneWidth int) block {
 
 	// A message that is nothing but emoji draws big, the way it does in every
 	// other chat client, because the size is what the message means.
-	if n := emojiOnlyCount(m.Text); n > 0 && !m.Revoked && len(b.body) == 1 {
+	if n := emojiOnlyCount(m.Text); n > 0 && !m.Revoked && len(b.body) == 1 && a.caps.TextScale {
 		// Clamped to the room the column can grow into, not the room it
 		// currently occupies: the message is sized by its content, and at
 		// this point the content is about to get three times bigger.

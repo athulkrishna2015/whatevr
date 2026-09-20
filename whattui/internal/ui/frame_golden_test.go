@@ -100,6 +100,7 @@ func goldenApp(cols, rows int, tier term.Tier) *App {
 		Tier:          tier,
 		RGB:           tier >= term.TierColor,
 		KittyGraphics: tier >= term.TierGraphics,
+		TextScale:     true,
 		Hyperlinks:    true,
 		KittyKeyboard: true,
 	}

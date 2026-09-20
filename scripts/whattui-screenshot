@@ -34,6 +34,8 @@ FIXTURE = ROOT / "whattui" / "testdata" / "visual" / "fixture.ndjson"
 # you point it at is your business. It still has to be a file, never a real
 # account.
 fixture = FIXTURE
+# Environment whattui is started with, from --env.
+EXTRA_ENV: dict[str, str] = {}
 KITTY_CONFIG = ROOT / "scripts" / "whattui-kitty.conf"
 DEFAULT_SIZE = (120, 40)
 # The states worth a picture, each opened the way a user opens it and each
@@ -361,6 +363,10 @@ class Harness:
         )
         if plain:
             env["WHATTUI_TIER"] = "plain"
+        # Whatever the caller wants whattui to believe about the terminal it is
+        # in. Degradation is a thing you photograph, not a thing you reason
+        # about from a capability table.
+        env.update(EXTRA_ENV)
         # Hyprland suspends a toplevel on an output nobody is looking at, and
         # a dummy monitor is exactly that, so kitty reports the window hidden
         # and a well behaved frontend stops drawing. The scenario that tests
@@ -397,7 +403,7 @@ class Harness:
         if self.headless.name is None:
             raise Failure("headless output is not available")
 
-        passed = ["TZ", "LC_ALL", "WHATTUI_FONT", "XDG_CACHE_HOME"]
+        passed = ["TZ", "LC_ALL", "WHATTUI_FONT", "XDG_CACHE_HOME", *EXTRA_ENV]
         if plain:
             passed.append("WHATTUI_TIER")
         if not visibility:
@@ -879,6 +885,14 @@ def main() -> int:
     )
     parser.add_argument("--name", help="basename for an ad hoc shot")
     parser.add_argument(
+        "--env",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="environment for whattui, such as WHATTUI_TIER=graphics or "
+        "WHATTUI_NO_TEXT_SCALE=1 (repeatable)",
+    )
+    parser.add_argument(
         "--fixture",
         type=Path,
         help=f"ndjson to serve instead of {FIXTURE.relative_to(ROOT)}",
@@ -926,6 +940,12 @@ def main() -> int:
         if args.child_command and args.child_command[0] == "--":
             args.child_command = args.child_command[1:]
         return child_mode(args)
+
+    for pair in args.env:
+        key, sep, value = pair.partition("=")
+        if not sep or not key:
+            raise Failure(f"bad --env {pair!r}, want KEY=VALUE")
+        EXTRA_ENV[key] = value
 
     if args.fixture:
         global fixture

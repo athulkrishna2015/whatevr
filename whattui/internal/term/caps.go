@@ -106,8 +106,15 @@ func tierFor(c Caps) Tier {
 // applyEnv lets the environment override what was detected. NO_COLOR is the
 // standard and is honoured outright; WHATTUI_TIER exists so every tier can be
 // exercised on one machine, which is the only way the degradation stays
-// correct once nobody is testing it in foot every day.
+// correct once nobody is testing it in foot every day. WHATTUI_NO_TEXT_SCALE
+// is there for the same reason and on its own axis: graphics and text sizing
+// are two different capabilities, and a terminal with the first and not the
+// second is a real terminal, not a corner case.
 func applyEnv(c Caps) Caps {
+	if os.Getenv("WHATTUI_NO_TEXT_SCALE") == "1" && c.TextScale {
+		c.TextScale = false
+		c.Forced = true
+	}
 	if os.Getenv("NO_COLOR") != "" {
 		c.Tier = TierPlain
 		c.Forced = true

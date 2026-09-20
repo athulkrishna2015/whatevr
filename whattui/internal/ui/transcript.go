@@ -228,9 +228,6 @@ const (
 	runMeasure = 72
 	// bubblePadX is the space between a box and its words, per side.
 	bubblePadX = 1
-	// avatarCols is the disc beside a name: three cells around one letter, so
-	// the letter lands on the middle of the circle.
-	avatarCols = 3
 )
 
 func (a *App) layoutEntry(it view.Item[proto.MessageRow], w int) entry {
@@ -275,7 +272,8 @@ func (a *App) drawRun(pane vaxis.Window, c *conversation, r run, row, w int) {
 	if r.name != "" {
 		// The disc goes in the gutter, which on this row holds no time. It is
 		// the one place a face fits without taking a column from the words.
-		a.avatar(pane, rule-avatarCols-1, row, avatarCols, 1, r.sender, r.name, a.theme.Background)
+		width, scale := a.avatarBox(1)
+		a.avatar(pane, rule-width-1, row, width, scale, r.sender, r.name, a.theme.Background)
 		a.print(pane, a.wordsAt(r.outgoing, rule, r.width), row, vaxis.Style{
 			Foreground: r.colour, Background: a.theme.Background, Attribute: vaxis.AttrBold,
 		}, a.clip(r.name, r.width))
