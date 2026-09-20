@@ -31,6 +31,12 @@ type Theme struct {
 	Warning vaxis.Color
 	Error   vaxis.Color
 
+	// The two bubble grounds. At the graphics tiers these are the tint a
+	// rasterized bubble is filled with; below them they are the nearest solid
+	// cell background. Same hue, same place, less fidelity.
+	BubbleIn  vaxis.Color
+	BubbleOut vaxis.Color
+
 	// Identity is the curated hue ring participants are coloured from. A hash
 	// straight to RGB produces mud and clashes; a hand-picked ring does not,
 	// and the same person lands on the same colour forever.
@@ -54,6 +60,8 @@ func Default() Theme {
 		Success:          vaxis.IndexColor(2),
 		Warning:          vaxis.IndexColor(3),
 		Error:            vaxis.IndexColor(1),
+		BubbleIn:         vaxis.IndexColor(0),
+		BubbleOut:        vaxis.IndexColor(8),
 		Identity: []vaxis.Color{
 			vaxis.IndexColor(1), vaxis.IndexColor(2), vaxis.IndexColor(3),
 			vaxis.IndexColor(4), vaxis.IndexColor(5), vaxis.IndexColor(6),

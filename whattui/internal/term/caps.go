@@ -154,7 +154,7 @@ func (c Caps) CanPaint() bool { return c.Tier >= TierGraphics }
 // Report is the human-readable capability table behind --caps.
 func (c Caps) Report() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "tier            %s", c.Tier)
+	fmt.Fprintf(&b, "%-20s%s", "tier", c.Tier)
 	if c.Forced {
 		b.WriteString("  (forced by the environment)")
 	}
@@ -162,24 +162,35 @@ func (c Caps) Report() string {
 	for _, row := range []struct {
 		name string
 		on   bool
+		note string
 	}{
-		{"truecolor", c.RGB},
-		{"kitty graphics", c.KittyGraphics},
-		{"shared memory", c.ShmGraphics},
-		{"kitty keyboard", c.KittyKeyboard},
-		{"sixel", c.Sixel},
-		{"hyperlinks", c.Hyperlinks},
-		{"unicode core", c.UnicodeCore},
-		{"explicit width", c.ExplicitWidth},
-		{"text scaling", c.TextScale},
-		{"in-band resize", c.InBandResize},
-		{"reports background", c.ReportsBG},
+		{"truecolor", c.RGB, ""},
+		{"kitty graphics", c.KittyGraphics, ""},
+		{"shared memory", c.ShmGraphics, ""},
+		{"kitty keyboard", c.KittyKeyboard, ""},
+		{"sixel", c.Sixel, ""},
+		{"hyperlinks", c.Hyperlinks, ""},
+		// Explicit width supersedes unicode core: a per-grapheme w= is exact
+		// where a mode is a policy. vaxis leaves 2027 off when it has the
+		// better one, so "no" here is a choice and not a missing feature.
+		{"unicode core", c.UnicodeCore, unicodeCoreNote(c)},
+		{"explicit width", c.ExplicitWidth, ""},
+		{"text scaling", c.TextScale, ""},
+		{"in-band resize", c.InBandResize, ""},
+		{"reports background", c.ReportsBG, ""},
 	} {
 		mark := "no"
 		if row.on {
 			mark = "yes"
 		}
-		fmt.Fprintf(&b, "%-16s%s\n", row.name, mark)
+		fmt.Fprintf(&b, "%-20s%-5s%s\n", row.name, mark, row.note)
 	}
 	return b.String()
+}
+
+func unicodeCoreNote(c Caps) string {
+	if !c.UnicodeCore && c.ExplicitWidth {
+		return "(not needed: explicit width is exact)"
+	}
+	return ""
 }
