@@ -206,9 +206,20 @@ func TestModalMouseHoverClickWheelAndTinyPaint(t *testing.T) {
 	a = benchApp(80, 24, 2, 0)
 	a.openModal(modalHelp)
 	a.paint()
-	m := vaxis.Mouse{Col: a.modal.rect.Col + 1, Row: a.modal.listRow, Button: vaxis.MouseNoButton, EventType: vaxis.EventMotion}
+	m := vaxis.Mouse{Col: a.modal.list.Col, Row: a.modal.list.Row, Button: vaxis.MouseNoButton, EventType: vaxis.EventMotion}
 	if handled, dirty := a.onModalMouse(m); !handled || !dirty || a.modal.selector.hovered != 0 {
 		t.Fatalf("hover handled=%v dirty=%v row=%d", handled, dirty, a.modal.selector.hovered)
+	}
+	// A pointer that is not on a row highlights nothing, inside the panel or
+	// out of it.
+	for _, outside := range []vaxis.Mouse{
+		{Col: 0, Row: a.modal.list.Row, Button: vaxis.MouseNoButton, EventType: vaxis.EventMotion},
+		{Col: a.modal.list.Col, Row: a.modal.rect.Row, Button: vaxis.MouseNoButton, EventType: vaxis.EventMotion},
+	} {
+		if _, _ = a.onModalMouse(outside); a.modal.selector.hovered != -1 {
+			t.Fatalf("pointer at %d,%d highlighted row %d", outside.Col, outside.Row, a.modal.selector.hovered)
+		}
+		a.onModalMouse(m)
 	}
 	a.onModalMouse(vaxis.Mouse{Col: m.Col, Row: m.Row, Button: vaxis.MouseWheelDown, EventType: vaxis.EventPress})
 	if a.modal.selector.top == 0 && len(a.modal.selector.items) > a.modal.visible {
@@ -217,5 +228,27 @@ func TestModalMouseHoverClickWheelAndTinyPaint(t *testing.T) {
 	a.onModalMouse(vaxis.Mouse{Col: m.Col, Row: m.Row, Button: vaxis.MouseLeftButton, EventType: vaxis.EventRelease})
 	if a.modal.kind != modalPalette {
 		t.Fatalf("click executed modal %d, want palette", a.modal.kind)
+	}
+}
+
+// Every action is reachable three ways, and the slash menu is one of them. An
+// empty slash query lists all of them, not the two somebody remembered to
+// name.
+func TestEveryCommandHasASlashName(t *testing.T) {
+	a := benchApp(80, 24, 2, 0)
+	a.initCommands()
+	seen := map[string]commandID{}
+	for _, c := range a.commands.ordered {
+		if c.Slash == "" {
+			t.Errorf("%s has no slash name, so it is keybind only", c.ID)
+			continue
+		}
+		if other, ok := seen[c.Slash]; ok {
+			t.Errorf("/%s is both %s and %s", c.Slash, other, c.ID)
+		}
+		seen[c.Slash] = c.ID
+	}
+	if got := len(a.commandChoices("", true, false)); got != len(a.commands.ordered) {
+		t.Errorf("an empty slash query listed %d of %d commands", got, len(a.commands.ordered))
 	}
 }

@@ -65,7 +65,7 @@ func (a *App) initCommands() {
 		return true, ""
 	}
 	a.commands = newCommandRegistry([]command{
-		{ID: cmdPalette, Title: "Command palette", Description: "Find an action or /chat", Direct: "^p", Leader: "p", Run: func() { a.openModal(modalPalette) }},
+		{ID: cmdPalette, Title: "Command palette", Description: "Find an action or /chat", Direct: "^p", Leader: "p", Slash: "palette", Run: func() { a.openModal(modalPalette) }},
 		{ID: cmdHelp, Title: "Keyboard help", Description: "Show every command and binding", Direct: "?", Leader: "?", Slash: "help", Run: func() { a.openModal(modalHelp) }},
 		{ID: cmdSend, Title: "Send message", Description: "Send the current draft", Direct: "enter", Enabled: func(state commandState) (bool, string) {
 			if ok, why := hasChat(state); !ok {
@@ -75,16 +75,16 @@ func (a *App) initCommands() {
 				return false, "draft is empty"
 			}
 			return true, ""
-		}, Run: a.send},
+		}, Slash: "send", Run: a.send},
 		{ID: cmdOpenChat, Title: "Open selected chat", Description: "Open the highlighted chat", Direct: "enter", Leader: "o", Enabled: func(state commandState) (bool, string) {
 			if state.chatCount == 0 {
 				return false, "no chats available"
 			}
 			return true, ""
-		}, Run: a.openSelected},
-		{ID: cmdFocusNext, Title: "Focus next pane", Description: "Move focus clockwise", Direct: "tab", Run: func() { a.cycleFocus(1) }},
-		{ID: cmdFocusPrevious, Title: "Focus previous pane", Description: "Move focus anticlockwise", Direct: "s-tab", Run: func() { a.cycleFocus(-1) }},
-		{ID: cmdInterrupt, Title: "Clear draft or quit", Description: "Clear typed text, otherwise quit", Direct: "^c", Run: a.interrupt},
+		}, Slash: "open", Run: a.openSelected},
+		{ID: cmdFocusNext, Title: "Focus next pane", Description: "Move focus clockwise", Direct: "tab", Slash: "focus-next", Run: func() { a.cycleFocus(1) }},
+		{ID: cmdFocusPrevious, Title: "Focus previous pane", Description: "Move focus anticlockwise", Direct: "s-tab", Slash: "focus-previous", Run: func() { a.cycleFocus(-1) }},
+		{ID: cmdInterrupt, Title: "Clear draft or quit", Description: "Clear typed text, otherwise quit", Direct: "^c", Slash: "clear", Run: a.interrupt},
 		{ID: cmdQuit, Title: "Quit", Description: "Close whattui", Direct: "^q", Leader: "q", Slash: "quit", Run: a.quitApp},
 	})
 }
@@ -207,6 +207,11 @@ func (a *App) commandChoicesFor(query string, slashOnly, help bool, state comman
 		score, ok := fuzzyScore(query, label+" "+c.Description)
 		if !ok {
 			continue
+		}
+		// A slash menu is a menu of slash names: what you typed matching the
+		// name itself beats it turning up somewhere in a description.
+		if slashOnly && strings.HasPrefix(c.Slash, strings.TrimPrefix(query, "/")) {
+			score += 1000
 		}
 		matches = append(matches, ranked{modalChoice{Command: c.ID, Label: label, Detail: detail, Disabled: disabled}, score, i})
 	}
