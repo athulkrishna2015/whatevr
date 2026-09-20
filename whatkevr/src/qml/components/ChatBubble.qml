@@ -53,6 +53,9 @@ Item {
     required property bool mediaPlayed
     required property bool isRevoked
     required property bool isEdited
+    // WhatsApp forward marker (daemon `forwarded`). tdesktop renders a
+    // "Forwarded" header above the content; we do the same (framed bubbles).
+    required property bool isForwarded
     // Sender device id: 0 is the primary phone app, anything else a linked
     // device (Web/Desktop or another companion). Drives the footer mark.
     required property int senderDevice
@@ -202,6 +205,12 @@ Item {
     property real listWidth: 0
     readonly property bool showDateSeparator: dateSeparatorText.length > 0
     readonly property bool hasReplyPreview: replyToMessageId.length > 0
+    // Forwarded header (tdesktop pattern): framed bubbles only; frameless
+    // rows (stickers/jumbo/video notes) draw no plate to hang it on.
+    readonly property bool showForwardedHeader: isForwarded && !frameless
+    readonly property real forwardedHeaderHeight: showForwardedHeader
+        ? forwardedLoader.height
+        : 0
     readonly property bool canReply: messageId.length > 0
                                      && !isRevoked
                                      && (body.length > 0
@@ -635,17 +644,19 @@ Item {
     // The reply preview and caption text are inset by innerPadding; media is
     // edge-to-edge and sits flush at the top when it is the first region.
     function contentOffsetBeforeMedia() {
+        const top = root.innerPadding + root.forwardedHeaderHeight
         return root.hasReplyPreview
-            ? root.innerPadding + replyPreviewLoader.height + Kirigami.Units.smallSpacing
-            : 0
+            ? top + replyPreviewLoader.height + Kirigami.Units.smallSpacing
+            : (root.showForwardedHeader ? top : 0)
     }
 
     function contentOffsetBeforeBody() {
+        const top = root.innerPadding + root.forwardedHeaderHeight
         if (root.hasStructuredContent) {
             const loader = root.isPoll ? pollLoader : (root.isContact ? contactLoader : locationLoader)
             if (loader.item)
                 return loader.y + loader.height + Kirigami.Units.smallSpacing
-            return root.innerPadding
+            return top
         }
         if (mediaSlot.visible) {
             return mediaSlot.y + mediaSlot.height + Kirigami.Units.smallSpacing
@@ -653,12 +664,12 @@ Item {
         if (root.hasLinkPreview) {
             if (linkPreviewLoader.item)
                 return linkPreviewLoader.y + linkPreviewLoader.height + Kirigami.Units.smallSpacing
-            return root.innerPadding
+            return top
         }
         if (root.hasReplyPreview) {
-            return root.innerPadding + replyPreviewLoader.height + Kirigami.Units.smallSpacing - root.bodyTopInsetCorrection
+            return top + replyPreviewLoader.height + Kirigami.Units.smallSpacing - root.bodyTopInsetCorrection
         }
-        return root.innerPadding - root.bodyTopInsetCorrection
+        return top - root.bodyTopInsetCorrection
     }
 
     function contentOffsetBeforeFooter() {
@@ -681,9 +692,9 @@ Item {
             return mediaSlot.y + mediaSlot.height
         }
         if (root.hasReplyPreview) {
-            return root.innerPadding + replyPreviewLoader.height + Kirigami.Units.smallSpacing
+            return root.innerPadding + root.forwardedHeaderHeight + replyPreviewLoader.height + Kirigami.Units.smallSpacing
         }
-        return root.innerPadding
+        return root.innerPadding + root.forwardedHeaderHeight
     }
 
     // Natural width the reply preview wants for its content, floored so a tiny
@@ -1039,11 +1050,31 @@ Item {
             }
 
             Loader {
+                id: forwardedLoader
+
+                active: root.showForwardedHeader
+                x: root.innerPadding
+                y: root.innerPadding
+                width: root.textRegionWidth
+                height: active && item ? item.implicitHeight : 0
+
+                sourceComponent: Label {
+                    width: parent.width
+                    text: Whatevr.I18n.i18nc("@label forwarded message header (telegram pattern)", "Forwarded")
+                    font.italic: true
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                    color: Kirigami.Theme.highlightColor
+                    elide: Text.ElideRight
+                    maximumLineCount: 1
+                }
+            }
+
+            Loader {
                 id: replyPreviewLoader
 
                 active: root.hasReplyPreview
                 x: root.innerPadding
-                y: root.innerPadding
+                y: root.innerPadding + root.forwardedHeaderHeight
                 width: root.textRegionWidth
 
                 sourceComponent: ReplyPreview {
@@ -1067,9 +1098,10 @@ Item {
 
                 active: root.hasLinkPreview && !root.hasStructuredContent && !root.hasInlineMedia
                 x: root.innerPadding
-                y: root.hasReplyPreview
-                   ? root.innerPadding + replyPreviewLoader.height + Kirigami.Units.smallSpacing
-                   : root.innerPadding
+                y: root.innerPadding + root.forwardedHeaderHeight
+                    + (root.hasReplyPreview
+                       ? replyPreviewLoader.height + Kirigami.Units.smallSpacing
+                       : 0)
                 width: root.textRegionWidth
 
                 sourceComponent: Rectangle {

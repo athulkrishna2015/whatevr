@@ -395,6 +395,10 @@ QVariant ProtocolMessageModel::data(const QModelIndex &index, int role) const
         return mediaData().value(QStringLiteral("waveform")).toList();
     case MediaPlayedRole:
         return mediaData().value(QStringLiteral("played")).toBool();
+    case IsForwardedRole:
+        // Daemon `messages` item `forwarded` (tdesktop renders a "Forwarded"
+        // header; we dropped the flag entirely until now).
+        return item.value(QStringLiteral("forwarded")).toBool();
     case ShowSenderHeaderRole:
         return groupChat && !outgoing && startsSenderGroup(index.row());
     case ShowSenderAvatarRole:
@@ -585,6 +589,7 @@ QHash<int, QByteArray> ProtocolMessageModel::roleNames() const
         {LocationAddressRole, "locationAddress"},
         {LinkPreviewRole, "linkPreview"},
         {HasLinkPreviewRole, "hasLinkPreview"},
+        {IsForwardedRole, "isForwarded"},
     };
 }
 
@@ -988,6 +993,7 @@ QVariantMap ProtocolMessageModel::messageSnapshot(const QString &messageId) cons
         {QStringLiteral("mediaPlayed"), mediaData.value(QStringLiteral("played"))},
         {QStringLiteral("isRevoked"), item.value(QStringLiteral("revoked"))},
         {QStringLiteral("isEdited"), item.value(QStringLiteral("edited"))},
+        {QStringLiteral("isForwarded"), item.value(QStringLiteral("forwarded")).toBool()},
         {QStringLiteral("isStarred"), item.value(QStringLiteral("starred"))},
         {QStringLiteral("isPinned"), pinnedUntil > QDateTime::currentSecsSinceEpoch()},
         {QStringLiteral("reactions"), reactions(item)},

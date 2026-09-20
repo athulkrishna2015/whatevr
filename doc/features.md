@@ -25,6 +25,10 @@ Status key: **have** · **new** (this cycle) · **missing** (planned, safe) ·
 - Sticker creation from a photo: **missing** (no new deps wanted; ffmpeg path
   possible).
 - Desktop voice recording: **missing** (file-based voice sending is **have**).
+- Forwarded flag: **have** — daemon tags `IsForwarded` on send and the wire
+  carries `forwarded`; bubbles render a "Forwarded" header (borrowed from
+  Telegram Desktop's `HistoryMessageForwarded`), and snapshots expose
+  `isForwarded`. See `doc/tdesktop-notes.md` for the full tdesktop comparison.
 - 2 GB/700 MB/5-minute media caps: server-enforced, **refused** to bypass.
 - Anti-delete messages (content kept + Deleted mark, toggleable):
   **new**. Ghost story viewing and kept deleted statuses: inherent (no viewed

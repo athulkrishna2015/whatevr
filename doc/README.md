@@ -10,6 +10,8 @@ two talk over a versioned JSON protocol on a local socket.
 - [Architecture & protocol](protocol.md) — how the pieces fit, where the contract lives.
 - [Features](features.md) — what exists, what is missing, what is deliberately
   refused (with reasons).
+- [Telegram Desktop reference](tdesktop-notes.md) — whatkevr vs tdesktop
+  area-by-area verdicts, what was borrowed and what is still TODO.
 - [Safety policy](safety.md) — how we avoid getting accounts flagged.
 - [Troubleshooting](troubleshooting.md) — tray, logs, socket debugging recipes.
 

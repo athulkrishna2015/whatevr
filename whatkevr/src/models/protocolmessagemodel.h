@@ -96,6 +96,7 @@ public:
         LinkPreviewRole,
         HasLinkPreviewRole,
         SenderDeviceRole,
+        IsForwardedRole,
     };
     Q_ENUM(Role)
 

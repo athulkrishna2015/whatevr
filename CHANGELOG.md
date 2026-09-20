@@ -7,6 +7,15 @@ PROTOCOL.md (stable at version 1: additive changes only).
 
 ### Fixed
 
+- Forwarded messages now show a "Forwarded" header above the bubble content
+  (Telegram Desktop's `HistoryMessageForwarded` pattern): the daemon already
+  stored and sent the `forwarded` flag, but the frontend dropped it. The
+  `ProtocolMessageModel` exposes it as `isForwarded` (plus snapshot support)
+  and framed bubbles render the header with the reply/media/body offsets
+  shifted below it. See `doc/tdesktop-notes.md` for the full
+  whatkevr-vs-tdesktop verdict table (mention pill, albums and viewer
+  zoom/pan remain TODO).
+
 - PDF documents show a first-page thumbnail preview: received PDFs render
   the sender-provided preview, outgoing PDFs render one synchronously via
   pdftoppm (also attached on the wire for the recipient's phone), and
