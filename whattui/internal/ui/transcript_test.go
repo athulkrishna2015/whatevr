@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"go.rockorager.dev/vaxis"
+
 	"whattui/internal/proto"
 	"whattui/internal/term"
 	"whattui/internal/textrun"
@@ -210,5 +212,52 @@ func TestAModalTakesTheRunsUnderItWithIt(t *testing.T) {
 	}
 	if !crossed {
 		t.Error("no phrase was trimmed at the palette's edge, so the split was never exercised")
+	}
+}
+
+// A run is one shape. Pointing at it has to say which message in it you are
+// pointing at, or a run of five looks like one thing you cannot act on.
+func TestThePointerLightsOneMessageOfARun(t *testing.T) {
+	a := benchApp(100, 26, 4, 6)
+	a.paint()
+	if len(a.messages) < 2 {
+		t.Fatalf("frame has %d messages, want a run to point into", len(a.messages))
+	}
+
+	at := a.messages[0]
+	if !a.hoverMessage(at.id) {
+		t.Fatal("the pointer landing on a message changed nothing")
+	}
+	a.paint()
+
+	lit := a.vx.Cell(at.at.Col+1, at.at.Row).Background
+	if lit != a.theme.BackgroundHover {
+		t.Fatalf("the message under the pointer has ground %v, want the hover %v", lit, a.theme.BackgroundHover)
+	}
+	// And only that one: the message above it keeps the pane's own ground.
+	other := a.messages[1]
+	if other.id == at.id {
+		return
+	}
+	if bg := a.vx.Cell(other.at.Col+1, other.at.Row).Background; bg == a.theme.BackgroundHover {
+		t.Fatal("the whole run lit up, not the message under the pointer")
+	}
+}
+
+// The pointer finds a message by where the last frame put it, which is the
+// only thing that knows.
+func TestThePointerFindsTheMessageItIsOver(t *testing.T) {
+	a := benchApp(100, 26, 4, 6)
+	a.paint()
+	if len(a.messages) == 0 {
+		t.Fatal("frame has no messages")
+	}
+	at := a.messages[0]
+	got := a.messageUnder(vaxis.Mouse{Col: at.at.Col + 1, Row: at.at.Row})
+	if got != at.id {
+		t.Fatalf("pointer at %d,%d found %q, want %q", at.at.Col+1, at.at.Row, got, at.id)
+	}
+	if off := a.messageUnder(vaxis.Mouse{Col: 0, Row: 0}); off != "" {
+		t.Fatalf("pointer on the chat list found message %q", off)
 	}
 }

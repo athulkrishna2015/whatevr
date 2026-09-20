@@ -5,6 +5,12 @@
 - The frontend may cache presentation work only.
 - Every user action lives in one command registry. Slash commands, the palette, help, hints, and keybindings project that registry.
 - Use one selector implementation for commands, chats, mentions, emoji, forwarding, stickers, and themes.
+- The transcript draws runs, not messages: one rule in the speaker's colour
+  down the side of everything they said without interruption, their name and
+  disc once at the top, and the time in a gutter rail outside the words. A
+  shape per message is a screenful of boxes. Boxes are opt-in (`/boxes`).
+- The pointer lights the one message it is over, because a run is one shape and
+  something has to say where one message in it ends.
 - Modal input takes precedence over pane input. Escape pops exactly one level.
 - Text over kitty graphics sets foreground only. A cell background hides graphics at negative z-index.
 - Geometry stays identical across capability tiers.
@@ -20,6 +26,12 @@
   hidden and rendering stops. `WHATTUI_ALWAYS_RENDER=1` draws anyway; the
   harness sets it except when it is shrinking a window behind a covering
   tab.
-- Never test against the real daemon account. Use `protocol-fixture` with synthetic data.
+- Never hold `App.mu` while asking a collection anything, and never ask a
+  collection anything from inside its own `Read`: the window arrives as
+  `view.State` for exactly that reason. Both are deadlocks the moment the
+  daemon has a message to deliver, and they present as a frozen terminal.
+- Never test against the real daemon account. Use `protocol-fixture` with
+  synthetic data. `just screenshot --fixture <file>` points the camera at any
+  synthetic stream you like.
 - Verify Vaxis with normal tests, `kittyonly` tests, and vet. Verify pawbar with normal and `kittyonly` builds.
 - Commit after each completed work unit. Sign every commit. Use single-line subjects and no co-author trailers.
