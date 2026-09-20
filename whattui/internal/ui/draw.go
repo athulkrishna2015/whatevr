@@ -570,6 +570,7 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 	a.mu.Lock()
 	focus := a.focus
 	typed := !a.composer.empty()
+	leader := a.leader
 	a.mu.Unlock()
 
 	newline := "s-\u23ce"
@@ -577,6 +578,13 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 		// Without the kitty keyboard protocol the terminal cannot tell
 		// shift+enter from enter, so the hint has to name the one that works.
 		newline = "^j"
+	}
+
+	// An armed leader takes the line and says what it can still become. A
+	// prefix nobody can see is a prefix nobody uses.
+	if leader {
+		a.drawLeaderHints(pane, r.Width)
+		return
 	}
 
 	if msg := a.toastNow(); msg != "" {
@@ -617,6 +625,32 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 			break
 		}
 		col = a.print(pane, col, 0, vaxis.Style{Foreground: a.theme.TextFaint}, h)
+		col += 2
+	}
+}
+
+// drawLeaderHints projects the registry's leader bindings onto the hint line,
+// so ctrl+x is a menu rather than a thing you had to read about.
+func (a *App) drawLeaderHints(pane vaxis.Window, width int) {
+	a.initCommands()
+	col := a.print(pane, 1, 0, vaxis.Style{Foreground: a.theme.Accent, Attribute: vaxis.AttrBold}, "^x")
+	col += 2
+	state := a.commandState()
+	for _, c := range a.commands.ordered {
+		if c.Leader == "" {
+			continue
+		}
+		style := vaxis.Style{Foreground: a.theme.TextFaint}
+		if c.Enabled != nil {
+			if ok, _ := c.Enabled(state); !ok {
+				continue
+			}
+		}
+		h := c.Leader + " " + strings.ToLower(c.Title)
+		if col+a.width(h) >= width {
+			break
+		}
+		col = a.print(pane, col, 0, style, h)
 		col += 2
 	}
 }
