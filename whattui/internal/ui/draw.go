@@ -571,6 +571,7 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 	focus := a.focus
 	typed := !a.composer.empty()
 	leader := a.leader
+	modal := a.modal.kind
 	a.mu.Unlock()
 
 	newline := "s-\u23ce"
@@ -599,10 +600,14 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 		text string
 	}
 	var hints []hint
-	switch focus {
-	case FocusList:
+	switch {
+	// An open panel owns the keyboard, so the line says what the panel does
+	// rather than what the pane behind it would have done.
+	case modal != modalNone:
+		hints = []hint{{"", "\u2191\u2193 move"}, {"", "\u23ce run"}, {"", "esc close"}}
+	case focus == FocusList:
 		hints = []hint{{cmdOpenChat, "open"}, {"", "\u2191\u2193 move"}, {cmdFocusNext, "chat"}, {cmdQuit, "quit"}}
-	case FocusTranscript:
+	case focus == FocusTranscript:
 		hints = []hint{{"", "\u2191\u2193 scroll"}, {"", "esc composer"}, {cmdFocusNext, "chats"}}
 	default:
 		hints = []hint{{cmdSend, "send"}, {"", newline + " newline"}, {"", "esc chats"}, {cmdFocusNext, "list"}}

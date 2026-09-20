@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	"go.rockorager.dev/vaxis"
@@ -104,4 +105,30 @@ func TestAModalDimsWhatIsBehindIt(t *testing.T) {
 	if inside.Style.Attribute&vaxis.AttrDim != 0 {
 		t.Error("the panel dimmed itself")
 	}
+}
+
+// The hint line follows whatever owns the keyboard, so an open panel names its
+// own keys rather than the pane's.
+func TestTheHintLineFollowsTheOpenPanel(t *testing.T) {
+	a := benchApp(100, 26, 2, 0)
+	a.focus = FocusComposer
+	a.paint()
+	if got := hintLine(a); !strings.Contains(got, "send") {
+		t.Fatalf("composer hints = %q", got)
+	}
+	a.openModal(modalPalette)
+	a.paint()
+	got := hintLine(a)
+	if !strings.Contains(got, "esc close") || strings.Contains(got, "send") {
+		t.Fatalf("panel hints = %q", got)
+	}
+}
+
+func hintLine(a *App) string {
+	r := a.layout().HintBar
+	var b strings.Builder
+	for col := r.Col; col < r.Col+r.Width; col++ {
+		b.WriteString(a.vx.Cell(col, r.Row).Grapheme)
+	}
+	return b.String()
 }
