@@ -512,10 +512,22 @@ func decodedImageDimensionsFromReader(reader io.Reader) (int32, int32) {
 	return int32(cfg.Width), int32(cfg.Height)
 }
 
+// staleMediaDownloadError reports whether the failure says the path we stored
+// no longer describes the blob, which a media retry repairs by asking the
+// sender to hand us a fresh one.
+//
+// The three statuses are the obvious half: the CDN says gone. The hash and
+// length mismatches are the other half and were missing, which is why old
+// media sat on "could not be downloaded" forever with a Try again button that
+// could only ever fail the same way. They arrive as a perfectly good 200 whose
+// body is not what the message describes, because the media was rotated server
+// side; whatsmeow has already tried every host by the time it says so.
 func staleMediaDownloadError(err error) bool {
 	return errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith403) ||
 		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith404) ||
-		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith410)
+		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith410) ||
+		errors.Is(err, whatsmeow.ErrInvalidMediaEncSHA256) ||
+		errors.Is(err, whatsmeow.ErrFileLengthMismatch)
 }
 
 func (c *Client) refreshMediaForDownload(ctx context.Context, client *whatsmeow.Client, message appstore.Message, media downloadableMedia) (appstore.Message, error) {
