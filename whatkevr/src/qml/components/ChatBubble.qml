@@ -247,9 +247,20 @@ Item {
     readonly property real senderHeaderHeight: showSenderHeader && !centeredPill
         ? Math.max(senderAvatarSize, senderHeaderLoader.item ? senderHeaderLoader.item.labelImplicitHeight : 0)
         : 0
+    /// How much of the column a bubble may take at its widest.
+    ///
+    /// A share as well as a ceiling. The ceiling alone is what a wide window
+    /// needs, but it does not bind at all once the pane is narrower than it,
+    /// and then a bubble that asks for everything gets everything: a hero card
+    /// always asks for the full content width, so it ran edge to edge with a
+    /// few pixels of margin and no side left to tell an incoming message from
+    /// an outgoing one. The gap opposite a bubble is what says which way it
+    /// went, so it has to survive the window being dragged narrow.
+    readonly property real maxBubbleWidthShare: 0.84
+    readonly property real availableBubbleWidth: Math.max(0, listWidth - outerMargin * 2 - senderGutterWidth)
     readonly property real maxBubbleWidth: Math.max(Kirigami.Units.gridUnit * 4,
-                                                    Math.min(Math.max(0, listWidth - outerMargin * 2 - senderGutterWidth),
-                                                              Kirigami.Units.gridUnit * 28))
+                                                    Math.min(availableBubbleWidth * maxBubbleWidthShare,
+                                                             Kirigami.Units.gridUnit * 28))
     readonly property real maxContentWidth: Math.max(Kirigami.Units.gridUnit * 4, maxBubbleWidth - innerPadding * 2)
     // Honour the appearance setting (point size; 0 = follow the system font).
     readonly property real bodyPointSize: Whatevr.Settings.messageFontSize > 0

@@ -260,6 +260,7 @@ private Q_SLOTS:
     void aDownloadedStickerIsActuallyDrawn();
     void aReadChatReopensAtItsNewestMessage();
     void aCompactLinkPreviewSurvivesANarrowPane();
+    void aHeroCardLeavesTheColumnAMarginWhenThePaneIsNarrow();
     void everyQmlComponentCompiles();
 
 private:
@@ -2596,6 +2597,61 @@ void ChatBubblePerf::everyQmlComponentCompiles()
     QVERIFY2(checked > 0, "no QML was found in the module, so this checked nothing");
     QVERIFY2(broken.isEmpty(), qPrintable(broken.join(QStringLiteral("\n"))));
     qInfo("%d QML component(s) compile", checked);
+}
+
+
+// A bubble never takes the whole column, however narrow the column gets.
+//
+// The widest a bubble may be was a ceiling in grid units and nothing else, so
+// it stopped binding the moment the pane was narrower than the ceiling. A hero
+// link preview asks for the full content width unconditionally, so it ran edge
+// to edge with a couple of pixels either side: no gap opposite it, and nothing
+// in the layout left to say which way the message went.
+void ChatBubblePerf::aHeroCardLeavesTheColumnAMarginWhenThePaneIsNarrow()
+{
+    const QVariantMap preview{
+        {QStringLiteral("url"), QStringLiteral("https://youtube.com/shorts/j1MYVpeLKrU?si=rVeQaCKHylnGP_qo")},
+        {QStringLiteral("host"), QStringLiteral("youtube.com")},
+        {QStringLiteral("title"), QStringLiteral("A headline that keeps going for a while")},
+        {QStringLiteral("description"), QStringLiteral("And a description under it.")},
+        {QStringLiteral("type"), QStringLiteral("video")},
+        {QStringLiteral("thumbnail_path"), QStringLiteral("/nonexistent/hero.jpg")},
+        {QStringLiteral("thumb_width"), 640},
+        {QStringLiteral("thumb_height"), 360},
+    };
+    // A long unbroken URL in the body too, which is the other thing that used
+    // to push a bubble out to the edge.
+    const QString body = QStringLiteral("https://youtube.com/shorts/j1MYVpeLKrU?si=rVeQaCKHylnGP_qo");
+
+    for (int listWidth : {320, 420, 560}) {
+        const QVariantMap props =
+            withProps(baseProps(), {{QStringLiteral("messageId"), QStringLiteral("lp-wide-%1").arg(listWidth)},
+                                    {QStringLiteral("listWidth"), listWidth},
+                                    {QStringLiteral("text"), body},
+                                    {QStringLiteral("layoutText"), body},
+                                    {QStringLiteral("linkPreview"), preview}});
+
+        QQmlComponent component(
+            m_engine, QUrl(QStringLiteral("qrc:/qt/qml/Whatevr/qml/components/ChatBubble.qml")));
+        QVERIFY2(!component.isError(), qPrintable(component.errorString()));
+        std::unique_ptr<QObject> bubble(component.createWithInitialProperties(props));
+        QVERIFY2(bubble, qPrintable(component.errorString()));
+        auto *bubbleItem = qobject_cast<QQuickItem *>(bubble.get());
+        bubbleItem->setParentItem(m_window->contentItem());
+        m_window->show();
+        QVERIFY(QTest::qWaitForWindowExposed(m_window));
+        QTRY_VERIFY(bubbleItem->property("maxBubbleWidth").toReal() > 0);
+
+        const qreal maxBubble = bubbleItem->property("maxBubbleWidth").toReal();
+        const qreal available = bubbleItem->property("availableBubbleWidth").toReal();
+        QVERIFY2(available > 0, "the bubble was given no column to sit in");
+        // A visible share of the column stays empty beside the widest bubble.
+        QVERIFY2(maxBubble <= available * 0.9,
+                 qPrintable(QStringLiteral("at listWidth %1 a bubble may be %2 of a %3 column, "
+                                           "which leaves no side to read")
+                                .arg(listWidth).arg(maxBubble).arg(available)));
+        bubbleItem->setParentItem(nullptr);
+    }
 }
 
 void ChatBubblePerf::aCompactLinkPreviewSurvivesANarrowPane()
