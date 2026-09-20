@@ -432,10 +432,15 @@ Item {
     // Voice notes, audio files and documents are rows, not pictures: a fixed
     // height and a comfortable width that does not depend on decode.
     readonly property real attachmentBlockWidth: Math.min(maxContentWidth, Kirigami.Units.gridUnit * 17)
+    // Documents with a first-page thumbnail (sender-provided, or derived
+    // locally via pdftoppm) show a preview strip above the filename row.
+    readonly property bool hasDocumentThumbnail: isDocument && mediaThumbnailLocalPath.length > 0
+    readonly property real documentThumbnailHeight: hasDocumentThumbnail ? Kirigami.Units.gridUnit * 7 : 0
     // Two lines: the waveform (or the filename) and the line under it that now
     // carries the timestamp too, so the block no longer reserves a third.
     readonly property real attachmentBlockHeight: isDocument
-        ? Kirigami.Units.gridUnit * 2.9
+        ? Kirigami.Units.gridUnit * 2.9 + documentThumbnailHeight
+            + (hasDocumentThumbnail ? Kirigami.Units.smallSpacing : 0)
         : Kirigami.Units.gridUnit * 2.6
 
     readonly property int imageDecodeWidth: decodeWidthForAspect(imageDecodeWidthCap, imageDecodeHeightCap, reservedImageAspectRatio)

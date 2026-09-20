@@ -109,3 +109,27 @@ func TestVoiceSendNormalizesOggMime(t *testing.T) {
 		t.Fatalf("outboundVoiceMime(audio/mpeg) = %q, want passthrough", got)
 	}
 }
+
+// TestDocumentSendSkipsMediaSizeCap locks in that "send as document" is not
+// size-checked like media: a 30 MiB video file staged as a document passes
+// the 25 MiB media ceiling, while the same file as video is still rejected.
+func TestDocumentSendSkipsMediaSizeCap(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "clip.mp4")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	if err := f.Truncate(30 * 1024 * 1024); err != nil {
+		f.Close()
+		t.Fatalf("sparsify temp file: %v", err)
+	}
+	f.Close()
+
+	if _, _, _, _, _, err := readOutboundMedia(path, MediaSendOptions{Kind: "document"}); err != nil {
+		t.Fatalf("document readOutboundMedia: %v", err)
+	}
+	if _, _, _, _, _, err := readOutboundMedia(path, MediaSendOptions{Kind: "video"}); err == nil {
+		t.Fatal("expected video readOutboundMedia to reject a 30 MiB file")
+	}
+}

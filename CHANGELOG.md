@@ -7,6 +7,13 @@ PROTOCOL.md (stable at version 1: additive changes only).
 
 ### Fixed
 
+- PDF documents show a first-page thumbnail preview: received PDFs render
+  the sender-provided preview, outgoing PDFs render one synchronously via
+  pdftoppm (also attached on the wire for the recipient's phone), and
+  downloads whose sender shipped none derive one afterwards. Existing
+  thumbnails are never replaced.
+- "Send as document" no longer applies the 25 MiB media ceiling (own
+  100 MiB cap, no duration check), so videos staged as documents send as-is.
 - Desktop-recorded voice notes now appear on mobile: the outbound path sends
   them as `audio/ogg; codecs=opus` like official clients instead of Go's
   sniffed `application/ogg`, which phones never rendered for PTT.
