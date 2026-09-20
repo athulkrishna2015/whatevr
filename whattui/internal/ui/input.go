@@ -267,6 +267,7 @@ func (a *App) transcriptPage() int {
 // the pointer can do too. It reports whether the frame needs drawing again,
 // because motion arrives for every pixel and most of it changes nothing.
 func (a *App) onMouse(m vaxis.Mouse) bool {
+	m = a.onScreen(m)
 	if handled, dirty := a.onModalMouse(m); handled {
 		if m.EventType == vaxis.EventMotion || m.Button == vaxis.MouseNoButton {
 			a.pointer(a.modalShape(m))
@@ -346,6 +347,23 @@ func (a *App) onMouse(m vaxis.Mouse) bool {
 		}
 	}
 	return dirty
+}
+
+// onScreen pulls a pointer position inside the screen it is reported against.
+//
+// A mouse event carries the size the terminal had when the pointer moved, and
+// the terminal is free to have been resized since. Everything downstream reads
+// cells and blocks at that position, so it has to be a position that exists;
+// clamped rather than dropped, because a release that lands outside still has
+// to end the drag it started.
+func (a *App) onScreen(m vaxis.Mouse) vaxis.Mouse {
+	size := a.vx.Size()
+	if size.Cols <= 0 || size.Rows <= 0 {
+		return m
+	}
+	m.Col = minInt(maxInt(m.Col, 0), size.Cols-1)
+	m.Row = minInt(maxInt(m.Row, 0), size.Rows-1)
+	return m
 }
 
 // shapeFor is what the pointer looks like where it is: a beam over text you

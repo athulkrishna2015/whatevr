@@ -3,6 +3,8 @@ package ui
 import (
 	"testing"
 
+	"go.rockorager.dev/vaxis"
+
 	"whattui/internal/layout"
 )
 
@@ -63,4 +65,35 @@ func firstBlock(a *App) (layout.Rect, bool) {
 		return b, true
 	}
 	return layout.Rect{}, false
+}
+
+// A mouse event carries the size the terminal had when the pointer moved. A
+// resize between the event and the frame is ordinary, and every reader of that
+// position is reading cells: the pointer has to be pulled inside the screen
+// before any of them see it.
+func TestAPointerFromBeforeAResizeDoesNotCrash(t *testing.T) {
+	a := benchApp(120, 40, 4, 6)
+	a.paint()
+
+	a.vx.Resize(vaxisResize(94, 24))
+	a.paint()
+
+	// Where the pointer was on the old screen, which is off the new one.
+	if got := a.onScreen(vaxis.Mouse{Col: 200, Row: 99}); got.Col != 93 || got.Row != 23 {
+		t.Errorf("a pointer at 200,99 on a 94x24 screen is %d,%d, want 93,23", got.Col, got.Row)
+	}
+	if got := a.onScreen(vaxis.Mouse{Col: -4, Row: -2}); got.Col != 0 || got.Row != 0 {
+		t.Errorf("a pointer at -4,-2 is %d,%d, want 0,0", got.Col, got.Row)
+	}
+
+	for _, m := range []vaxis.Mouse{
+		{Col: 110, Row: 35, EventType: vaxis.EventMotion},
+		{Col: 110, Row: 35, Button: vaxis.MouseLeftButton, EventType: vaxis.EventPress},
+		{Col: 200, Row: 99, Button: vaxis.MouseLeftButton, EventType: vaxis.EventMotion},
+		{Col: 200, Row: 99, Button: vaxis.MouseLeftButton, EventType: vaxis.EventRelease},
+		{Col: -3, Row: -1, EventType: vaxis.EventMotion},
+	} {
+		a.onMouse(m)
+	}
+	a.paint()
 }
