@@ -101,6 +101,23 @@ func (c *canvas) strokeShape(sdf func(x, y float64) float64, col color.NRGBA, w 
 	}
 }
 
+// stamp puts an image in the middle of the canvas. Blended a pixel at a time
+// rather than composited by the standard library, for the same reason
+// everything else here is: this buffer is straight alpha and that compositor
+// is not.
+func (c *canvas) stamp(src *image.NRGBA) {
+	if src == nil {
+		return
+	}
+	b := src.Bounds()
+	x0, y0 := (c.w-b.Dx())/2, (c.h-b.Dy())/2
+	for y := 0; y < b.Dy(); y++ {
+		for x := 0; x < b.Dx(); x++ {
+			c.blend(x0+x, y0+y, src.NRGBAAt(b.Min.X+x, b.Min.Y+y), 1)
+		}
+	}
+}
+
 // coverage turns a signed distance into how much of a pixel is inside.
 func coverage(d float64) float64 {
 	switch {

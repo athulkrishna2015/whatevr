@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"image"
 	"strconv"
 	"strings"
 	"time"
@@ -293,7 +294,7 @@ func (a *App) drawAvatar(pane vaxis.Window, row, height int, c proto.ChatRow, bg
 // of the block, and a big circle with a small letter in the corner of it is
 // worse than a small circle with the letter in the middle.
 func (a *App) avatarBox(rows int) (width, scale int) {
-	if rows >= 2 && a.caps.TextScale {
+	if rows >= 2 && (a.painted() || a.caps.TextScale) {
 		return 4, 2
 	}
 	return 3, 1
@@ -303,20 +304,56 @@ func (a *App) avatarBox(rows int) (width, scale int) {
 // number of cells around a scaled initial and an odd number around a plain
 // one, for the same reason either way: the letter has to land on the centre
 // of the circle rather than beside it.
-func (a *App) avatar(win vaxis.Window, col, row, width, scale int, id, name string, bg vaxis.Color) {
+func (a *App) avatar(win vaxis.Window, col, row, width, rows int, id, name string, bg vaxis.Color) {
 	ident := a.theme.IdentityFor(id)
+	letter := initial(name)
 	if fill, ok := theme.Paint(bg, ident, discMix); ok && a.painted() {
-		a.paintRect(win, col, row, width, scale, func(pw, ph int) paint.Spec {
-			return paint.Disc{W: pw, H: ph, Fill: fill}
+		// The letter is drawn into the disc, not typed on top of it. Then the
+		// circle and the thing in the middle of it are one image, centred on
+		// each other exactly, at a size that has nothing to do with the cell.
+		glyph, key := a.glyph(letter, a.avatarEm(width, rows), ident)
+		a.paintRect(win, col, row, width, rows, func(pw, ph int) paint.Spec {
+			return paint.Disc{W: pw, H: ph, Fill: fill, Glyph: glyph, GlyphKey: key}
 		})
+		if glyph != nil {
+			return
+		}
 	}
-	// The block is claimed at every tier: a terminal that cannot scale draws
-	// the letter small in the top left of it and nothing moves.
-	win.New(col+(width-scale)/2, row, scale, scale).PrintScaled(0, vaxis.Segment{
-		Text:  initial(name),
+	// No pixels, or no font yet: the terminal draws the letter. The block is
+	// claimed either way, so nothing moves when the font arrives.
+	win.New(col+(width-rows)/2, row, rows, rows).PrintScaled(0, vaxis.Segment{
+		Text:  letter,
 		Style: vaxis.Style{Foreground: ident, Background: bg},
-		Size:  vaxis.Scaled(scale, 0),
+		Size:  vaxis.Scaled(rows, 0),
 	})
+}
+
+// avatarEm is how big the initial is drawn, in pixels: a little over half the
+// circle it sits in, which is where a letter stops being a dot and stops
+// touching the edge.
+func (a *App) avatarEm(width, rows int) int {
+	cw, ch := a.cellPix()
+	return minInt(width*cw, rows*ch) * 3 / 5
+}
+
+// glyph is one rasterised letter, and the key that identifies it. Cached
+// because the spec that carries it is rebuilt on every frame and rasterising
+// is not a per-frame price.
+func (a *App) glyph(text string, em int, ink vaxis.Color) (*image.NRGBA, string) {
+	rgb, ok := theme.Paint(a.theme.Background, ink, 1)
+	if !ok || text == "" {
+		return nil, ""
+	}
+	k := glyphKey{text: text, em: em, ink: rgb}
+	if img, ok := a.glyphs[k]; ok {
+		return img, k.String()
+	}
+	img := a.shaper.Glyph(text, em, rgb)
+	if img == nil {
+		return nil, ""
+	}
+	a.glyphs[k] = img
+	return img, k.String()
 }
 
 // discMix is how far an avatar's disc is from the row it sits on, toward the

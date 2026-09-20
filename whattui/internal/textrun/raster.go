@@ -7,6 +7,7 @@ package textrun
 import (
 	"image"
 	"image/color"
+	"math"
 
 	"github.com/go-text/typesetting/font"
 	"github.com/go-text/typesetting/font/opentype"
@@ -121,3 +122,71 @@ func colourise(m *image.Alpha, fg color.NRGBA) *image.NRGBA {
 }
 
 func fixedToFloat(i fixed.Int26_6) float32 { return float32(i) / 64 }
+
+// maskScaled rasterises a shaped line at a size of its own rather than at the
+// terminal's cell. Same pipeline as mask, one multiplier through it: the
+// outlines are real outlines, so a letter twice the size of a cell is drawn
+// twice the size rather than drawn once and stretched.
+func (s *fontset) maskScaled(line shaping.Line, k float64) *image.Alpha {
+	advance := 0.0
+	for _, out := range line {
+		for _, g := range out.Glyphs {
+			advance += float64(fixedToFloat(g.XAdvance))
+		}
+	}
+	w := int(math.Ceil(advance*k)) + 2
+	h := int(math.Ceil(float64(s.cellH)*k)) + 2
+	if w < 1 || h < 1 {
+		return nil
+	}
+
+	m := image.NewAlpha(image.Rect(0, 0, w, h))
+	var z vector.Rasterizer
+	x := float32(0)
+	y := float32(float64(s.met.baseline) * k)
+	for _, out := range line {
+		scale := float32(s.met.em * k / float64(out.Face.Upem()))
+		for _, g := range out.Glyphs {
+			gx := x + fixedToFloat(g.XOffset)*float32(k)
+			gy := y - fixedToFloat(g.YOffset)*float32(k)
+			if outline, ok := out.Face.GlyphData(g.GlyphID).(font.GlyphOutline); ok {
+				drawOutline(&z, m, outline, scale, gx, gy)
+			}
+			x += fixedToFloat(g.XAdvance) * float32(k)
+		}
+	}
+	return m
+}
+
+// inkOf is the part of a mask that has ink in it. What a letter is worth
+// centring on is its ink, not the line box it was drawn in.
+func inkOf(m *image.Alpha) image.Rectangle {
+	b := m.Bounds()
+	box := image.Rectangle{Min: b.Max, Max: b.Min}
+	for y := b.Min.Y; y < b.Max.Y; y++ {
+		row := m.Pix[(y-b.Min.Y)*m.Stride:]
+		for x := b.Min.X; x < b.Max.X; x++ {
+			if row[x-b.Min.X] == 0 {
+				continue
+			}
+			box.Min.X = min(box.Min.X, x)
+			box.Min.Y = min(box.Min.Y, y)
+			box.Max.X = max(box.Max.X, x+1)
+			box.Max.Y = max(box.Max.Y, y+1)
+		}
+	}
+	if box.Empty() {
+		return image.Rectangle{}
+	}
+	return box
+}
+
+// crop copies the part of a mask worth keeping.
+func crop(m *image.Alpha, box image.Rectangle) *image.Alpha {
+	out := image.NewAlpha(image.Rect(0, 0, box.Dx(), box.Dy()))
+	for y := 0; y < box.Dy(); y++ {
+		copy(out.Pix[y*out.Stride:(y+1)*out.Stride],
+			m.Pix[(box.Min.Y+y)*m.Stride+box.Min.X:])
+	}
+	return out
+}

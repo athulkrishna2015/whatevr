@@ -4,6 +4,7 @@ package ui
 
 import (
 	"fmt"
+	"image"
 	"os"
 	"strconv"
 	"strings"
@@ -56,6 +57,9 @@ type App struct {
 	occludedSurfaces []surface
 	images           map[imgKey]*vaxis.KittyImage
 	seen             map[imgKey]bool
+	// glyphs are the letters drawn rather than typed: an avatar's initial,
+	// sized to the circle around it.
+	glyphs map[glyphKey]*image.NRGBA
 
 	// What the pointer has taken, what it is taking, and the runs of text a
 	// triple click can take whole. All three are screen coordinates from the
@@ -90,10 +94,13 @@ type App struct {
 	// boxes, and the run is the thing worth a shape.
 	boxed bool
 	// shape is the mouse cursor the terminal was last told to wear.
-	shape     vaxis.MouseShape
-	transport proto.State
-	lastErr   error
-	quit      bool
+	shape vaxis.MouseShape
+	// cellW and cellH are the terminal's cell in pixels as of the last frame,
+	// so a font size change can be noticed.
+	cellW, cellH int
+	transport    proto.State
+	lastErr      error
+	quit         bool
 
 	composer composer
 	commands commandRegistry
@@ -122,6 +129,7 @@ func New(vx *vaxis.Vaxis, caps term.Caps, client *proto.Client) *App {
 		shape:   vaxis.MouseShapeDefault,
 		images:  map[imgKey]*vaxis.KittyImage{},
 		seen:    map[imgKey]bool{},
+		glyphs:  map[glyphKey]*image.NRGBA{},
 		drag:    drag{chat: -1},
 	}
 	a.shaper = shaperFor(vx, caps)
@@ -214,26 +222,31 @@ func atoi(s string) int {
 	return n
 }
 
-// setCell hands the shaper the terminal's cell in pixels. Everything it draws
-// is measured off the cell, so this is what keeps a rasterised word the same
-// size as the text beside it.
+// setCell records the terminal's cell in pixels and hands it to the shaper.
+// Everything drawn rather than typed is measured off the cell, so this is what
+// keeps a rasterised word the same size as the text beside it.
 func (a *App) setCell() {
-	if a.shaper == nil {
+	w, h := a.cellPix()
+	a.cellW, a.cellH = w, h
+	if w <= 0 || h <= 0 {
+		// A terminal that will not say how big a cell is gets no drawn
+		// chrome, and anything already drawn for a cell we can no longer
+		// measure is not worth keeping either.
 		return
 	}
-	size := a.vx.Size()
-	if size.Cols <= 0 || size.Rows <= 0 {
-		return
-	}
-	a.shaper.SetCellSize(size.XPixel/size.Cols, size.YPixel/size.Rows)
+	a.shaper.SetCellSize(w, h)
 }
 
-// recell re-measures the cell and throws the rasterised images away if it
+// recell re-measures the cell and throws every rasterised image away if it
 // moved, because every one of them is now the wrong size.
+//
+// Measured off the terminal rather than off the shaper: the shaper is only
+// there at the tiers that can draw, and what the images were drawn for is the
+// terminal's cell either way.
 func (a *App) recell() {
-	before, beforeH := a.shaper.CellSize()
+	before, beforeH := a.cellW, a.cellH
 	a.setCell()
-	if w, h := a.shaper.CellSize(); w != before || h != beforeH {
+	if a.cellW != before || a.cellH != beforeH {
 		a.dropImages()
 	}
 }
@@ -256,6 +269,11 @@ func (a *App) onTransport(s proto.State, _ *proto.ServerInfo, err error) {
 
 // Run connects, subscribes and renders until the user quits.
 func (a *App) Run() error {
+	// Whatever was on this screen before we started is not ours and is not
+	// correct: a placement outlives the process that made it, and the process
+	// before this one may well have been this one, crashed.
+	a.vx.DropGraphics()
+
 	a.client.Start()
 	defer a.client.Stop()
 
@@ -308,6 +326,13 @@ func (a *App) handle(ev vaxis.Event) bool {
 		// nothing else, so believing it is the whole handler.
 		a.vx.Resize(ev)
 		a.clearSelection()
+		// Everything the terminal is holding for us was drawn for a grid that
+		// no longer exists. A terminal anchors an image to a cell and keeps it
+		// at the pixel size it arrived in, so after a font size change every
+		// one of them is ink at the wrong scale in a place nobody chose, and
+		// whether the terminal tidies that up itself is a thing terminals
+		// disagree about. Saying so is one escape sequence.
+		a.vx.DropGraphics()
 		// A resize can also be a font size change, and every rasterised word
 		// is measured off the cell.
 		a.recell()

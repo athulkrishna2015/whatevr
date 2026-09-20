@@ -705,6 +705,17 @@ class Harness:
             return "(no dump: whattui wrote none)"
         return dump.read_text(encoding="utf-8", errors="replace")
 
+    # A font size change is a resize with the window standing still, which is
+    # its own event and its own bug surface.
+    def set_font_size(self, state: dict[str, Any], size: float) -> None:
+        before = self.cell_size(state)
+        self.remote(state["socket"], ["set-font-size", str(size)])
+        # kitty answers with the new cell, and the pty follows it.
+        wait_for(
+            f"font size {size}",
+            lambda: self.cell_size(state) != before,
+        )
+
     def send(self, state: dict[str, Any], key: str) -> None:
         self.remote(state["socket"], ["send-key", "--match", f"id:{state['window_id']}", key])
 
@@ -885,6 +896,13 @@ def main() -> int:
     )
     parser.add_argument("--name", help="basename for an ad hoc shot")
     parser.add_argument(
+        "--font-size",
+        metavar="PT[,PT...]",
+        help="change the font size once whattui is up, which resizes the grid "
+        "under it without touching the window; several are applied in turn, "
+        "which is what a person leaning on the key does",
+    )
+    parser.add_argument(
         "--env",
         action="append",
         default=[],
@@ -998,6 +1016,13 @@ def main() -> int:
                 harness.hidden_tab_resize(state, cols, rows)
             else:
                 state = harness.launch(cols, rows, name, plain=args.plain)
+            for step in (args.font_size or "").split(","):
+                if not step.strip():
+                    continue
+                # The window stands still, so the grid under whattui changes
+                # size: what gets photographed is whatever it is afterwards.
+                harness.set_font_size(state, float(step))
+                cols, rows = harness.pty_size(state)
             if shot["keys"]:
                 harness.open_surface(state, shot["keys"], shot["marker"])
             harness.capture(state, name, (cols, rows))

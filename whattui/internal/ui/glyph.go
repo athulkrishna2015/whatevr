@@ -265,6 +265,19 @@ func (p placement) slice(from, span int) placement {
 	return q
 }
 
+// glyphKey is one letter drawn at one size in one colour, which is all a
+// rasterised initial is.
+type glyphKey struct {
+	text string
+	em   int
+	ink  color.NRGBA
+}
+
+func (k glyphKey) String() string {
+	return k.text + "\x00" + strconv.Itoa(k.em) + "\x00" +
+		strconv.Itoa(int(k.ink.R)) + "," + strconv.Itoa(int(k.ink.G)) + "," + strconv.Itoa(int(k.ink.B))
+}
+
 // imgKey identifies a rasterised image. The pixel cell is part of it because a
 // font size change has to rescale rather than reuse.
 type imgKey struct {
@@ -341,6 +354,7 @@ func (a *App) dropImages() {
 		delete(a.images, k)
 	}
 	clear(a.seen)
+	clear(a.glyphs)
 	a.placements = a.placements[:0]
 	a.surfaces = a.surfaces[:0]
 }

@@ -1,6 +1,7 @@
 package textrun
 
 import (
+	"image/color"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -69,5 +70,55 @@ func TestTheWholePhraseSurvivesAPrefixThatFits(t *testing.T) {
 	}
 	if got := r.Prefix(r.Cells() + 10); got != text {
 		t.Fatalf("Prefix(more than all) = %q, want %q", got, text)
+	}
+}
+
+// A letter drawn for an avatar is sized by the circle around it, not by the
+// terminal's cell, and it comes back cropped to its own ink so the caller can
+// centre it on something.
+func TestAGlyphIsDrawnAtTheSizeAskedForAndCroppedToItsInk(t *testing.T) {
+	sh := New(Options{})
+	sh.SetCellSize(10, 20)
+	deadline := time.Now().Add(30 * time.Second)
+	for !sh.Begin() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !sh.Begin() {
+		t.Skip("no usable font index on this machine")
+	}
+
+	small := sh.Glyph("S", 20, color.NRGBA{255, 255, 255, 255})
+	big := sh.Glyph("S", 40, color.NRGBA{255, 255, 255, 255})
+	if small == nil || big == nil {
+		t.Fatal("the shaper drew nothing")
+	}
+	if big.Bounds().Dy() <= small.Bounds().Dy() {
+		t.Fatalf("twice the size is %d pixels tall, once is %d", big.Bounds().Dy(), small.Bounds().Dy())
+	}
+	// Cropped to the ink: every edge of the image has something on it.
+	for _, edge := range []struct {
+		name string
+		at   func(i int) (int, int)
+		n    int
+	}{
+		{"top", func(i int) (int, int) { return i, 0 }, big.Bounds().Dx()},
+		{"bottom", func(i int) (int, int) { return i, big.Bounds().Dy() - 1 }, big.Bounds().Dx()},
+		{"left", func(i int) (int, int) { return 0, i }, big.Bounds().Dy()},
+		{"right", func(i int) (int, int) { return big.Bounds().Dx() - 1, i }, big.Bounds().Dy()},
+	} {
+		inked := false
+		for i := 0; i < edge.n; i++ {
+			x, y := edge.at(i)
+			if big.NRGBAAt(x, y).A > 0 {
+				inked = true
+				break
+			}
+		}
+		if !inked {
+			t.Errorf("the %s edge of the image has no ink, so it was not cropped to it", edge.name)
+		}
+	}
+	if nothing := sh.Glyph(" ", 40, color.NRGBA{255, 255, 255, 255}); nothing != nil {
+		t.Error("a space drew ink")
 	}
 }

@@ -2,9 +2,11 @@ package ui
 
 import (
 	"testing"
+	"time"
 
 	"whattui/internal/paint"
 	"whattui/internal/term"
+	"whattui/internal/textrun"
 )
 
 // ruleOf finds the first speaker rule in the transcript, in cells: the column
@@ -161,57 +163,114 @@ func TestTextInABoxKeepsThePanesGround(t *testing.T) {
 	}
 }
 
-// A terminal can have graphics and still not scale text. The disc has to stay
-// a disc with a letter in the middle of it, rather than a block reserved for a
-// letter twice the size that the terminal then draws in the corner.
-func TestADiscWithoutTextScalingKeepsItsLetterInTheMiddle(t *testing.T) {
+// A terminal can have graphics and still not scale text, and those are two
+// different questions. Where there are pixels the letter belongs in the disc:
+// drawn at the size of the circle, centred on it, and nothing typed into the
+// cells underneath.
+func TestADiscDrawsItsOwnLetter(t *testing.T) {
 	a := goldenApp(120, 40, term.TierGraphics)
 	a.caps.TextScale = false
-	a.paint()
-
-	var disc *surface
-	for i, s := range a.surfaces {
-		if _, ok := s.spec.(paint.Disc); ok {
-			disc = &a.surfaces[i]
-			break
-		}
-	}
-	if disc == nil {
-		t.Fatal("no disc on the frame")
-	}
-	if disc.w != 3 || disc.h != 1 {
-		t.Fatalf("disc is %dx%d cells, want 3x1 where the letter can be centred", disc.w, disc.h)
-	}
-
-	middle := a.vx.Cell(disc.col+1, disc.row)
-	if middle.Grapheme == " " || middle.Grapheme == "" {
-		t.Fatalf("the middle of the disc holds %q, want the initial", middle.Grapheme)
-	}
-	if middle.Size != 0 {
-		t.Fatalf("the initial claims a multicell block (size %d) on a terminal that cannot scale", middle.Size)
-	}
-}
-
-// And with scaling it is the bigger disc, with the letter across the whole of
-// it rather than in one cell of it.
-func TestADiscWithTextScalingIsTwiceTheSize(t *testing.T) {
-	a := goldenApp(120, 40, term.TierGraphics)
+	a.shaper = shaperForTest(t)
 	a.paint()
 
 	for _, s := range a.surfaces {
-		if _, ok := s.spec.(paint.Disc); !ok {
+		d, ok := s.spec.(paint.Disc)
+		if !ok || s.h < 2 {
 			continue
 		}
-		if s.h < 2 {
-			continue
+		if d.Glyph == nil {
+			t.Fatal("the disc has no letter in it, so the terminal was asked to draw one")
 		}
 		if s.w != 4 {
-			t.Fatalf("disc is %d cells wide, want 4 around a doubled letter", s.w)
+			t.Fatalf("disc is %d cells wide, want 4", s.w)
 		}
-		if size := a.vx.Cell(s.col+1, s.row).Size; size == 0 {
-			t.Fatal("the initial claims no block, so nothing reserved the room it needs")
+		for row := s.row; row < s.row+s.h; row++ {
+			for col := s.col; col < s.col+s.w; col++ {
+				if c := a.vx.Cell(col, row); c.Grapheme != " " && c.Grapheme != "" {
+					t.Fatalf("cell %d,%d under the disc holds %q as well", col, row, c.Grapheme)
+				}
+			}
 		}
 		return
 	}
 	t.Fatal("no two row disc on the frame")
+}
+
+// And with no pixels to draw into, the terminal draws the letter and the block
+// it needs is claimed either way, so nothing moves when the font turns up.
+func TestADiscWithoutPixelsTypesItsLetter(t *testing.T) {
+	a := goldenApp(120, 40, term.TierColor)
+	a.paint()
+	if len(a.surfaces) != 0 {
+		t.Fatalf("a tier that cannot draw painted %d surfaces", len(a.surfaces))
+	}
+	for row := 0; row < 4; row++ {
+		for col := 0; col < 6; col++ {
+			if c := a.vx.Cell(col, row); c.Grapheme != " " && c.Grapheme != "" {
+				return
+			}
+		}
+	}
+	t.Fatal("nothing was typed where the avatar should be")
+}
+
+func shaperForTest(t *testing.T) *textrun.Shaper {
+	t.Helper()
+	sh := textrun.New(textrun.Options{})
+	sh.SetCellSize(10, 20)
+	deadline := time.Now().Add(30 * time.Second)
+	for !sh.Begin() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !sh.Begin() {
+		t.Skip("no usable font index on this machine")
+	}
+	return sh
+}
+
+// A resize invalidates every image the terminal is holding: it was drawn for a
+// cell that no longer exists, and terminals disagree about whether they tidy
+// that up. The frame after one starts from nothing.
+func TestAResizeDropsEveryGraphicTheTerminalHolds(t *testing.T) {
+	a := goldenApp(120, 40, term.TierGraphics)
+	a.paint()
+	a.flushImages()
+	if len(a.vx.Snapshot().Placements()) == 0 {
+		t.Fatal("nothing was placed to begin with")
+	}
+
+	a.handle(vaxisResize(94, 24))
+	if got := len(a.vx.Snapshot().Placements()); got != 0 {
+		t.Fatalf("%d placements survived the resize", got)
+	}
+}
+
+// A font size change is the one that leaves ink at the wrong scale: the window
+// stands still and every image in it was drawn for a cell that is now a
+// different size.
+func TestAFontSizeChangeThrowsAwayWhatWasDrawnForTheOldCell(t *testing.T) {
+	a := goldenApp(120, 40, term.TierGraphics)
+	a.paint()
+	a.flushImages()
+	if len(a.images) == 0 {
+		t.Fatal("nothing was rasterised to begin with")
+	}
+
+	// The same window, a bigger font: fewer, larger cells.
+	a.handle(fontResize(80, 26, 15, 30))
+	if len(a.images) != 0 {
+		t.Fatalf("%d images survived a cell that changed size", len(a.images))
+	}
+	if got := len(a.vx.Snapshot().Placements()); got != 0 {
+		t.Fatalf("%d placements survived the font size change", got)
+	}
+	// And the frame after it draws at the size the terminal is now.
+	a.paint()
+	a.flushImages()
+	if w, h := a.cellPix(); w != 15 || h != 30 {
+		t.Fatalf("cell is %dx%d, want 15x30", w, h)
+	}
+	if len(a.surfaces) == 0 {
+		t.Fatal("the frame after a font size change drew no chrome")
+	}
 }

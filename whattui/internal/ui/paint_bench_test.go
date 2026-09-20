@@ -3,6 +3,7 @@ package ui
 import (
 	"encoding/json"
 	"fmt"
+	"image"
 	"testing"
 	"time"
 
@@ -31,6 +32,7 @@ func benchApp(cols, rows, chats, msgs int) *App {
 		hovered: -1,
 		images:  map[imgKey]*vaxis.KittyImage{},
 		seen:    map[imgKey]bool{},
+		glyphs:  map[glyphKey]*image.NRGBA{},
 		drag:    drag{chat: -1},
 	}
 	a.transport = proto.Ready
@@ -68,8 +70,16 @@ func benchApp(cols, rows, chats, msgs int) *App {
 	return a
 }
 
+// vaxisResize is a resize the way a terminal reports one: cells and the pixels
+// they are made of.
 func vaxisResize(cols, rows int) vaxis.Resize {
-	return vaxis.Resize{Cols: cols, Rows: rows}
+	return vaxis.Resize{Cols: cols, Rows: rows, XPixel: cols * 10, YPixel: rows * 20}
+}
+
+// fontResize is a font size change: the window stands still and the grid under
+// it is made of bigger cells.
+func fontResize(cols, rows, cellW, cellH int) vaxis.Resize {
+	return vaxis.Resize{Cols: cols, Rows: rows, XPixel: cols * cellW, YPixel: rows * cellH}
 }
 
 func mustJSON(v any) json.RawMessage {

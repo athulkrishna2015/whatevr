@@ -5,6 +5,8 @@
 package textrun
 
 import (
+	"image"
+	"image/color"
 	stdlog "log"
 	"math"
 	"os"
@@ -437,4 +439,44 @@ func (r *Run) Text() string {
 		return ""
 	}
 	return r.text
+}
+
+// Glyph rasterises a short string at a size of its own, cropped to its ink.
+//
+// For the things that are not text in a line: the letter inside an avatar,
+// whose size comes from the circle around it and has nothing to do with the
+// terminal's cell. A caller that can place pixels should never have to ask the
+// terminal to scale a glyph on its behalf, because whether a terminal can do
+// that is a separate question from whether it can draw at all, and the answer
+// is no on terminals where the answer to drawing is yes.
+//
+// em is the size to draw at, in pixels. Returns nil while the shaper is still
+// coming up, so the caller falls back to a terminal glyph for that frame.
+func (sh *Shaper) Glyph(text string, em int, fg color.NRGBA) *image.NRGBA {
+	if sh == nil || text == "" || em < 4 {
+		return nil
+	}
+	s, ok := sh.ready()
+	if !ok {
+		return nil
+	}
+	return s.glyph(text, em, fg)
+}
+
+func (s *fontset) glyph(text string, em int, fg color.NRGBA) *image.NRGBA {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.met.em <= 0 {
+		return nil
+	}
+	line := s.shapeLine([]rune(text), s.families(text), font.Aspect{})
+	m := s.maskScaled(line, float64(em)/s.met.em)
+	if m == nil {
+		return nil
+	}
+	box := inkOf(m)
+	if box.Empty() {
+		return nil
+	}
+	return colourise(crop(m, box), fg)
 }
