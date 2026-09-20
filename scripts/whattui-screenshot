@@ -1,0 +1,1012 @@
+#!/usr/bin/env python3
+"""Capture and compare real whattui frames in an isolated kitty window."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import shlex
+import shutil
+import signal
+import subprocess
+import sys
+import time
+import uuid
+from pathlib import Path
+from typing import Any
+
+from PIL import Image, ImageChops
+
+ROOT = Path(__file__).resolve().parents[1]
+OUTPUT = ROOT / "build" / "whattui-screenshots"
+GOLDENS = ROOT / "whattui" / "testdata" / "visual"
+FIXTURE = GOLDENS / "fixture.ndjson"
+KITTY_CONFIG = ROOT / "scripts" / "whattui-kitty.conf"
+SIZES = ((120, 40), (90, 30), (60, 24), (38, 14))
+TIMEOUT = 30.0
+OUTPUT_MODE = "1920x1200@60"
+OUTPUT_POSITION = "8192x0"
+OUTPUT_SCALE = "1"
+
+
+class Failure(RuntimeError):
+    pass
+
+
+class SignalExit(RuntimeError):
+    def __init__(self, signum: int) -> None:
+        super().__init__(f"interrupted by {signal.Signals(signum).name}")
+        self.signum = signum
+
+
+def run(
+    cmd: list[str],
+    *,
+    cwd: Path = ROOT,
+    check: bool = True,
+    capture: bool = True,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(
+        cmd,
+        cwd=cwd,
+        text=True,
+        env=env,
+        stdout=subprocess.PIPE if capture else None,
+        stderr=subprocess.PIPE if capture else None,
+        check=False,
+    )
+    if check and result.returncode:
+        detail = ((result.stdout or "") + (result.stderr or "")).strip()
+        raise Failure(
+            f"command failed ({result.returncode}): {' '.join(cmd)}\n{detail}"
+        )
+    return result
+
+
+def version(cmd: list[str]) -> str:
+    result = run(cmd, check=False)
+    text = ((result.stdout or "") + (result.stderr or "")).strip()
+    return text.splitlines()[0] if text else f"unavailable ({result.returncode})"
+
+
+def wait_for(description: str, predicate: Any, timeout: float = TIMEOUT) -> Any:
+    deadline = time.monotonic() + timeout
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            value = predicate()
+            if value:
+                return value
+        except (OSError, ValueError, subprocess.SubprocessError, Failure) as exc:
+            last_error = exc
+        time.sleep(0.05)
+    suffix = f": {last_error}" if last_error else ""
+    raise Failure(f"timed out waiting for {description}{suffix}")
+
+
+def sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def git_info(path: Path) -> dict[str, Any]:
+    commit = run(["git", "rev-parse", "HEAD"], cwd=path).stdout.strip()
+    dirty = bool(run(["git", "status", "--porcelain"], cwd=path).stdout.strip())
+    return {"commit": commit, "dirty": dirty}
+
+
+def tools_metadata() -> dict[str, str]:
+    font = version(["fc-match", "-f", "%{family}|%{style}|%{file}", "Noto Sans Mono"])
+    font_file = font.rsplit("|", 1)[-1] if "|" in font else ""
+    font_version = (
+        version(["fc-query", "-f", "%{fontversion}", font_file])
+        if font_file
+        else "unknown"
+    )
+    return {
+        "kitty": version(["kitty", "--version"]),
+        "grim": version(["grim", "-h"]),
+        "hyprland": version(["hyprctl", "version"]),
+        "python": sys.version.splitlines()[0],
+        "pillow": Image.__version__,
+        "font": font,
+        "font_version": font_version,
+    }
+
+
+def required_tools() -> None:
+    missing = [
+        name
+        for name in ("go", "kitty", "grim", "hyprctl", "fc-match", "fc-query")
+        if shutil.which(name) is None
+    ]
+    if missing:
+        raise Failure("missing tools: " + ", ".join(missing))
+
+
+def hypr_json(command: str) -> Any:
+    return json.loads(run(["hyprctl", command, "-j"]).stdout)
+
+
+def active_workspace_identity() -> tuple[int, str, str]:
+    workspace = hypr_json("activeworkspace")
+    return int(workspace["id"]), str(workspace["name"]), str(workspace["monitor"])
+
+
+class HeadlessOutput:
+    def __init__(self) -> None:
+        self.name: str | None = None
+        self.monitor_id: int | None = None
+        # The output's own workspace, read back once it exists. A workspace of
+        # our own would have to be made active on the monitor to be composited,
+        # and a window on an inactive workspace is a window kitty reports as
+        # not visible, which is a frontend that stops rendering.
+        self.workspace: str | None = None
+        self.initial_workspace = active_workspace_identity()
+        self.workspace_observations: list[dict[str, Any]] = []
+
+    def create(self) -> str:
+        before = {str(monitor["name"]) for monitor in hypr_json("monitors")}
+        result = run(["hyprctl", "output", "create", "headless"])
+
+        def new_monitor() -> str | None:
+            names = {str(monitor["name"]) for monitor in hypr_json("monitors")}
+            added = names - before
+            if len(added) == 1:
+                return added.pop()
+            if len(added) > 1:
+                mentioned = [name for name in added if name in result.stdout]
+                if len(mentioned) == 1:
+                    return mentioned[0]
+                raise Failure(
+                    f"headless output creation added multiple monitors: {sorted(added)}"
+                )
+            return None
+
+        self.name = wait_for("new Hyprland headless output", new_monitor)
+        monitor_rule = (
+            "hl.monitor({ "
+            f"output = {json.dumps(self.name)}, "
+            f"mode = {json.dumps(OUTPUT_MODE)}, "
+            f"position = {json.dumps(OUTPUT_POSITION)}, "
+            f"scale = {OUTPUT_SCALE} "
+            "})"
+        )
+        configured_result = run(["hyprctl", "eval", monitor_rule])
+        if configured_result.stdout.strip() != "ok":
+            raise Failure(
+                f"Hyprland rejected headless monitor rule: {configured_result.stdout.strip()}"
+            )
+
+        def configured() -> dict[str, Any] | None:
+            for monitor in hypr_json("monitors"):
+                if monitor.get("name") == self.name:
+                    geometry = (
+                        monitor.get("width"),
+                        monitor.get("height"),
+                        monitor.get("x"),
+                        monitor.get("y"),
+                        monitor.get("scale"),
+                    )
+                    if geometry == (1920, 1200, 8192, 0, 1):
+                        return monitor
+            return None
+
+        monitor = wait_for("configured Hyprland headless output", configured)
+        self.monitor_id = int(monitor["id"])
+        self.workspace = str(monitor["activeWorkspace"]["name"])
+        self.observe_active_workspace("output-configured")
+        return self.name
+
+    def observe_active_workspace(self, stage: str) -> None:
+        self.workspace_observations.append(
+            {"stage": stage, "workspace": list(active_workspace_identity())}
+        )
+
+    def remove(self) -> None:
+        if self.name is None:
+            return
+        name, self.name = self.name, None
+        self.monitor_id = None
+        self.workspace = None
+        run(["hyprctl", "output", "remove", name], check=False)
+
+    def metadata(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "id": self.monitor_id,
+            "backend": "headless",
+            "mode": OUTPUT_MODE,
+            "position": OUTPUT_POSITION,
+            "scale": int(OUTPUT_SCALE),
+            "workspace": self.workspace,
+            "initial_active_workspace": list(self.initial_workspace),
+            "active_workspace_observations": self.workspace_observations,
+        }
+
+
+def validate_fixture() -> int:
+    views: set[str] = set()
+    messages = 0
+    with FIXTURE.open(encoding="utf-8") as stream:
+        for number, raw in enumerate(stream, 1):
+            text = raw.strip()
+            if not text or text.startswith("#"):
+                continue
+            try:
+                frame = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise Failure(f"{FIXTURE}:{number}: {exc}") from exc
+            if (
+                not isinstance(frame, dict)
+                or not frame.get("view")
+                or not frame.get("event")
+            ):
+                raise Failure(f"{FIXTURE}:{number}: frame needs view and event")
+            views.add(str(frame["view"]))
+            messages += frame["view"] == "messages"
+    if not {"connection", "chats", "messages"}.issubset(views) or messages < 8:
+        raise Failure(
+            "fixture must contain connection, chats, and at least eight messages"
+        )
+    return messages
+
+
+def build_binaries(run_dir: Path) -> dict[str, Path]:
+    bin_dir = run_dir / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    whattui = bin_dir / "whattui"
+    fixture = bin_dir / "protocol-fixture"
+    run(
+        ["go", "build", "-buildvcs=false", "-o", str(whattui), "./cmd/whattui"],
+        cwd=ROOT / "whattui",
+    )
+    run(
+        [
+            "go",
+            "build",
+            "-buildvcs=false",
+            "-o",
+            str(fixture),
+            "./cmd/protocol-fixture",
+        ],
+        cwd=ROOT / "whatevrd",
+    )
+    return {"whattui": whattui, "fixture": fixture}
+
+
+def child_mode(args: argparse.Namespace) -> int:
+    ready = Path(args.child_ready)
+    log = Path(args.child_log)
+    log.parent.mkdir(parents=True, exist_ok=True)
+    output = log.open("ab", buffering=0)
+    os.dup2(output.fileno(), 1)
+    os.dup2(output.fileno(), 2)
+    ready.write_text(f"pid={os.getpid()}\n", encoding="ascii")
+    os.execvpe(args.child_command[0], args.child_command, os.environ)
+    return 127
+
+
+class Harness:
+    def __init__(
+        self,
+        run_dir: Path,
+        binaries: dict[str, Path],
+        fixture_socket: Path,
+        headless: HeadlessOutput,
+    ) -> None:
+        self.run_dir = run_dir
+        self.binaries = binaries
+        self.fixture_socket = fixture_socket
+        self.headless = headless
+        self.states: list[dict[str, Any]] = []
+        self.sequence = 0
+
+    def remote(self, socket: Path, command: list[str], *, check: bool = True) -> str:
+        return run(
+            ["kitty", "@", "--to", f"unix:{socket}", *command], check=check
+        ).stdout
+
+    def kitty_tree(self, socket: Path) -> list[dict[str, Any]]:
+        return json.loads(self.remote(socket, ["ls"]))
+
+    def window(
+        self, socket: Path, window_id: int
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        for os_window in self.kitty_tree(socket):
+            for tab in os_window.get("tabs", []):
+                for window in tab.get("windows", []):
+                    if window.get("id") == window_id:
+                        return os_window, window
+        raise Failure(f"kitty window {window_id} disappeared")
+
+    def launch(
+        self, cols: int, rows: int, name: str, plain: bool = False
+    ) -> dict[str, Any]:
+        self.sequence += 1
+        token = f"whattui-visual-{os.getpid()}-{self.sequence}-{uuid.uuid4().hex[:8]}"
+        socket = self.run_dir / f"kitty-{self.sequence}.sock"
+        ready = self.run_dir / f"{name}.ready"
+        log = self.run_dir / "logs" / f"{name}.log"
+        env = os.environ.copy()
+        env.update(
+            {
+                "TZ": "UTC",
+                "LC_ALL": "C.UTF-8",
+                "WHATTUI_FONT": "Noto Sans Mono",
+                "XDG_CACHE_HOME": str(self.run_dir / "cache"),
+            }
+        )
+        if plain:
+            env["WHATTUI_TIER"] = "plain"
+        cmd = [
+            "kitty",
+            "--config",
+            str(KITTY_CONFIG),
+            "--listen-on",
+            f"unix:{socket}",
+            "--class",
+            token,
+            "--name",
+            token,
+            "--title",
+            token,
+            "--override",
+            f"initial_window_width={cols}c",
+            "--override",
+            f"initial_window_height={rows}c",
+            str(Path(__file__).resolve()),
+            "--_child",
+            "--child-ready",
+            str(ready),
+            "--child-log",
+            str(log),
+            "--",
+            str(self.binaries["whattui"]),
+            "--socket",
+            str(self.fixture_socket),
+        ]
+        if self.headless.name is None:
+            raise Failure("headless output is not available")
+
+        child_env = [
+            "env",
+            *(
+                f"{key}={env[key]}"
+                for key in ("TZ", "LC_ALL", "WHATTUI_FONT", "XDG_CACHE_HOME")
+            ),
+        ]
+        if plain:
+            child_env.append(f"WHATTUI_TIER={env['WHATTUI_TIER']}")
+
+        command = shlex.join([*child_env, *cmd])
+        launch = (
+            "hl.dsp.exec_cmd("
+            f"{json.dumps(command)}, "
+            "{ "
+            f"workspace = {json.dumps(self.headless.workspace + ' silent')}, "
+            "float = true "
+            "}"
+            ")"
+        )
+
+        launch_result = run(["hyprctl", "dispatch", launch])
+        if "ok" not in launch_result.stdout.lower():
+            raise Failure(
+                f"Hyprland rejected kitty launch: {launch_result.stdout.strip()}"
+            )
+
+        wait_for(f"kitty socket {socket}", socket.exists)
+        wait_for(f"whattui child ready file {ready}", ready.exists)
+
+        def locate() -> int | None:
+            tree = self.kitty_tree(socket)
+            for os_window in tree:
+                for tab in os_window.get("tabs", []):
+                    for window in tab.get("windows", []):
+                        return int(window["id"])
+            return None
+
+        window_id = wait_for("kitty remote-control window", locate)
+        state = {
+            "socket": socket,
+            "ready": ready,
+            "log": log,
+            "token": token,
+            "window_id": window_id,
+        }
+        self.states.append(state)
+
+        client = self.hypr_client(state)
+        workspace_name = self.headless.workspace
+        if client.get("workspace", {}).get("name") != workspace_name:
+            raise Failure(f"kitty was not created on silent workspace {workspace_name}")
+
+        wait_for(
+            "kitty placement on headless output",
+            lambda: self.hypr_client(state).get("monitor")
+            == self.headless.monitor_id,
+        )
+
+        if not self.hypr_client(state).get("floating", False):
+            raise Failure("Hyprland did not apply the floating exec rule")
+        self.headless.observe_active_workspace("kitty-placed")
+        self.resize(state, cols, rows)
+        self.wait_text(state, "Visual Test Group")
+        self.remote(socket, ["send-key", "--match", f"id:{window_id}", "enter"])
+        self.wait_gone(state, "pick a chat")
+        return state
+
+    def pty_size(self, state: dict[str, Any]) -> tuple[int, int]:
+        _, window = self.window(state["socket"], state["window_id"])
+        return int(window["columns"]), int(window["lines"])
+
+    def cell_size(self, state: dict[str, Any]) -> tuple[int, int]:
+        cols, rows = self.pty_size(state)
+        width, height = self.hypr_client(state)["size"]
+        if cols < 1 or rows < 1:
+            raise Failure(f"kitty reports a {cols}x{rows} pty")
+        return width // cols, height // rows
+
+    # Hyprland resizes the window, not kitty. kitty's own resize-os-window
+    # grows a window here and silently refuses to shrink one, and shrinking is
+    # the direction a reflow bug hides in.
+    def resize(self, state: dict[str, Any], cols: int, rows: int) -> None:
+        for _ in range(4):
+            cell_w, cell_h = self.cell_size(state)
+            target = (cols * cell_w, rows * cell_h)
+            # The pixels are the point, not just the cells: a window Hyprland
+            # sized itself is a column wider than one sized to an exact pixel
+            # count, and two captures of the same frame must be one image.
+            if self.pty_size(state) == (cols, rows) and tuple(
+                self.hypr_client(state)["size"]
+            ) == target:
+                return
+            run(
+                [
+                    "hyprctl",
+                    "dispatch",
+                    "hl.dsp.window.resize({ "
+                    f"x = {target[0]}, y = {target[1]}, exact = true, "
+                    f"window = {json.dumps('class:' + state['token'])} "
+                    "})",
+                ]
+            )
+            try:
+                wait_for(
+                    f"PTY size {cols}x{rows}",
+                    lambda: self.pty_size(state) == (cols, rows)
+                    and tuple(self.hypr_client(state)["size"]) == target,
+                    timeout=4.0,
+                )
+                return
+            except Failure:
+                continue
+        raise Failure(
+            f"could not resize to {cols}x{rows}; actual PTY size is {self.pty_size(state)}"
+        )
+
+    def text(self, state: dict[str, Any]) -> str:
+        return self.remote(
+            state["socket"],
+            ["get-text", "--match", f"id:{state['window_id']}", "--extent", "screen"],
+        )
+
+    def wait_text(self, state: dict[str, Any], needle: str) -> str:
+        def seen() -> str | None:
+            text = self.text(state)
+            return text if needle in text else None
+
+        return self.expect(f"screen text {needle!r}", seen, state)
+
+    def expect(self, what: str, predicate: Any, state: dict[str, Any]) -> str:
+        try:
+            return wait_for(what, predicate)
+        except Failure as exc:
+            dump = self.run_dir / "logs" / f"{state['token']}-screen.txt"
+            dump.parent.mkdir(parents=True, exist_ok=True)
+            report = {
+                "screen": self.text(state),
+                "kitty": self.kitty_tree(state["socket"]),
+                "hyprland": self.find_hypr_client(state),
+                "headless": self.headless.metadata(),
+                "monitors": hypr_json("monitors"),
+            }
+            dump.write_text(json.dumps(report, indent=2), encoding="utf-8")
+            raise Failure(f"{exc}; state dumped to {dump}") from exc
+
+    def wait_gone(self, state: dict[str, Any], needle: str) -> str:
+        def gone() -> str | None:
+            text = self.text(state)
+            return text if needle not in text else None
+
+        return self.expect(f"screen without {needle!r}", gone, state)
+
+    def hypr_client(self, state: dict[str, Any]) -> dict[str, Any]:
+        def locate() -> dict[str, Any] | None:
+            return self.find_hypr_client(state)
+
+        return wait_for("Hyprland kitty toplevel", locate)
+
+    def find_hypr_client(self, state: dict[str, Any]) -> dict[str, Any] | None:
+        for client in hypr_json("clients"):
+            if (
+                client.get("class") == state["token"]
+                or client.get("initialClass") == state["token"]
+            ):
+                return client
+        return None
+
+    def grim(self, state: dict[str, Any], output: Path) -> tuple[str, dict[str, Any]]:
+        client = self.hypr_client(state)
+        stable_id = str(client.get("stableId", ""))
+        method = "foreign-toplevel"
+        result = run(["grim", "-T", stable_id, "-l", "0", str(output)], check=False)
+        if result.returncode:
+            method = "hyprland-geometry"
+            x, y = client["at"]
+            width, height = client["size"]
+            geometry = f"{x},{y} {width}x{height}"
+            run(["grim", "-g", geometry, "-l", "0", str(output)])
+        with Image.open(output) as image:
+            image.load()
+            pixels = [image.width, image.height]
+        return method, {
+            "address": client.get("address"),
+            "stable_id": stable_id,
+            "geometry": {"at": client.get("at"), "size": client.get("size")},
+            "pixels": pixels,
+        }
+
+    def capture(
+        self, state: dict[str, Any], name: str, expected: tuple[int, int]
+    ) -> dict[str, Any]:
+        if self.pty_size(state) != expected:
+            raise Failure(f"{name}: PTY is {self.pty_size(state)}, expected {expected}")
+        previous: tuple[str, str] | None = None
+        stable = 0
+        attempts = 0
+        capture_info: dict[str, Any] = {}
+        final = self.run_dir / f"{name}.png"
+        while attempts < 20:
+            attempts += 1
+            candidate = self.run_dir / f".{name}-{attempts}.png"
+            method, capture_info = self.grim(state, candidate)
+            text = self.text(state)
+            with Image.open(candidate) as image:
+                image.load()
+                pixel_hash = hashlib.sha256(image.convert("RGBA").tobytes()).hexdigest()
+            signature = (pixel_hash, hashlib.sha256(text.encode()).hexdigest())
+            stable = stable + 1 if signature == previous else 1
+            previous = signature
+            if stable >= 3:
+                candidate.replace(final)
+                break
+            candidate.unlink(missing_ok=True)
+            time.sleep(0.1)
+        else:
+            raise Failure(f"{name}: pixels and get-text did not stabilize")
+        for stale in self.run_dir.glob(f".{name}-*.png"):
+            stale.unlink(missing_ok=True)
+        return {
+            "name": name,
+            "pty": list(expected),
+            "pixel_sha256": previous[0],
+            "text_sha256": previous[1],
+            "stability_captures": stable,
+            "capture_method": method,
+            **capture_info,
+        }
+
+    def hidden_tab_resize(self, state: dict[str, Any], cols: int, rows: int) -> None:
+        hidden_id = int(
+            self.remote(
+                state["socket"],
+                [
+                    "launch",
+                    "--type",
+                    "tab",
+                    "--match",
+                    f"window_id:{state['window_id']}",
+                    "--tab-title",
+                    "visual-resize-cover",
+                    "--title",
+                    "visual-resize-cover",
+                    "sh",
+                    "-c",
+                    "while :; do sleep 3600; done",
+                ],
+            ).strip()
+        )
+        self.remote(state["socket"], ["focus-window", "--match", f"id:{hidden_id}"])
+        # kitty reports is_active per window, and a window is active in its own
+        # tab whether or not anyone can see that tab. The tab is what hides.
+        wait_for(
+            "whattui tab to become hidden",
+            lambda: not self.tab_active(state),
+        )
+        self.resize(state, cols, rows)
+        self.remote(
+            state["socket"], ["focus-window", "--match", f"id:{state['window_id']}"]
+        )
+        wait_for("whattui tab to become visible", lambda: self.tab_active(state))
+        self.remote(state["socket"], ["close-window", "--match", f"id:{hidden_id}"])
+        self.wait_text(state, "READY-HARNESS")
+
+    # Every window of this scenario's own kitty, not just whattui's: a cover
+    # tab left behind keeps the toplevel alive and the wait below never ends.
+    def tab_active(self, state: dict[str, Any]) -> bool:
+        for os_window in self.kitty_tree(state["socket"]):
+            for tab in os_window.get("tabs", []):
+                for window in tab.get("windows", []):
+                    if window.get("id") == state["window_id"]:
+                        return bool(tab.get("is_active", False))
+        raise Failure(f"kitty window {state['window_id']} is gone")
+
+    def close(self, state: dict[str, Any]) -> None:
+        self.remote(state["socket"], ["close-window", "--match", "all"], check=False)
+        wait_for(
+            "kitty toplevel to close", lambda: self.find_hypr_client(state) is None
+        )
+        if state in self.states:
+            self.states.remove(state)
+
+    # Best effort: a window that will not close must not stop the run from
+    # removing the headless output it created.
+    def cleanup(self) -> None:
+        for state in reversed(self.states.copy()):
+            try:
+                self.close(state)
+            except (Failure, OSError) as exc:
+                print(f"whattui-screenshot: cleanup: {exc}", file=sys.stderr)
+                self.states.remove(state)
+
+
+def start_fixture(
+    run_dir: Path, binary: Path
+) -> tuple[subprocess.Popen[Any], Path, Path]:
+    socket = run_dir / "fixture" / "whatevrd.sock"
+    socket.parent.mkdir(parents=True, exist_ok=True)
+    socket.parent.chmod(0o700)
+    ready = run_dir / "fixture.ready"
+    log_path = run_dir / "logs" / "protocol-fixture.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log = log_path.open("wb")
+    proc = subprocess.Popen(
+        [
+            str(binary),
+            "--socket",
+            str(socket),
+            "--ready-file",
+            str(ready),
+            "--script",
+            str(FIXTURE),
+        ],
+        cwd=ROOT / "whatevrd",
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+
+    def fixture_ready() -> bool:
+        if proc.poll() is not None:
+            raise Failure(
+                f"protocol-fixture exited with {proc.returncode}; see {log_path}"
+            )
+        return ready.exists() and socket.exists()
+
+    wait_for("protocol fixture ready file and socket", fixture_ready)
+    return proc, socket, log_path
+
+
+def stop_process(proc: subprocess.Popen[Any]) -> None:
+    if proc.poll() is None:
+        os.killpg(proc.pid, signal.SIGTERM)
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.wait(timeout=5)
+
+
+def capture_caps(run_dir: Path, binaries: dict[str, Path], fixture_socket: Path) -> str:
+    output = run_dir / "caps.txt"
+    env = os.environ.copy()
+    env.update({"TERM": "xterm-kitty", "WHATTUI_FONT": "Noto Sans Mono", "TZ": "UTC"})
+    result = run(
+        [str(binaries["whattui"]), "--caps", "--socket", str(fixture_socket)],
+        check=False,
+        env=env,
+    )
+    output.write_text((result.stdout or "") + (result.stderr or ""), encoding="utf-8")
+    return output.read_text(encoding="utf-8")
+
+
+def compatibility(metadata: dict[str, Any]) -> dict[str, Any]:
+    tools = metadata["tools"]
+    scenarios = {
+        entry["name"]: {"pty": entry["pty"], "pixels": entry["pixels"]}
+        for entry in metadata["scenarios"]
+    }
+    return {
+        "schema": metadata["schema"],
+        "fixture_sha256": metadata["fixture_sha256"],
+        "kitty_config_sha256": metadata["kitty_config_sha256"],
+        "tools": {
+            key: tools[key]
+            for key in ("kitty", "grim", "font", "font_version", "pillow")
+        },
+        "scenarios": scenarios,
+    }
+
+
+def compare_or_update(metadata: dict[str, Any], update: bool, no_compare: bool) -> None:
+    golden_meta_path = GOLDENS / "goldens.json"
+    names = [entry["name"] for entry in metadata["scenarios"]]
+    if update:
+        GOLDENS.mkdir(parents=True, exist_ok=True)
+        for name in names:
+            # Re-encoded rather than copied: grim writes a 2.6MB png where the
+            # same pixels compress to 80KB, and these live in the repository.
+            with Image.open(OUTPUT / f"{name}.png") as capture:
+                capture.convert("RGBA").save(
+                    GOLDENS / f"{name}.png", optimize=True, compress_level=9
+                )
+        golden_meta_path.write_text(
+            json.dumps({"compatibility": compatibility(metadata)}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        return
+    if no_compare:
+        return
+    if not golden_meta_path.exists():
+        raise Failure(
+            "no committed goldens; inspect captures then run with --update-goldens"
+        )
+    golden_meta = json.loads(golden_meta_path.read_text(encoding="utf-8"))
+    if golden_meta.get("compatibility") != compatibility(metadata):
+        raise Failure(
+            "golden metadata is incompatible with this terminal/tool environment; refusing comparison"
+        )
+    diff_dir = OUTPUT / "diffs"
+    diff_dir.mkdir(exist_ok=True)
+    failures: list[str] = []
+    for name in names:
+        actual_path = OUTPUT / f"{name}.png"
+        expected_path = GOLDENS / f"{name}.png"
+        if not expected_path.exists():
+            failures.append(f"{name}: missing golden")
+            continue
+        with Image.open(actual_path) as actual_image, Image.open(
+            expected_path
+        ) as expected_image:
+            actual = actual_image.convert("RGBA")
+            expected = expected_image.convert("RGBA")
+            if actual.size != expected.size:
+                failures.append(f"{name}: size {actual.size} != {expected.size}")
+                continue
+            diff = ImageChops.difference(actual, expected)
+            if diff.getbbox() is not None:
+                diff.save(diff_dir / f"{name}.png")
+                failures.append(f"{name}: pixels differ")
+            else:
+                (diff_dir / f"{name}.png").unlink(missing_ok=True)
+    if failures:
+        raise Failure("golden comparison failed: " + "; ".join(failures))
+
+
+def self_check() -> dict[str, Any]:
+    required_tools()
+    messages = validate_fixture()
+    if not KITTY_CONFIG.is_file():
+        raise Failure(f"missing {KITTY_CONFIG}")
+    return {
+        "fixture": str(FIXTURE.relative_to(ROOT)),
+        "fixture_messages": messages,
+        "fixture_sha256": sha256(FIXTURE),
+        "kitty_config": str(KITTY_CONFIG.relative_to(ROOT)),
+        "kitty_config_sha256": sha256(KITTY_CONFIG),
+        "tools": tools_metadata(),
+    }
+
+
+def install_signal_handlers() -> None:
+    def interrupted(signum: int, _frame: Any) -> None:
+        raise SignalExit(signum)
+
+    signal.signal(signal.SIGINT, interrupted)
+    signal.signal(signal.SIGTERM, interrupted)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="validate inputs and tools without building or opening windows",
+    )
+    parser.add_argument(
+        "--probe",
+        action="store_true",
+        help="create, configure, verify, and remove a Hyprland headless output",
+    )
+    parser.add_argument(
+        "--scenario",
+        action="append",
+        choices=[
+            *(f"kitty-{cols}x{rows}" for cols, rows in SIZES),
+            "kitty-120x40-plain",
+            "resize-visible-67x24",
+            "resize-hidden-tab-67x24",
+            "resize-fresh-67x24",
+        ],
+        help="capture only this scenario (repeatable; default: all)",
+    )
+    parser.add_argument(
+        "--update-goldens",
+        action="store_true",
+        help="replace committed golden PNGs and compatibility metadata",
+    )
+    parser.add_argument(
+        "--no-compare",
+        action="store_true",
+        help="capture without comparing committed goldens",
+    )
+    parser.add_argument(
+        "--keep-run-dir",
+        action="store_true",
+        help="keep intermediate ready files and sockets after failure",
+    )
+    parser.add_argument("--_child", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--child-ready", help=argparse.SUPPRESS)
+    parser.add_argument("--child-log", help=argparse.SUPPRESS)
+    parser.add_argument(
+        "child_command", nargs=argparse.REMAINDER, help=argparse.SUPPRESS
+    )
+    args = parser.parse_args()
+    if args._child:
+        if args.child_command and args.child_command[0] == "--":
+            args.child_command = args.child_command[1:]
+        return child_mode(args)
+    if args.update_goldens and args.no_compare:
+        parser.error("--update-goldens and --no-compare are mutually exclusive")
+    if args.update_goldens and args.scenario:
+        parser.error("--update-goldens requires the complete scenario matrix")
+
+    checked = self_check()
+    if args.dry_run:
+        print(json.dumps(checked, indent=2))
+        return 0
+    if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
+        raise Failure("a live Hyprland session is required for pixel capture")
+
+    install_signal_handlers()
+    headless = HeadlessOutput()
+    if args.probe:
+        try:
+            headless.create()
+            print(json.dumps(headless.metadata(), indent=2))
+            return 0
+        finally:
+            headless.remove()
+
+    if OUTPUT.exists():
+        shutil.rmtree(OUTPUT)
+    run_dir = OUTPUT / "run"
+    run_dir.mkdir(parents=True)
+    binaries = build_binaries(run_dir)
+    fixture_proc: subprocess.Popen[Any] | None = None
+    harness: Harness | None = None
+    scenarios: list[dict[str, Any]] = []
+    try:
+        headless.create()
+        fixture_proc, fixture_socket, fixture_log = start_fixture(
+            run_dir, binaries["fixture"]
+        )
+        harness = Harness(OUTPUT, binaries, fixture_socket, headless)
+        selected = set(args.scenario or [])
+        for cols, rows in SIZES:
+            name = f"kitty-{cols}x{rows}"
+            if selected and name not in selected:
+                continue
+            state = harness.launch(cols, rows, name)
+            scenarios.append(harness.capture(state, name, (cols, rows)))
+            harness.close(state)
+
+        plain_name = "kitty-120x40-plain"
+        if not selected or plain_name in selected:
+            state = harness.launch(120, 40, plain_name, plain=True)
+            scenarios.append(harness.capture(state, plain_name, (120, 40)))
+            harness.close(state)
+
+        visible_name = "resize-visible-67x24"
+        if not selected or visible_name in selected:
+            state = harness.launch(120, 40, visible_name)
+            harness.resize(state, 67, 24)
+            harness.wait_text(state, "READY-HARNESS")
+            scenarios.append(harness.capture(state, visible_name, (67, 24)))
+            harness.close(state)
+
+        hidden_name = "resize-hidden-tab-67x24"
+        if not selected or hidden_name in selected:
+            state = harness.launch(120, 40, hidden_name)
+            harness.hidden_tab_resize(state, 67, 24)
+            scenarios.append(harness.capture(state, hidden_name, (67, 24)))
+            harness.close(state)
+
+        fresh_name = "resize-fresh-67x24"
+        if not selected or fresh_name in selected:
+            state = harness.launch(67, 24, fresh_name)
+            scenarios.append(harness.capture(state, fresh_name, (67, 24)))
+            harness.close(state)
+
+        hidden = next(
+            (entry for entry in scenarios if entry["name"] == hidden_name), None
+        )
+        fresh = next(
+            (entry for entry in scenarios if entry["name"] == fresh_name), None
+        )
+        if (
+            hidden is not None
+            and fresh is not None
+            and hidden["pixel_sha256"] != fresh["pixel_sha256"]
+        ):
+            with Image.open(OUTPUT / f"{hidden_name}.png") as left_image, Image.open(
+                OUTPUT / f"{fresh_name}.png"
+            ) as right_image:
+                left, right = left_image.convert("RGBA"), right_image.convert("RGBA")
+                if left.size == right.size:
+                    diff_dir = OUTPUT / "diffs"
+                    diff_dir.mkdir(exist_ok=True)
+                    ImageChops.difference(left, right).save(
+                        diff_dir / "hidden-vs-fresh.png"
+                    )
+            raise Failure("hidden-tab resize pixels differ from a fresh 67x24 window")
+
+        metadata = {
+            "schema": 1,
+            "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "repository": git_info(ROOT),
+            "vaxis": git_info(ROOT / "whattui" / "vaxis"),
+            "headless_output": headless.metadata(),
+            "fixture_sha256": checked["fixture_sha256"],
+            "kitty_config_sha256": checked["kitty_config_sha256"],
+            "tools": checked["tools"],
+            "caps": capture_caps(run_dir, binaries, fixture_socket),
+            "logs": {
+                "fixture": str(fixture_log.relative_to(OUTPUT)),
+                "whattui": [
+                    str(path.relative_to(OUTPUT))
+                    for path in sorted((OUTPUT / "logs").glob("*.log"))
+                ],
+            },
+            "scenarios": scenarios,
+        }
+        (OUTPUT / "metadata.json").write_text(
+            json.dumps(metadata, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+        compare_or_update(metadata, args.update_goldens, args.no_compare)
+        print(f"captured {len(scenarios)} scenarios in {OUTPUT}")
+        return 0
+    finally:
+        if harness is not None:
+            harness.cleanup()
+        if fixture_proc is not None:
+            stop_process(fixture_proc)
+        headless.remove()
+        if not args.keep_run_dir:
+            shutil.rmtree(run_dir, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except (Failure, OSError, json.JSONDecodeError, SignalExit) as exc:
+        print(f"whattui-screenshot: {exc}", file=sys.stderr)
+        raise SystemExit(1)
