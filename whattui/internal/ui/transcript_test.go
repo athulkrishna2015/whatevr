@@ -157,7 +157,9 @@ func TestNothingIsPlacedOutsideTheTranscript(t *testing.T) {
 // hides the text under it and not the picture. Anything that covers the
 // transcript has to take the placements with it.
 func TestAModalTakesTheRunsUnderItWithIt(t *testing.T) {
-	a := benchApp(100, 26, 4, 0)
+	// Wide enough that the panel lands inside the transcript with message
+	// text running out past both of its edges.
+	a := benchApp(140, 26, 4, 0)
 	a.caps = term.Caps{Tier: term.TierShm, RGB: true}
 	a.shaper = textrun.New(textrun.Options{})
 	a.shaper.SetCellSize(10, 21)
@@ -171,10 +173,11 @@ func TestAModalTakesTheRunsUnderItWithIt(t *testing.T) {
 
 	c := a.conversation
 	c.msgs.Reset()
-	for i := 0; i < 12; i++ {
+	for i := 0; i < 30; i++ {
 		c.msgs.Upsert(fmt.Sprintf("%020d", i), mustJSON(proto.MessageRow{
 			ID: fmt.Sprintf("m%d", i), Kind: "text", Direction: "incoming",
-			Text:   "नमस्ते सर, आपके बिजनेस के सपनों को हकीकत बनाएँ।",
+			Text: "नमस्ते सर, आपके बिजनेस के सपनों को हकीकत बनाएँ और आगे बढ़ें, " +
+				"कृपया अपनी पूरी जानकारी एक बार ध्यान से देख लें, धन्यवाद।",
 			Sender: proto.Sender{ID: "x", Name: "Khatabook"},
 		}))
 	}
@@ -191,11 +194,21 @@ func TestAModalTakesTheRunsUnderItWithIt(t *testing.T) {
 	if rect.Width == 0 || rect.Height == 0 {
 		t.Fatal("the palette claimed no room")
 	}
+	crossed := false
 	for _, p := range a.placements {
-		if p.col+p.cells > rect.Col && p.col < rect.Col+rect.Width &&
+		if p.col+p.span > rect.Col && p.col < rect.Col+rect.Width &&
 			p.row >= rect.Row && p.row < rect.Row+rect.Height {
 			t.Fatalf("a run at %d,%d (%d cells) shows through the palette at %+v",
-				p.col, p.row, p.cells, rect)
+				p.col, p.row, p.span, rect)
 		}
+		// A phrase that only had its tail covered keeps the rest: it is one
+		// image over many cells, and the half nobody covered is still text
+		// somebody is reading.
+		if p.span > 0 && p.span < p.cells {
+			crossed = true
+		}
+	}
+	if !crossed {
+		t.Error("no phrase was trimmed at the palette's edge, so the split was never exercised")
 	}
 }

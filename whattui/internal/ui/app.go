@@ -48,8 +48,11 @@ type App struct {
 	shaper     *textrun.Shaper
 	shaping    bool
 	placements []placement
-	images     map[imgKey]*vaxis.KittyImage
-	seen       map[imgKey]bool
+	// occluded is the scratch the occlusion pass builds into, kept so a frame
+	// that covers a phrase does not allocate a new slice for what is left.
+	occluded []placement
+	images   map[imgKey]*vaxis.KittyImage
+	seen     map[imgKey]bool
 
 	// What the pointer has taken, what it is taking, and the runs of text a
 	// triple click can take whole. All three are screen coordinates from the

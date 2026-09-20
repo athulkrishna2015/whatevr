@@ -1,7 +1,10 @@
 package ui
 
 import (
+	"image"
 	"image/color"
+	"image/draw"
+	"strconv"
 	"strings"
 
 	"go.rockorager.dev/vaxis"
@@ -149,8 +152,8 @@ func (a *App) print(win vaxis.Window, col, row int, style vaxis.Style, s string)
 		})
 		oc, or := win.Origin()
 		a.placements = append(a.placements, placement{
-			win: win.New(col, row, span, 1), run: run, cells: span, ink: a.ink(style),
-			col: oc + col, row: or + row,
+			win: win.New(col, row, span, 1), run: run, cells: span, span: span,
+			ink: a.ink(style), col: oc + col, row: or + row,
 		})
 		col += span
 	}
@@ -197,25 +200,69 @@ func (a *App) rule(win vaxis.Window, col, row, n int, glyph string, style vaxis.
 // text and not the image: the phrase behind a palette keeps showing through
 // unless the placement itself goes.
 func (a *App) occlude(r layout.Rect) {
-	kept := a.placements[:0]
+	kept := a.occluded[:0]
 	for _, p := range a.placements {
-		if p.col+p.cells > r.Col && p.col < r.Col+r.Width &&
-			p.row >= r.Row && p.row < r.Row+r.Height {
+		if p.row < r.Row || p.row >= r.Row+r.Height ||
+			p.col+p.span <= r.Col || p.col >= r.Col+r.Width {
+			kept = append(kept, p)
 			continue
 		}
-		kept = append(kept, p)
+		// Only the covered columns go. A phrase is one image across many
+		// cells, and dropping all of it because a panel landed on its tail
+		// takes the half nobody covered with it.
+		if p.col < r.Col {
+			kept = append(kept, p.slice(0, r.Col-p.col))
+		}
+		if end := r.Col + r.Width; p.col+p.span > end {
+			kept = append(kept, p.slice(end-p.col, p.col+p.span-end))
+		}
 	}
+	a.occluded = a.placements[:0]
 	a.placements = kept
 }
 
 type placement struct {
-	win   vaxis.Window
-	run   *textrun.Run
+	win vaxis.Window
+	run *textrun.Run
+	// cells is the whole image the layout gave the run; from and span are the
+	// part of it still visible after whatever was drawn on top.
 	cells int
+	from  int
+	span  int
 	ink   color.NRGBA
 	// col and row are absolute, so a selection can ask the run what the blank
 	// cells it left behind actually say.
 	col, row int
+}
+
+// guardSpill blanks a wide grapheme that would paint its second half under a
+// panel. A terminal draws a two cell character from the cell it starts in, so
+// an emoji one column left of a panel reaches inside it and lands on the
+// border, and filling the panel cannot undo that from the other side.
+func (a *App) guardSpill(win vaxis.Window, r layout.Rect) {
+	if r.Col < 1 {
+		return
+	}
+	for row := r.Row; row < r.Row+r.Height; row++ {
+		c := a.vx.Cell(r.Col-1, row)
+		if c.Width < 2 {
+			continue
+		}
+		c.Character = vaxis.Character{Grapheme: " ", Width: 1}
+		win.New(r.Col-1, row, 1, 1).Fill(c)
+	}
+}
+
+// slice is the same run showing only span cells of itself, starting from cells
+// in. The window moves with it, so the image lands where the visible part of
+// the phrase actually is.
+func (p placement) slice(from, span int) placement {
+	q := p
+	q.win = p.win.New(from, 0, span, 1)
+	q.from = p.from + from
+	q.span = span
+	q.col = p.col + from
+	return q
 }
 
 // imgKey identifies a rasterised image. The pixel cell is part of it because a
@@ -240,10 +287,16 @@ func (a *App) flushRuns() {
 		if img == nil {
 			continue
 		}
+		if p.span < p.cells {
+			key += "\x00" + strconv.Itoa(p.from) + ":" + strconv.Itoa(p.span)
+		}
 		k := imgKey{key: key, w: cellW, h: cellH}
 		a.seen[k] = true
 		kimg, ok := a.images[k]
 		if !ok {
+			if p.span < p.cells {
+				img = cropCells(img, p.from, p.span, cellW)
+			}
 			kimg = a.vx.NewKittyPixels(img)
 			a.images[k] = kimg
 		}
@@ -297,4 +350,18 @@ func (a *App) ink(style vaxis.Style) color.NRGBA {
 		v = a.theme.InkMuted
 	}
 	return color.NRGBA{R: v[0], G: v[1], B: v[2], A: 0xff}
+}
+
+// cropCells copies the columns of a rasterised phrase that are still visible.
+// The pixels are copied rather than sub-imaged because what reads them next
+// wants a buffer that starts at its own first pixel.
+func cropCells(img *image.NRGBA, from, span, cellW int) *image.NRGBA {
+	x0 := from * cellW
+	x1 := minInt(x0+span*cellW, img.Bounds().Dx())
+	if x0 >= x1 {
+		return img
+	}
+	out := image.NewNRGBA(image.Rect(0, 0, x1-x0, img.Bounds().Dy()))
+	draw.Draw(out, out.Bounds(), img, image.Pt(img.Bounds().Min.X+x0, img.Bounds().Min.Y), draw.Src)
+	return out
 }

@@ -239,12 +239,12 @@ func wordish(g string) bool {
 // selectable: a cluster is the smallest thing that is still text.
 func (a *App) cellText(placed []placement, p point) (string, int) {
 	if r := runAt(placed, p.col, p.row); r != nil {
-		text, from, span := r.run.ClusterAt(p.col - r.col)
+		text, from, span := r.run.ClusterAt(r.from + p.col - r.col)
 		// A selection can start in the middle of a cluster. It still gets the
 		// whole cluster, because half of one is not text, but the walk has to
 		// carry on from the column it was asked about and not from the
 		// cluster's own start.
-		if lead := p.col - r.col - from; lead > 0 {
+		if lead := r.from + p.col - r.col - from; lead > 0 {
 			span -= lead
 		}
 		return text, maxInt(span, 1)
@@ -362,7 +362,7 @@ func (a *App) selectedText() string {
 func runAt(placed []placement, col, row int) *placement {
 	for i := range placed {
 		p := &placed[i]
-		if p.row == row && col >= p.col && col < p.col+p.cells {
+		if p.row == row && col >= p.col && col < p.col+p.span {
 			return p
 		}
 	}
