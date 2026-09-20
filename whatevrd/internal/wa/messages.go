@@ -1341,6 +1341,13 @@ const maxMessageUnwrapDepth = 8
 // message simply is not there. Wrappers that are not ordinary messages (status,
 // newsletter, bot and settings families) are deliberately left for the
 // tombstone, which at least makes them visible.
+//
+// associatedChildMessage is deliberately not among them. It is not a message
+// that arrived wrapped, it is a companion of one that arrived separately: an
+// HD photo crosses as the ordinary image and then again, as its own stanza,
+// carrying the full-size copy in this wrapper. Peeling it made the companion a
+// message of its own, so every HD photo drew twice, at two resolutions, seconds
+// apart. See silentMessageFields.
 func unwrapNestedMessage(msg *waE2E.Message) *waE2E.Message {
 	for range maxMessageUnwrapDepth {
 		var inner *waE2E.Message
@@ -1349,8 +1356,6 @@ func unwrapNestedMessage(msg *waE2E.Message) *waE2E.Message {
 			inner = msg.GetGroupMentionedMessage().GetMessage()
 		case msg.GetSpoilerMessage().GetMessage() != nil:
 			inner = msg.GetSpoilerMessage().GetMessage()
-		case msg.GetAssociatedChildMessage().GetMessage() != nil:
-			inner = msg.GetAssociatedChildMessage().GetMessage()
 		case msg.GetPollCreationMessageV4().GetMessage() != nil:
 			inner = msg.GetPollCreationMessageV4().GetMessage()
 		case msg.GetPollCreationOptionImageMessage().GetMessage() != nil:
@@ -1400,6 +1405,11 @@ var silentMessageFields = map[string]bool{
 	"rootSecretDistributeMessage":                true,
 	"botPlatformRegistrationSuccessMessage":      true,
 	"acp2SettingMessage":                         true,
+	// A companion of a message that arrived on its own stanza, not a message.
+	// The HD half of a photo is the one that matters here: dropping it shows
+	// the standard-quality image once, which is what every other client shows
+	// before you ask for HD, instead of the same photo twice.
+	"associatedChildMessage": true,
 	// Edits to something that already has a row.
 	"reactionMessage":                true,
 	"encReactionMessage":             true,

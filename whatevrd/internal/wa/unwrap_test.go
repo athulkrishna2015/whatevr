@@ -12,6 +12,11 @@ import (
 // wrapped, match no builder, and vanish without a row or a log line. A poll
 // inside a V4 wrapper is the clearest case: it is a poll, and it has to come
 // out as one.
+//
+// associatedChildMessage used to be in this list and is deliberately not any
+// more: it is a companion of a message that arrived separately rather than a
+// message that arrived wrapped, so peeling it drew every HD photo twice. See
+// TestTheHDHalfOfAPhotoIsNotASecondMessage.
 func TestUnwrapNestedMessageReachesTheRealMessage(t *testing.T) {
 	secret := []byte("message-secret")
 
@@ -24,9 +29,6 @@ func TestUnwrapNestedMessageReachesTheRealMessage(t *testing.T) {
 		}},
 		{"spoiler", &waE2E.Message{
 			SpoilerMessage: &waE2E.FutureProofMessage{Message: &waE2E.Message{Conversation: proto.String("hi")}},
-		}},
-		{"associated child", &waE2E.Message{
-			AssociatedChildMessage: &waE2E.FutureProofMessage{Message: &waE2E.Message{Conversation: proto.String("hi")}},
 		}},
 		{"nested twice", &waE2E.Message{
 			GroupMentionedMessage: &waE2E.FutureProofMessage{Message: &waE2E.Message{

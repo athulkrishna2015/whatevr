@@ -10,6 +10,7 @@ import (
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
+	"google.golang.org/protobuf/proto"
 
 	"whatevrd/internal/app"
 	appstore "whatevrd/internal/store"
@@ -84,5 +85,36 @@ func TestUnknownMessageKindIsStoredAsATombstone(t *testing.T) {
 	}
 	if len(message.MediaPayload) == 0 {
 		t.Fatal("the tombstone dropped its payload, so it can never be upgraded")
+	}
+}
+
+// An HD photo must draw once, not twice.
+//
+// WhatsApp sends an HD photo as two stanzas: the ordinary image, and a
+// companion carrying the full-size copy inside associatedChildMessage. The
+// companion was being peeled like any other wrapper, which made it a message in
+// its own right: found in a real chat as the same photo twice, seconds apart,
+// at 720x1280 and 2160x3840.
+func TestTheHDHalfOfAPhotoIsNotASecondMessage(t *testing.T) {
+	companion := &waE2E.Message{
+		AssociatedChildMessage: &waE2E.FutureProofMessage{
+			Message: &waE2E.Message{
+				ImageMessage: &waE2E.ImageMessage{
+					Mimetype: proto.String("image/jpeg"),
+					Width:    proto.Uint32(2160),
+					Height:   proto.Uint32(3840),
+				},
+			},
+		},
+	}
+
+	// Nothing peels it into the image it wraps.
+	if unwrapped := unwrapNestedMessage(companion); unwrapped.GetImageMessage() != nil {
+		t.Fatal("the HD companion was peeled into an image message, so it becomes a second row")
+	}
+
+	// And it leaves no tombstone either: there is already a row for this photo.
+	if field, unknown := unrecognizedPayloadField(companion); unknown {
+		t.Fatalf("the HD companion would be stored as an unsupported %q row", field)
 	}
 }
