@@ -152,3 +152,50 @@ func TestNothingIsPlacedOutsideTheTranscript(t *testing.T) {
 		a.scrollTranscript(1)
 	}
 }
+
+// A run is an image over the cell background, so a panel drawn on top of one
+// hides the text under it and not the picture. Anything that covers the
+// transcript has to take the placements with it.
+func TestAModalTakesTheRunsUnderItWithIt(t *testing.T) {
+	a := benchApp(100, 26, 4, 0)
+	a.caps = term.Caps{Tier: term.TierShm, RGB: true}
+	a.shaper = textrun.New(textrun.Options{})
+	a.shaper.SetCellSize(10, 21)
+	deadline := time.Now().Add(30 * time.Second)
+	for !a.shaper.Begin() && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !a.shaper.Begin() {
+		t.Skip("no usable font index on this machine")
+	}
+
+	c := a.conversation
+	c.msgs.Reset()
+	for i := 0; i < 12; i++ {
+		c.msgs.Upsert(fmt.Sprintf("%020d", i), mustJSON(proto.MessageRow{
+			ID: fmt.Sprintf("m%d", i), Kind: "text", Direction: "incoming",
+			Text:   "नमस्ते सर, आपके बिजनेस के सपनों को हकीकत बनाएँ।",
+			Sender: proto.Sender{ID: "x", Name: "Khatabook"},
+		}))
+	}
+	c.msgs.Ready(true, true)
+
+	a.paint()
+	if len(a.placements) == 0 {
+		t.Fatal("nothing was rasterised, so there is nothing to cover")
+	}
+
+	a.openModal(modalPalette)
+	a.paint()
+	rect := a.modal.rect
+	if rect.Width == 0 || rect.Height == 0 {
+		t.Fatal("the palette claimed no room")
+	}
+	for _, p := range a.placements {
+		if p.col+p.cells > rect.Col && p.col < rect.Col+rect.Width &&
+			p.row >= rect.Row && p.row < rect.Row+rect.Height {
+			t.Fatalf("a run at %d,%d (%d cells) shows through the palette at %+v",
+				p.col, p.row, p.cells, rect)
+		}
+	}
+}

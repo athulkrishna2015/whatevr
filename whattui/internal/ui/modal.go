@@ -323,6 +323,9 @@ func (a *App) drawModal(win vaxis.Window) {
 	r := layout.Rect{Col: maxInt((w-width)/2, 0), Row: maxInt((h-height)/3, 0), Width: width, Height: height}
 	pane := sub(win, r)
 	fill(pane, a.theme.BackgroundPanel)
+	// A run is an image over the cell background: covering it with a panel
+	// hides the text under it and leaves the picture.
+	a.occlude(r)
 
 	title, prompt := "Commands", "> "
 	if kind == modalSlash {

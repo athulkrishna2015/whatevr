@@ -6,6 +6,7 @@ import (
 
 	"go.rockorager.dev/vaxis"
 
+	"whattui/internal/layout"
 	"whattui/internal/textrun"
 )
 
@@ -191,6 +192,22 @@ func (a *App) rule(win vaxis.Window, col, row, n int, glyph string, style vaxis.
 // rather than drawn on the spot because an image is not a cell: the panes
 // paint over each other freely, and a graphic placed mid-frame would sit under
 // whatever the next pane blanked.
+// occlude drops the rasterised words a later pane covered. A run is a kitty
+// image placed above the cell background, so a panel drawn over one hides its
+// text and not the image: the phrase behind a palette keeps showing through
+// unless the placement itself goes.
+func (a *App) occlude(r layout.Rect) {
+	kept := a.placements[:0]
+	for _, p := range a.placements {
+		if p.col+p.cells > r.Col && p.col < r.Col+r.Width &&
+			p.row >= r.Row && p.row < r.Row+r.Height {
+			continue
+		}
+		kept = append(kept, p)
+	}
+	a.placements = kept
+}
+
 type placement struct {
 	win   vaxis.Window
 	run   *textrun.Run
