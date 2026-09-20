@@ -40,9 +40,8 @@ type selection struct {
 
 // drag is a press that has not been let go of yet.
 type drag struct {
-	down   bool
-	moved  bool
-	bounds layout.Rect
+	down  bool
+	moved bool
 	// chat is the row the press landed on, opened on release if the press
 	// never turned into a drag. A click that opens on the way down is a click
 	// that cannot be the start of a selection.
@@ -117,7 +116,6 @@ func (a *App) onSelectPress(p point) bool {
 	a.mu.Lock()
 	a.drag.down = true
 	a.drag.moved = false
-	a.drag.bounds = bounds
 	a.sel = selection{bounds: bounds, from: p, to: p}
 	a.mu.Unlock()
 	return false
