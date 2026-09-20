@@ -74,7 +74,7 @@ void TranscriptView::setModel(const QVariant &model)
     m_tree.clear();
     m_measuredTotal = 0;
     m_measuredCount = 0;
-    m_offsetFromBottom = 0;
+    m_anchorRow = -1;
 
     QObject *object = qvariant_cast<QObject *>(model);
     if (auto *provided = qobject_cast<QQmlDelegateModel *>(object)) {
@@ -92,6 +92,7 @@ void TranscriptView::setModel(const QVariant &model)
 
     connect(m_delegateModel, &QQmlInstanceModel::modelUpdated, this, &TranscriptView::onModelUpdated);
     connect(m_delegateModel, &QQmlInstanceModel::initItem, this, &TranscriptView::onInitItem);
+    connect(m_delegateModel, &QQmlInstanceModel::createdItem, this, &TranscriptView::onCreatedItem);
 
     if (isComponentComplete()) {
         m_delegateModel->componentComplete();
@@ -119,6 +120,7 @@ void TranscriptView::setDelegate(QQmlComponent *delegate)
         m_ownsDelegateModel = true;
         connect(m_delegateModel, &QQmlInstanceModel::modelUpdated, this, &TranscriptView::onModelUpdated);
         connect(m_delegateModel, &QQmlInstanceModel::initItem, this, &TranscriptView::onInitItem);
+        connect(m_delegateModel, &QQmlInstanceModel::createdItem, this, &TranscriptView::onCreatedItem);
         if (isComponentComplete()) {
             m_delegateModel->componentComplete();
         }
@@ -291,19 +293,59 @@ qreal TranscriptView::rowTop(int index) const
 void TranscriptView::syncContentHeight()
 {
     const qreal total = std::max(indexedHeight(), height());
-    if (qFuzzyCompare(contentHeight(), total)) {
+    if (!qFuzzyCompare(contentHeight(), total)) {
+        setContentHeight(total);
+    }
+}
+
+// Remember where the reader is looking, in rows rather than in pixels.
+//
+// The row at the top of the viewport is the anchor. Measuring history changes
+// the content total, and in a bottom-anchored layout that moves every row newer
+// than the one that changed; pinning the top row to the pixel it already
+// occupies is what keeps the screen still while that happens. contentY used to
+// be reconstructed from a stored distance-to-the-bottom instead, which is the
+// same number the scroller was writing, so the two fought each other every
+// frame of a flick.
+void TranscriptView::captureAnchor()
+{
+    if (m_anchorRow >= 0 || m_anchorAtBottom || m_rows.isEmpty()) {
+        return; // one capture per correction; the first is the honest one
+    }
+    // Sitting on the newest message is a different intent from reading history:
+    // the reader wants the bottom to stay the bottom, however much the rows
+    // above it turn out to weigh.
+    if (contentY() >= std::max(qreal(0), contentHeight() - height()) - 0.5) {
+        m_anchorAtBottom = true;
         return;
     }
-    setContentHeight(total);
-    // Hold the distance from the bottom, not contentY. History being measured
-    // changes the total; pinning contentY instead would slide every row on
-    // screen by the same amount, which is the shove this view exists to avoid.
-    const qreal wanted = std::max(qreal(0), total - height() - m_offsetFromBottom);
-    if (!qFuzzyCompare(contentY(), wanted)) {
-        m_settingContentY = true;
-        setContentY(wanted);
-        m_settingContentY = false;
+    const int top = std::clamp(treeFind(std::max(qreal(0), contentHeight() - contentY())),
+                               0, int(m_rows.size()) - 1);
+    m_anchorRow = top;
+    m_anchorScreenY = rowTop(top) - contentY();
+}
+
+void TranscriptView::restoreAnchor()
+{
+    if (m_anchorRow < 0 && !m_anchorAtBottom) {
+        return;
     }
+    const int row = std::clamp(m_anchorRow, 0, std::max(0, int(m_rows.size()) - 1));
+    const bool atBottom = m_anchorAtBottom;
+    m_anchorRow = -1;
+    m_anchorAtBottom = false;
+    if (m_rows.isEmpty()) {
+        return;
+    }
+    const qreal maxY = std::max(qreal(0), contentHeight() - height());
+    const qreal wanted = atBottom ? maxY
+                                  : std::clamp(rowTop(row) - m_anchorScreenY, qreal(0), maxY);
+    if (qFuzzyCompare(contentY(), wanted)) {
+        return;
+    }
+    m_settingContentY = true;
+    setContentY(wanted);
+    m_settingContentY = false;
 }
 
 // ---------------------------------------------------------------- items
@@ -324,16 +366,30 @@ QQuickItem *TranscriptView::requireItem(int index, bool async)
     if (!m_delegateModel || index < 0 || index >= count()) {
         return nullptr;
     }
+    if (m_requested.contains(index)) {
+        return nullptr; // incubating; onCreatedItem finishes it
+    }
     QObject *object = m_delegateModel->object(
         index, async ? QQmlIncubator::Asynchronous : QQmlIncubator::AsynchronousIfNested);
     if (!object) {
-        return nullptr; // still incubating; a later polish picks it up
+        // The model holds a reference for the incubation. Remember it so the
+        // request is either completed or cancelled, never dropped: a dropped
+        // one is a row that stays blank forever, because nothing ever positions
+        // the delegate that eventually arrives.
+        m_requested.insert(index);
+        return nullptr;
     }
     auto *item = qobject_cast<QQuickItem *>(object);
     if (!item) {
         m_delegateModel->release(object);
         return nullptr;
     }
+    adoptItem(index, item);
+    return item;
+}
+
+void TranscriptView::adoptItem(int index, QQuickItem *item)
+{
     item->setParentItem(contentItem());
     if (auto *attached = qobject_cast<TranscriptViewAttached *>(
             qmlAttachedPropertiesObject<TranscriptView>(item, false))) {
@@ -341,15 +397,58 @@ QQuickItem *TranscriptView::requireItem(int index, bool async)
         attached->emitReused();
     }
     m_items.insert(index, item);
-    return item;
+    m_itemRows.insert(item, index);
+    // A delegate does not know its final height when it is built: images
+    // resolve, Loaders complete, text wraps at the width it was just given.
+    // Without this the index keeps whatever height the row had on its first
+    // frame, and every row above it is drawn at the wrong offset from then on.
+    connect(item, &QQuickItem::heightChanged, this, &TranscriptView::onItemHeightChanged,
+            Qt::UniqueConnection);
+}
+
+void TranscriptView::onItemHeightChanged()
+{
+    if (m_measuring) {
+        return; // the layout's own measurement, already accounted for
+    }
+    auto *item = qobject_cast<QQuickItem *>(sender());
+    if (!item) {
+        return;
+    }
+    const int index = m_itemRows.value(item, -1);
+    if (index < 0 || index >= m_rows.size() || item->height() <= 0) {
+        return;
+    }
+    if (qFuzzyCompare(m_rows.at(index).height, item->height())) {
+        return;
+    }
+    captureAnchor();
+    setRowHeight(index, item->height(), true);
+    scheduleLayout();
+}
+
+void TranscriptView::onCreatedItem(int index, QObject *object)
+{
+    m_requested.remove(index);
+    auto *item = qobject_cast<QQuickItem *>(object);
+    if (!item || m_items.contains(index)) {
+        return;
+    }
+    adoptItem(index, item);
+    scheduleLayout();
 }
 
 void TranscriptView::releaseItem(int index)
 {
+    if (m_requested.remove(index) && m_delegateModel) {
+        m_delegateModel->cancel(index);
+    }
     QQuickItem *item = m_items.take(index);
     if (!item) {
         return;
     }
+    m_itemRows.remove(item);
+    disconnect(item, &QQuickItem::heightChanged, this, &TranscriptView::onItemHeightChanged);
     if (auto *attached = qobject_cast<TranscriptViewAttached *>(
             qmlAttachedPropertiesObject<TranscriptView>(item, false))) {
         attached->emitPooled();
@@ -369,15 +468,23 @@ void TranscriptView::releaseAllItems()
     for (int index : indexes) {
         releaseItem(index);
     }
+    const QList<int> requested = m_requested.values();
+    for (int index : requested) {
+        releaseItem(index);
+    }
     m_items.clear();
+    m_itemRows.clear();
+    m_requested.clear();
 }
 
 void TranscriptView::layoutRow(int index, QQuickItem *item)
 {
+    m_measuring = true;
     item->setWidth(width());
     item->setVisible(true);
     const qreal measured = item->height();
-    if (measured > 0) {
+    m_measuring = false;
+    if (measured > 0 && !qFuzzyCompare(m_rows.at(index).height, measured)) {
         setRowHeight(index, measured, true);
     }
     item->setY(rowTop(index));
@@ -421,14 +528,20 @@ void TranscriptView::applyLayout()
             m_footerItem->setWidth(width());
             m_footerItem->setY(0);
         }
+        m_anchorRow = -1;
+        m_anchorAtBottom = false;
         m_inLayout = false;
         return;
     }
 
-    // Two passes. The first builds and measures, which can move contentHeight
-    // under the band it was chosen from; the second settles on the corrected
-    // index. Two is enough because a measurement only moves rows older than
-    // itself, so the band's far edge is the only thing that can shift.
+    // Pin the top row before anything is measured, so the corrections below
+    // move history rather than the screen.
+    captureAnchor();
+
+    // Two passes. The first builds and measures, which moves the total under
+    // the band it was chosen from; the second settles on the corrected index.
+    // A measurement only moves rows older than itself, so the band's far edge
+    // is the only thing that can shift, and two is enough to catch it.
     for (int pass = 0; pass < 2; ++pass) {
         const qreal viewTop = contentY() - m_cacheBuffer;
         const qreal viewBottom = contentY() + height() + m_cacheBuffer;
@@ -437,10 +550,8 @@ void TranscriptView::applyLayout()
         // top of the viewport is the *oldest* row in the band.
         const qreal bottomOffset = std::max(qreal(0), contentHeight() - viewBottom);
         const qreal topOffset = std::max(qreal(0), contentHeight() - viewTop);
-        int first = treeFind(bottomOffset);
-        int last = treeFind(topOffset);
-        first = std::clamp(first, 0, n - 1);
-        last = std::clamp(last, first, n - 1);
+        int first = std::clamp(treeFind(bottomOffset), 0, n - 1);
+        int last = std::clamp(treeFind(topOffset), first, n - 1);
 
         const QList<int> held = m_items.keys();
         for (int index : held) {
@@ -448,10 +559,16 @@ void TranscriptView::applyLayout()
                 releaseItem(index);
             }
         }
+        const QList<int> waiting = m_requested.values();
+        for (int index : waiting) {
+            if (index < first || index > last || index >= n) {
+                releaseItem(index);
+            }
+        }
 
         // The viewport is built synchronously so the first frame is complete;
-        // the cache band incubates, which is what keeps it off the open's
-        // critical path.
+        // the cache band incubates, which keeps it off the open's critical
+        // path. An incubated row lands in onCreatedItem and is laid out then.
         const qreal visibleTop = contentY();
         const qreal visibleBottom = contentY() + height();
         for (int index = first; index <= last; ++index) {
@@ -461,13 +578,23 @@ void TranscriptView::applyLayout()
                 layoutRow(index, item);
             }
         }
+        syncContentHeight();
+        restoreAnchor();
+    }
+
+    // Every built row is repositioned against the settled index, including the
+    // ones measured on the second pass. Missing this left visible gaps between
+    // rows wherever a delegate turned out taller than its estimate.
+    for (auto it = m_items.constBegin(); it != m_items.constEnd(); ++it) {
+        if (it.key() >= 0 && it.key() < n) {
+            it.value()->setY(rowTop(it.key()));
+        }
     }
 
     if (m_footerItem) {
         m_footerItem->setWidth(width());
         m_footerItem->setY(rowTop(n - 1) - m_spacing - m_footerItem->height());
     }
-    syncContentHeight();
 
     m_inLayout = false;
 }
@@ -550,10 +677,11 @@ qreal TranscriptView::targetContentYFor(int index, int mode) const
 // Move the viewport without the move being read back as the reader scrolling.
 void TranscriptView::applyContentY(qreal y)
 {
+    m_anchorRow = -1;
+    m_anchorAtBottom = false;
     m_settingContentY = true;
-    setContentY(y);
+    setContentY(std::clamp(y, qreal(0), std::max(qreal(0), contentHeight() - height())));
     m_settingContentY = false;
-    m_offsetFromBottom = std::max(qreal(0), contentHeight() - height() - y);
 }
 
 void TranscriptView::positionViewAtBeginning()
@@ -596,8 +724,12 @@ void TranscriptView::geometryChange(const QRectF &newGeometry, const QRectF &old
 void TranscriptView::viewportMoved(Qt::Orientations orient)
 {
     QQuickFlickable::viewportMoved(orient);
+    // The reader moving the viewport discards any anchor a measurement was
+    // holding: where they have just scrolled to is the new truth, and applying
+    // a stale correction on top of it is what made a flick stop dead.
     if (!m_settingContentY && !m_inLayout) {
-        m_offsetFromBottom = std::max(qreal(0), contentHeight() - height() - contentY());
+        m_anchorRow = -1;
+        m_anchorAtBottom = false;
     }
     scheduleLayout();
 }
@@ -622,7 +754,7 @@ void TranscriptView::onModelUpdated(const QQmlChangeSet &changeSet, bool reset)
         releaseAllItems();
         m_rows.fill(Row{estimate, false}, count());
         rebuildTree();
-        m_offsetFromBottom = 0;
+        m_anchorRow = -1;
         syncContentHeight();
         scheduleLayout();
         Q_EMIT countChanged();

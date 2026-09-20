@@ -2,6 +2,7 @@
 #pragma once
 
 #include <QPointer>
+#include <QSet>
 #include <QQmlComponent>
 #include <QQmlEngine>
 #include <QVariant>
@@ -151,6 +152,11 @@ protected:
 private Q_SLOTS:
     void onModelUpdated(const QQmlChangeSet &changeSet, bool reset);
     void onInitItem(int index, QObject *object);
+    void onCreatedItem(int index, QObject *object);
+    // A built row reporting a new height. No argument: the sender is the row,
+    // which is what lets this be a unique connection (a lambda cannot be one,
+    // and a pooled delegate is adopted again every time it comes back).
+    void onItemHeightChanged();
 
 private:
     struct Row {
@@ -174,8 +180,16 @@ private:
     void releaseItem(int index);
     void releaseAllItems();
     QQuickItem *requireItem(int index, bool async);
+    void adoptItem(int index, QQuickItem *item);
     void layoutRow(int index, QQuickItem *item);
     [[nodiscard]] qreal rowTop(int index) const;
+
+    // Scroll anchoring. Measuring a row changes the content total, and in a
+    // bottom-anchored layout that moves every row newer than it. Pinning the
+    // row at the top of the viewport to the pixel it was already on is what
+    // keeps the reader's eyes still while history behind them settles.
+    void captureAnchor();
+    void restoreAnchor();
 
     void scheduleLayout();
     void applyLayout();
@@ -189,18 +203,27 @@ private:
     QVector<Row> m_rows;
     QVector<qreal> m_tree;
     QHash<int, QQuickItem *> m_items;
+    // Reverse of m_items, so a delegate reporting a new height can say which
+    // row it is without a scan.
+    QHash<QQuickItem *, int> m_itemRows;
+    // Rows whose delegate is still incubating. The model holds a reference for
+    // each; dropping one without cancelling leaks it.
+    QSet<int> m_requested;
 
     qreal m_spacing = 0;
     qreal m_cacheBuffer = 0;
-    // Distance the viewport is scrolled up from the bottom. This, not contentY,
-    // is what a bottom-anchored layout holds still: contentHeight moves as
-    // history is measured, and holding contentY instead would slide the rows on
-    // screen by exactly that much.
-    qreal m_offsetFromBottom = 0;
     qreal m_measuredTotal = 0;
     int m_measuredCount = 0;
+    // The row the viewport is pinned to across an index change, and where on
+    // screen its top edge sat. -1 means nothing to restore.
+    int m_anchorRow = -1;
+    qreal m_anchorScreenY = 0;
+    // Parked at the newest message, which is its own anchor: the reader wants
+    // the bottom, not whichever row happens to be at the top of the screen.
+    bool m_anchorAtBottom = false;
     bool m_layoutScheduled = false;
     bool m_inLayout = false;
+    bool m_measuring = false;
     bool m_settingContentY = false;
     QQuickItem *m_footerItem = nullptr;
 };

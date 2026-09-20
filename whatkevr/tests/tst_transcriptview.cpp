@@ -152,6 +152,103 @@ private Q_SLOTS:
                  transcript->contentY() + transcript->height());
     }
 
+    // Every row in the band is actually placed, including the ones that were
+    // incubated rather than built on the spot.
+    //
+    // Cache-band rows are requested asynchronously, and an async request comes
+    // back as null with the model holding a reference. Dropping that request
+    // meant the delegate arrived later with nothing to position it: the row
+    // took up its height in the index and drew nothing, so a scrolled
+    // transcript was half blank space with the messages bunched into whatever
+    // was on screen when the band was last built synchronously.
+    void everyBuiltRowIsPlacedIncludingIncubatedOnes()
+    {
+        QQmlEngine engine;
+        QQuickWindow window;
+        window.resize(100, 200);
+        QStringList heights;
+        for (int i = 0; i < 40; ++i) {
+            heights.append(QStringLiteral("30"));
+        }
+        auto *view = build(&engine, &window, heights);
+        QVERIFY(view);
+        // Two viewports each way, which is what the transcript runs with, so
+        // most of the band is incubated rather than built synchronously.
+        view->setProperty("cacheBuffer", 400);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        QMetaObject::invokeMethod(view, "forceLayout");
+        QTest::qWait(200);
+        QMetaObject::invokeMethod(view, "forceLayout");
+
+        auto *transcript = qobject_cast<TranscriptView *>(view);
+        int placed = 0;
+        for (int i = 0; i < transcript->count(); ++i) {
+            QQuickItem *item = transcript->itemAtIndex(i);
+            if (!item) {
+                continue;
+            }
+            ++placed;
+            const qreal wantedTop = transcript->contentHeight() - transcript->offsetFromBottom(i);
+            QVERIFY2(qAbs(item->y() - wantedTop) < 0.5,
+                     qPrintable(QStringLiteral("row %1 is drawn at y %2, but the index puts it "
+                                               "at %3").arg(i).arg(item->y()).arg(wantedTop)));
+        }
+        // The viewport alone is about 7 rows; the band has to have built more
+        // than that or this proves nothing about incubation.
+        QVERIFY2(placed > 10,
+                 qPrintable(QStringLiteral("only %1 row(s) were built, so the cache band never "
+                                           "incubated anything").arg(placed)));
+    }
+
+    // A delegate that settles its height after it was placed moves the rows
+    // above it, and nothing else.
+    //
+    // Images resolve, Loaders complete and text wraps after the row has been
+    // measured once. Without watching for that the index keeps the first
+    // number forever, and every row above it is drawn at an offset that is
+    // wrong by the difference, which is the gap between messages.
+    void aRowThatGrowsAfterItWasPlacedMovesOnlyHistory()
+    {
+        QQmlEngine engine;
+        QQuickWindow window;
+        window.resize(100, 200);
+        QStringList heights;
+        // Comfortably taller than the viewport: a transcript shorter than the
+        // screen is bottom-aligned, which moves every row together and would
+        // say nothing about what one measurement does.
+        for (int i = 0; i < 40; ++i) {
+            heights.append(QStringLiteral("30"));
+        }
+        auto *view = build(&engine, &window, heights, 200);
+        QVERIFY(view);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        QMetaObject::invokeMethod(view, "positionViewAtBeginning");
+        QMetaObject::invokeMethod(view, "forceLayout");
+
+        auto *transcript = qobject_cast<TranscriptView *>(view);
+        QQuickItem *grower = transcript->itemAtIndex(2);
+        QVERIFY2(grower, "row 2 was never built");
+        QVERIFY2(transcript->itemAtIndex(1), "row 1 was never built");
+        // Screen position, not content position: the total moves when a row is
+        // measured, so a content coordinate moves with it while the pixel the
+        // reader is looking at does not.
+        const qreal newerOnScreen = transcript->itemAtIndex(1)->y() - transcript->contentY();
+
+        // The row turns out to be 70px taller than it first reported. Nothing
+        // asks the view to lay out again: noticing is its job, which is the
+        // whole point of this test, so no forceLayout here.
+        grower->setHeight(100);
+        QTRY_COMPARE(transcript->offsetFromBottom(2), 160.0);
+        // Rows newer than it are positioned from the bottom and do not move.
+        QCOMPARE(transcript->itemAtIndex(1)->y() - transcript->contentY(), newerOnScreen);
+        // Rows older than it sit directly above it, with one gap between.
+        QQuickItem *older = transcript->itemAtIndex(3);
+        QVERIFY2(older, "row 3 was never built");
+        QCOMPARE(older->y() + older->height(), grower->y());
+    }
+
     // originY stays zero, which is the number the old positioning could not
     // rely on: a ListView lays its built rows out from an arbitrary origin and
     // revises it with the running average.
