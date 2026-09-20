@@ -1389,10 +1389,37 @@ void ProtocolController::subscribeMessages(const QString &anchor, const QString 
          {QStringLiteral("anchor"), anchor}},
         m_messagesModel);
     window->sub = m_messagesSub;
-    connect(m_messagesSub, &Subscription::subscribed, this, &ProtocolController::onMessagesSubscribed);
-    connect(m_messagesSub, &Subscription::failed, this, &ProtocolController::onMessagesFailed);
+    // Guarded by the window they belong to, exactly like the model signals in
+    // connectMessageWindow, and for the same reason. A reconnect re-issues every
+    // warm subscription at once, so these fire for chats that are not on screen;
+    // unguarded, a background window's subscribe result was writing the visible
+    // conversation's unread anchor and error text.
+    connect(m_messagesSub, &Subscription::subscribed, this, [this, window](const QVariantMap &meta) {
+        if (window->source != m_messagesModel) {
+            // Its own entry is live again, which is all this says about it.
+            window->failed = false;
+            return;
+        }
+        onMessagesSubscribed(meta);
+    });
+    connect(m_messagesSub, &Subscription::failed, this,
+            [this, window](const QString &code, const QString &message) {
+                if (window->source != m_messagesModel) {
+                    // Record it where it belongs so the window is not offered as
+                    // warm later, and leave the visible chat alone. An `io`
+                    // failure is a dropped socket, which re-subscribes itself.
+                    if (code != QLatin1String("io")) {
+                        window->failed = true;
+                    }
+                    return;
+                }
+                onMessagesFailed(code, message);
+            });
     connect(m_messagesSub, &Subscription::extendFailed, this,
-            [this](const QString &code, const QString &message) {
+            [this, window](const QString &code, const QString &message) {
+                if (window->source != m_messagesModel) {
+                    return;
+                }
                 const QString direction = std::exchange(m_pendingExtendDirection, {});
                 if (direction == QLatin1String("older")) {
                     m_olderMessagesLoading = false;

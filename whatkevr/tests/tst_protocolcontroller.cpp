@@ -1498,6 +1498,54 @@ private Q_SLOTS:
         QCOMPARE(messages->rowCount(), 1);
     }
 
+    // A reconnect re-issues every warm subscription at once, and only one of
+    // them is the chat on screen.
+    //
+    // The subscribe/failed handlers wrote the controller's single-valued window
+    // state without asking which window they belonged to. So a background chat
+    // whose re-subscribe was refused put "Messages could not be loaded" on the
+    // conversation the reader was actually looking at, which had just been
+    // served perfectly well. The model signals had been guarded for this all
+    // along; the subscription signals had not.
+    void aWarmWindowsFailureDoesNotBreakTheVisibleChat()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats({
+            chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000")),
+            chatRow(QStringLiteral("b@s"), QStringLiteral("Bob"), QStringLiteral("1-001")),
+        });
+        daemon.setMessages({messageRow(QStringLiteral("m1"), QStringLiteral("0001")),
+                            messageRow(QStringLiteral("m2"), QStringLiteral("0002"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_VERIFY(!ctrl.chatsLoading());
+        ctrl.setConversationVisible(true);
+
+        // a@s subscribes first, so it is also the first to be re-issued.
+        ctrl.selectChat(QStringLiteral("a@s"));
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("a@s"));
+        ctrl.selectChat(QStringLiteral("b@s"));
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("b@s"));
+        QCOMPARE(daemon.messagesSubscribeCount, 2);
+
+        // The socket drops and the first window back is refused.
+        daemon.setRejectNextMessagesSubscribe(true);
+        daemon.dropClients();
+        QTRY_COMPARE(daemon.messagesSubscribeCount, 4);
+
+        // The chat on screen is untouched: it was served, and somebody else's
+        // rejection is not its error to show.
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("b@s"));
+        QVERIFY2(ctrl.messageErrorText().isEmpty(),
+                 qPrintable(QStringLiteral("the visible chat was given another window's error: %1")
+                                .arg(ctrl.messageErrorText())));
+        auto *messages = qobject_cast<ProtocolMessageModel *>(ctrl.messageListModel());
+        QVERIFY(messages);
+        QCOMPARE(messages->rowCount(), 2);
+    }
+
     void hiddenConversationClearsTheSessionButKeepsItsTranscriptWarm()
     {
         FakeDaemon daemon(m_path);
