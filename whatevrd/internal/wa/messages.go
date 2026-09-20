@@ -734,6 +734,9 @@ func (c *Client) registerSavedMessage(ctx context.Context, message appstore.Mess
 			c.daemon.PublishLiveLocationsChanged(message.ChatID)
 		}
 	}
+	// Not in the switch: a link preview rides alongside a message whose kind
+	// stays `text`, so there is no media kind to match on.
+	c.maybeFetchLinkPreviewThumbnail(ctx, message, waMsg, live)
 }
 
 // ingestMessage stores a parsed whatsmeow message in the local store and,

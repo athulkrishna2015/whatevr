@@ -2,10 +2,12 @@ package wa
 
 import (
 	"bytes"
+	"context"
 	"image"
 	_ "image/jpeg"
 	"net/url"
 	"strings"
+	"time"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
 
@@ -45,15 +47,20 @@ func (c *Client) linkPreviewFromMessage(chatID, messageID string, message *waE2E
 
 	if thumbnail := extended.GetJPEGThumbnail(); len(thumbnail) > 0 {
 		payload.ThumbnailPath = c.saveMessageThumbnailWithExtension(chatID, messageID, thumbnail, ".link.jpg")
-		if payload.ThumbnailPath != "" {
-			// Measured from the picture rather than believed from the message:
-			// the width and height an ExtendedTextMessage states describe the
-			// full-size thumbnail it offers to fetch, not the one inline, and a
-			// card that reserved the wrong shape would resize on decode.
-			if config, _, err := image.DecodeConfig(bytes.NewReader(thumbnail)); err == nil {
-				payload.ThumbnailWidth = config.Width
-				payload.ThumbnailHeight = config.Height
-			}
+	}
+	// The shape is the full-size picture's, which the message states, not the
+	// inline JPEG's. The inline one is a ~90px square placeholder whatever the
+	// real picture looks like, so believing it drew every hero as a square: a
+	// 16:9 still arrived cropped to a box and blown up five times over. Reserve
+	// the true shape now and the card does not reflow when the real picture
+	// lands; fall back to measuring the inline one when nothing is stated.
+	if width, height := int(extended.GetThumbnailWidth()), int(extended.GetThumbnailHeight()); width > 0 && height > 0 {
+		payload.ThumbnailWidth = width
+		payload.ThumbnailHeight = height
+	} else if payload.ThumbnailPath != "" {
+		if config, _, err := image.DecodeConfig(bytes.NewReader(extended.GetJPEGThumbnail())); err == nil {
+			payload.ThumbnailWidth = config.Width
+			payload.ThumbnailHeight = config.Height
 		}
 	}
 
@@ -121,4 +128,95 @@ func linkPreviewType(previewType waE2E.ExtendedTextMessage_PreviewType) string {
 	default:
 		return ""
 	}
+}
+
+// How long the full-size preview picture gets. It is a small file and the card
+// already draws without it, so a slow fetch is dropped rather than queued.
+const linkPreviewThumbnailTimeout = 30 * time.Second
+
+// Extension of the fetched picture. Deliberately not the inline one's: the
+// frontend addresses a picture by path, so overwriting in place would leave
+// every open card showing the cached placeholder it already decoded.
+const linkPreviewFullExtension = ".link.full.jpg"
+
+// maybeFetchLinkPreviewThumbnail starts the fetch of the picture the card
+// actually wants, in the background: ingest must not wait on a round trip.
+//
+// Only for a card that draws its picture large, and only for a live message.
+// The compact layout puts the picture in a three-unit square, where the inline
+// thumbnail is already more than enough, and a history sync carrying hundreds
+// of old links would otherwise open hundreds of downloads on first login for
+// cards nobody has scrolled to.
+func (c *Client) maybeFetchLinkPreviewThumbnail(ctx context.Context, message appstore.Message, waMsg *waE2E.Message, live bool) {
+	if !live {
+		return
+	}
+	extended := waMsg.GetExtendedTextMessage()
+	if extended == nil || extended.GetThumbnailDirectPath() == "" || len(extended.GetMediaKey()) == 0 {
+		return
+	}
+	payload := appstore.DecodePayload(message.PayloadJSON).LinkPreview
+	if payload == nil {
+		return
+	}
+	// The same two types the card draws a hero for; see LinkPreviewCard.qml.
+	if payload.Type != "video" && payload.Type != "image" {
+		return
+	}
+	c.spawn(func(ctx context.Context) {
+		c.fetchLinkPreviewThumbnail(ctx, message.ID, message.ChatID, extended)
+	})
+}
+
+// fetchLinkPreviewThumbnail downloads the full-size preview picture and folds
+// it back into the row.
+func (c *Client) fetchLinkPreviewThumbnail(ctx context.Context, messageID, chatID string, extended *waE2E.ExtendedTextMessage) {
+	client := c.currentClient()
+	if client == nil || !client.IsLoggedIn() {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, linkPreviewThumbnailTimeout)
+	defer cancel()
+
+	data, err := client.DownloadThumbnail(ctx, extended)
+	if err != nil {
+		// The card is already drawn with the inline picture, so this is a
+		// missed sharpening rather than a missing preview.
+		c.log.Debugf("Failed to fetch the full link preview picture for %s: %v", messageID, err)
+		return
+	}
+	config, _, err := image.DecodeConfig(bytes.NewReader(data))
+	if err != nil {
+		c.log.Debugf("The full link preview picture for %s did not decode: %v", messageID, err)
+		return
+	}
+	localPath := c.saveMessageThumbnailWithExtension(chatID, messageID, data, linkPreviewFullExtension)
+	if localPath == "" {
+		return
+	}
+
+	message, err := c.store.GetMessage(ctx, messageID)
+	if err != nil {
+		c.log.Warnf("Failed to read message %s back for its link preview picture: %v", messageID, err)
+		return
+	}
+	payload := appstore.DecodePayload(message.PayloadJSON)
+	if payload.LinkPreview == nil {
+		return
+	}
+	payload.LinkPreview.ThumbnailPath = localPath
+	payload.LinkPreview.ThumbnailWidth = config.Width
+	payload.LinkPreview.ThumbnailHeight = config.Height
+	encoded, err := appstore.EncodePayload(payload)
+	if err != nil {
+		c.log.Warnf("Failed to encode the link preview picture for %s: %v", messageID, err)
+		return
+	}
+	updated, err := c.store.UpdateMessagePayload(ctx, messageID, encoded, message.PayloadSummary)
+	if err != nil {
+		c.log.Warnf("Failed to store the link preview picture for %s: %v", messageID, err)
+		return
+	}
+	c.daemon.PublishMessageUpdated(toDaemonMessage(updated))
 }
