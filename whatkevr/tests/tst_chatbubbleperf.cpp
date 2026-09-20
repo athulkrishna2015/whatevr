@@ -2549,19 +2549,11 @@ void ChatBubblePerf::aReadChatReopensAtItsNewestMessage()
 
     // Coming back to a chat with nothing unread is arriving at the present.
     viewItem->setVisible(true);
-    // The bottom is re-derived here rather than compared against the number
-    // captured above. Walking up into history measures rows that were
-    // estimated, so the content total is not the one it was on the way up;
-    // what "at the newest message" means is that the newest row's bottom edge
-    // is the viewport's, whatever the total happens to be.
-    QTRY_VERIFY2(qAbs(list->property("contentY").toReal()
-                      - (list->property("contentHeight").toReal() - viewItem->height()))
-                     < 2.0,
+    QTRY_VERIFY2(qAbs(list->property("contentY").toReal() - atBottom) < 2.0,
                  qPrintable(QStringLiteral("a read chat re-opened at contentY %1, not at its "
                                            "newest message (%2)")
                                 .arg(list->property("contentY").toReal())
-                                .arg(list->property("contentHeight").toReal()
-                                     - viewItem->height())));
+                                .arg(atBottom)));
 
     m_window->hide();
     viewItem->setParentItem(nullptr);

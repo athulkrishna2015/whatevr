@@ -40,17 +40,11 @@ find_package(Qt6 ${QT_MIN_VERSION} REQUIRED COMPONENTS
     Network
     OpenGL
     Qml
-    QmlModels
     Quick
     QuickControls2
     ShaderTools
     Widgets
 )
-
-# Private modules: TranscriptView is a custom item view, which in Qt means
-# QQuickFlickable plus QQmlDelegateModel, both of which live behind private
-# headers. This couples the build to the exact Qt it is compiled against.
-find_package(Qt6 ${QT_MIN_VERSION} REQUIRED COMPONENTS QuickPrivate QmlModelsPrivate)
 
 find_package(KF6 ${KF_MIN_VERSION} REQUIRED COMPONENTS
     ColorScheme
