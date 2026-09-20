@@ -5,6 +5,7 @@ import (
 
 	"go.rockorager.dev/vaxis"
 
+	"whattui/internal/paint"
 	"whattui/internal/term"
 )
 
@@ -131,17 +132,38 @@ func (a *App) drawBubble(pane vaxis.Window, b bubble, col, row int) {
 	if b.outgoing {
 		fillColor = a.theme.BubbleOut
 	}
+	// A rasterised bubble carries its own ground, and the cells inside it keep
+	// the pane's. Filling them with the bubble colour as well would tint the
+	// image a second time, over a ground it was already mixed against.
+	painted := a.painted()
+	if painted {
+		fillColor = a.theme.Background
+		a.paintBubble(pane, b, col, row, total)
+	}
 	border := vaxis.Style{Foreground: a.theme.Border, Background: fillColor}
 	text := vaxis.Style{Foreground: a.theme.Text, Background: fillColor}
 	faint := vaxis.Style{Foreground: a.theme.TextFaint, Background: fillColor}
 
-	a.print(pane, col, row, border, bx.topLeft+strings.Repeat(bx.horizontal, total-2)+bx.topRight)
+	// The border is a row and a column of cells whatever the tier. Painted,
+	// the image draws the edge and the cells are only kept clean; typed, the
+	// glyphs are the edge. Identical geometry either way.
+	vertical, horizontal := bx.vertical, bx.horizontal
+	if painted {
+		vertical, horizontal = " ", " "
+	}
+	rule := func(left, right string) string {
+		if painted {
+			return strings.Repeat(" ", total)
+		}
+		return left + strings.Repeat(horizontal, total-2) + right
+	}
+	a.print(pane, col, row, border, rule(bx.topLeft, bx.topRight))
 	r := row + 1
 
 	line := func(s string, style vaxis.Style) {
-		a.print(pane, col, r, border, bx.vertical)
+		a.print(pane, col, r, border, vertical)
 		a.print(pane, col+1, r, style, " "+a.pad(s, inner)+" ")
-		a.print(pane, col+total-1, r, border, bx.vertical)
+		a.print(pane, col+total-1, r, border, vertical)
 		r++
 	}
 
@@ -160,7 +182,7 @@ func (a *App) drawBubble(pane vaxis.Window, b bubble, col, row int) {
 		// the reserved cells and draws the glyph small in the top left, so
 		// the bubble is the same size either way and nothing shifts.
 		for _, l := range b.body {
-			a.print(pane, col, r, border, bx.vertical)
+			a.print(pane, col, r, border, vertical)
 			a.print(pane, col+1, r, text, " ")
 			slot := pane.New(col+bubblePadX+1, r, b.inner, b.scale)
 			slot.PrintScaled(0, vaxis.Segment{
@@ -169,21 +191,21 @@ func (a *App) drawBubble(pane vaxis.Window, b bubble, col, row int) {
 				Size:  vaxis.Scaled(b.scale, 0),
 			})
 			for pad := 0; pad < b.scale; pad++ {
-				a.print(pane, col, r+pad, border, bx.vertical)
-				a.print(pane, col+total-1, r+pad, border, bx.vertical)
+				a.print(pane, col, r+pad, border, vertical)
+				a.print(pane, col+total-1, r+pad, border, vertical)
 			}
 			r += b.scale
 		}
 		if b.footer != "" {
 			line(a.padLeft(b.footer, inner), faint)
 		}
-		a.print(pane, col, r, border, bx.bottomLeft+strings.Repeat(bx.horizontal, total-2)+bx.bottomRight)
+		a.print(pane, col, r, border, rule(bx.bottomLeft, bx.bottomRight))
 		return
 	}
 
 	a.noteBlock(pane, col+bubblePadX+1, r, inner, len(b.body))
 	for i, l := range b.body {
-		a.print(pane, col, r, border, bx.vertical)
+		a.print(pane, col, r, border, vertical)
 		c := a.print(pane, col+1, r, text, " ")
 		c = a.printLine(pane, c, r, text, l)
 		if i == len(b.body)-1 && a.footerFitsInline(b) {
@@ -195,7 +217,7 @@ func (a *App) drawBubble(pane vaxis.Window, b bubble, col, row int) {
 		} else {
 			a.print(pane, c, r, text, strings.Repeat(" ", maxInt(inner-a.lineWidth(l), 0))+" ")
 		}
-		a.print(pane, col+total-1, r, border, bx.vertical)
+		a.print(pane, col+total-1, r, border, vertical)
 		r++
 	}
 
@@ -203,7 +225,34 @@ func (a *App) drawBubble(pane vaxis.Window, b bubble, col, row int) {
 		line(a.padLeft(b.footer, inner), faint)
 	}
 
-	a.print(pane, col, r, border, bx.bottomLeft+strings.Repeat(bx.horizontal, total-2)+bx.bottomRight)
+	a.print(pane, col, r, border, rule(bx.bottomLeft, bx.bottomRight))
+}
+
+// paintBubble reserves the bubble's own cells for its chrome. The square
+// corner is on the side the message came from, which is the tail a cell grid
+// is too coarse to draw.
+func (a *App) paintBubble(pane vaxis.Window, b bubble, col, row, total int) {
+	fill, edge := a.theme.PaintIn, a.theme.PaintInEdge
+	anchor := paint.Left
+	if b.outgoing {
+		fill, edge = a.theme.PaintOut, a.theme.PaintOutEdge
+		anchor = paint.Right
+	}
+	radius := a.bubbleRadius()
+	a.paintRect(pane, col, row, total, a.bubbleHeight(b), func(pw, ph int) paint.Spec {
+		return paint.Bubble{W: pw, H: ph, Fill: fill, Edge: edge, Radius: radius, Anchor: anchor}
+	})
+}
+
+// bubbleRadius is how round a corner is, in pixels. Two fifths of a cell:
+// enough to read as a curve at twenty pixels a row, not so much that a one
+// line bubble turns into a pill.
+func (a *App) bubbleRadius() int {
+	_, ch := a.cellPix()
+	if r := ch * 2 / 5; r > 3 {
+		return r
+	}
+	return 3
 }
 
 func (a *App) pad(s string, width int) string {

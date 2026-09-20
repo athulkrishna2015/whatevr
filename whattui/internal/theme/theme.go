@@ -8,6 +8,7 @@ package theme
 
 import (
 	"hash/fnv"
+	"image/color"
 	"math"
 
 	"go.rockorager.dev/vaxis"
@@ -48,10 +49,24 @@ type Theme struct {
 	// and the same person lands on the same colour forever.
 	Identity []vaxis.Color
 
-	// InkText and InkMuted are the same two colours as real rgb, for the
-	// rasteriser, which paints pixels and cannot name an ansi index.
-	InkText  [3]uint8
-	InkMuted [3]uint8
+	// InkText, InkMuted and InkGround are the same three colours as real rgb,
+	// for the rasteriser, which paints pixels and cannot name an ansi index.
+	InkText   [3]uint8
+	InkMuted  [3]uint8
+	InkGround [3]uint8
+
+	// The bubble grounds and their edges as real rgb, for the rasteriser.
+	//
+	// Opaque, and mixed here rather than handed over as a tint for the
+	// terminal to composite: a terminal blends graphics in linear light, so
+	// the same fraction of the same colour comes out two or three times
+	// stronger than the cell background a tier down. Mixing it ourselves is
+	// what makes the two tiers the same picture. Alpha is left to the edge of
+	// the shape, where blending in linear light is exactly what is wanted.
+	PaintIn      color.NRGBA
+	PaintInEdge  color.NRGBA
+	PaintOut     color.NRGBA
+	PaintOutEdge color.NRGBA
 }
 
 // Default is the indexed palette: correct at the plain tier, and whatever the
@@ -86,8 +101,13 @@ func Default() Theme {
 			vaxis.IndexColor(9), vaxis.IndexColor(10), vaxis.IndexColor(11),
 			vaxis.IndexColor(12), vaxis.IndexColor(13), vaxis.IndexColor(14),
 		},
-		InkText:  [3]uint8{0xe6, 0xe6, 0xe6},
-		InkMuted: [3]uint8{0x8a, 0x8f, 0x98},
+		InkText:      [3]uint8{0xe6, 0xe6, 0xe6},
+		InkMuted:     [3]uint8{0x8a, 0x8f, 0x98},
+		InkGround:    darkGround,
+		PaintIn:      opaque(mix(darkGround, [3]uint8{0xe6, 0xe6, 0xe6}, bubbleMix)),
+		PaintInEdge:  opaque(mix(darkGround, [3]uint8{0xe6, 0xe6, 0xe6}, edgeMix)),
+		PaintOut:     opaque(mix(darkGround, hex(accentHue), bubbleMix)),
+		PaintOutEdge: opaque(mix(darkGround, hex(accentHue), edgeMix)),
 	}
 }
 
@@ -98,6 +118,18 @@ var ring = [][3]uint8{
 	{0x4f, 0xc1, 0xa6}, {0x56, 0xb6, 0xc2}, {0x61, 0xaf, 0xef}, {0x8c, 0xa1, 0xf0},
 	{0x9d, 0x8c, 0xf0}, {0xc6, 0x78, 0xdd}, {0xe0, 0x6c, 0xb8}, {0xd1, 0x9a, 0x66},
 }
+
+// How far a bubble and its edge are off the ground they sit on. One pair for
+// every tier: the cell background a terminal can set and the rectangle we
+// rasterise have to be the same colour, or the tiers stop being one picture.
+const (
+	bubbleMix = 0.09
+	edgeMix   = 0.22
+)
+
+// darkGround is what a terminal that will not say what it is wearing is
+// assumed to be wearing.
+var darkGround = [3]uint8{0x10, 0x11, 0x14}
 
 const (
 	accentHue  = 0x4c9aff
@@ -120,7 +152,7 @@ func Derive(bg, fg vaxis.Color) Theme {
 	ground, okBG := rgbOf(bg)
 	ink, okFG := rgbOf(fg)
 	if !okBG {
-		ground = [3]uint8{0x10, 0x11, 0x14}
+		ground = darkGround
 	}
 	if !okFG {
 		ink = [3]uint8{0xe6, 0xe6, 0xe6}
@@ -156,10 +188,17 @@ func Derive(bg, fg vaxis.Color) Theme {
 		// An incoming bubble is a step up off the ground; an outgoing one is
 		// the accent at a low mix, which is the tint a cell background can
 		// still express and the graphics tier will draw as real alpha.
-		BubbleIn:  step(0.09),
+		BubbleIn:  step(bubbleMix),
 		BubbleOut: colorOf(mix(ground, accent, 0.20)),
 		InkText:   ink,
 		InkMuted:  mix(ground, ink, 0.60),
+		InkGround: ground,
+		// The same two grounds a rasteriser can use, and the edge that reads
+		// as a hairline around them.
+		PaintIn:      opaque(mix(ground, ink, bubbleMix)),
+		PaintInEdge:  opaque(mix(ground, ink, edgeMix)),
+		PaintOut:     opaque(mix(ground, accent, 0.20)),
+		PaintOutEdge: opaque(mix(ground, accent, 0.45)),
 	}
 	for _, c := range ring {
 		t.Identity = append(t.Identity, colorOf(readable(ground, c)))
@@ -191,6 +230,12 @@ func readable(ground, c [3]uint8) [3]uint8 {
 		c = mix(c, target, 0.08)
 	}
 	return c
+}
+
+// opaque is a colour the rasteriser can paint with, with nothing left for the
+// terminal to blend.
+func opaque(c [3]uint8) color.NRGBA {
+	return color.NRGBA{R: c[0], G: c[1], B: c[2], A: 0xff}
 }
 
 func mix(a, b [3]uint8, t float64) [3]uint8 {

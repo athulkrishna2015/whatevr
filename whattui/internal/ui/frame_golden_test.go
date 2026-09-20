@@ -45,6 +45,9 @@ func TestGoldenFrames(t *testing.T) {
 				if tier == term.TierGraphics {
 					addSyntheticPlacement(a, size.cols)
 				}
+				// The frame is staged by painting and placed by flushing, and
+				// what a terminal would actually show needs both.
+				a.flushImages()
 
 				gotGeometry := a.layout()
 				if i == 0 {
@@ -66,8 +69,18 @@ func TestGoldenFrames(t *testing.T) {
 						Column: size.cols - 2, Row: 1, Width: 1, Height: 1,
 						ImageID: 1, XOffset: 2, YOffset: 3, ZIndex: -2,
 					}
-					if len(placements) != 1 || placements[0] != want {
-						t.Fatalf("graphics placements = %#v, want %#v", placements, want)
+					if !hasPlacement(placements, want) {
+						t.Fatalf("graphics placements = %#v, want one of them %#v", placements, want)
+					}
+					// Everything else on this frame is bubble chrome, which is
+					// only ever drawn under the text.
+					for _, p := range placements {
+						if p != want && p.ZIndex != chromeZ {
+							t.Fatalf("placement %#v is not under the text", p)
+						}
+					}
+					if len(placements) < 2 {
+						t.Fatal("the graphics tier drew no chrome")
 					}
 				} else if len(placements) != 0 {
 					t.Fatalf("tier %s placements = %#v, want none", tier, placements)
@@ -94,6 +107,15 @@ func goldenApp(cols, rows int, tier term.Tier) *App {
 		a.theme = theme.Default()
 	}
 	return a
+}
+
+func hasPlacement(placements []vaxis.PlacementSnapshot, want vaxis.PlacementSnapshot) bool {
+	for _, p := range placements {
+		if p == want {
+			return true
+		}
+	}
+	return false
 }
 
 func addSyntheticPlacement(a *App, cols int) {

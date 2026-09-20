@@ -14,7 +14,7 @@ import (
 
 func (a *App) draw() {
 	a.paint()
-	a.flushRuns()
+	a.flushImages()
 	a.vx.Render()
 }
 
@@ -26,9 +26,10 @@ func (a *App) paint() {
 	// Asked once, before anything is measured: a frame that measures in cells
 	// and draws in pixels is a frame with a hole in it.
 	a.shaping = a.shaper.Begin()
-	// Both are where the last frame put things, and this is a new one.
+	// All three are where the last frame put things, and this is a new one.
 	a.blocks = a.blocks[:0]
 	a.placements = a.placements[:0]
+	a.surfaces = a.surfaces[:0]
 
 	// No clear: the panes tile the screen between them, so clearing first is a
 	// write to every cell that every one of them is about to write again.

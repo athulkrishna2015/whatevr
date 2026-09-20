@@ -272,8 +272,16 @@ type imgKey struct {
 	w, h int
 }
 
-// flushRuns places every rasterised word this frame drew, and drops the images
-// no frame has asked for since the last sweep.
+// flushImages places everything this frame rasterised, chrome first so a
+// bubble is uploaded before the words inside it, and drops the images no
+// frame has asked for since the last sweep.
+func (a *App) flushImages() {
+	a.flushSurfaces()
+	a.flushRuns()
+	a.sweepImages()
+}
+
+// flushRuns places every rasterised word this frame drew.
 func (a *App) flushRuns() {
 	cellW, cellH := a.shaper.CellSize()
 	if cellW <= 0 || cellH <= 0 {
@@ -302,9 +310,12 @@ func (a *App) flushRuns() {
 		}
 		kimg.Draw(p.win)
 	}
-	// Swept on probation rather than every frame: a word that scrolls off and
-	// back would otherwise be rasterised and uploaded again each time it
-	// crossed the edge.
+}
+
+// sweepImages drops what no recent frame drew. On probation rather than every
+// frame: a word that scrolls off and back would otherwise be rasterised and
+// uploaded again each time it crossed the edge.
+func (a *App) sweepImages() {
 	if len(a.images) < imageCacheCap {
 		return
 	}
@@ -322,15 +333,16 @@ func (a *App) flushRuns() {
 // recent frame has drawn are dropped. A screenful is a few dozen.
 const imageCacheCap = 256
 
-// dropRuns throws every rasterised image away. The cell moved, so every one of
-// them is the wrong size.
-func (a *App) dropRuns() {
+// dropImages throws every rasterised image away. The cell moved, so every one
+// of them is the wrong size.
+func (a *App) dropImages() {
 	for k, img := range a.images {
 		img.Destroy()
 		delete(a.images, k)
 	}
 	clear(a.seen)
 	a.placements = a.placements[:0]
+	a.surfaces = a.surfaces[:0]
 }
 
 // ink is the colour a rasterised word is painted in. The rasteriser paints

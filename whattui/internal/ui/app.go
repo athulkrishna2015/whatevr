@@ -51,8 +51,11 @@ type App struct {
 	// occluded is the scratch the occlusion pass builds into, kept so a frame
 	// that covers a phrase does not allocate a new slice for what is left.
 	occluded []placement
-	images   map[imgKey]*vaxis.KittyImage
-	seen     map[imgKey]bool
+	// The chrome this frame rasterised, and the same scratch for it.
+	surfaces         []surface
+	occludedSurfaces []surface
+	images           map[imgKey]*vaxis.KittyImage
+	seen             map[imgKey]bool
 
 	// What the pointer has taken, what it is taking, and the runs of text a
 	// triple click can take whole. All three are screen coordinates from the
@@ -222,7 +225,7 @@ func (a *App) recell() {
 	before, beforeH := a.shaper.CellSize()
 	a.setCell()
 	if w, h := a.shaper.CellSize(); w != before || h != beforeH {
-		a.dropRuns()
+		a.dropImages()
 	}
 }
 

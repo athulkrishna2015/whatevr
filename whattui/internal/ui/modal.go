@@ -2,11 +2,13 @@ package ui
 
 import (
 	"encoding/json"
+	"image/color"
 	"strings"
 
 	"go.rockorager.dev/vaxis"
 
 	"whattui/internal/layout"
+	"whattui/internal/paint"
 	"whattui/internal/proto"
 )
 
@@ -346,6 +348,23 @@ func (a *App) onModalMouse(m vaxis.Mouse) (bool, bool) {
 	return true, dirty
 }
 
+// modalRect is where a panel sits: a third of the way down, centred, and the
+// whole screen when the screen is too small to have an outside.
+func (a *App) modalRect(w, h int) layout.Rect {
+	width := minInt(72, w-2)
+	if width < 8 {
+		width = w
+	}
+	height := minInt(14, h-2)
+	if height < 3 {
+		height = h
+	}
+	if width <= 0 || height <= 0 {
+		return layout.Rect{}
+	}
+	return layout.Rect{Col: maxInt((w-width)/2, 0), Row: maxInt((h-height)/3, 0), Width: width, Height: height}
+}
+
 func (a *App) drawModal(win vaxis.Window) {
 	a.mu.Lock()
 	if a.modal.kind == modalNone {
@@ -357,24 +376,18 @@ func (a *App) drawModal(win vaxis.Window) {
 	a.mu.Unlock()
 
 	w, h := win.Size()
-	width := minInt(72, w-2)
-	if width < 8 {
-		width = w
-	}
-	height := minInt(14, h-2)
-	if height < 3 {
-		height = h
-	}
-	if width <= 0 || height <= 0 {
+	outer := a.modalRect(w, h)
+	if outer.Empty() {
 		return
 	}
-	outer := layout.Rect{Col: maxInt((w-width)/2, 0), Row: maxInt((h-height)/3, 0), Width: width, Height: height}
+	width, height := outer.Width, outer.Height
 	pane := sub(win, outer)
 	panel := a.theme.BackgroundPanel
 	fill(pane, panel)
-	// A run is an image over the cell background: covering it with a panel
-	// hides the text under it and leaves the picture.
+	// A run and a bubble are both images over the cell background: covering
+	// one with a panel hides the text under it and leaves the picture.
 	a.occlude(outer)
+	a.occludeSurfaces(outer)
 	a.guardSpill(win, outer)
 
 	title, prompt := "Commands", "> "
@@ -480,6 +493,12 @@ func (a *App) dimBehind(win vaxis.Window, r layout.Rect) {
 			continue
 		}
 		p.ink.A = uint8(uint32(p.ink.A) * dimPercent / 100)
+	}
+	// Whatever chrome is still on the frame is chrome the panel did not
+	// cover, because covering is what the occlusion pass already did.
+	ground := color.NRGBA{a.theme.InkGround[0], a.theme.InkGround[1], a.theme.InkGround[2], 0xff}
+	for i := range a.surfaces {
+		a.surfaces[i].spec = paint.Fade{Spec: a.surfaces[i].spec, Toward: ground, Percent: dimPercent}
 	}
 }
 

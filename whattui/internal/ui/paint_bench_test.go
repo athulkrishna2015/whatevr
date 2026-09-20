@@ -18,7 +18,9 @@ import (
 // benchApp is a whole frontend drawing into a cell buffer: no terminal, no
 // socket, the same paint path the real one runs.
 func benchApp(cols, rows, chats, msgs int) *App {
-	win := vaxis.NewOffscreenWindow(cols, rows)
+	// A cell of ten by twenty pixels, so anything that draws in pixels has
+	// something to measure off. Whether it does is the tier's business.
+	win := vaxis.NewOffscreenWindowPixels(cols, rows, 10, 20)
 	a := &App{
 		vx:      win.Vx,
 		caps:    term.Caps{Tier: term.TierColor, RGB: true},
