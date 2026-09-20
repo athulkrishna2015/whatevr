@@ -33,6 +33,12 @@ func run(socket string, showCaps bool) (err error) {
 	vx, err := vaxis.New(vaxis.Options{
 		WithTTY:     "",
 		CSIuBitMask: vaxis.CSIuDisambiguate,
+		// A terminal that reports its window hidden gets no frames until it
+		// says otherwise, which is the right thing everywhere except a
+		// compositor that suspends a window nobody is looking at: a dummy
+		// monitor, a screenshot harness, a remote session that never says it
+		// came back. WHATTUI_ALWAYS_RENDER=1 draws regardless.
+		DisableVisibilityReports: os.Getenv("WHATTUI_ALWAYS_RENDER") == "1",
 	})
 	if err != nil {
 		return fmt.Errorf("terminal setup: %w", err)

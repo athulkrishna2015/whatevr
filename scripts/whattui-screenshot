@@ -339,7 +339,12 @@ class Harness:
         raise Failure(f"kitty window {window_id} disappeared")
 
     def launch(
-        self, cols: int, rows: int, name: str, plain: bool = False
+        self,
+        cols: int,
+        rows: int,
+        name: str,
+        plain: bool = False,
+        visibility: bool = False,
     ) -> dict[str, Any]:
         self.sequence += 1
         token = f"whattui-visual-{os.getpid()}-{self.sequence}-{uuid.uuid4().hex[:8]}"
@@ -357,6 +362,12 @@ class Harness:
         )
         if plain:
             env["WHATTUI_TIER"] = "plain"
+        # Hyprland suspends a toplevel on an output nobody is looking at, and
+        # a dummy monitor is exactly that, so kitty reports the window hidden
+        # and a well behaved frontend stops drawing. The scenario that tests
+        # visibility keeps the reports; every other one draws regardless.
+        if not visibility:
+            env["WHATTUI_ALWAYS_RENDER"] = "1"
         cmd = [
             "kitty",
             "--config",
@@ -387,15 +398,12 @@ class Harness:
         if self.headless.name is None:
             raise Failure("headless output is not available")
 
-        child_env = [
-            "env",
-            *(
-                f"{key}={env[key]}"
-                for key in ("TZ", "LC_ALL", "WHATTUI_FONT", "XDG_CACHE_HOME")
-            ),
-        ]
+        passed = ["TZ", "LC_ALL", "WHATTUI_FONT", "XDG_CACHE_HOME"]
         if plain:
-            child_env.append(f"WHATTUI_TIER={env['WHATTUI_TIER']}")
+            passed.append("WHATTUI_TIER")
+        if not visibility:
+            passed.append("WHATTUI_ALWAYS_RENDER")
+        child_env = ["env", *(f"{key}={env[key]}" for key in passed)]
 
         command = shlex.join([*child_env, *cmd])
         launch = (
@@ -961,7 +969,10 @@ def main() -> int:
 
         hidden_name = "resize-hidden-tab-67x24"
         if not selected or hidden_name in selected:
-            state = harness.launch(120, 40, hidden_name)
+            # The one scenario that keeps kitty's visibility reports: a hidden
+            # tab is a window that really is not visible, and coming back from
+            # one is what this proves.
+            state = harness.launch(120, 40, hidden_name, visibility=True)
             harness.hidden_tab_resize(state, 67, 24)
             scenarios.append(harness.capture(state, hidden_name, (67, 24)))
             harness.close(state)
