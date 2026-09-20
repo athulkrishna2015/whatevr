@@ -5,8 +5,11 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
+	"syscall"
 	"time"
 
 	"go.rockorager.dev/vaxis"
@@ -54,6 +57,8 @@ func run(socket string, showCaps bool) (err error) {
 		}
 	}()
 
+	dumpStacksOn(syscall.SIGUSR1)
+
 	caps := term.Detect(vx)
 	if showCaps {
 		vx.Close()
@@ -71,22 +76,44 @@ func run(socket string, showCaps bool) (err error) {
 // been handed back, and returns where. A crash that scrolls past is a crash
 // nobody can report.
 func writeCrashLog(r any, stack []byte) string {
-	dir := os.Getenv("XDG_CACHE_HOME")
-	if dir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "(nowhere: no cache directory)"
-		}
-		dir = filepath.Join(home, ".cache")
-	}
-	dir = filepath.Join(dir, "whattui")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "(nowhere: " + err.Error() + ")"
-	}
-	path := filepath.Join(dir, "crash.log")
+	path := filepath.Join(cacheDir(), "crash.log")
 	body := fmt.Sprintf("%s\npanic: %v\n\n%s\n", time.Now().Format(time.RFC3339), r, stack)
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		return "(nowhere: " + err.Error() + ")"
 	}
 	return path
+}
+
+// dumpStacksOn writes every goroutine's stack to the cache directory when the
+// signal arrives. A frozen terminal tells you nothing on its own, and this is
+// the difference between "it hung" and knowing which goroutine is waiting on
+// what.
+func dumpStacksOn(sig os.Signal) {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, sig)
+	go func() {
+		for range ch {
+			buf := make([]byte, 1<<20)
+			buf = buf[:runtime.Stack(buf, true)]
+			path := filepath.Join(cacheDir(), "stacks.log")
+			_ = os.WriteFile(path, buf, 0o600)
+		}
+	}()
+}
+
+// cacheDir is where the crash log and the stack dump go.
+func cacheDir() string {
+	dir := os.Getenv("XDG_CACHE_HOME")
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return os.TempDir()
+		}
+		dir = filepath.Join(home, ".cache")
+	}
+	dir = filepath.Join(dir, "whattui")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return os.TempDir()
+	}
+	return dir
 }

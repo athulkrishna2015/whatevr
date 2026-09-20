@@ -78,12 +78,30 @@ func (c *Collection[T]) SetReverse(reverse bool) {
 	}
 }
 
+// State is everything about the window that is not an item, handed to a
+// reader along with them.
+type State struct {
+	Ready        bool
+	Exhausted    bool
+	HasExhausted bool
+	Version      uint64
+}
+
 // Read runs fn over the items in view order, under a read lock. The slice is
 // only valid for the call: do not retain it.
-func (c *Collection[T]) Read(fn func(items []Item[T])) {
+//
+// Whatever fn needs to know about the window arrives in State. Calling back
+// into the collection from inside fn takes the read lock a second time, and a
+// second read lock behind a waiting writer is a deadlock, not a slow path.
+func (c *Collection[T]) Read(fn func(items []Item[T], state State)) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	fn(c.items)
+	fn(c.items, State{
+		Ready:        c.ready,
+		Exhausted:    c.exhausted,
+		HasExhausted: c.hasExhausted,
+		Version:      c.version,
+	})
 }
 
 // Len is how many items the window holds.

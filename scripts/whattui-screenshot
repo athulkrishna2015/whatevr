@@ -533,6 +533,7 @@ class Harness:
             dump.parent.mkdir(parents=True, exist_ok=True)
             report = {
                 "screen": self.text(state),
+                "stacks": self.stacks(state),
                 "kitty": self.kitty_tree(state["socket"]),
                 "hyprland": self.find_hypr_client(state),
                 "headless": self.headless.metadata(),
@@ -661,6 +662,54 @@ class Harness:
 
     # Every window of this scenario's own kitty, not just whattui's: a cover
     # tab left behind keeps the toplevel alive and the wait below never ends.
+    # A surface is opened by keys, and a keystroke can be lost: kitty sends
+    # them only when the program's keyboard mode says it can. One retry, from
+    # a known state, is the difference between a flaky suite and a real one.
+    def open_surface(
+        self, state: dict[str, Any], keys: list[str], marker: str
+    ) -> bool:
+        for attempt in range(2):
+            if attempt:
+                # Back to nothing open and nothing typed before trying again.
+                for reset in ("escape", "ctrl+u"):
+                    self.send(state, reset)
+            for key in keys:
+                self.send(state, key)
+            try:
+                wait_for(
+                    f"screen text {marker!r}",
+                    lambda: marker in self.text(state),
+                    timeout=6.0,
+                )
+                return attempt > 0
+            except Failure:
+                continue
+        self.expect(
+            f"screen text {marker!r}", lambda: marker in self.text(state) or None, state
+        )
+        return True
+
+    # whattui dumps every goroutine on SIGUSR1. A frozen frame says nothing on
+    # its own; this says which goroutine is waiting on what.
+    def stacks(self, state: dict[str, Any]) -> str:
+        ready = state.get("ready")
+        if not ready or not Path(ready).exists():
+            return ""
+        try:
+            pid = int(Path(ready).read_text(encoding="ascii").split("=")[1])
+            os.kill(pid, signal.SIGUSR1)
+        except (OSError, ValueError, IndexError) as exc:
+            return f"(no dump: {exc})"
+        dump = self.run_dir / "cache" / "whattui" / "stacks.log"
+        try:
+            wait_for("goroutine dump", dump.exists, timeout=5.0)
+        except Failure:
+            return "(no dump: whattui wrote none)"
+        return dump.read_text(encoding="utf-8", errors="replace")
+
+    def send(self, state: dict[str, Any], key: str) -> None:
+        self.remote(state["socket"], ["send-key", "--match", f"id:{state['window_id']}", key])
+
     def tab_active(self, state: dict[str, Any]) -> bool:
         for os_window in self.kitty_tree(state["socket"]):
             for tab in os_window.get("tabs", []):
@@ -944,13 +993,10 @@ def main() -> int:
             if selected and name not in selected:
                 continue
             state = harness.launch(cols, rows, name)
-            for key in keys:
-                harness.remote(
-                    state["socket"],
-                    ["send-key", "--match", f"id:{state['window_id']}", key],
-                )
-            harness.wait_text(state, marker)
-            scenarios.append(harness.capture(state, name, (cols, rows)))
+            retried = harness.open_surface(state, keys, marker)
+            entry = harness.capture(state, name, (cols, rows))
+            entry["keys_retried"] = retried
+            scenarios.append(entry)
             harness.close(state)
 
         plain_name = "kitty-120x40-plain"

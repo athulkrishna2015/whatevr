@@ -97,10 +97,10 @@ func (a *App) drawChatList(win vaxis.Window, l layout.Layout) {
 
 	perRow := l.ChatRowHeight()
 	drawn := 0
-	a.chats.Read(func(items []view.Item[proto.ChatRow]) {
+	a.chats.Read(func(items []view.Item[proto.ChatRow], state view.State) {
 		if len(items) == 0 {
 			fill(pane.New(0, 0, w, h), a.theme.BackgroundPanel)
-			a.drawEmptyList(pane)
+			a.drawEmptyList(pane, state.Ready)
 			return
 		}
 		for i := 0; ; i++ {
@@ -125,7 +125,7 @@ func (a *App) drawChatList(win vaxis.Window, l layout.Layout) {
 	}
 }
 
-func (a *App) drawEmptyList(pane vaxis.Window) {
+func (a *App) drawEmptyList(pane vaxis.Window, ready bool) {
 	style := vaxis.Style{Foreground: a.theme.TextMuted, Background: a.theme.BackgroundPanel}
 	a.mu.Lock()
 	transport := a.transport
@@ -134,7 +134,7 @@ func (a *App) drawEmptyList(pane vaxis.Window) {
 		a.print(pane, 1, 1, style, "waiting for whatevrd")
 		return
 	}
-	if !a.chats.IsReady() {
+	if !ready {
 		a.print(pane, 1, 1, style, "loading chats")
 		return
 	}
@@ -362,10 +362,10 @@ func (a *App) drawTranscript(win vaxis.Window, r layout.Rect) {
 		return
 	}
 
-	c.msgs.Read(func(items []view.Item[proto.MessageRow]) {
+	c.msgs.Read(func(items []view.Item[proto.MessageRow], state view.State) {
 		if len(items) == 0 {
 			msg := "loading messages"
-			if c.msgs.IsReady() {
+			if state.Ready {
 				msg = "no messages yet, say something"
 			}
 			a.print(pane, 2, h/2, vaxis.Style{

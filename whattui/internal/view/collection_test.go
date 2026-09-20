@@ -21,7 +21,7 @@ func raw(id, name string) json.RawMessage {
 // about.
 func order(c *Collection[row]) string {
 	var ids []string
-	c.Read(func(items []Item[row]) {
+	c.Read(func(items []Item[row], _ State) {
 		for _, it := range items {
 			ids = append(ids, it.ID)
 		}
@@ -171,7 +171,7 @@ func TestABigBatchDropsRemovedIdsFromTheIndex(t *testing.T) {
 	if got := c.IndexOf("id00"); got != -1 {
 		t.Errorf("IndexOf a removed id = %d, want -1", got)
 	}
-	c.Read(func(items []Item[row]) {
+	c.Read(func(items []Item[row], _ State) {
 		for i, it := range items {
 			if c.index[it.ID] != i {
 				t.Fatalf("index for %s says %d, actually %d", it.ID, c.index[it.ID], i)
@@ -263,7 +263,7 @@ func TestNoReaderSeesAHalfAppliedBatch(t *testing.T) {
 				return
 			default:
 			}
-			c.Read(func(items []Item[row]) {
+			c.Read(func(items []Item[row], _ State) {
 				// The window is only ever 50 or 100 items, never a count
 				// from the middle of a batch.
 				if n := len(items); n != 50 && n != 100 {
@@ -306,5 +306,39 @@ func TestVersionBumpsOnEveryAppliedChange(t *testing.T) {
 	c.Ready(false, true)
 	if c.Version() == v1 {
 		t.Error("version did not bump on ready")
+	}
+}
+
+// Read holds a read lock, and Go's RWMutex is not reentrant: a second read
+// lock taken behind a waiting writer never returns. Everything a reader needs
+// therefore arrives with the items.
+func TestReadNeverHasToLockAgain(t *testing.T) {
+	c := NewCollection[row]()
+	c.Upsert("a", raw("a", "a"))
+	c.Ready(true, true)
+
+	writing := make(chan struct{})
+	done := make(chan struct{})
+	c.Read(func(items []Item[row], state State) {
+		if !state.Ready || len(items) != 1 {
+			t.Errorf("state = %+v with %d items", state, len(items))
+		}
+		go func() {
+			close(writing)
+			c.BatchBegin()
+			c.Upsert("b", raw("b", "b"))
+			c.BatchEnd()
+			close(done)
+		}()
+		<-writing
+		// The writer is now queued on the lock. A reader that asked the
+		// collection anything here would be the deadlock this guards.
+		if state.Version == 0 {
+			t.Error("the version came through as zero")
+		}
+	})
+	<-done
+	if c.Len() != 2 {
+		t.Fatalf("len = %d after the write, want 2", c.Len())
 	}
 }

@@ -203,7 +203,7 @@ func (a *App) setSelection(to int) {
 func (a *App) openSelected() {
 	at := a.selection()
 	var id string
-	a.chats.Read(func(items []view.Item[proto.ChatRow]) {
+	a.chats.Read(func(items []view.Item[proto.ChatRow], _ view.State) {
 		if at >= 0 && at < len(items) {
 			id = items[at].ID
 		}
