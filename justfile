@@ -29,6 +29,31 @@ artifacts arch=`uname -m`:
     @just _binary-tarball "{{arch}}"
     @just _checksums
 
+# Build and run the frontend tests that can carry sanitizers, under ASan+UBSan.
+#
+# Not the whole suite: the mpv and QML-render tests want a GPU, and a software
+# fallback tells you nothing about memory safety. These three are where the
+# transport, the models and the window ownership live, which is where the bugs
+# this catches actually are.
+sanitize dir=build_dir:
+    @cmake -S whatkevr -B "{{dir}}/asan/whatkevr" -G Ninja \
+        -DCMAKE_BUILD_TYPE=Debug \
+        -DWHATEVR_BUILD_TESTS=ON \
+        -DWHATEVR_VERSION={{version_numeric}} \
+        -DWHATEVR_VERSION_FULL={{version}} \
+        -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g" \
+        -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" \
+        -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=address,undefined"
+    @cmake --build "{{dir}}/asan/whatkevr" --target tst_protocolcore tst_protocolmessagemodel tst_protocolcontroller
+    @for t in tst_protocolcore tst_protocolmessagemodel tst_protocolcontroller; do \
+        printf '\n== %s ==\n' "$t"; \
+        QT_QPA_PLATFORM=offscreen \
+        ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 \
+        UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
+        "{{dir}}/asan/whatkevr/bin/$t"; \
+    done
+
+
 validate:
     @desktop-file-validate whatkevr/data/in.codelif.Whatevr.desktop
     @appstreamcli validate --no-net whatkevr/data/in.codelif.Whatevr.metainfo.xml

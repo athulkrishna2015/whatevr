@@ -223,6 +223,45 @@ jobs:
       - name: Show resolved version
         run: just version
 
+  sanitizers:
+    name: Frontend sanitizers (ASan/UBSan)
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    timeout-minutes: 60
+    needs: changes
+    if: ${{ needs.changes.outputs.build == 'true' }}
+    steps:
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git base-devel just cmake ninja ccache extra-cmake-modules vulkan-headers \
+            qt6-base qt6-declarative qt6-multimedia qt6-shadertools mpv ffmpeg \
+            kcoreaddons kdbusaddons ki18n kirigami kirigami-addons prison qqc2-desktop-style sqlite
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Restore ccache
+        uses: actions/cache@v5
+        with:
+          path: .cache/ccache
+          key: arch-asan-ccache-${{ github.sha }}
+          restore-keys: arch-asan-ccache-
+
+      # Memory safety, not leak accounting: Qt and KDE hold singletons to exit,
+      # so leak detection here would only ever report their teardown. What this
+      # is for is use-after-free and undefined behaviour, and both abort.
+      - name: Build and run the sanitized tests
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
+          CCACHE_MAXSIZE: 500M
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+        run: just sanitize
+
+
   aur:
     name: AUR metadata
     runs-on: ubuntu-latest
