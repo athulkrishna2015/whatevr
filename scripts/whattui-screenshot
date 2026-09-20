@@ -860,9 +860,11 @@ def compare_or_update(metadata: dict[str, Any], update: bool, no_compare: bool) 
             if actual.size != expected.size:
                 failures.append(f"{name}: size {actual.size} != {expected.size}")
                 continue
-            diff = ImageChops.difference(actual, expected)
-            if diff.getbbox() is not None:
-                diff.save(diff_dir / f"{name}.png")
+            # Bytes, not getbbox: Pillow trims by alpha alone by default, so
+            # two images that differ in every colour and share an alpha
+            # channel compare equal and a broken frame passes.
+            if actual.tobytes() != expected.tobytes():
+                ImageChops.difference(actual, expected).save(diff_dir / f"{name}.png")
                 failures.append(f"{name}: pixels differ")
             else:
                 (diff_dir / f"{name}.png").unlink(missing_ok=True)
