@@ -43,6 +43,8 @@ PROTOCOL.md (stable at version 1: additive changes only).
   workspace column with the chat list instead of rebuilding layer pages on each
   switch.
 - Archived chats expand inline downward rather than overlaying earlier rows.
+- The Archived section header is clickable again: the chat list no longer
+  paints over it and swallows its clicks.
 - Group composers are disabled for members when the group is configured for
   admin-only sending.
 - Message Info shows sent, delivered, read, and played/listened timestamps,

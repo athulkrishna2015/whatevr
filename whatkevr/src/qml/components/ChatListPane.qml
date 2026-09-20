@@ -303,6 +303,9 @@ Kirigami.Page {
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     visible: !Whatevr.ProtocolController.searchActive
+                // NB: no anchors.fill here — chatList is laid out by
+                // chatColumn below the archived section. An anchors.fill
+                // would cover the archived header, eating its clicks.
 
                 property string contextChatId: ""
                 property bool contextChatPinned: false
@@ -312,7 +315,6 @@ Kirigami.Page {
                 // Whether the collapsible "Archived" section is expanded.
                 property bool archivedExpanded: false
 
-                anchors.fill: parent
                 clip: true
                 model: Whatevr.ProtocolController.chatsModel
                 currentIndex: -1
