@@ -1,7 +1,7 @@
 tier plain
 layout {Shape:wide Chrome:2 ChatList:{Col:0 Row:0 Width:34 Height:30} Header:{Col:34 Row:0 Width:66 Height:1} Transcript:{Col:34 Row:1 Width:66 Height:27} Composer:{Col:34 Row:28 Width:66 Height:1} HintBar:{Col:34 Row:29 Width:66 Height:1} ListFocused:false}
 size 100x30
-cursor {Column:37 Row:28 Style:6 Visible:true}
+cursor {Column:38 Row:28 Style:6 Visible:true}
 placements []
 row 00
   000-000 w=1 size=0 fg=0x1000006 bg=0x1000008 ul=0x0 us=0 attr=0 link="" params="" ["▎"]
@@ -296,11 +296,11 @@ row 27
 row 28
   000-032 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   033-033 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
-  034-034 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  035-035 w=1 size=0 fg=0x1000006 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["›"]
-  036-036 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  037-050 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["t","y","p","e"," ","a"," ","m","e","s","s","a","g","e"]
-  051-099 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  034-035 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
+  036-036 w=1 size=0 fg=0x1000006 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["›"]
+  037-037 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  038-051 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["t","y","p","e"," ","a"," ","m","e","s","s","a","g","e"]
+  052-099 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
 row 29
   000-032 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   033-033 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
@@ -316,7 +316,7 @@ row 29
 tier color
 layout {Shape:wide Chrome:2 ChatList:{Col:0 Row:0 Width:34 Height:30} Header:{Col:34 Row:0 Width:66 Height:1} Transcript:{Col:34 Row:1 Width:66 Height:27} Composer:{Col:34 Row:28 Width:66 Height:1} HintBar:{Col:34 Row:29 Width:66 Height:1} ListFocused:false}
 size 100x30
-cursor {Column:37 Row:28 Style:6 Visible:true}
+cursor {Column:38 Row:28 Style:6 Visible:true}
 placements []
 row 00
   000-000 w=1 size=0 fg=0x24c9aff bg=0x22b2d31 ul=0x0 us=0 attr=0 link="" params="" ["▎"]
@@ -611,11 +611,11 @@ row 27
 row 28
   000-032 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   033-033 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  034-034 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  035-035 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["›"]
-  036-036 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  037-050 w=1 size=0 fg=0x26a6b6f bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["t","y","p","e"," ","a"," ","m","e","s","s","a","g","e"]
-  051-099 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  034-035 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
+  036-036 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["›"]
+  037-037 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  038-051 w=1 size=0 fg=0x26a6b6f bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["t","y","p","e"," ","a"," ","m","e","s","s","a","g","e"]
+  052-099 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
 row 29
   000-032 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   033-033 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
@@ -631,8 +631,8 @@ row 29
 tier graphics
 layout {Shape:wide Chrome:2 ChatList:{Col:0 Row:0 Width:34 Height:30} Header:{Col:34 Row:0 Width:66 Height:1} Transcript:{Col:34 Row:1 Width:66 Height:27} Composer:{Col:34 Row:28 Width:66 Height:1} HintBar:{Col:34 Row:29 Width:66 Height:1} ListFocused:false}
 size 100x30
-cursor {Column:37 Row:28 Style:6 Visible:true}
-placements [{Column:1 Row:0 Width:4 Height:2 ImageID:2 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:2 Width:4 Height:2 ImageID:3 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:4 Width:4 Height:2 ImageID:4 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:6 Width:4 Height:2 ImageID:5 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:8 Width:4 Height:2 ImageID:6 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:10 Width:4 Height:2 ImageID:7 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:12 Width:4 Height:2 ImageID:8 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:14 Width:4 Height:2 ImageID:9 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:42 Row:13 Width:1 Height:3 ImageID:11 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:42 Row:21 Width:1 Height:3 ImageID:11 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:89 Row:9 Width:1 Height:3 ImageID:10 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:89 Row:17 Width:1 Height:3 ImageID:10 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:89 Row:25 Width:1 Height:3 ImageID:10 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:98 Row:1 Width:1 Height:1 ImageID:1 XOffset:2 YOffset:3 ZIndex:-2 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0}]
+cursor {Column:38 Row:28 Style:6 Visible:true}
+placements [{Column:1 Row:0 Width:4 Height:2 ImageID:2 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:2 Width:4 Height:2 ImageID:3 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:4 Width:4 Height:2 ImageID:4 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:6 Width:4 Height:2 ImageID:5 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:8 Width:4 Height:2 ImageID:6 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:10 Width:4 Height:2 ImageID:7 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:12 Width:4 Height:2 ImageID:8 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:1 Row:14 Width:4 Height:2 ImageID:9 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:35 Row:28 Width:64 Height:1 ImageID:12 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:42 Row:13 Width:1 Height:3 ImageID:11 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:42 Row:21 Width:1 Height:3 ImageID:11 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:89 Row:9 Width:1 Height:3 ImageID:10 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:89 Row:17 Width:1 Height:3 ImageID:10 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:89 Row:25 Width:1 Height:3 ImageID:10 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:98 Row:1 Width:1 Height:1 ImageID:1 XOffset:2 YOffset:3 ZIndex:-2 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0}]
 row 00
   000-000 w=1 size=0 fg=0x24c9aff bg=0x22b2d31 ul=0x0 us=0 attr=0 link="" params="" ["▎"]
   001-001 w=1 size=0 fg=0x0 bg=0x22b2d31 ul=0x0 us=0 attr=0 link="" params="" [" "]
@@ -905,11 +905,11 @@ row 27
 row 28
   000-032 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   033-033 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]
-  034-034 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  035-035 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["›"]
-  036-036 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  037-050 w=1 size=0 fg=0x26a6b6f bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["t","y","p","e"," ","a"," ","m","e","s","s","a","g","e"]
-  051-099 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  034-035 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
+  036-036 w=1 size=0 fg=0x24c9aff bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" ["›"]
+  037-037 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  038-051 w=1 size=0 fg=0x26a6b6f bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" ["t","y","p","e"," ","a"," ","m","e","s","s","a","g","e"]
+  052-099 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
 row 29
   000-032 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
   033-033 w=1 size=0 fg=0x2494a4e bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["│"]

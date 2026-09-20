@@ -298,5 +298,11 @@ func (a *App) composerRows(width int) int {
 	return minInt(n, maxComposerRows)
 }
 
-// composerGutter is the prompt marker plus the space each side of the text.
-const composerGutter = 4
+// composerGutter is the prompt marker plus the space each side of the text,
+// counting the column the field's own edge stands in.
+const composerGutter = 6
+
+// composerText is the column the draft starts in: inside the field, past the
+// marker. Same at every tier, because the field is drawn where a terminal can
+// draw and simply absent where it cannot.
+const composerText = 4

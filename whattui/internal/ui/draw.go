@@ -506,7 +506,6 @@ func statusGlyph(status string) string {
 
 func (a *App) drawComposer(win vaxis.Window, r layout.Rect) {
 	pane := sub(win, r)
-	fill(pane, a.theme.BackgroundPanel)
 	w, h := pane.Size()
 
 	a.mu.Lock()
@@ -514,49 +513,79 @@ func (a *App) drawComposer(win vaxis.Window, r layout.Rect) {
 	text, cursor, sendErr := a.composer.String(), a.composer.cursor, a.composer.sendErr
 	a.mu.Unlock()
 
+	// The field carries its own ground where there is something to draw it
+	// with, and the cells inside it keep the pane's so the image is not
+	// tinted twice. Below the graphics tiers the cells are the field.
+	ground := a.theme.BackgroundPanel
+	if a.painted() && active != "" {
+		ground = a.theme.Background
+	}
+	fill(pane, ground)
 	if active == "" {
 		return
 	}
+	a.drawField(pane, 1, 0, w-2, h, focus == FocusComposer)
 
-	marker := vaxis.Style{Foreground: a.theme.Border, Background: a.theme.BackgroundPanel}
+	marker := vaxis.Style{Foreground: a.theme.Border, Background: ground}
 	if focus == FocusComposer {
-		marker = vaxis.Style{Foreground: a.theme.Accent, Background: a.theme.BackgroundPanel}
+		marker = vaxis.Style{Foreground: a.theme.Accent, Background: ground}
 	}
-	a.print(pane, 1, 0, marker, "\u203a")
+	a.print(pane, 2, 0, marker, "\u203a")
 
 	if sendErr != "" {
-		a.print(pane, 3, 0, vaxis.Style{
-			Foreground: a.theme.Error, Background: a.theme.BackgroundPanel,
-		}, a.clip("not sent: "+sendErr, w-4))
+		a.print(pane, composerText, 0, vaxis.Style{
+			Foreground: a.theme.Error, Background: ground,
+		}, a.clip("not sent: "+sendErr, w-composerGutter))
 		return
 	}
 
 	if text == "" {
-		a.print(pane, 3, 0, vaxis.Style{
-			Foreground: a.theme.TextFaint, Background: a.theme.BackgroundPanel,
+		a.print(pane, composerText, 0, vaxis.Style{
+			Foreground: a.theme.TextFaint, Background: ground,
 		}, "type a message")
 		if focus == FocusComposer {
-			win.ShowCursor(r.Col+3, r.Row, vaxis.CursorBeam)
+			win.ShowCursor(r.Col+composerText, r.Row, vaxis.CursorBeam)
 		}
 		return
 	}
 
-	style := vaxis.Style{Foreground: a.theme.Text, Background: a.theme.BackgroundPanel}
+	style := vaxis.Style{Foreground: a.theme.Text, Background: ground}
 	lines := a.wrap(text, w-composerGutter)
-	a.noteBlock(pane, 3, 0, w-composerGutter, h)
+	a.noteBlock(pane, composerText, 0, w-composerGutter, h)
 	// The tail is what is being written, so that is the end that stays on
 	// screen when the draft outgrows the rows it has.
 	if len(lines) > h {
 		lines = lines[len(lines)-h:]
 	}
 	for i, line := range lines {
-		a.print(pane, 3, i, style, line)
+		a.print(pane, composerText, i, style, line)
 	}
 
 	if focus == FocusComposer {
 		col, row := a.cursorCell(text, cursor, w-composerGutter, len(lines), h)
-		win.ShowCursor(r.Col+3+col, r.Row+row, vaxis.CursorBeam)
+		win.ShowCursor(r.Col+composerText+col, r.Row+row, vaxis.CursorBeam)
 	}
+}
+
+// drawField is the rounded box a draft is typed into. A terminal cannot set a
+// rounded background, so below the graphics tiers the panel colour fills the
+// same cells and the shape is the only thing lost.
+func (a *App) drawField(pane vaxis.Window, col, row, width, height int, focused bool) {
+	if !a.painted() {
+		return
+	}
+	fill, ok := theme.Paint(a.theme.Background, a.theme.BackgroundPanel, 1)
+	if !ok {
+		return
+	}
+	edge, _ := theme.Paint(a.theme.Background, a.theme.Border, 1)
+	if focused {
+		edge, _ = theme.Paint(a.theme.Background, a.theme.BorderActive, 1)
+	}
+	_, ch := a.cellPix()
+	a.paintRect(pane, col, row, width, height, func(pw, ph int) paint.Spec {
+		return paint.Bubble{W: pw, H: ph, Fill: fill, Edge: edge, Radius: ch / 2}
+	})
 }
 
 // cursorCell is where the caret sits once the draft has been wrapped: the

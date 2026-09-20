@@ -1,7 +1,7 @@
 tier plain
 layout {Shape:rail Chrome:1 ChatList:{Col:0 Row:0 Width:4 Height:14} Header:{Col:4 Row:0 Width:34 Height:1} Transcript:{Col:4 Row:1 Width:34 Height:11} Composer:{Col:4 Row:12 Width:34 Height:1} HintBar:{Col:4 Row:13 Width:34 Height:1} ListFocused:false}
 size 38x14
-cursor {Column:7 Row:12 Style:6 Visible:true}
+cursor {Column:8 Row:12 Style:6 Visible:true}
 placements []
 row 00
   000-000 w=1 size=0 fg=0x0 bg=0x1000008 ul=0x0 us=0 attr=0 link="" params="" [" "]
@@ -103,11 +103,11 @@ row 11
   028-036 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
   037-037 w=1 size=0 fg=0x1000008 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" ["▕"]
 row 12
-  000-004 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "]
-  005-005 w=1 size=0 fg=0x1000006 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["›"]
-  006-006 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  007-020 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["t","y","p","e"," ","a"," ","m","e","s","s","a","g","e"]
-  021-037 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  000-005 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "]
+  006-006 w=1 size=0 fg=0x1000006 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["›"]
+  007-007 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  008-021 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["t","y","p","e"," ","a"," ","m","e","s","s","a","g","e"]
+  022-037 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
 row 13
   000-003 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "]
   004-004 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "]
@@ -118,7 +118,7 @@ row 13
 tier color
 layout {Shape:rail Chrome:1 ChatList:{Col:0 Row:0 Width:4 Height:14} Header:{Col:4 Row:0 Width:34 Height:1} Transcript:{Col:4 Row:1 Width:34 Height:11} Composer:{Col:4 Row:12 Width:34 Height:1} HintBar:{Col:4 Row:13 Width:34 Height:1} ListFocused:false}
 size 38x14
-cursor {Column:7 Row:12 Style:6 Visible:true}
+cursor {Column:8 Row:12 Style:6 Visible:true}
 placements []
 row 00
   000-000 w=1 size=0 fg=0x0 bg=0x22b2d31 ul=0x0 us=0 attr=0 link="" params="" [" "]
@@ -220,11 +220,11 @@ row 11
   028-036 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "]
   037-037 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" ["▕"]
 row 12
-  000-004 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "]
-  005-005 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["›"]
-  006-006 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  007-020 w=1 size=0 fg=0x26a6b6f bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["t","y","p","e"," ","a"," ","m","e","s","s","a","g","e"]
-  021-037 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  000-005 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "]
+  006-006 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["›"]
+  007-007 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  008-021 w=1 size=0 fg=0x26a6b6f bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["t","y","p","e"," ","a"," ","m","e","s","s","a","g","e"]
+  022-037 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
 row 13
   000-003 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "]
   004-004 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
@@ -235,8 +235,8 @@ row 13
 tier graphics
 layout {Shape:rail Chrome:1 ChatList:{Col:0 Row:0 Width:4 Height:14} Header:{Col:4 Row:0 Width:34 Height:1} Transcript:{Col:4 Row:1 Width:34 Height:11} Composer:{Col:4 Row:12 Width:34 Height:1} HintBar:{Col:4 Row:13 Width:34 Height:1} ListFocused:false}
 size 38x14
-cursor {Column:7 Row:12 Style:6 Visible:true}
-placements [{Column:0 Row:0 Width:3 Height:1 ImageID:2 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:0 Row:1 Width:3 Height:1 ImageID:3 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:0 Row:2 Width:3 Height:1 ImageID:4 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:0 Row:3 Width:3 Height:1 ImageID:5 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:0 Row:4 Width:3 Height:1 ImageID:6 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:0 Row:5 Width:3 Height:1 ImageID:7 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:0 Row:6 Width:3 Height:1 ImageID:8 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:0 Row:7 Width:3 Height:1 ImageID:9 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:12 Row:1 Width:1 Height:3 ImageID:11 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:80 SourceWidth:10 SourceHeight:60} {Column:27 Row:5 Width:1 Height:7 ImageID:10 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:36 Row:1 Width:1 Height:1 ImageID:1 XOffset:2 YOffset:3 ZIndex:-2 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:37 Row:9 Width:1 Height:3 ImageID:12 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0}]
+cursor {Column:8 Row:12 Style:6 Visible:true}
+placements [{Column:0 Row:0 Width:3 Height:1 ImageID:2 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:0 Row:1 Width:3 Height:1 ImageID:3 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:0 Row:2 Width:3 Height:1 ImageID:4 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:0 Row:3 Width:3 Height:1 ImageID:5 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:0 Row:4 Width:3 Height:1 ImageID:6 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:0 Row:5 Width:3 Height:1 ImageID:7 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:0 Row:6 Width:3 Height:1 ImageID:8 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:0 Row:7 Width:3 Height:1 ImageID:9 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:5 Row:12 Width:32 Height:1 ImageID:13 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:12 Row:1 Width:1 Height:3 ImageID:11 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:80 SourceWidth:10 SourceHeight:60} {Column:27 Row:5 Width:1 Height:7 ImageID:10 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:36 Row:1 Width:1 Height:1 ImageID:1 XOffset:2 YOffset:3 ZIndex:-2 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:37 Row:9 Width:1 Height:3 ImageID:12 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0}]
 row 00
   000-000 w=1 size=0 fg=0x0 bg=0x22b2d31 ul=0x0 us=0 attr=0 link="" params="" [" "]
   001-001 w=0 size=0 fg=0x2e5a03d bg=0x22b2d31 ul=0x0 us=0 attr=0 link="" params="" ["C"]
@@ -320,11 +320,12 @@ row 11
   006-008 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=1 attr=0 link="https://example.com/spec" params="" ["p","e","c"]
   009-037 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
 row 12
-  000-004 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "]
-  005-005 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["›"]
-  006-006 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  007-020 w=1 size=0 fg=0x26a6b6f bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["t","y","p","e"," ","a"," ","m","e","s","s","a","g","e"]
-  021-037 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
+  000-003 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "]
+  004-005 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
+  006-006 w=1 size=0 fg=0x24c9aff bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" ["›"]
+  007-007 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  008-021 w=1 size=0 fg=0x26a6b6f bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" ["t","y","p","e"," ","a"," ","m","e","s","s","a","g","e"]
+  022-037 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
 row 13
   000-003 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "]
   004-004 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]

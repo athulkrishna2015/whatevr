@@ -115,16 +115,17 @@ func (a *App) onSelectPress(p point) bool {
 		return a.selectBlock(p)
 	}
 
-	// Bounded to the block the press landed in. A drag that started inside a
-	// message stays inside it: running through the bubble's own walls and
-	// into the one below would copy the frame along with the words, which is
-	// not what anybody is pointing at. And a press on the ground between two
-	// messages selects nothing, because there is nothing there to select.
+	// A press starts a drag wherever it lands, including on the ground beside
+	// the words. Nobody puts the pointer on the exact first character before
+	// pressing; they start a little short and pull across. The drag binds to
+	// the first block it reaches and takes its anchor with it.
+	//
+	// Bounded to that block once it has one. A drag that started inside a
+	// message stays inside it: running through the walls and into the one
+	// below would copy the frame along with the words, which is not what
+	// anybody is pointing at.
 	a.clearSelection()
-	bounds, ok := a.blockAt(p)
-	if !ok {
-		return false
-	}
+	bounds, _ := a.blockAt(p)
 
 	a.mu.Lock()
 	a.drag.down = true
@@ -137,18 +138,29 @@ func (a *App) onSelectPress(p point) bool {
 // onSelectMotion extends a live drag.
 func (a *App) onSelectMotion(p point) bool {
 	a.mu.Lock()
+	defer a.mu.Unlock()
 	if !a.drag.down {
-		a.mu.Unlock()
 		return false
+	}
+	if a.sel.bounds.Empty() {
+		b, ok := a.blockAt(p)
+		if !ok {
+			// Still over nothing. There is no selection to show and none to
+			// copy, and the press has not become a drag yet.
+			return false
+		}
+		// The anchor moves to where the words start, so the pull that began
+		// beside them selects from their first character rather than from
+		// wherever the pointer happened to be.
+		a.sel.bounds = b
+		a.sel.from = clampTo(a.sel.from, b)
 	}
 	if p != a.sel.from {
 		a.drag.moved = true
 		a.sel.on = true
 	}
 	a.sel.to = clampTo(p, a.sel.bounds)
-	on := a.sel.on
-	a.mu.Unlock()
-	return on
+	return a.sel.on
 }
 
 // onSelectRelease ends a drag and reports whether it was one. A press that
