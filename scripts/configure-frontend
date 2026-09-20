@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""Configure the whatkevr build tree, without dirtying it for no reason.
+
+`cmake --build` is incremental; running `cmake -S -B` before it is not. Qt's
+qml module generator rewrites its .qrc file on every configure with byte
+identical content and a fresh mtime, and every qmlcache object depends on that
+file, so an unconditional configure rebuilt all 425 targets on a no-op build.
+
+So: configure only when something it depends on actually changed, and when it
+does, put back the mtime of any generated file whose content did not. CMake
+re-runs itself from ninja whenever a CMakeLists.txt changes, so nothing is
+missed by skipping the explicit pass.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+# The cache entries this script owns. A change in any of them needs a configure;
+# anything else a caller wants to set, it sets by running cmake itself.
+OWNED = ("CMAKE_BUILD_TYPE", "WHATEVR_VERSION", "WHATEVR_VERSION_FULL")
+
+
+def cached(build: Path) -> dict[str, str]:
+    cache = build / "CMakeCache.txt"
+    if not cache.exists():
+        return {}
+    out: dict[str, str] = {}
+    for line in cache.read_text(encoding="utf-8", errors="replace").splitlines():
+        name, sep, value = line.partition("=")
+        if not sep or ":" not in name:
+            continue
+        key = name.split(":", 1)[0]
+        if key in OWNED:
+            out[key] = value
+    return out
+
+
+def digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def generated_qrcs(build: Path) -> list[Path]:
+    return sorted(build.glob("**/.qt/rcc/*.qrc"))
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--build", required=True, help="build directory")
+    parser.add_argument("--build-type", required=True)
+    parser.add_argument("--version", required=True, help="numeric x.y.z")
+    parser.add_argument("--version-full", required=True)
+    parser.add_argument("--force", action="store_true",
+                        help="configure even when nothing changed")
+    args = parser.parse_args()
+
+    build = Path(args.build)
+    want = {
+        "CMAKE_BUILD_TYPE": args.build_type,
+        "WHATEVR_VERSION": args.version,
+        "WHATEVR_VERSION_FULL": args.version_full,
+    }
+    if not args.force and build.joinpath("CMakeCache.txt").exists() and cached(build) == want:
+        return 0
+
+    before = {path: (digest(path), path.stat().st_mtime_ns) for path in generated_qrcs(build)}
+
+    result = subprocess.run(
+        ["cmake", "-S", str(ROOT / "whatkevr"), "-B", str(build), "-G", "Ninja",
+         f"-DCMAKE_BUILD_TYPE={args.build_type}",
+         f"-DWHATEVR_VERSION={args.version}",
+         f"-DWHATEVR_VERSION_FULL={args.version_full}"],
+        cwd=ROOT,
+        check=False,
+    )
+    if result.returncode != 0:
+        return result.returncode
+
+    # Put back the mtime of every generated file the configure rewrote without
+    # changing. A version bump then rebuilds what includes version.h, rather
+    # than the whole qml cache along with it.
+    restored = 0
+    for path, (before_digest, before_mtime) in before.items():
+        if not path.exists() or digest(path) != before_digest:
+            continue
+        os.utime(path, ns=(before_mtime, before_mtime))
+        restored += 1
+    if restored:
+        print(f"configure-frontend: {restored} generated file(s) unchanged, mtime kept")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

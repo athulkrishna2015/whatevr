@@ -136,10 +136,11 @@ _build-daemon profile dir=build_dir:
 _build-frontend profile dir=build_dir:
     @profile="{{profile}}"; \
     if [ "$profile" = release ]; then build_type=Release; else build_type=Debug; fi; \
-    cmake -S whatkevr -B "{{dir}}/$profile/whatkevr" -G Ninja \
-        -DCMAKE_BUILD_TYPE="$build_type" \
-        -DWHATEVR_VERSION={{version_numeric}} \
-        -DWHATEVR_VERSION_FULL={{version}}; \
+    scripts/configure-frontend \
+        --build "{{dir}}/$profile/whatkevr" \
+        --build-type "$build_type" \
+        --version {{version_numeric}} \
+        --version-full {{version}}; \
     cmake --build "{{dir}}/$profile/whatkevr"
 
 _install profile prefix destdir:
