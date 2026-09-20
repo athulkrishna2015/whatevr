@@ -25,6 +25,17 @@ GOLDENS = ROOT / "whattui" / "testdata" / "visual"
 FIXTURE = GOLDENS / "fixture.ndjson"
 KITTY_CONFIG = ROOT / "scripts" / "whattui-kitty.conf"
 SIZES = ((120, 40), (90, 30), (60, 24), (38, 14))
+# The discovery surfaces, each opened the way a user opens it and each proved
+# on screen before it is photographed. name -> (cols, rows, keys, marker).
+SURFACES = {
+    "palette-120x40": (120, 40, ["ctrl+p"], "Command palette"),
+    "palette-38x14": (38, 14, ["ctrl+p"], "Command palette"),
+    "palette-chats-120x40": (120, 40, ["ctrl+p", "/", "a", "n"], "> /an"),
+    "slash-120x40": (120, 40, ["/"], "Slash commands"),
+    "slash-38x14": (38, 14, ["/"], "Slash commands"),
+    "help-120x40": (120, 40, ["tab", "?"], "Keyboard help"),
+    "leader-120x40": (120, 40, ["ctrl+x"], "^x"),
+}
 TIMEOUT = 30.0
 OUTPUT_MODE = "1920x1200@60"
 OUTPUT_POSITION = "8192x0"
@@ -841,6 +852,7 @@ def main() -> int:
         action="append",
         choices=[
             *(f"kitty-{cols}x{rows}" for cols, rows in SIZES),
+            *SURFACES,
             "kitty-120x40-plain",
             "resize-visible-67x24",
             "resize-hidden-tab-67x24",
@@ -916,6 +928,19 @@ def main() -> int:
             if selected and name not in selected:
                 continue
             state = harness.launch(cols, rows, name)
+            scenarios.append(harness.capture(state, name, (cols, rows)))
+            harness.close(state)
+
+        for name, (cols, rows, keys, marker) in SURFACES.items():
+            if selected and name not in selected:
+                continue
+            state = harness.launch(cols, rows, name)
+            for key in keys:
+                harness.remote(
+                    state["socket"],
+                    ["send-key", "--match", f"id:{state['window_id']}", key],
+                )
+            harness.wait_text(state, marker)
             scenarios.append(harness.capture(state, name, (cols, rows)))
             harness.close(state)
 
