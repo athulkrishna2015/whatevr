@@ -12,6 +12,7 @@
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTimer>
 #include <functional>
 #include <memory>
 
@@ -125,6 +126,10 @@ public:
     int unsubscribeCount = 0;
     bool rejectNextExtend = false;
     bool holdNextSubscribe = false;
+    // Accept the connection and never answer the handshake.
+    bool swallowHello = false;
+    // Answer the handshake, then never answer anything else.
+    bool swallowOthers = false;
 
     void releaseHeldSubscribe()
     {
@@ -139,6 +144,7 @@ public:
     }
 
 Q_SIGNALS:
+    void helloSwallowed();
     void subscribed(int sub);
     void extended();
     void subscribeHeld();
@@ -165,6 +171,10 @@ private:
         lastMethod = method;
 
         if (method == QLatin1String("hello")) {
+            if (swallowHello) {
+                Q_EMIT helloSwallowed();
+                return;
+            }
             reply(id, QJsonObject{
                           {QStringLiteral("daemon"), QStringLiteral("whatevrd")},
                           {QStringLiteral("version"), QStringLiteral("0.7.0")},
@@ -198,6 +208,8 @@ private:
                 reply(id, QJsonObject{});
             }
             Q_EMIT extended();
+        } else if (swallowOthers) {
+            return;
         } else if (method == QLatin1String("unsubscribe")) {
             ++unsubscribeCount;
             reply(id, QJsonObject{});
@@ -778,6 +790,91 @@ private Q_SLOTS:
                  "a batch was closed on a sink that had already been destroyed");
 
         delete survivorSub;
+    }
+
+    // A daemon that accepts the socket and then says nothing must not wedge the
+    // client for ever.
+    //
+    // Reconnection only ever ran off a disconnect, and a socket that is open and
+    // silent never produces one, so the client sat in Handshaking with every
+    // caller queued behind a hello that was never coming.
+    void aSilentHandshakeIsGivenUpOnAndRetried()
+    {
+        m_daemon->swallowHello = true;
+
+        auto *deadline = m_client->findChild<QTimer *>(QStringLiteral("protocolHandshakeTimer"));
+        QVERIFY2(deadline, "the client has no handshake deadline");
+        deadline->setInterval(150);
+
+        QSignalSpy errorSpy(m_client, &ProtocolClient::errorOccurred);
+        QSignalSpy swallowedSpy(m_daemon, &FakeDaemon::helloSwallowed);
+        m_client->start();
+        QVERIFY(swallowedSpy.wait());
+        QVERIFY(!m_client->isReady());
+
+        // The deadline expires and the connection is torn down and retried.
+        QTRY_VERIFY_WITH_TIMEOUT(errorSpy.count() > 0, 5000);
+        QVERIFY(!m_client->isReady());
+
+        // And the retry actually gets somewhere once the daemon answers again.
+        m_daemon->swallowHello = false;
+        QSignalSpy readySpy(m_client, &ProtocolClient::ready);
+        QTRY_VERIFY_WITH_TIMEOUT(m_client->isReady() || readySpy.count() > 0, 10000);
+        QVERIFY(m_client->isReady());
+    }
+
+    // Requests made while the daemon is unreachable are queued, and the queue is
+    // bounded. What must never happen is a caller left waiting for a callback
+    // that was quietly thrown away.
+    void anOverflowingPreHelloQueueAnswersTheCallersItDrops()
+    {
+        // Never started, so every request below is queued rather than sent.
+        int answered = 0;
+        int failed = 0;
+        const int overflow = 40;
+        const int total = 1024 + overflow;
+        for (int i = 0; i < total; ++i) {
+            m_client->request(QStringLiteral("noop"), QJsonObject{},
+                              [&answered, &failed](const QJsonObject &, const ProtocolError &error) {
+                                  ++answered;
+                                  if (error.isError()) {
+                                      ++failed;
+                                  }
+                              });
+        }
+
+        // The oldest give way, and each of them is told so.
+        QTRY_COMPARE(answered, overflow);
+        QCOMPARE(failed, overflow);
+    }
+
+    // The same contract for requests already on the wire: the ceiling refuses
+    // the newcomer rather than growing without limit, and answers it.
+    void anOverflowingInFlightSetRefusesNewRequestsAudibly()
+    {
+        m_daemon->swallowOthers = true;
+        QSignalSpy readySpy(m_client, &ProtocolClient::ready);
+        m_client->start();
+        QVERIFY(readySpy.wait());
+
+        int answered = 0;
+        int failed = 0;
+        const auto note = [&answered, &failed](const QJsonObject &, const ProtocolError &error) {
+            ++answered;
+            if (error.isError()) {
+                ++failed;
+            }
+        };
+        // Fill the in-flight set; the daemon answers none of these.
+        for (int i = 0; i < 4096; ++i) {
+            m_client->request(QStringLiteral("noop"), QJsonObject{}, note);
+        }
+        QCOMPARE(answered, 0);
+
+        // One past the ceiling is refused, and the refusal reaches its caller.
+        m_client->request(QStringLiteral("noop"), QJsonObject{}, note);
+        QTRY_COMPARE(answered, 1);
+        QCOMPARE(failed, 1);
     }
 
 private:

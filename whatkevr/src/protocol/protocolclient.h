@@ -202,6 +202,7 @@ private:
     int sendRequest(const QString &method, const QJsonObject &params, ResponseCallback callback);
     void flushPending();
     void scheduleReconnect();
+    void failLater(ResponseCallback callback, const QString &code, const QString &message);
     void failAllPending(const QString &code, const QString &message);
 
     // Subscription plumbing (called by Subscription).
@@ -221,6 +222,8 @@ private:
     QString m_clientName;
     QLocalSocket *m_socket;
     QTimer *m_reconnectTimer;
+    // Bounds how long the daemon may leave `hello` unanswered.
+    QTimer *m_handshakeTimer = nullptr;
     State m_state = State::Idle;
     bool m_running = false;
     int m_nextId = 1;

@@ -23,6 +23,20 @@ constexpr int kReconnectDelayMs = 1000;
 // protocol object is never remotely this large.
 constexpr int kMaxLineBytes = 8 * 1024 * 1024;
 
+// How long the daemon has to answer `hello`. A socket that connects and then
+// says nothing is otherwise a permanent wedge: the client sits in Handshaking,
+// and reconnect only ever runs off a disconnect that is never coming.
+// Generous for a local process, so a busy daemon is never cut off.
+constexpr int kHandshakeTimeoutMs = 10000;
+
+// Ceilings on what one connection may owe. Both exist because a caller is never
+// told "maybe": every callback fires exactly once, so an unanswered request has
+// to be held until something answers it, and holding an unbounded number of
+// them is how a daemon that stops replying turns into a frontend that grows
+// without limit.
+constexpr int kMaxInFlightRequests = 4096;
+constexpr int kMaxQueuedRequests = 1024;
+
 ProtocolError errorFromResponse(const QJsonObject &err)
 {
     return ProtocolError{
@@ -97,6 +111,23 @@ ProtocolClient::ProtocolClient(QString socketPath, QString clientName, QObject *
         }
     });
 
+    m_handshakeTimer = new QTimer(this);
+    // Named so a test can shorten the deadline without widening the API.
+    m_handshakeTimer->setObjectName(QStringLiteral("protocolHandshakeTimer"));
+    m_handshakeTimer->setSingleShot(true);
+    m_handshakeTimer->setInterval(kHandshakeTimeoutMs);
+    connect(m_handshakeTimer, &QTimer::timeout, this, [this] {
+        if (m_state != State::Handshaking) {
+            return;
+        }
+        Q_EMIT errorOccurred(QStringLiteral("daemon did not answer the handshake; reconnecting"));
+        // Through the ordinary teardown, so pending callers are failed and a
+        // reconnect is scheduled. Aborting alone would not: a socket that is
+        // open and silent never emits disconnected().
+        m_socket->abort();
+        onSocketDisconnected();
+    });
+
     connect(m_socket, &QLocalSocket::connected, this, &ProtocolClient::onSocketConnected);
     connect(m_socket, &QLocalSocket::disconnected, this, &ProtocolClient::onSocketDisconnected);
     connect(m_socket, &QLocalSocket::readyRead, this, &ProtocolClient::onReadyRead);
@@ -133,6 +164,7 @@ void ProtocolClient::stop()
 {
     m_running = false;
     m_reconnectTimer->stop();
+    m_handshakeTimer->stop();
     m_state = State::Idle;
     m_socket->abort();
     failAllPending(QStringLiteral("io"), QStringLiteral("client stopped"));
@@ -141,6 +173,7 @@ void ProtocolClient::stop()
 void ProtocolClient::onSocketConnected()
 {
     m_state = State::Handshaking;
+    m_handshakeTimer->start();
     // The first request on a connection must be `hello`. It rides the normal
     // request path (id-correlated); everything else waits behind it.
     QJsonObject params{
@@ -161,6 +194,7 @@ void ProtocolClient::onSocketDisconnected()
     }
 
     m_state = State::Idle;
+    m_handshakeTimer->stop();
     m_readBuffer.clear();
     m_subsBySubId.clear();
 
@@ -321,6 +355,7 @@ void ProtocolClient::handleEvent(const QJsonObject &msg)
 
 void ProtocolClient::handleHelloReply(const QJsonObject &result, const ProtocolError &error)
 {
+    m_handshakeTimer->stop();
     if (error.isError()) {
         Q_EMIT errorOccurred(QStringLiteral("hello rejected: %1").arg(error.message));
         m_socket->abort();
@@ -350,6 +385,16 @@ void ProtocolClient::sendObject(const QJsonObject &obj)
 int ProtocolClient::sendRequest(const QString &method, const QJsonObject &params, ResponseCallback callback)
 {
     const int id = m_nextId++;
+    if (callback && m_pending.size() >= kMaxInFlightRequests) {
+        // A daemon that accepts requests and answers none would otherwise have
+        // us hold every callback for ever. Refuse the new one rather than drop
+        // an older one still waiting for a reply that may yet arrive, and answer
+        // it on the next turn so the caller is never re-entered from its own
+        // call into request().
+        failLater(std::move(callback), QStringLiteral("io"),
+                  QStringLiteral("too many requests are already awaiting the daemon"));
+        return id;
+    }
     if (callback) {
         m_pending.insert(id, std::move(callback));
     }
@@ -367,6 +412,18 @@ int ProtocolClient::request(const QString &method, const QJsonObject &params, Re
         // Queue until hello lands. Reserve the id now so the return value is
         // stable and callers can correlate before the wire send.
         const int id = m_nextId++;
+        if (m_preHelloQueue.size() >= kMaxQueuedRequests) {
+            // The daemon has been unreachable long enough that the queue is
+            // full. The oldest entry is the least likely to still matter (a
+            // presence tick, a superseded session update), so it gives way, but
+            // its caller is still told, because a callback that never fires is
+            // a caller that waits for ever.
+            QueuedRequest oldest = m_preHelloQueue.takeFirst();
+            if (oldest.callback) {
+                failLater(std::move(oldest.callback), QStringLiteral("io"),
+                          QStringLiteral("request dropped while the daemon was unreachable"));
+            }
+        }
         m_preHelloQueue.append(QueuedRequest{method, params, std::move(callback), id});
         return id;
     }
@@ -387,6 +444,19 @@ void ProtocolClient::flushPending()
             {QStringLiteral("params"), req.params},
         });
     }
+}
+
+// Answers a caller on the next event-loop turn. Used where the failure is
+// decided inside the caller's own request() call: firing there would re-enter
+// it before it has its request id back.
+void ProtocolClient::failLater(ResponseCallback callback, const QString &code, const QString &message)
+{
+    if (!callback) {
+        return;
+    }
+    QTimer::singleShot(0, this, [callback = std::move(callback), code, message] {
+        callback({}, ProtocolError{code, message});
+    });
 }
 
 void ProtocolClient::failAllPending(const QString &code, const QString &message)
