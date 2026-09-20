@@ -1,0 +1,163 @@
+#!/usr/bin/env python3
+"""Find the HD halves of photos that were stored as messages of their own.
+
+WhatsApp sends an HD photo twice: the ordinary image, and the full-size copy as
+its own stanza wrapped in associatedChildMessage. The daemon used to unwrap that
+companion into a message in its own right, so every HD photo drew twice, at two
+resolutions, in the same second. The ingest side is fixed; this is for the rows
+that were already written.
+
+Reports by default and deletes nothing. `--delete` removes the HD row and its
+cached file, and only ever the HD one: the standard-resolution row is the one
+every other client shows, and it is the one the chat list preview and any reply
+quote already point at.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sqlite3
+import sys
+
+from PIL import Image
+
+
+# How far apart the two halves may be stamped. They are normally the same
+# second; a few seconds covers a slow upload of the larger file.
+WINDOW_SECONDS = 8
+# The HD half is a whole-number multiple of the standard one, in practice 3x.
+# Anything below this is two different photographs, not two copies of one.
+MIN_SCALE = 1.8
+# Every photograph out of one phone camera has the same aspect ratio, so shape
+# and timing alone match unrelated pictures: the first draft of this paired one
+# standard row with three different HD rows. Nothing is a duplicate until the
+# pixels say so.
+FINGERPRINT_SIZE = 32
+# Mean absolute difference, on 0-255 luminance, below which two decodes are the
+# same photograph. JPEG at two sizes is not bit-identical, so this cannot be
+# zero; it is far below anything two different pictures score.
+MAX_PIXEL_DIFFERENCE = 6.0
+
+
+def fingerprint(path: str):
+    """A small grey thumbnail of the picture, or None if it cannot be read."""
+    if not path or not os.path.exists(path):
+        return None
+    try:
+        with Image.open(path) as img:
+            return (img.convert("L")
+                       .resize((FINGERPRINT_SIZE, FINGERPRINT_SIZE), Image.BILINEAR)
+                       .tobytes())
+    except Exception:
+        return None
+
+
+def same_picture(a, b) -> bool:
+    if a is None or b is None:
+        return False
+    total = sum(abs(x - y) for x, y in zip(a, b))
+    return total / len(a) <= MAX_PIXEL_DIFFERENCE
+
+
+def find_pairs(db: sqlite3.Connection) -> list[tuple]:
+    rows = db.execute(
+        """SELECT id, chat_id, sender_id, direction, timestamp, sort_ms,
+                  media_width, media_height, media_local_path
+           FROM messages
+           WHERE media_kind = 'image' AND media_width > 0 AND media_height > 0
+           ORDER BY chat_id, sort_ms"""
+    ).fetchall()
+
+    pairs = []
+    # Candidates that look right by shape and timing but have no cached file on
+    # one side, so nothing can be proved about them. Reported, never removed.
+    unverifiable = 0
+    prints: dict[str, object] = {}
+    claimed: set[str] = set()
+
+    def print_of(mid: str, path: str):
+        if mid not in prints:
+            prints[mid] = fingerprint(path)
+        return prints[mid]
+
+    for i, row in enumerate(rows):
+        _, chat, sender, direction, ts, _, w, h, _ = row
+        for other in rows[i + 1:]:
+            oid, ochat, osender, odirection, ots, _, ow, oh, opath = other
+            if ochat != chat or abs(ots - ts) > WINDOW_SECONDS:
+                if ochat != chat or ots - ts > WINDOW_SECONDS:
+                    break
+                continue
+            if osender != sender or odirection != direction:
+                continue
+            # The same picture at a whole-number scale: same aspect ratio, and
+            # one strictly larger than the other in both directions.
+            if w <= 0 or h <= 0 or ow <= 0 or oh <= 0:
+                continue
+            if abs((w / h) - (ow / oh)) > 0.01:
+                continue
+            scale = ow / w
+            if scale < MIN_SCALE:
+                continue
+            # One standard row answers for one HD row, never several.
+            if row[0] in claimed or oid in claimed:
+                continue
+            mine, theirs = print_of(row[0], row[8]), print_of(oid, opath)
+            if mine is None or theirs is None:
+                unverifiable += 1
+                continue
+            if not same_picture(mine, theirs):
+                continue
+            claimed.add(row[0])
+            claimed.add(oid)
+            pairs.append((row, other, scale))
+    return pairs, unverifiable
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--db", default=os.path.expanduser("~/.local/share/whatevrd/whatevrd.db"))
+    parser.add_argument("--delete", action="store_true",
+                        help="actually remove the HD rows and their cached files")
+    args = parser.parse_args()
+
+    mode = "" if args.delete else "?mode=ro"
+    db = sqlite3.connect("file:%s%s" % (args.db, mode), uri=True)
+    pairs, unverifiable = find_pairs(db)
+
+    if unverifiable:
+        print("%d candidate(s) could not be checked: the picture was never "
+              "downloaded on one side, so there is nothing to compare. Left alone.\n"
+              % unverifiable)
+
+    if not pairs:
+        print("no HD duplicates found")
+        return 0
+
+    print("%d HD duplicate(s); the standard-resolution row is kept in every case\n" % len(pairs))
+    for standard, hd, scale in pairs[:20]:
+        print("  chat %s" % standard[1])
+        print("    keep   %s  %dx%d" % (standard[0][-24:], standard[6], standard[7]))
+        print("    remove %s  %dx%d  (%.1fx)" % (hd[0][-24:], hd[6], hd[7], scale))
+    if len(pairs) > 20:
+        print("  ... and %d more" % (len(pairs) - 20))
+
+    if not args.delete:
+        print("\nnothing was changed. re-run with --delete to remove the HD rows.")
+        return 0
+
+    removed_files = 0
+    for _, hd, _ in pairs:
+        path = hd[8]
+        if path and os.path.exists(path):
+            os.remove(path)
+            removed_files += 1
+        db.execute("DELETE FROM messages WHERE id = ?", (hd[0],))
+    db.commit()
+    print("\nremoved %d row(s) and %d cached file(s)" % (len(pairs), removed_files))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
