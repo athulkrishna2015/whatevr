@@ -22,6 +22,7 @@ func (a *App) draw() {
 // from draw because it is the half worth measuring and the half a test can
 // run: an offscreen window has cells but no terminal to render to.
 func (a *App) paint() {
+	a.vx.BeginGraphicsFrame()
 	// Asked once, before anything is measured: a frame that measures in cells
 	// and draws in pixels is a frame with a hole in it.
 	a.shaping = a.shaper.Begin()
