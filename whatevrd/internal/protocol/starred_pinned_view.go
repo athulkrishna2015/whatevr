@@ -113,8 +113,13 @@ func (s *starredSession) eventAffects(evt app.DaemonEvent) bool {
 // so generic clients render the starred page in the same order. `extend older`
 // grows the window back into older stars.
 func (s *starredSession) Items(max int) []Item {
+	items, _ := s.ItemsErr(max)
+	return items
+}
+
+func (s *starredSession) ItemsErr(max int) ([]Item, error) {
 	if s.lister == nil {
-		return nil
+		return nil, nil
 	}
 	limit := max
 	if limit <= 0 {
@@ -123,7 +128,7 @@ func (s *starredSession) Items(max int) []Item {
 	rows, err := s.lister.ListStarredMessages(s.ctx, s.chatID, limit, "")
 	if err != nil {
 		log.Printf("protocol: list starred messages for view: %v", err)
-		return nil
+		return nil, err
 	}
 	items := make([]Item, 0, len(rows))
 	for _, sm := range rows {
@@ -133,7 +138,7 @@ func (s *starredSession) Items(max int) []Item {
 			Data: starredItem{messageItem: messageItemFromStore(sm.Message), ChatName: sm.ChatName},
 		})
 	}
-	return items
+	return items, nil
 }
 
 const newestFirstSortMax = int64(1) << 62

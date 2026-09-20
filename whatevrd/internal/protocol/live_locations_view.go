@@ -122,13 +122,18 @@ type liveLocationItem struct {
 }
 
 func (s *liveLocationsSession) Items(max int) []Item {
+	items, _ := s.ItemsErr(max)
+	return items
+}
+
+func (s *liveLocationsSession) ItemsErr(max int) ([]Item, error) {
 	if s.lister == nil {
-		return nil
+		return nil, nil
 	}
 	shares, err := s.lister.ListLiveLocationShares(s.ctx, s.chatID, time.Now().Unix())
 	if err != nil {
 		log.Printf("protocol: list live locations for view: %v", err)
-		return nil
+		return nil, err
 	}
 	if max > 0 && len(shares) > max {
 		shares = shares[:max]
@@ -158,7 +163,7 @@ func (s *liveLocationsSession) Items(max int) []Item {
 			},
 		})
 	}
-	return items
+	return items, nil
 }
 
 func (s *liveLocationsSession) Close() {

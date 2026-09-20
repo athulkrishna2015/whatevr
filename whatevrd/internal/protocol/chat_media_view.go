@@ -100,8 +100,13 @@ func (s *chatMediaSession) eventAffects(evt app.DaemonEvent) bool {
 // Items returns the newest `max` media rows, each carrying a newest-first sort
 // key. `extend older` grows the window back through the chat's history.
 func (s *chatMediaSession) Items(max int) []Item {
+	items, _ := s.ItemsErr(max)
+	return items
+}
+
+func (s *chatMediaSession) ItemsErr(max int) ([]Item, error) {
 	if s.lister == nil {
-		return nil
+		return nil, nil
 	}
 	limit := max
 	if limit <= 0 {
@@ -110,7 +115,7 @@ func (s *chatMediaSession) Items(max int) []Item {
 	rows, err := s.lister.ListChatMediaMessages(s.ctx, s.chatID, limit, "")
 	if err != nil {
 		log.Printf("protocol: list chat media for view: %v", err)
-		return nil
+		return nil, err
 	}
 	items := make([]Item, 0, len(rows))
 	for _, m := range rows {
@@ -120,7 +125,7 @@ func (s *chatMediaSession) Items(max int) []Item {
 			Data: messageItemFromStore(m),
 		})
 	}
-	return items
+	return items, nil
 }
 
 func (s *chatMediaSession) Close() {

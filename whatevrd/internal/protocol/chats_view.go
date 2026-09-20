@@ -236,8 +236,13 @@ func chatEventAffectsList(kind app.DaemonEventKind) bool {
 // store applies the filter and ordering; the engine truncates to the window
 // and diffs.
 func (s *chatsSession) Items(max int) []Item {
+	items, _ := s.ItemsErr(max)
+	return items
+}
+
+func (s *chatsSession) ItemsErr(max int) ([]Item, error) {
 	if s.lister == nil {
-		return nil
+		return nil, nil
 	}
 	filter := s.filter
 	if max > 0 {
@@ -246,14 +251,14 @@ func (s *chatsSession) Items(max int) []Item {
 	chats, err := s.lister.ListChatsForView(s.ctx, filter)
 	if err != nil {
 		log.Printf("protocol: list chats for view: %v", err)
-		return nil
+		return nil, err
 	}
 	s.noteWindow(chats)
 	items := make([]Item, 0, len(chats))
 	for _, c := range chats {
 		items = append(items, Item{ID: c.ID, Sort: chatSort(c), Data: chatItemFromStore(c)})
 	}
-	return items
+	return items, nil
 }
 
 func (s *chatsSession) Close() {
