@@ -5,14 +5,14 @@ cursor {Column:7 Row:18 Style:6 Visible:true}
 placements []
 row 00
   000-000 w=1 size=0 fg=0x0 bg=0x1000008 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x1000002 bg=0x1000008 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x1000002 bg=0x1000008 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-003 w=1 size=0 fg=0x0 bg=0x1000008 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   004-004 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
   005-013 w=1 size=0 fg=0x1000007 bg=0x1000000 ul=0x0 us=0 attr=2 link="" params="" ["c","o","n","t","a","c","t"," ","0"]
   014-038 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
 row 01
   000-000 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x100000b bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x100000b bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-002 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
   003-003 w=1 size=0 fg=0x1000006 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["•"]
   004-005 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -22,7 +22,7 @@ row 01
   032-038 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "]
 row 02
   000-000 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x1000004 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x1000004 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-002 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
   003-003 w=1 size=0 fg=0x1000006 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["•"]
   004-005 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -32,7 +32,7 @@ row 02
   032-038 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "]
 row 03
   000-000 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x1000003 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x1000003 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-002 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
   003-003 w=1 size=0 fg=0x1000006 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["•"]
   004-005 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -42,7 +42,7 @@ row 03
   032-038 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "]
 row 04
   000-000 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x1000002 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x1000002 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-003 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   004-005 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   006-006 w=1 size=0 fg=0x1000008 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["|"]
@@ -51,7 +51,7 @@ row 04
   032-038 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "]
 row 05
   000-000 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x1000001 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x1000001 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-002 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
   003-003 w=1 size=0 fg=0x1000006 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["•"]
   004-005 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -63,7 +63,7 @@ row 05
   032-038 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "]
 row 06
   000-000 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x100000e bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x100000e bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-002 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
   003-003 w=1 size=0 fg=0x1000006 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["•"]
   004-005 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -75,7 +75,7 @@ row 06
   032-038 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "]
 row 07
   000-000 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x100000d bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x100000d bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-002 w=1 size=0 fg=0x0 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" [" "]
   003-003 w=1 size=0 fg=0x1000006 bg=0x1000000 ul=0x0 us=0 attr=0 link="" params="" ["•"]
   004-005 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -167,14 +167,14 @@ cursor {Column:7 Row:18 Style:6 Visible:true}
 placements []
 row 00
   000-000 w=1 size=0 fg=0x0 bg=0x22b2d31 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x2e5a03d bg=0x22b2d31 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x2e5a03d bg=0x22b2d31 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-003 w=1 size=0 fg=0x0 bg=0x22b2d31 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   004-004 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   005-013 w=1 size=0 fg=0x2e4e4e6 bg=0x21d1e22 ul=0x0 us=0 attr=2 link="" params="" ["c","o","n","t","a","c","t"," ","0"]
   014-038 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
 row 01
   000-000 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x29d8cf0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x29d8cf0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-002 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   003-003 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["•"]
   004-005 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -184,7 +184,7 @@ row 01
   032-038 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "]
 row 02
   000-000 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x298c379 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x298c379 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-002 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   003-003 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["•"]
   004-005 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -194,7 +194,7 @@ row 02
   032-038 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "]
 row 03
   000-000 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x2d8c04a bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x2d8c04a bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-002 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   003-003 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["•"]
   004-005 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -204,7 +204,7 @@ row 03
   032-038 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "]
 row 04
   000-000 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x2e5a03d bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x2e5a03d bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-003 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   004-005 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   006-006 w=1 size=0 fg=0x2494a4e bg=0x225272b ul=0x0 us=0 attr=0 link="" params="" ["│"]
@@ -213,7 +213,7 @@ row 04
   032-038 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "]
 row 05
   000-000 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x2e06c75 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x2e06c75 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-002 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   003-003 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["•"]
   004-005 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -225,7 +225,7 @@ row 05
   032-038 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "]
 row 06
   000-000 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x2d19a66 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x2d19a66 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-002 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   003-003 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["•"]
   004-005 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -238,7 +238,7 @@ row 06
   032-038 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "]
 row 07
   000-000 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x2e06cb8 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x2e06cb8 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-002 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   003-003 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["•"]
   004-005 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -328,17 +328,17 @@ tier graphics
 layout {Shape:rail Chrome:2 ChatList:{Col:0 Row:0 Width:4 Height:20} Header:{Col:4 Row:0 Width:35 Height:1} Transcript:{Col:4 Row:1 Width:35 Height:17} Composer:{Col:4 Row:18 Width:35 Height:1} HintBar:{Col:4 Row:19 Width:35 Height:1} ListFocused:false}
 size 39x20
 cursor {Column:7 Row:18 Style:6 Visible:true}
-placements [{Column:6 Row:1 Width:26 Height:7 ImageID:3 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:60 SourceWidth:260 SourceHeight:140} {Column:11 Row:9 Width:26 Height:9 ImageID:2 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:37 Row:1 Width:1 Height:1 ImageID:1 XOffset:2 YOffset:3 ZIndex:-2 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0}]
+placements [{Column:0 Row:0 Width:3 Height:1 ImageID:2 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:0 Row:1 Width:3 Height:1 ImageID:3 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:0 Row:2 Width:3 Height:1 ImageID:4 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:0 Row:3 Width:3 Height:1 ImageID:5 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:0 Row:4 Width:3 Height:1 ImageID:6 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:0 Row:5 Width:3 Height:1 ImageID:7 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:0 Row:6 Width:3 Height:1 ImageID:8 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:0 Row:7 Width:3 Height:1 ImageID:9 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:6 Row:1 Width:26 Height:7 ImageID:11 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:60 SourceWidth:260 SourceHeight:140} {Column:11 Row:9 Width:26 Height:9 ImageID:10 XOffset:0 YOffset:0 ZIndex:-1 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0} {Column:37 Row:1 Width:1 Height:1 ImageID:1 XOffset:2 YOffset:3 ZIndex:-2 SourceX:0 SourceY:0 SourceWidth:0 SourceHeight:0}]
 row 00
   000-000 w=1 size=0 fg=0x0 bg=0x22b2d31 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x2e5a03d bg=0x22b2d31 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x2e5a03d bg=0x22b2d31 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-003 w=1 size=0 fg=0x0 bg=0x22b2d31 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   004-004 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   005-013 w=1 size=0 fg=0x2e4e4e6 bg=0x21d1e22 ul=0x0 us=0 attr=2 link="" params="" ["c","o","n","t","a","c","t"," ","0"]
   014-038 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "," "]
 row 01
   000-000 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x29d8cf0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x29d8cf0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-002 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   003-003 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["•"]
   004-005 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -348,7 +348,7 @@ row 01
   032-038 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "]
 row 02
   000-000 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x298c379 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x298c379 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-002 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   003-003 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["•"]
   004-005 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -358,7 +358,7 @@ row 02
   032-038 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "]
 row 03
   000-000 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x2d8c04a bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x2d8c04a bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-002 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   003-003 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["•"]
   004-005 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -368,7 +368,7 @@ row 03
   032-038 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "]
 row 04
   000-000 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x2e5a03d bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x2e5a03d bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-003 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   004-005 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
   006-006 w=1 size=0 fg=0x2494a4e bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
@@ -377,7 +377,7 @@ row 04
   032-038 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "]
 row 05
   000-000 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x2e06c75 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x2e06c75 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-002 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   003-003 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["•"]
   004-005 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -389,7 +389,7 @@ row 05
   032-038 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "]
 row 06
   000-000 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x2d19a66 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x2d19a66 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-002 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   003-003 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["•"]
   004-005 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
@@ -402,7 +402,7 @@ row 06
   032-038 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "," "," "]
 row 07
   000-000 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  001-001 w=1 size=0 fg=0x2e06cb8 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
+  001-001 w=0 size=0 fg=0x2e06cb8 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["C"]
   002-002 w=1 size=0 fg=0x0 bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" [" "]
   003-003 w=1 size=0 fg=0x24c9aff bg=0x21d1e22 ul=0x0 us=0 attr=0 link="" params="" ["•"]
   004-005 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]

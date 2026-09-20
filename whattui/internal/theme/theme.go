@@ -206,6 +206,19 @@ func Derive(bg, fg vaxis.Color) Theme {
 	return t
 }
 
+// Paint mixes two of the palette's own colours into one a rasteriser can use.
+// Both have to be real rgb: an indexed colour belongs to the terminal and
+// nobody else knows what it actually is, which is why this can fail and the
+// caller draws the cell version instead.
+func Paint(ground, ink vaxis.Color, frac float64) (color.NRGBA, bool) {
+	g, okG := rgbOf(ground)
+	c, okC := rgbOf(ink)
+	if !okG || !okC {
+		return color.NRGBA{}, false
+	}
+	return opaque(mix(g, c, frac)), true
+}
+
 // IdentityFor is the colour for a participant. Deterministic in the jid, so a
 // person keeps their colour across restarts and across frontends.
 func (t Theme) IdentityFor(jid string) vaxis.Color {

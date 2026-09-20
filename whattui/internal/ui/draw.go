@@ -8,7 +8,9 @@ import (
 	"go.rockorager.dev/vaxis"
 
 	"whattui/internal/layout"
+	"whattui/internal/paint"
 	"whattui/internal/proto"
+	"whattui/internal/theme"
 	"whattui/internal/view"
 )
 
@@ -189,9 +191,7 @@ func (a *App) drawChatRow(pane vaxis.Window, row, w, height int, c proto.ChatRow
 		a.print(line, 0, 0, vaxis.Style{Foreground: a.theme.Accent, Background: bg}, "▎")
 	}
 
-	col := 1
-	col = a.print(line, col, 0, vaxis.Style{Foreground: a.theme.IdentityFor(c.ID), Background: bg}, avatarGlyph(c))
-	col++
+	col := a.drawAvatar(pane, row, height, c, bg) + 1
 
 	badge := ""
 	if unread {
@@ -229,7 +229,7 @@ func (a *App) drawChatRow(pane vaxis.Window, row, w, height int, c proto.ChatRow
 	// Unread is the bold name and the badge, both of which are reliable.
 	preview := pane.New(0, row+1, w, 1)
 	badgeW := a.width(badge)
-	room := w - 3 - badgeW - 1
+	room := w - col - badgeW - 1
 	if badge != "" {
 		// A preview that runs into the badge reads as one word, so the count
 		// keeps a column of its own the way the timestamp does.
@@ -240,7 +240,7 @@ func (a *App) drawChatRow(pane vaxis.Window, row, w, height int, c proto.ChatRow
 	}
 	// The preview shares the name's left edge rather than the avatar's, so the
 	// two lines of a row line up as one block.
-	a.printLine(preview, 3, 0, vaxis.Style{Foreground: a.theme.TextMuted, Background: bg},
+	a.printLine(preview, col, 0, vaxis.Style{Foreground: a.theme.TextMuted, Background: bg},
 		a.clipLine(a.linkLine(c.Preview), room))
 	if badge != "" {
 		a.print(preview, w-badgeW-1, 0, vaxis.Style{
@@ -264,11 +264,48 @@ func relTime(t time.Time) string {
 }
 
 func (a *App) drawRailRow(line vaxis.Window, c proto.ChatRow, bg vaxis.Color, unread bool) {
-	a.print(line, 1, 0, vaxis.Style{Foreground: a.theme.IdentityFor(c.ID), Background: bg}, avatarGlyph(c))
+	a.avatar(line, 0, 0, 3, 1, c, bg)
 	if unread {
 		a.print(line, 3, 0, vaxis.Style{Foreground: a.theme.Accent, Background: bg}, "\u2022")
 	}
 }
+
+// drawAvatar draws the disc a chat is known by, and answers the column after
+// it. A row with the room draws it two rows tall with the initial at twice the
+// size, which is the size an avatar is in every chat application there is.
+func (a *App) drawAvatar(pane vaxis.Window, row, height int, c proto.ChatRow, bg vaxis.Color) int {
+	width, scale := 3, 1
+	if height >= 2 {
+		width, scale = 4, 2
+	}
+	a.avatar(pane, 1, row, width, scale, c, bg)
+	return 1 + width
+}
+
+// avatar is the disc and the letter in the middle of it. The disc is an even
+// number of cells around a scaled initial and an odd number around a plain
+// one, for the same reason either way: the letter has to land on the centre
+// of the circle rather than beside it.
+func (a *App) avatar(win vaxis.Window, col, row, width, scale int, c proto.ChatRow, bg vaxis.Color) {
+	ident := a.theme.IdentityFor(c.ID)
+	if fill, ok := theme.Paint(bg, ident, discMix); ok && a.painted() {
+		a.paintRect(win, col, row, width, scale, func(pw, ph int) paint.Spec {
+			return paint.Disc{W: pw, H: ph, Fill: fill}
+		})
+	}
+	// The block is claimed at every tier: a terminal that cannot scale draws
+	// the letter small in the top left of it and nothing moves.
+	win.New(col+(width-scale)/2, row, scale, scale).PrintScaled(0, vaxis.Segment{
+		Text:  avatarGlyph(c),
+		Style: vaxis.Style{Foreground: ident, Background: bg},
+		Size:  vaxis.Scaled(scale, 0),
+	})
+}
+
+// discMix is how far an avatar's disc is from the row it sits on, toward the
+// colour that chat is known by. Far enough to find, near enough that a list of
+// them is not a bag of sweets.
+const discMix = 0.22
 
 // avatarGlyph is the initial to stand in for a picture until the picture is
 // drawn. Groups and people read differently at a glance.

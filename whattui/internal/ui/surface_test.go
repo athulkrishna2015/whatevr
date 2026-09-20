@@ -138,14 +138,22 @@ func TestTextOverChromeKeepsThePanesGround(t *testing.T) {
 	if len(a.surfaces) == 0 {
 		t.Fatal("no chrome on this frame")
 	}
+	bubbles := 0
 	for _, s := range a.surfaces {
+		if _, ok := s.spec.(paint.Bubble); !ok {
+			continue
+		}
+		bubbles++
 		for row := s.row; row < s.row+s.h; row++ {
 			for col := s.col; col < s.col+s.w; col++ {
 				if bg := a.vx.Cell(col, row).Background; bg != a.theme.Background {
-					t.Fatalf("cell %d,%d under chrome has background %v, want the pane's %v",
+					t.Fatalf("cell %d,%d under a bubble has background %v, want the pane's %v",
 						col, row, bg, a.theme.Background)
 				}
 			}
 		}
+	}
+	if bubbles == 0 {
+		t.Fatal("no bubbles on this frame")
 	}
 }
