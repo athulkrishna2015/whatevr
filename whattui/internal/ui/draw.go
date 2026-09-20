@@ -322,7 +322,26 @@ func (a *App) layoutMessage(m proto.MessageRow, paneWidth int) bubble {
 	if max < 24 {
 		max = paneWidth - 4
 	}
-	return a.layoutBubble(header, quote, m.Body(), a.messageFooter(m), max, headerStyle, m.Outgoing())
+	b := a.layoutBubble(header, quote, m.Body(), a.messageFooter(m), max, headerStyle, m.Outgoing())
+
+	// A message that is nothing but emoji draws big, the way it does in every
+	// other chat client, because the size is what the message means.
+	if n := emojiOnlyCount(m.Text); n > 0 && !m.Revoked && len(b.body) == 1 {
+		// Clamped to the room the bubble can grow into, not the room it
+		// currently occupies: the bubble is sized by its content, and at this
+		// point the content is about to get three times bigger.
+		//
+		// Clamping at all is not politeness. A terminal discards a multicell
+		// character that does not fit, so an unclamped scale is not a big
+		// emoji, it is a missing one.
+		room := max - 2*bubblePadX - 2
+		b.scale = layout.Clamp(bigEmojiScale(n), a.width(b.body[0]), room, a.transcriptPage())
+		b.inner = minInt(maxInt(b.inner, a.width(b.body[0])*b.scale), room)
+		if !a.footerFitsInline(b) {
+			b.inner = minInt(maxInt(b.inner, a.width(b.footer)), room)
+		}
+	}
+	return b
 }
 
 // messageFooter is the time and the delivery state.

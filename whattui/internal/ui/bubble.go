@@ -40,6 +40,10 @@ const bubblePadX = 1
 
 // bubble is one message, laid out but not yet drawn.
 type bubble struct {
+	// scale draws the body at this many cells per glyph. Only ever more than
+	// one for a message that is nothing but emoji, where the size is the
+	// meaning rather than decoration.
+	scale       int
 	header      string
 	headerStyle vaxis.Style
 	quote       string
@@ -57,7 +61,7 @@ func (b bubble) Width() int { return b.inner + 2*bubblePadX + 2 }
 // Height is the border, the optional header and quote, the body, and the
 // footer when it did not fit beside the last line of text.
 func (a *App) bubbleHeight(b bubble) int {
-	n := 2 + len(b.body)
+	n := 2 + len(b.body)*b.scale
 	if b.header != "" {
 		n++
 	}
@@ -91,7 +95,7 @@ func (a *App) layoutBubble(header, quote, body, footer string, max int, headerSt
 		innerMax = 8
 	}
 
-	b := bubble{header: header, headerStyle: headerStyle, footer: footer, outgoing: outgoing}
+	b := bubble{header: header, headerStyle: headerStyle, footer: footer, outgoing: outgoing, scale: 1}
 	if quote != "" {
 		b.quote = "│ " + quote
 	}
@@ -148,6 +152,33 @@ func (a *App) drawBubble(pane vaxis.Window, b bubble, col, row int) {
 	}
 	if b.quote != "" {
 		line(b.quote, faint)
+	}
+
+	if b.scale > 1 {
+		// The body is drawn as multicell characters. The block is claimed
+		// whatever the terminal can do: without the scale key vaxis paints
+		// the reserved cells and draws the glyph small in the top left, so
+		// the bubble is the same size either way and nothing shifts.
+		for _, s := range b.body {
+			a.print(pane, col, r, border, bx.vertical)
+			a.print(pane, col+1, r, text, " ")
+			slot := pane.New(col+bubblePadX+1, r, b.inner, b.scale)
+			slot.PrintScaled(0, vaxis.Segment{
+				Text:  s,
+				Style: text,
+				Size:  vaxis.Scaled(b.scale, 0),
+			})
+			for pad := 0; pad < b.scale; pad++ {
+				a.print(pane, col, r+pad, border, bx.vertical)
+				a.print(pane, col+total-1, r+pad, border, bx.vertical)
+			}
+			r += b.scale
+		}
+		if b.footer != "" {
+			line(a.padLeft(b.footer, inner), faint)
+		}
+		a.print(pane, col, r, border, bx.bottomLeft+strings.Repeat(bx.horizontal, total-2)+bx.bottomRight)
+		return
 	}
 
 	for i, s := range b.body {
