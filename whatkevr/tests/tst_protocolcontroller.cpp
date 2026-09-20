@@ -80,6 +80,13 @@ public:
     void setInitialMessagesExhausted(bool exhausted) { m_initialMessagesExhausted = exhausted; }
     void setNextExtendExhausted(bool exhausted) { m_nextExtendExhausted = exhausted; }
     void setHoldMessagesReady(bool hold) { m_holdMessagesReady = hold; }
+    // The sub id of the most recent `messages` subscribe whose `ready` was
+    // held back, so a test can release it after switching chats.
+    [[nodiscard]] int heldMessagesSub() const { return m_heldMessagesSub; }
+    void releaseMessagesReady(int sub, bool exhausted = false)
+    {
+        sendReady(sub, true, exhausted);
+    }
     void setHoldChatReady(bool hold) { m_holdChatReady = hold; }
     void setHoldExtendReady(bool hold) { m_holdExtendReady = hold; }
     void setHoldPollVote(bool hold) { m_holdPollVote = hold; }
@@ -349,6 +356,8 @@ private:
             if ((view != QLatin1String("messages") || !m_holdMessagesReady)
                 && (view != QLatin1String("chat") || !m_holdChatReady)) {
                 sendReady(sub, view == QLatin1String("messages"), m_initialMessagesExhausted);
+            } else if (view == QLatin1String("messages")) {
+                m_heldMessagesSub = sub;
             }
             if (view == QLatin1String("chats")) {
                 lastChatsParams = params;
@@ -568,6 +577,7 @@ private:
     bool m_initialMessagesExhausted = false;
     bool m_nextExtendExhausted = false;
     bool m_holdMessagesReady = false;
+    int m_heldMessagesSub = -1;
     bool m_holdChatReady = false;
     bool m_holdExtendReady = false;
     bool m_holdPollVote = false;
@@ -1378,6 +1388,59 @@ private Q_SLOTS:
         ctrl.selectChat(QStringLiteral("c0@s"));
         QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("c0@s"));
         QCOMPARE(daemon.messagesSubscribeCount, warm + 2);
+    }
+
+    // A fill that completes after a chat switch lands on its own session.
+    //
+    // Every piece of "where this transcript was left" used to live in
+    // single-valued members on the controller and be copied in and out of a
+    // per-window struct on each switch. A `ready` for the chat the reader has
+    // just left arrived after that copy, so it wrote the new chat's frontier,
+    // its displayed id and its loading flags with the old chat's answers.
+    void aDelayedCompletionAfterAChatSwitchLandsOnItsOwnSession()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats({chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000")),
+                               chatRow(QStringLiteral("b@s"), QStringLiteral("Bob"), QStringLiteral("1-001"))});
+        daemon.setMessages({messageRow(QStringLiteral("m1"), QStringLiteral("0001"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_VERIFY(!ctrl.chatsLoading());
+        ctrl.setConversationVisible(true);
+
+        // Alice opens, and her fill is left hanging.
+        daemon.setHoldMessagesReady(true);
+        ctrl.selectChat(QStringLiteral("a@s"));
+        QTRY_COMPARE(daemon.messagesSubscribeCount, 1);
+        const int aliceSub = daemon.heldMessagesSub();
+        QVERIFY(aliceSub > 0);
+        QVERIFY(ctrl.displayedMessagesChatId().isEmpty());
+
+        // The reader gives up and opens Bob, whose fill completes normally.
+        daemon.setHoldMessagesReady(false);
+        ctrl.selectChat(QStringLiteral("b@s"));
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("b@s"));
+        QVERIFY(!ctrl.messagesLoading());
+
+        // Alice's answer finally arrives, saying her history is exhausted.
+        // Nothing about Bob may move.
+        const bool bobCanLoadOlder = ctrl.canLoadOlderMessages();
+        daemon.releaseMessagesReady(aliceSub, true);
+        QTest::qWait(50);
+
+        QCOMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("b@s"));
+        QCOMPARE(ctrl.canLoadOlderMessages(), bobCanLoadOlder);
+        QVERIFY(!ctrl.messagesLoading());
+
+        // And Alice kept it: coming back finds her window warm and settled,
+        // with no second subscribe.
+        ctrl.selectChat(QStringLiteral("a@s"));
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("a@s"));
+        QCOMPARE(daemon.messagesSubscribeCount, 2);
+        QVERIFY(!ctrl.messagesLoading());
+        QVERIFY(!ctrl.canLoadOlderMessages());
     }
 
     // Exactly one warm window is ever the current one.

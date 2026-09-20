@@ -773,6 +773,10 @@ Kirigami.Page {
                     // here changes at all.
                     readonly property var slot: Whatevr.ProtocolController.warmWindows[index]
                     readonly property string slotChatId: slot ? String(slot.chatId ?? "") : ""
+                    // The session that owns this slot. Every piece of transcript
+                    // state below is read off it rather than off the controller,
+                    // so a parked pane keeps showing its own chat's state.
+                    readonly property var slotSession: slot ? slot.session : null
                     // The controller names the one window it is driving. Chat id
                     // alone is not enough: a chat jumped into keeps both its
                     // live-edge window and its anchored one warm, and comparing
@@ -794,26 +798,26 @@ Kirigami.Page {
                     visible: isCurrent
                              && root.pinnedLayoutReady
                              && root.messagesCurrent
-                             && !Whatevr.ProtocolController.unreadAnchorResolving
-                             && Whatevr.ProtocolController.messageErrorText.length === 0
-                             && (!Whatevr.ProtocolController.messagesEmpty
-                                 || Whatevr.ProtocolController.messagesReloading)
+                             && !!slotSession
+                             && !slotSession.unreadAnchorResolving
+                             && slotSession.messageErrorText.length === 0
+                             && (!slotSession.messagesEmpty || slotSession.messagesReloading)
                     chatId: slotChatId
                     isCurrentPane: isCurrent
+                    session: slotSession
                     model: slot ? slot.model : null
-                    // Every piece of live window state below describes the chat
-                    // on screen, so a parked pane is handed the quiescent value of
-                    // each and does no work while it waits.
-                    loadingMessages: isCurrent && Whatevr.ProtocolController.messagesLoading
-                    loadingOlderMessages: isCurrent && Whatevr.ProtocolController.olderMessagesLoading
-                    loadingNewerMessages: isCurrent && Whatevr.ProtocolController.newerMessagesLoading
-                    canLoadOlderMessages: isCurrent && Whatevr.ProtocolController.canLoadOlderMessages
-                    canLoadNewerMessages: isCurrent && Whatevr.ProtocolController.canLoadNewerMessages
-                    olderMessagesFailed: isCurrent && Whatevr.ProtocolController.olderMessagesFailed
-                    newerMessagesFailed: isCurrent && Whatevr.ProtocolController.newerMessagesFailed
-                    messagesAtLiveEdge: !isCurrent || Whatevr.ProtocolController.messagesAtLiveEdge
+                    // Read off this pane's own session, so a parked pane shows
+                    // its chat's state rather than a quiescent stand-in.
+                    loadingMessages: !!slotSession && slotSession.messagesLoading
+                    loadingOlderMessages: !!slotSession && slotSession.olderMessagesLoading
+                    loadingNewerMessages: !!slotSession && slotSession.newerMessagesLoading
+                    canLoadOlderMessages: !!slotSession && slotSession.canLoadOlderMessages
+                    canLoadNewerMessages: !!slotSession && slotSession.canLoadNewerMessages
+                    olderMessagesFailed: !!slotSession && slotSession.olderMessagesFailed
+                    newerMessagesFailed: !!slotSession && slotSession.newerMessagesFailed
+                    messagesAtLiveEdge: !slotSession || slotSession.messagesAtLiveEdge
                     historyExhausted: isCurrent && Whatevr.ProtocolController.selectedChatHistoryExhausted
-                    phoneHistoryRequesting: isCurrent && Whatevr.ProtocolController.phoneHistoryRequesting
+                    phoneHistoryRequesting: !!slotSession && slotSession.phoneHistoryRequesting
                     onLoadOlderMessagesRequested: Whatevr.ProtocolController.loadOlderMessages()
                     onLoadNewerMessagesRequested: Whatevr.ProtocolController.loadNewerMessages()
                     onLoadPhoneHistoryRequested: Whatevr.ProtocolController.requestOlderMessagesFromPhone()

@@ -107,10 +107,14 @@ Item {
     property string pendingJumpMessageId: ""
     property double pendingJumpDeadlineMs: 0
 
+    // The transcript this pane draws. Set by ConversationPane from the pool
+    // slot; null only for a slot that holds no chat yet.
+    property var session: null
+
     // Unread divider anchor returned in the messages subscribe metadata.
-    readonly property string unreadAnchorMessageId: Whatevr.ProtocolController.unreadAnchorMessageId
-    readonly property int unreadAnchorCount: Whatevr.ProtocolController.unreadAnchorCount
-    readonly property bool unreadAnchorResolving: Whatevr.ProtocolController.unreadAnchorResolving
+    readonly property string unreadAnchorMessageId: session ? session.unreadAnchorMessageId : ""
+    readonly property int unreadAnchorCount: session ? session.unreadAnchorCount : 0
+    readonly property bool unreadAnchorResolving: !!session && session.unreadAnchorResolving
     // Set on the first genuine user scroll after a chat opens; a late-arriving
     // unread anchor must not yank the viewport away from where the user went.
     property bool userScrolledSinceOpen: false
@@ -2174,15 +2178,15 @@ Item {
                     root.openingChat = false
                     return
                 }
-                if (Whatevr.ProtocolController.unreadAnchorMessageId.length > 0) {
+                if (root.unreadAnchorMessageId.length > 0) {
                     // An anchor the model does not (yet) hold: fall back to the
                     // newest message rather than sitting latched in openingChat.
                     if (!root.positionAtUnreadAnchor()
-                            && !Whatevr.ProtocolController.unreadAnchorResolving) {
+                            && !root.unreadAnchorResolving) {
                         root.scrollToNewest()
                         root.openingChat = false
                     }
-                } else if (root.openingChat && !Whatevr.ProtocolController.unreadAnchorResolving) {
+                } else if (root.openingChat && !root.unreadAnchorResolving) {
                     root.scrollToNewest()
                     root.openingChat = false
                 }

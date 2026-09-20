@@ -257,8 +257,8 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
     m_selectedChatModel = new ObjectViewModel(this);
     connect(m_selectedChatModel, &ObjectViewModel::valueChanged, this, [this] {
         if (!m_selectedChatId.isEmpty()) {
-            if (m_phoneHistoryRequesting && selectedChatHistoryExhausted()) {
-                m_phoneHistoryRequesting = false;
+            if (m_session->phoneHistoryRequesting && selectedChatHistoryExhausted()) {
+                m_session->phoneHistoryRequesting = false;
                 m_phoneHistoryTimer->stop();
                 m_phoneHistorySettleTimer->stop();
                 Q_EMIT messagesChanged();
@@ -324,6 +324,13 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
     m_idleMessagesModel = new CollectionViewModel(this);
     m_idleMessagesModel->setReverseOrder(true);
     m_idleMessagePresentation = new ProtocolMessageModel(m_idleMessagesModel, this);
+    // The stand-in with no chat in it. It is never in the pool and never
+    // subscribed; it exists so that nothing reading the active session has to
+    // check for null.
+    m_idleSession = new ConversationSession(this);
+    m_idleSession->source = m_idleMessagesModel;
+    m_idleSession->presentation = m_idleMessagePresentation;
+    m_session = m_idleSession;
     m_messagesModel = m_idleMessagesModel;
     m_messagePresentationModel = m_idleMessagePresentation;
 
@@ -460,12 +467,12 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
     m_readTimer->setSingleShot(true);
     m_readTimer->setInterval(kMarkReadDebounceMs);
     connect(m_readTimer, &QTimer::timeout, this, [this] {
-        if (m_selectedChatId.isEmpty() || m_pendingReadWatermark.isEmpty()) {
+        if (m_selectedChatId.isEmpty() || m_session->pendingReadWatermark.isEmpty()) {
             return;
         }
         const QString chatId = m_selectedChatId;
-        const QString watermark = std::exchange(m_pendingReadWatermark, {});
-        m_lastReadWatermark = watermark;
+        const QString watermark = std::exchange(m_session->pendingReadWatermark, {});
+        m_session->lastReadWatermark = watermark;
         m_client->request(QStringLiteral("chat.mark_read"),
                           {{QStringLiteral("chat_id"), chatId},
                            {QStringLiteral("up_to_message_id"), watermark}});
@@ -475,8 +482,8 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
     m_phoneHistoryTimer->setSingleShot(true);
     m_phoneHistoryTimer->setInterval(kPhoneHistoryTimeoutMs);
     connect(m_phoneHistoryTimer, &QTimer::timeout, this, [this] {
-        if (m_phoneHistoryRequesting) {
-            m_phoneHistoryRequesting = false;
+        if (m_session->phoneHistoryRequesting) {
+            m_session->phoneHistoryRequesting = false;
             Q_EMIT messagesChanged();
         }
     });
@@ -485,8 +492,8 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
     m_phoneHistorySettleTimer->setSingleShot(true);
     m_phoneHistorySettleTimer->setInterval(50);
     connect(m_phoneHistorySettleTimer, &QTimer::timeout, this, [this] {
-        if (m_phoneHistoryRequesting && m_phoneHistoryGeneration == m_messagesGeneration) {
-            m_phoneHistoryRequesting = false;
+        if (m_session->phoneHistoryRequesting && m_session->phoneHistoryGeneration == m_session->generation) {
+            m_session->phoneHistoryRequesting = false;
             m_phoneHistoryTimer->stop();
             Q_EMIT messagesChanged();
         }
@@ -865,7 +872,7 @@ bool ProtocolController::selectedChatHistoryExhausted() const
 
 bool ProtocolController::messagesLoading() const
 {
-    return hasSelectedChat() && (m_waitingInitialMessages || !m_messagesModel->isReady());
+    return hasSelectedChat() && (m_session->waitingInitialMessages || !m_messagesModel->isReady());
 }
 
 bool ProtocolController::messagesEmpty() const
@@ -895,8 +902,8 @@ void ProtocolController::setSelectedChat(const QString &chatId, const QString &a
     m_selectedChatId = chatId;
     m_stickerController->setChatId(chatId);
     if (selectionChanged) {
-        m_pendingReadWatermark.clear();
-        m_lastReadWatermark.clear();
+        m_session->pendingReadWatermark.clear();
+        m_session->lastReadWatermark.clear();
         m_readTimer->stop();
         // The in-chat search is scoped to one conversation; switching ends it.
         closeChatSearch();
@@ -930,7 +937,7 @@ void ProtocolController::setSelectedChat(const QString &chatId, const QString &a
                     });
         }
     }
-    m_phoneHistoryRequesting = false;
+    m_session->phoneHistoryRequesting = false;
     m_phoneHistoryTimer->stop();
     m_phoneHistorySettleTimer->stop();
 
@@ -960,16 +967,16 @@ void ProtocolController::setSelectedChat(const QString &chatId, const QString &a
 
     if (effectiveAnchor.isEmpty()) {
         detachVisibleMessageWindow();
-        m_waitingInitialMessages = true;
+        m_session->waitingInitialMessages = true;
         Q_EMIT messagesChanged();
         return;
     }
 
     if (!m_conversationVisible) {
         detachVisibleMessageWindow();
-        m_requestedAnchor = effectiveAnchor;
-        m_effectiveAnchor = effectiveAnchor;
-        m_pendingJumpMessageId = jumpMessageId;
+        m_session->requestedAnchor = effectiveAnchor;
+        m_session->effectiveAnchor = effectiveAnchor;
+        m_session->pendingJumpMessageId = jumpMessageId;
         Q_EMIT messagesChanged();
         return;
     }
@@ -994,10 +1001,11 @@ QVariantMap ProtocolController::warmWindowAt(int index) const
     if (index < 0 || index >= m_messageWindows.size()) {
         return {};
     }
-    const MessageWindow *window = m_messageWindows.at(index);
+    const ConversationSession *window = m_messageWindows.at(index);
     if (!window) {
         return {{QStringLiteral("chatId"), QString()},
                 {QStringLiteral("active"), false},
+                {QStringLiteral("session"), QVariant::fromValue<QObject *>(nullptr)},
                 {QStringLiteral("model"), QVariant::fromValue<QObject *>(nullptr)}};
     }
     // Which pane is the conversation, decided here rather than in QML.
@@ -1012,17 +1020,18 @@ QVariantMap ProtocolController::warmWindowAt(int index) const
     // announced it missing and kept its highlight. Only the window the
     // controller is actually driving is the current one.
     return {{QStringLiteral("chatId"), window->chatId},
-            {QStringLiteral("active"), window->source == m_messagesModel},
+            {QStringLiteral("active"), window == m_session},
+            {QStringLiteral("session"), QVariant::fromValue<QObject *>(const_cast<ConversationSession *>(window))},
             {QStringLiteral("model"), QVariant::fromValue<QObject *>(window->presentation)}};
 }
 
-ProtocolController::MessageWindow *ProtocolController::warmWindowFor(const QString &chatId,
+ConversationSession *ProtocolController::warmWindowFor(const QString &chatId,
                                                                     const QString &anchor) const
 {
     if (chatId.isEmpty()) {
         return nullptr;
     }
-    for (MessageWindow *window : m_messageWindows) {
+    for (ConversationSession *window : m_messageWindows) {
         // A window whose subscribe was rejected is not warm, whatever else it
         // still holds: taking it back would hand the reader the same error
         // again and never ask the daemon, which is what made Retry do nothing.
@@ -1033,15 +1042,6 @@ ProtocolController::MessageWindow *ProtocolController::warmWindowFor(const QStri
     return nullptr;
 }
 
-ProtocolController::MessageWindow *ProtocolController::activeMessageWindow() const
-{
-    for (MessageWindow *window : m_messageWindows) {
-        if (window && window->source == m_messagesModel) {
-            return window;
-        }
-    }
-    return nullptr;
-}
 
 // Reopening a chat that is still parked reopens it where it was parked.
 //
@@ -1052,7 +1052,7 @@ ProtocolController::MessageWindow *ProtocolController::activeMessageWindow() con
 // here, and the divider is for a chat you are arriving at, not returning to.
 QString ProtocolController::anchorForOpening(const QString &chatId, const QString &requested) const
 {
-    for (MessageWindow *window : m_messageWindows) {
+    for (ConversationSession *window : m_messageWindows) {
         if (window && window->chatId == chatId) {
             return window->anchor;
         }
@@ -1060,39 +1060,24 @@ QString ProtocolController::anchorForOpening(const QString &chatId, const QStrin
     return requested;
 }
 
-void ProtocolController::connectMessageWindow(MessageWindow *window)
+void ProtocolController::connectMessageWindow(ConversationSession *window)
 {
-    // Every entry stays connected while it is warm, so an off-screen chat keeps
-    // its transcript correct. What the handlers must not do is let a background
-    // chat drive the state of the one on screen, which is what the guard on
-    // each of them is for: the controller's window state describes the visible
-    // conversation and nothing else.
+    // Every session stays connected while it is warm, so an off-screen chat
+    // keeps its transcript correct. Each handler writes only its own session,
+    // so nothing a background chat does can reach the one on screen.
     CollectionViewModel *source = window->source;
     connect(source, &CollectionViewModel::readyReceived, this, [this, window](bool exhausted) {
-        if (window->source != m_messagesModel) {
-            // Remember it anyway: this is how far its frontier reaches, and it
-            // is the answer we will need the moment it comes back on screen.
-            window->state.canLoadOlder = !exhausted;
-            window->state.waitingInitialMessages = false;
-            return;
-        }
-        onMessagesReady(exhausted);
+        onMessagesReady(window, exhausted);
     });
     connect(source, &QAbstractItemModel::modelReset, this, [this, window] {
-        if (window->source != m_messagesModel) {
-            return;
-        }
-        onMessagesReset();
+        onMessagesReset(window);
     });
     connect(source, &CollectionViewModel::countChanged, this, [this, window] {
-        if (window->source != m_messagesModel) {
-            return;
-        }
-        Q_EMIT messagesChanged();
+        publishSession(window);
     });
     connect(source, &QAbstractItemModel::rowsInserted, this,
             [this, window](const QModelIndex &, int, int) {
-        if (window->source != m_messagesModel) {
+        if (window != m_session) {
             return;
         }
         // The first row of an open is the moment the window stops being a round
@@ -1101,8 +1086,8 @@ void ProtocolController::connectMessageWindow(MessageWindow *window)
         if (m_openClock.isValid() && m_openPhaseRows == 0) {
             markChatOpenPhase(QStringLiteral("first-row"));
         }
-        if (m_phoneHistoryRequesting && m_phoneHistoryGeneration == m_messagesGeneration
-            && m_messagePresentationModel->oldestMessageId() != m_phoneHistoryOldestId) {
+        if (window->phoneHistoryRequesting && window->phoneHistoryGeneration == window->generation
+            && window->presentation->oldestMessageId() != window->phoneHistoryOldestId) {
             // Backfills arrive as a burst of individual upserts. Restore the
             // viewport only after that burst settles, not after its first row.
             m_phoneHistorySettleTimer->start();
@@ -1110,7 +1095,7 @@ void ProtocolController::connectMessageWindow(MessageWindow *window)
     });
 }
 
-ProtocolController::MessageWindow *ProtocolController::openMessageWindow(const QString &chatId,
+ConversationSession *ProtocolController::openMessageWindow(const QString &chatId,
                                                                         const QString &anchor)
 {
     // A free slot first; failing that, the one used longest ago.
@@ -1120,7 +1105,7 @@ ProtocolController::MessageWindow *ProtocolController::openMessageWindow(const Q
         closeMessageWindow(m_messageWindows.at(slot));
     }
 
-    auto *window = new MessageWindow;
+    auto *window = new ConversationSession(this);
     window->chatId = chatId;
     window->anchor = anchor;
     window->source = new CollectionViewModel(this);
@@ -1140,7 +1125,7 @@ ProtocolController::MessageWindow *ProtocolController::openMessageWindow(const Q
     return window;
 }
 
-void ProtocolController::closeMessageWindow(MessageWindow *window)
+void ProtocolController::closeMessageWindow(ConversationSession *window)
 {
     if (!window) {
         return;
@@ -1150,9 +1135,10 @@ void ProtocolController::closeMessageWindow(MessageWindow *window)
         m_messageWindows[slot] = nullptr;
         m_messageWindowUse.removeAll(slot);
     }
-    if (window->source == m_messagesModel) {
+    if (window == m_session) {
         // Back to the empty stand-in rather than to nullptr: everything that
-        // reads the active transcript is entitled to find a model there.
+        // reads the active transcript is entitled to find one there.
+        m_session = m_idleSession;
         m_messagesModel = m_idleMessagesModel;
         m_messagePresentationModel = m_idleMessagePresentation;
         m_messagesSub = nullptr;
@@ -1165,8 +1151,8 @@ void ProtocolController::closeMessageWindow(MessageWindow *window)
 
 void ProtocolController::closeAllMessageWindows()
 {
-    const QList<MessageWindow *> windows = m_messageWindows;
-    for (MessageWindow *window : windows) {
+    const QList<ConversationSession *> windows = m_messageWindows;
+    for (ConversationSession *window : windows) {
         closeMessageWindow(window);
     }
     m_messageWindows.fill(nullptr, kWarmChatWindows);
@@ -1174,96 +1160,15 @@ void ProtocolController::closeAllMessageWindows()
     Q_EMIT warmWindowsChanged();
 }
 
-void ProtocolController::saveActiveWindowState()
-{
-    MessageWindow *active = nullptr;
-    for (MessageWindow *window : m_messageWindows) {
-        if (window && window->source == m_messagesModel) {
-            active = window;
-            break;
-        }
-    }
-    if (!active) {
-        return;
-    }
-    MessageWindow::State &s = active->state;
-    s.displayedChatId = m_displayedMessagesChatId;
-    s.requestedAnchor = m_requestedAnchor;
-    s.effectiveAnchor = m_effectiveAnchor;
-    s.pendingJumpMessageId = m_pendingJumpMessageId;
-    s.jumpFallbackAnchor = m_jumpFallbackAnchor;
-    s.pendingExtendDirection = m_pendingExtendDirection;
-    s.errorText = m_messageErrorText;
-    s.unreadAnchorMessageId = m_unreadAnchorMessageId;
-    s.pendingReadWatermark = m_pendingReadWatermark;
-    s.lastReadWatermark = m_lastReadWatermark;
-    s.phoneHistoryOldestId = m_phoneHistoryOldestId;
-    s.unreadAnchorCount = m_unreadAnchorCount;
-    s.generation = m_messagesGeneration;
-    s.phoneHistoryGeneration = m_phoneHistoryGeneration;
-    s.unreadAnchorResolving = m_unreadAnchorResolving;
-    s.waitingInitialMessages = m_waitingInitialMessages;
-    s.reloading = m_messagesReloading;
-    s.refillingAfterReset = m_refillingAfterReset;
-    s.olderLoading = m_olderMessagesLoading;
-    s.newerLoading = m_newerMessagesLoading;
-    s.canLoadOlder = m_canLoadOlderMessages;
-    s.canLoadNewer = m_canLoadNewerMessages;
-    s.olderFailed = m_olderMessagesFailed;
-    s.newerFailed = m_newerMessagesFailed;
-    s.atLiveEdge = m_messagesAtLiveEdge;
-    s.phoneHistoryRequesting = m_phoneHistoryRequesting;
-}
-
-void ProtocolController::restoreWindowState(const MessageWindow *window)
-{
-    const MessageWindow::State &s = window->state;
-    m_displayedMessagesChatId = s.displayedChatId;
-    m_requestedAnchor = s.requestedAnchor;
-    m_effectiveAnchor = s.effectiveAnchor;
-    m_pendingJumpMessageId = s.pendingJumpMessageId;
-    m_jumpFallbackAnchor = s.jumpFallbackAnchor;
-    m_pendingExtendDirection = s.pendingExtendDirection;
-    m_messageErrorText = s.errorText;
-    m_unreadAnchorMessageId = s.unreadAnchorMessageId;
-    m_pendingReadWatermark = s.pendingReadWatermark;
-    m_lastReadWatermark = s.lastReadWatermark;
-    m_phoneHistoryOldestId = s.phoneHistoryOldestId;
-    m_unreadAnchorCount = s.unreadAnchorCount;
-    m_messagesGeneration = s.generation;
-    m_phoneHistoryGeneration = s.phoneHistoryGeneration;
-    m_unreadAnchorResolving = s.unreadAnchorResolving;
-    m_waitingInitialMessages = s.waitingInitialMessages;
-    m_messagesReloading = s.reloading;
-    m_refillingAfterReset = s.refillingAfterReset;
-    m_olderMessagesLoading = s.olderLoading;
-    m_newerMessagesLoading = s.newerLoading;
-    m_canLoadOlderMessages = s.canLoadOlder;
-    m_canLoadNewerMessages = s.canLoadNewer;
-    m_olderMessagesFailed = s.olderFailed;
-    m_newerMessagesFailed = s.newerFailed;
-    m_messagesAtLiveEdge = s.atLiveEdge;
-    m_phoneHistoryRequesting = s.phoneHistoryRequesting;
-}
-
-void ProtocolController::activateMessageWindow(MessageWindow *window)
+void ProtocolController::activateMessageWindow(ConversationSession *window)
 {
     if (!window) {
         return;
     }
-    if (window->source != m_messagesModel) {
-        // The state the controller is holding belongs to whichever chat is on
-        // screen; hand it back before taking this one's.
-        saveActiveWindowState();
-        m_messagesModel = window->source;
-        m_messagePresentationModel = window->presentation;
-        m_messagesSub = window->sub;
-    }
-    // Restored even when this window was already the active one, because
-    // leaving a conversation clears the visible state without unparking the
-    // window behind it. Coming back to the chat you just left is that case, and
-    // it has to put the state back rather than find it already correct.
-    restoreWindowState(window);
+    m_session = window;
+    m_messagesModel = window->source;
+    m_messagePresentationModel = window->presentation;
+    m_messagesSub = window->sub;
 
     const int slot = m_messageWindows.indexOf(window);
     if (slot >= 0) {
@@ -1280,16 +1185,13 @@ void ProtocolController::activateMessageWindow(MessageWindow *window)
 // there when one of them does again.
 void ProtocolController::detachVisibleMessageWindow()
 {
-    saveActiveWindowState();
-    m_requestedAnchor.clear();
-    m_effectiveAnchor.clear();
-    m_pendingJumpMessageId.clear();
-    m_displayedMessagesChatId.clear();
-    m_messagesReloading = false;
-    m_waitingInitialMessages = false;
-    m_unreadAnchorMessageId.clear();
-    m_unreadAnchorCount = 0;
-    m_unreadAnchorResolving = false;
+    // The session keeps everything it holds; only the pointer that says which
+    // one is on screen moves. Coming back to this chat is then taking its own
+    // state back, rather than rebuilding it from a copy.
+    m_session = m_idleSession;
+    m_messagesModel = m_idleMessagesModel;
+    m_messagePresentationModel = m_idleMessagePresentation;
+    m_messagesSub = nullptr;
 }
 
 void ProtocolController::subscribeMessages(const QString &anchor, const QString &jumpMessageId)
@@ -1297,15 +1199,15 @@ void ProtocolController::subscribeMessages(const QString &anchor, const QString 
     // An explicit anchor (including a same-chat jump) supersedes a pending
     // default unread/latest choice from the selected `chat` row.
     m_waitingForSelectedChatItem = false;
-    if (m_phoneHistoryRequesting) {
-        m_phoneHistoryRequesting = false;
+    if (m_session->phoneHistoryRequesting) {
+        m_session->phoneHistoryRequesting = false;
         m_phoneHistoryTimer->stop();
         m_phoneHistorySettleTimer->stop();
     }
-    if (m_readTimer->isActive() && !m_pendingReadWatermark.isEmpty()) {
+    if (m_readTimer->isActive() && !m_session->pendingReadWatermark.isEmpty()) {
         m_readTimer->stop();
-        const QString watermark = std::exchange(m_pendingReadWatermark, {});
-        m_lastReadWatermark = watermark;
+        const QString watermark = std::exchange(m_session->pendingReadWatermark, {});
+        m_session->lastReadWatermark = watermark;
         m_client->request(QStringLiteral("chat.mark_read"),
                           {{QStringLiteral("chat_id"), m_selectedChatId},
                            {QStringLiteral("up_to_message_id"), watermark}});
@@ -1326,18 +1228,18 @@ void ProtocolController::subscribeMessages(const QString &anchor, const QString 
     // divider and the live edge put the reader in different places), so it
     // falls through and is rebuilt into this chat's one slot rather than
     // claiming a second.
-    if (MessageWindow *warm = warmWindowFor(m_selectedChatId, anchor)) {
+    if (ConversationSession *warm = warmWindowFor(m_selectedChatId, anchor)) {
         activateMessageWindow(warm);
-        m_pendingJumpMessageId = jumpMessageId;
-        m_messagesReloading = false;
-        m_displayedMessagesChatId = m_selectedChatId;
+        m_session->pendingJumpMessageId = jumpMessageId;
+        m_session->reloading = false;
+        m_session->displayedChatId = m_selectedChatId;
         Q_EMIT unreadAnchorChanged();
         Q_EMIT messagesChanged();
         markChatOpenPhase(QStringLiteral("warm"));
         if (!jumpMessageId.isEmpty()) {
             // The rows are already here, so the jump can be answered now rather
             // than waiting for a fill that is not coming.
-            const QString jumpId = std::exchange(m_pendingJumpMessageId, {});
+            const QString jumpId = std::exchange(m_session->pendingJumpMessageId, {});
             if (m_messagePresentationModel->indexOf(jumpId) >= 0) {
                 Q_EMIT messageJumpReady(jumpId);
             } else {
@@ -1348,35 +1250,32 @@ void ProtocolController::subscribeMessages(const QString &anchor, const QString 
     }
 
     // Cold: a slot has to hold this chat, and the daemon has to be asked.
-    saveActiveWindowState();
-    MessageWindow *window = openMessageWindow(m_selectedChatId, anchor);
-    m_messagesModel = window->source;
-    m_messagePresentationModel = window->presentation;
-    m_messagesSub = nullptr;
-    ++m_messagesGeneration;
+    ConversationSession *window = openMessageWindow(m_selectedChatId, anchor);
+    activateMessageWindow(window);
+    ++m_session->generation;
 
-    m_requestedAnchor = anchor;
-    m_effectiveAnchor = anchor;
-    m_pendingJumpMessageId = jumpMessageId;
-    m_pendingExtendDirection.clear();
+    m_session->requestedAnchor = anchor;
+    m_session->effectiveAnchor = anchor;
+    m_session->pendingJumpMessageId = jumpMessageId;
+    m_session->pendingExtendDirection.clear();
     // A re-subscribe within the chat already on screen is a reload, not an open.
     // The rows go away for a round trip, but the conversation does not, and the
     // pane must not collapse to its empty state and back in between.
-    m_messagesReloading = m_displayedMessagesChatId == m_selectedChatId && !m_selectedChatId.isEmpty();
-    m_displayedMessagesChatId.clear();
-    m_messageErrorText.clear();
-    m_waitingInitialMessages = true;
-    m_refillingAfterReset = false;
-    m_olderMessagesLoading = false;
-    m_newerMessagesLoading = false;
-    m_canLoadOlderMessages = false;
-    m_canLoadNewerMessages = false;
-    m_olderMessagesFailed = false;
-    m_newerMessagesFailed = false;
-    m_messagesAtLiveEdge = anchor == QLatin1String("latest");
-    m_unreadAnchorMessageId.clear();
-    m_unreadAnchorCount = anchor == QLatin1String("unread") ? selectedChatUnreadCount() : 0;
-    m_unreadAnchorResolving = anchor == QLatin1String("unread");
+    m_session->reloading = m_session->displayedChatId == m_selectedChatId && !m_selectedChatId.isEmpty();
+    m_session->displayedChatId.clear();
+    m_session->errorText.clear();
+    m_session->waitingInitialMessages = true;
+    m_session->refillingAfterReset = false;
+    m_session->olderLoading = false;
+    m_session->newerLoading = false;
+    m_session->canLoadOlder = false;
+    m_session->canLoadNewer = false;
+    m_session->olderFailed = false;
+    m_session->newerFailed = false;
+    m_session->atLiveEdge = anchor == QLatin1String("latest");
+    m_session->unreadAnchorMessageId.clear();
+    m_session->unreadAnchorCount = anchor == QLatin1String("unread") ? selectedChatUnreadCount() : 0;
+    m_session->unreadAnchorResolving = anchor == QLatin1String("unread");
     m_messagesModel->onReset();
     Q_EMIT unreadAnchorChanged();
     Q_EMIT messagesChanged();
@@ -1389,239 +1288,229 @@ void ProtocolController::subscribeMessages(const QString &anchor, const QString 
          {QStringLiteral("anchor"), anchor}},
         m_messagesModel);
     window->sub = m_messagesSub;
-    // Guarded by the window they belong to, exactly like the model signals in
-    // connectMessageWindow, and for the same reason. A reconnect re-issues every
-    // warm subscription at once, so these fire for chats that are not on screen;
-    // unguarded, a background window's subscribe result was writing the visible
-    // conversation's unread anchor and error text.
+    // A reconnect re-issues every warm subscription at once, so these fire for
+    // chats that are not on screen. Each one writes its own session, which is
+    // what used to need a guard: a background window's subscribe result was
+    // landing on the visible conversation's unread anchor and error text.
     connect(m_messagesSub, &Subscription::subscribed, this, [this, window](const QVariantMap &meta) {
-        if (window->source != m_messagesModel) {
-            // Its own entry is live again, which is all this says about it.
-            window->failed = false;
-            return;
-        }
-        onMessagesSubscribed(meta);
+        onMessagesSubscribed(window, meta);
     });
     connect(m_messagesSub, &Subscription::failed, this,
             [this, window](const QString &code, const QString &message) {
-                if (window->source != m_messagesModel) {
-                    // Record it where it belongs so the window is not offered as
-                    // warm later, and leave the visible chat alone. An `io`
-                    // failure is a dropped socket, which re-subscribes itself.
-                    if (code != QLatin1String("io")) {
-                        window->failed = true;
-                    }
-                    return;
-                }
-                onMessagesFailed(code, message);
+                onMessagesFailed(window, code, message);
             });
     connect(m_messagesSub, &Subscription::extendFailed, this,
             [this, window](const QString &code, const QString &message) {
-                if (window->source != m_messagesModel) {
-                    return;
-                }
-                const QString direction = std::exchange(m_pendingExtendDirection, {});
-                if (direction == QLatin1String("older")) {
-                    m_olderMessagesLoading = false;
-                    m_olderMessagesFailed = true;
-                } else if (direction == QLatin1String("newer")) {
-                    m_newerMessagesLoading = false;
-                    m_newerMessagesFailed = true;
-                }
                 Q_UNUSED(code)
                 Q_UNUSED(message)
-                Q_EMIT messagesChanged();
+                const QString direction = std::exchange(window->pendingExtendDirection, {});
+                if (direction == QLatin1String("older")) {
+                    window->olderLoading = false;
+                    window->olderFailed = true;
+                } else if (direction == QLatin1String("newer")) {
+                    window->newerLoading = false;
+                    window->newerFailed = true;
+                }
+                publishSession(window);
             });
 }
 
-void ProtocolController::onMessagesSubscribed(const QVariantMap &meta)
+void ProtocolController::onMessagesSubscribed(ConversationSession *session, const QVariantMap &meta)
 {
-    markChatOpenPhase(QStringLiteral("subscribed"));
-    m_messageErrorText.clear();
-    if (MessageWindow *window = activeMessageWindow()) {
-        window->failed = false;
+    if (session == m_session) {
+        markChatOpenPhase(QStringLiteral("subscribed"));
     }
-    if (m_requestedAnchor == QLatin1String("unread")) {
-        m_unreadAnchorMessageId = meta.value(QStringLiteral("anchor_id")).toString();
-        m_unreadAnchorResolving = false;
-        if (m_unreadAnchorMessageId.isEmpty()) {
+    session->failed = false;
+    session->errorText.clear();
+    if (session->requestedAnchor == QLatin1String("unread")) {
+        session->unreadAnchorMessageId = meta.value(QStringLiteral("anchor_id")).toString();
+        session->unreadAnchorResolving = false;
+        if (session->unreadAnchorMessageId.isEmpty()) {
             // No unread anchor means the daemon deliberately degraded to the
             // live edge; there is no divider to render.
-            m_unreadAnchorCount = 0;
-            noteReachedLiveEdge();
+            session->unreadAnchorCount = 0;
+            noteReachedLiveEdge(session);
         }
-        Q_EMIT unreadAnchorChanged();
+        publishUnreadAnchor(session);
     }
 }
 
-void ProtocolController::onMessagesReady(bool exhausted)
+void ProtocolController::onMessagesReady(ConversationSession *session, bool exhausted)
 {
-    m_messageErrorText.clear();
-    if (!m_pendingExtendDirection.isEmpty()) {
-        const QString direction = std::exchange(m_pendingExtendDirection, {});
+    session->errorText.clear();
+    if (!session->pendingExtendDirection.isEmpty()) {
+        const QString direction = std::exchange(session->pendingExtendDirection, {});
         if (direction == QLatin1String("older")) {
-            m_olderMessagesLoading = false;
-            m_olderMessagesFailed = false;
-            m_canLoadOlderMessages = !exhausted;
+            session->olderLoading = false;
+            session->olderFailed = false;
+            session->canLoadOlder = !exhausted;
         } else {
-            m_newerMessagesLoading = false;
-            m_newerMessagesFailed = false;
-            m_canLoadNewerMessages = !exhausted;
+            session->newerLoading = false;
+            session->newerFailed = false;
+            session->canLoadNewer = !exhausted;
             if (exhausted) {
-                noteReachedLiveEdge();
+                noteReachedLiveEdge(session);
             }
         }
-        if (m_refillingAfterReset) {
-            m_refillingAfterReset = false;
-            m_waitingInitialMessages = false;
-            m_displayedMessagesChatId = m_selectedChatId;
-            m_messagesReloading = false;
+        if (session->refillingAfterReset) {
+            session->refillingAfterReset = false;
+            session->waitingInitialMessages = false;
+            session->displayedChatId = session->chatId;
+            session->reloading = false;
         }
-        Q_EMIT messagesChanged();
+        publishSession(session);
         return;
     }
 
-    if (!m_waitingInitialMessages) {
+    if (!session->waitingInitialMessages) {
         return;
     }
-    markChatOpenPhase(QStringLiteral("ready"));
-    m_waitingInitialMessages = false;
-    m_displayedMessagesChatId = m_selectedChatId;
-    m_messagesReloading = false;
-    if (m_refillingAfterReset) {
-        m_refillingAfterReset = false;
-        m_olderMessagesFailed = false;
-        m_newerMessagesFailed = false;
-        Q_EMIT messagesChanged();
+    if (session == m_session) {
+        markChatOpenPhase(QStringLiteral("ready"));
+    }
+    session->waitingInitialMessages = false;
+    session->displayedChatId = session->chatId;
+    session->reloading = false;
+    if (session->refillingAfterReset) {
+        session->refillingAfterReset = false;
+        session->olderFailed = false;
+        session->newerFailed = false;
+        publishSession(session);
         return;
     }
-    if (m_effectiveAnchor == QLatin1String("latest")) {
-        m_canLoadOlderMessages = !exhausted;
-        m_canLoadNewerMessages = false;
-        noteReachedLiveEdge();
+    if (session->effectiveAnchor == QLatin1String("latest")) {
+        session->canLoadOlder = !exhausted;
+        session->canLoadNewer = false;
+        noteReachedLiveEdge(session);
     } else {
         // Initial anchored exhaustion describes both frontiers together. When
         // false, probe each independently as the viewport approaches it.
-        m_messagesAtLiveEdge = exhausted;
-        m_canLoadOlderMessages = !exhausted;
-        m_canLoadNewerMessages = !exhausted;
+        session->atLiveEdge = exhausted;
+        session->canLoadOlder = !exhausted;
+        session->canLoadNewer = !exhausted;
         if (exhausted) {
-            noteReachedLiveEdge();
+            noteReachedLiveEdge(session);
         }
     }
 
-    Q_EMIT messagesChanged();
-    const QString jumpId = std::exchange(m_pendingJumpMessageId, {});
-    if (!jumpId.isEmpty()) {
-        if (m_messagePresentationModel->indexOf(jumpId) >= 0) {
-            m_jumpFallbackAnchor.clear();
-            Q_EMIT messageJumpReady(jumpId);
-        } else {
-            Q_EMIT messageJumpUnavailable(jumpId);
-            const QString fallback = m_jumpFallbackAnchor.isEmpty() ? QStringLiteral("latest")
-                                                                     : std::exchange(m_jumpFallbackAnchor, {});
-            const QString chatId = m_selectedChatId;
-            const int generation = m_messagesGeneration;
-            QTimer::singleShot(0, this, [this, fallback, chatId, generation] {
-                if (m_selectedChatId == chatId && m_messagesGeneration == generation
-                    && m_conversationVisible) {
-                    subscribeMessages(fallback);
-                }
-            });
-        }
+    publishSession(session);
+    const QString jumpId = std::exchange(session->pendingJumpMessageId, {});
+    if (jumpId.isEmpty()) {
+        return;
     }
+    if (session->presentation->indexOf(jumpId) >= 0) {
+        session->jumpFallbackAnchor.clear();
+        if (session == m_session) {
+            Q_EMIT messageJumpReady(jumpId);
+        }
+        return;
+    }
+    if (session == m_session) {
+        Q_EMIT messageJumpUnavailable(jumpId);
+    }
+    retryJumpAtFallbackAnchor(session);
 }
 
-void ProtocolController::onMessagesFailed(const QString &code, const QString &message)
+// The jump landed in a window that does not hold it. Come back on the next
+// turn of the loop and ask for the chat at the fallback anchor, unless the
+// reader has moved on in the meantime.
+void ProtocolController::retryJumpAtFallbackAnchor(ConversationSession *session)
 {
-    if (code == QLatin1String("io") && m_messagesSub) {
+    const QString fallback = session->jumpFallbackAnchor.isEmpty()
+        ? QStringLiteral("latest")
+        : std::exchange(session->jumpFallbackAnchor, {});
+    const int generation = session->generation;
+    QTimer::singleShot(0, this, [this, session, fallback, generation] {
+        if (m_session == session && session->generation == generation && m_conversationVisible) {
+            subscribeMessages(fallback);
+        }
+    });
+}
+
+void ProtocolController::onMessagesFailed(ConversationSession *session, const QString &code,
+                                          const QString &message)
+{
+    if (code == QLatin1String("io") && session->sub) {
         return; // live subscriptions auto-resubscribe after reconnect
     }
-    m_waitingInitialMessages = false;
-    m_unreadAnchorResolving = false;
-    const QString jumpId = std::exchange(m_pendingJumpMessageId, {});
+    // Whatever happens next, this window will never fill: the daemon refused
+    // it. Say so on the session so a re-open, and the Retry button in
+    // particular, builds a new subscription rather than finding this one warm.
+    session->failed = true;
+    session->waitingInitialMessages = false;
+    session->unreadAnchorResolving = false;
+    const QString jumpId = std::exchange(session->pendingJumpMessageId, {});
     if (!jumpId.isEmpty()) {
-        Q_EMIT messageJumpUnavailable(jumpId);
-        const QString fallback = m_jumpFallbackAnchor.isEmpty() ? QStringLiteral("latest")
-                                                                 : std::exchange(m_jumpFallbackAnchor, {});
-        const QString chatId = m_selectedChatId;
-        const int generation = m_messagesGeneration;
-        QTimer::singleShot(0, this, [this, fallback, chatId, generation] {
-            if (m_selectedChatId == chatId && m_messagesGeneration == generation
-                && m_conversationVisible) {
-                subscribeMessages(fallback);
-            }
-        });
+        if (session == m_session) {
+            Q_EMIT messageJumpUnavailable(jumpId);
+        }
+        retryJumpAtFallbackAnchor(session);
     } else {
-        m_messageErrorText = message;
-        m_messagesReloading = false;
+        session->errorText = message;
+        session->reloading = false;
     }
-    // Whatever the caller does next, this window will never fill: the daemon
-    // refused it. Say so on the entry itself so a re-open, and the Retry button
-    // in particular, builds a new subscription instead of finding this one warm.
-    if (MessageWindow *window = activeMessageWindow()) {
-        window->failed = true;
-    }
-    Q_EMIT unreadAnchorChanged();
-    Q_EMIT messagesChanged();
+    publishUnreadAnchor(session);
+    publishSession(session);
 }
 
-void ProtocolController::onMessagesReset()
+void ProtocolController::onMessagesReset(ConversationSession *session)
 {
-    if (m_selectedChatId.isEmpty()) {
+    if (session->chatId.isEmpty()) {
         return;
     }
     // Reached both from a daemon-side `reset` (queue overflow) and from
-    // subscribeMessages() resetting the model itself. Either way the chat on
-    // screen is not going anywhere, so the rows come back rather than the pane
-    // falling through to its empty state.
-    m_messagesReloading = m_messagesReloading || m_displayedMessagesChatId == m_selectedChatId;
-    m_displayedMessagesChatId.clear();
-    if (!m_conversationVisible) {
-        m_messagesReloading = false;
-        m_waitingInitialMessages = false;
-        Q_EMIT messagesChanged();
+    // subscribeMessages() resetting the model itself. Either way the chat is
+    // not going anywhere, so the rows come back rather than the pane falling
+    // through to its empty state.
+    session->reloading = session->reloading || session->displayedChatId == session->chatId;
+    session->displayedChatId.clear();
+    // Off screen there is nothing to hold a spinner for; the refill lands on
+    // its own and the session is correct again by the time it comes back.
+    if (session != m_session || !m_conversationVisible) {
+        session->reloading = false;
+        session->waitingInitialMessages = session != m_session;
+        publishSession(session);
         return;
     }
-    const bool wasWaitingInitial = m_waitingInitialMessages;
-    m_waitingInitialMessages = true;
-    const bool inConnectionReset = m_clientReady && m_messagesSub && m_messagesSub->isActive();
-    m_refillingAfterReset = inConnectionReset && !wasWaitingInitial;
+    const bool wasWaitingInitial = session->waitingInitialMessages;
+    session->waitingInitialMessages = true;
+    const bool inConnectionReset = m_clientReady && session->sub && session->sub->isActive();
+    session->refillingAfterReset = inConnectionReset && !wasWaitingInitial;
     if (!inConnectionReset) {
-        m_pendingExtendDirection.clear();
+        session->pendingExtendDirection.clear();
     }
-    if (!inConnectionReset || m_pendingExtendDirection.isEmpty()) {
-        m_olderMessagesLoading = false;
-        m_newerMessagesLoading = false;
+    if (!inConnectionReset || session->pendingExtendDirection.isEmpty()) {
+        session->olderLoading = false;
+        session->newerLoading = false;
     }
     if (!inConnectionReset) {
-        m_canLoadOlderMessages = false;
-        m_canLoadNewerMessages = false;
+        session->canLoadOlder = false;
+        session->canLoadNewer = false;
     }
-    if (!inConnectionReset && m_requestedAnchor == QLatin1String("unread")) {
-        m_unreadAnchorMessageId.clear();
-        m_unreadAnchorResolving = true;
-        Q_EMIT unreadAnchorChanged();
+    if (!inConnectionReset && session->requestedAnchor == QLatin1String("unread")) {
+        session->unreadAnchorMessageId.clear();
+        session->unreadAnchorResolving = true;
+        publishUnreadAnchor(session);
     }
-    Q_EMIT messagesChanged();
+    publishSession(session);
 }
 
 void ProtocolController::extendMessages(const QString &direction, bool force)
 {
-    if (!m_messagesSub || !m_pendingExtendDirection.isEmpty()) {
+    if (!m_messagesSub || !m_session->pendingExtendDirection.isEmpty()) {
         return;
     }
-    if (!force && direction == QLatin1String("older") && !m_canLoadOlderMessages) {
+    if (!force && direction == QLatin1String("older") && !m_session->canLoadOlder) {
         return;
     }
-    if (!force && direction == QLatin1String("newer") && !m_canLoadNewerMessages) {
+    if (!force && direction == QLatin1String("newer") && !m_session->canLoadNewer) {
         return;
     }
-    m_pendingExtendDirection = direction;
+    m_session->pendingExtendDirection = direction;
     if (direction == QLatin1String("older")) {
-        m_olderMessagesLoading = true;
+        m_session->olderLoading = true;
     } else {
-        m_newerMessagesLoading = true;
+        m_session->newerLoading = true;
     }
     Q_EMIT messagesChanged();
     m_messagesSub->extend(kMessagePageSize, direction);
@@ -1629,8 +1518,8 @@ void ProtocolController::extendMessages(const QString &direction, bool force)
 
 void ProtocolController::loadOlderMessages()
 {
-    if (m_olderMessagesFailed) {
-        m_olderMessagesFailed = false;
+    if (m_session->olderFailed) {
+        m_session->olderFailed = false;
         Q_EMIT messagesChanged();
     }
     extendMessages(QStringLiteral("older"));
@@ -1638,8 +1527,8 @@ void ProtocolController::loadOlderMessages()
 
 void ProtocolController::loadNewerMessages()
 {
-    if (m_newerMessagesFailed) {
-        m_newerMessagesFailed = false;
+    if (m_session->newerFailed) {
+        m_session->newerFailed = false;
         Q_EMIT messagesChanged();
     }
     extendMessages(QStringLiteral("newer"));
@@ -1647,24 +1536,24 @@ void ProtocolController::loadNewerMessages()
 
 void ProtocolController::requestOlderMessagesFromPhone()
 {
-    if (m_selectedChatId.isEmpty() || m_phoneHistoryRequesting || selectedChatHistoryExhausted()) {
+    if (m_selectedChatId.isEmpty() || m_session->phoneHistoryRequesting || selectedChatHistoryExhausted()) {
         return;
     }
     const QString chatId = m_selectedChatId;
-    const int generation = m_messagesGeneration;
-    m_phoneHistoryRequesting = true;
-    m_phoneHistoryOldestId = m_messagePresentationModel->oldestMessageId();
-    m_phoneHistoryGeneration = generation;
+    const int generation = m_session->generation;
+    m_session->phoneHistoryRequesting = true;
+    m_session->phoneHistoryOldestId = m_messagePresentationModel->oldestMessageId();
+    m_session->phoneHistoryGeneration = generation;
     m_phoneHistoryTimer->start();
     Q_EMIT messagesChanged();
     m_client->request(QStringLiteral("chat.request_older"),
                       {{QStringLiteral("chat_id"), chatId}},
                       [this, chatId, generation](const QJsonObject &result, const ProtocolError &error) {
-                          if (chatId != m_selectedChatId || generation != m_messagesGeneration) {
+                          if (chatId != m_selectedChatId || generation != m_session->generation) {
                               return;
                           }
                           if (error.isError() || !result.value(QStringLiteral("requested")).toBool()) {
-                              m_phoneHistoryRequesting = false;
+                              m_session->phoneHistoryRequesting = false;
                               m_phoneHistoryTimer->stop();
                               Q_EMIT messagesChanged();
                               return;
@@ -1685,22 +1574,38 @@ void ProtocolController::jumpToMessage(const QString &messageId)
         QTimer::singleShot(0, this, [this, messageId] { Q_EMIT messageJumpReady(messageId); });
         return;
     }
-    m_jumpFallbackAnchor = m_effectiveAnchor.isEmpty() ? QStringLiteral("latest") : m_effectiveAnchor;
+    m_session->jumpFallbackAnchor = m_session->effectiveAnchor.isEmpty() ? QStringLiteral("latest") : m_session->effectiveAnchor;
     subscribeMessages(messageId, messageId);
 }
 
 // noteReachedLiveEdge records that the window now contains the newest message.
 //
 // The anchor is where the window was *opened*, which is not where it is: a chat
-// opened on its unread divider keeps `m_effectiveAnchor == "unread"` for the
+// opened on its unread divider keeps `m_session->effectiveAnchor == "unread"` for the
 // rest of the session even after extending forward to the newest message. Every
 // caller that treats the anchor as "where we are" was therefore wrong about a
 // chat with unread messages, and jumpToBottom() below re-subscribed on every
 // single send because of it.
-void ProtocolController::noteReachedLiveEdge()
+void ProtocolController::publishSession(ConversationSession *session)
 {
-    m_messagesAtLiveEdge = true;
-    m_effectiveAnchor = QStringLiteral("latest");
+    session->notifyChanged();
+    if (session == m_session) {
+        Q_EMIT messagesChanged();
+    }
+}
+
+void ProtocolController::publishUnreadAnchor(ConversationSession *session)
+{
+    session->notifyUnreadAnchorChanged();
+    if (session == m_session) {
+        Q_EMIT unreadAnchorChanged();
+    }
+}
+
+void ProtocolController::noteReachedLiveEdge(ConversationSession *session)
+{
+    session->atLiveEdge = true;
+    session->effectiveAnchor = QStringLiteral("latest");
 }
 
 void ProtocolController::jumpToBottom()
@@ -1709,8 +1614,8 @@ void ProtocolController::jumpToBottom()
     // delegate and blanks the conversation column for a socket round trip. Only
     // worth it when the window genuinely does not reach the newest message:
     // while it does, the caller's own scroll is the whole job.
-    if (m_selectedChatId.isEmpty() || m_effectiveAnchor == QLatin1String("latest")
-        || (m_messagesAtLiveEdge && !m_canLoadNewerMessages)) {
+    if (m_selectedChatId.isEmpty() || m_session->effectiveAnchor == QLatin1String("latest")
+        || (m_session->atLiveEdge && !m_session->canLoadNewer)) {
         return;
     }
     subscribeMessages(QStringLiteral("latest"));
@@ -1722,7 +1627,7 @@ void ProtocolController::showMessageInChat(const QString &chatId, const QString 
         Q_EMIT messageJumpUnavailable(messageId);
         return;
     }
-    m_jumpFallbackAnchor = QStringLiteral("latest");
+    m_session->jumpFallbackAnchor = QStringLiteral("latest");
     setSelectedChat(chatId, messageId, messageId);
 }
 
@@ -1731,8 +1636,8 @@ void ProtocolController::retryMessages()
     if (m_selectedChatId.isEmpty()) {
         return;
     }
-    const QString anchor = m_requestedAnchor.isEmpty() ? QStringLiteral("latest") : m_requestedAnchor;
-    subscribeMessages(anchor, m_pendingJumpMessageId);
+    const QString anchor = m_session->requestedAnchor.isEmpty() ? QStringLiteral("latest") : m_session->requestedAnchor;
+    subscribeMessages(anchor, m_session->pendingJumpMessageId);
 }
 
 void ProtocolController::markSelectedChatViewed(const QString &upToMessageId)
@@ -1741,9 +1646,9 @@ void ProtocolController::markSelectedChatViewed(const QString &upToMessageId)
         return;
     }
     const int candidate = m_messagePresentationModel->indexOf(upToMessageId);
-    const int pending = m_messagePresentationModel->indexOf(m_pendingReadWatermark);
-    const int sent = m_messagePresentationModel->indexOf(m_lastReadWatermark);
-    if (!m_pendingReadWatermark.isEmpty() && pending < 0) {
+    const int pending = m_messagePresentationModel->indexOf(m_session->pendingReadWatermark);
+    const int sent = m_messagePresentationModel->indexOf(m_session->lastReadWatermark);
+    if (!m_session->pendingReadWatermark.isEmpty() && pending < 0) {
         return;
     }
     // A watermark only ever moves forward in time. The rows are held
@@ -1760,7 +1665,7 @@ void ProtocolController::markSelectedChatViewed(const QString &upToMessageId)
     if (candidate >= 0 && wouldRegress) {
         return;
     }
-    m_pendingReadWatermark = upToMessageId;
+    m_session->pendingReadWatermark = upToMessageId;
     m_readTimer->start();
 }
 
@@ -1780,7 +1685,7 @@ void ProtocolController::setConversationVisible(bool visible)
     updateLiveLocationsSubscription();
     updateChatMembersSubscription();
     if (!visible) {
-        m_phoneHistoryRequesting = false;
+        m_session->phoneHistoryRequesting = false;
         m_phoneHistoryTimer->stop();
         m_phoneHistorySettleTimer->stop();
         detachVisibleMessageWindow();
@@ -1937,10 +1842,10 @@ bool ProtocolController::composerEnabled() const
 
 void ProtocolController::dismissUnreadAnchor()
 {
-    const bool changed = !m_unreadAnchorMessageId.isEmpty() || m_unreadAnchorCount != 0 || m_unreadAnchorResolving;
-    m_unreadAnchorMessageId.clear();
-    m_unreadAnchorCount = 0;
-    m_unreadAnchorResolving = false;
+    const bool changed = !m_session->unreadAnchorMessageId.isEmpty() || m_session->unreadAnchorCount != 0 || m_session->unreadAnchorResolving;
+    m_session->unreadAnchorMessageId.clear();
+    m_session->unreadAnchorCount = 0;
+    m_session->unreadAnchorResolving = false;
     if (changed) {
         Q_EMIT unreadAnchorChanged();
     }

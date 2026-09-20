@@ -11,6 +11,8 @@
 #include <QVariantMap>
 #include <qqmlintegration.h>
 
+#include "conversationsession.h"
+
 #include <cstdint>
 
 
@@ -347,21 +349,21 @@ public:
     [[nodiscard]] QVariantMap knownChatRow(const QString &chatId) const;
     [[nodiscard]] bool selectedChatHistoryExhausted() const;
     [[nodiscard]] bool messagesLoading() const;
-    [[nodiscard]] bool olderMessagesLoading() const { return m_olderMessagesLoading; }
-    [[nodiscard]] bool newerMessagesLoading() const { return m_newerMessagesLoading; }
-    [[nodiscard]] bool canLoadOlderMessages() const { return m_canLoadOlderMessages && !m_olderMessagesFailed; }
-    [[nodiscard]] bool canLoadNewerMessages() const { return m_canLoadNewerMessages && !m_newerMessagesFailed; }
-    [[nodiscard]] bool olderMessagesFailed() const { return m_olderMessagesFailed; }
-    [[nodiscard]] bool newerMessagesFailed() const { return m_newerMessagesFailed; }
-    [[nodiscard]] bool messagesAtLiveEdge() const { return m_messagesAtLiveEdge; }
-    [[nodiscard]] bool phoneHistoryRequesting() const { return m_phoneHistoryRequesting; }
+    [[nodiscard]] bool olderMessagesLoading() const { return m_session->olderLoading; }
+    [[nodiscard]] bool newerMessagesLoading() const { return m_session->newerLoading; }
+    [[nodiscard]] bool canLoadOlderMessages() const { return m_session->canLoadOlder && !m_session->olderFailed; }
+    [[nodiscard]] bool canLoadNewerMessages() const { return m_session->canLoadNewer && !m_session->newerFailed; }
+    [[nodiscard]] bool olderMessagesFailed() const { return m_session->olderFailed; }
+    [[nodiscard]] bool newerMessagesFailed() const { return m_session->newerFailed; }
+    [[nodiscard]] bool messagesAtLiveEdge() const { return m_session->atLiveEdge; }
+    [[nodiscard]] bool phoneHistoryRequesting() const { return m_session->phoneHistoryRequesting; }
     [[nodiscard]] bool messagesEmpty() const;
-    [[nodiscard]] bool messagesReloading() const { return m_messagesReloading; }
-    [[nodiscard]] QString displayedMessagesChatId() const { return m_displayedMessagesChatId; }
-    [[nodiscard]] QString messageErrorText() const { return m_messageErrorText; }
-    [[nodiscard]] QString unreadAnchorMessageId() const { return m_unreadAnchorMessageId; }
-    [[nodiscard]] int unreadAnchorCount() const { return m_unreadAnchorCount; }
-    [[nodiscard]] bool unreadAnchorResolving() const { return m_unreadAnchorResolving; }
+    [[nodiscard]] bool messagesReloading() const { return m_session->reloading; }
+    [[nodiscard]] QString displayedMessagesChatId() const { return m_session->displayedChatId; }
+    [[nodiscard]] QString messageErrorText() const { return m_session->errorText; }
+    [[nodiscard]] QString unreadAnchorMessageId() const { return m_session->unreadAnchorMessageId; }
+    [[nodiscard]] int unreadAnchorCount() const { return m_session->unreadAnchorCount; }
+    [[nodiscard]] bool unreadAnchorResolving() const { return m_session->unreadAnchorResolving; }
 
     [[nodiscard]] QString selectedChatPresenceText() const;
 
@@ -792,44 +794,42 @@ private:
 
     // --- warm transcript pool ---------------------------------------------
     //
-    // Defined further down with the members it is stored in; only ever handled
-    // by pointer up here.
-    struct MessageWindow;
-
-    // The entry for a chat opened at this anchor, or nullptr when there is
+    // The session for a chat opened at this anchor, or nullptr when there is
     // none. The anchor is part of the identity: a window pinned at the unread
     // divider and one at the live edge put the reader in different places, so
     // they are different windows even over the same chat.
-    [[nodiscard]] MessageWindow *warmWindowFor(const QString &chatId, const QString &anchor) const;
-    // The entry the controller's single-valued members currently describe.
-    [[nodiscard]] MessageWindow *activeMessageWindow() const;
+    [[nodiscard]] ConversationSession *warmWindowFor(const QString &chatId, const QString &anchor) const;
+    // The session on screen.
+    [[nodiscard]] ConversationSession *activeMessageWindow() const { return m_session; }
     // Where this chat should be opened: the anchor it is already parked at if
     // it is warm, otherwise the one the caller worked out.
     [[nodiscard]] QString anchorForOpening(const QString &chatId, const QString &requested) const;
     // Build an entry, its two models and its subscription, and make it the head
     // of the pool, evicting the coldest if that takes it over the cap.
-    MessageWindow *openMessageWindow(const QString &chatId, const QString &anchor);
-    // Point the controller's single-valued members at this entry, having first
-    // written the ones they currently hold back to whichever entry owns them.
-    void activateMessageWindow(MessageWindow *window);
-    void saveActiveWindowState();
-    void restoreWindowState(const MessageWindow *window);
+    ConversationSession *openMessageWindow(const QString &chatId, const QString &anchor);
+    // Put this session on screen.
+    void activateMessageWindow(ConversationSession *window);
     // Tear an entry down: unsubscribe, delete its models, drop it from the pool.
-    void closeMessageWindow(MessageWindow *window);
+    void closeMessageWindow(ConversationSession *window);
     void closeAllMessageWindows();
     // No chat on screen, every warm chat still warm.
     void detachVisibleMessageWindow();
-    // Wire one entry's model signals. The handlers ignore anything from an
-    // entry that is not on screen, so a warm chat keeps receiving its updates
-    // without driving the visible chat's state.
-    void connectMessageWindow(MessageWindow *window);
+    // Wire one session's model signals. Each handler writes only that session,
+    // so a warm chat keeps its transcript correct off screen without touching
+    // the one the reader is looking at.
+    void connectMessageWindow(ConversationSession *window);
     // Records that the window now reaches the newest message, which is not the
     // same thing as the anchor it was opened on.
-    void noteReachedLiveEdge();
-    void onMessagesSubscribed(const QVariantMap &meta);
-    void onMessagesReady(bool exhausted);
-    void onMessagesFailed(const QString &code, const QString &message);
-    void onMessagesReset();
+    void noteReachedLiveEdge(ConversationSession *session);
+    void retryJumpAtFallbackAnchor(ConversationSession *session);
+    // Tell this session's bindings it changed, and the controller's mirrors of
+    // it too while it is the one on screen.
+    void publishSession(ConversationSession *session);
+    void publishUnreadAnchor(ConversationSession *session);
+    void onMessagesSubscribed(ConversationSession *session, const QVariantMap &meta);
+    void onMessagesReady(ConversationSession *session, bool exhausted);
+    void onMessagesFailed(ConversationSession *session, const QString &code, const QString &message);
+    void onMessagesReset(ConversationSession *session);
     void extendMessages(const QString &direction, bool force = false);
     void sendSessionUpdate();
 
@@ -952,49 +952,6 @@ private:
     // Each entry keeps its own copy of the two models and its own live
     // subscription, which is why coming back costs no round trip either: the
     // daemon has been keeping it correct the whole time it was off screen.
-    struct MessageWindow {
-        QString chatId;
-        QString anchor;
-        whatevr::proto::CollectionViewModel *source = nullptr;
-        ProtocolMessageModel *presentation = nullptr;
-        whatevr::proto::Subscription *sub = nullptr;
-        // The daemon rejected this window's subscribe. Its rows will never
-        // arrive, so it is not warm: a re-open has to build a fresh
-        // subscription rather than take this one back and show its error again.
-        bool failed = false;
-        // Everything about "where this transcript was left" that the controller
-        // otherwise holds in single-valued members. Swapped in and out around
-        // those members on a chat change, so the ~180 places that read them
-        // keep reading exactly what they always did.
-        struct State {
-            QString displayedChatId;
-            QString requestedAnchor;
-            QString effectiveAnchor;
-            QString pendingJumpMessageId;
-            QString jumpFallbackAnchor;
-            QString pendingExtendDirection;
-            QString errorText;
-            QString unreadAnchorMessageId;
-            QString pendingReadWatermark;
-            QString lastReadWatermark;
-            QString phoneHistoryOldestId;
-            int unreadAnchorCount = 0;
-            int generation = 0;
-            int phoneHistoryGeneration = 0;
-            bool unreadAnchorResolving = false;
-            bool waitingInitialMessages = false;
-            bool reloading = false;
-            bool refillingAfterReset = false;
-            bool olderLoading = false;
-            bool newerLoading = false;
-            bool canLoadOlder = false;
-            bool canLoadNewer = false;
-            bool olderFailed = false;
-            bool newerFailed = false;
-            bool atLiveEdge = false;
-            bool phoneHistoryRequesting = false;
-        } state;
-    };
 
     // How many transcripts stay warm. Each one costs a live subscription and a
     // window of rows; four covers the back-and-forth people actually do without
@@ -1008,48 +965,24 @@ private:
     // each of them a different model, which is precisely the delegate rebuild
     // this exists to avoid. A chat keeps its slot until it is evicted.
     // Empty slots are nullptr.
-    QList<MessageWindow *> m_messageWindows;
+    QList<ConversationSession *> m_messageWindows;
     // Slot indices, coldest last. Only consulted to choose what to evict.
     QList<int> m_messageWindowUse;
 
-    // The empty stand-in the active-transcript pointers hold when no chat is
-    // open, so that they are never null. See the constructor.
+    // The session on screen. Never null: with no chat open it is the empty
+    // stand-in below, so every reader is entitled to find one there.
+    ConversationSession *m_session = nullptr;
+    ConversationSession *m_idleSession = nullptr;
     whatevr::proto::CollectionViewModel *m_idleMessagesModel = nullptr;
     ProtocolMessageModel *m_idleMessagePresentation = nullptr;
 
     QString m_selectedChatId;
-    QString m_displayedMessagesChatId;
-    QString m_requestedAnchor;
-    QString m_effectiveAnchor;
-    QString m_pendingJumpMessageId;
-    QString m_jumpFallbackAnchor;
-    QString m_pendingExtendDirection;
-    QString m_messageErrorText;
-    QString m_unreadAnchorMessageId;
-    QString m_pendingReadWatermark;
-    QString m_phoneHistoryOldestId;
-    QString m_lastReadWatermark;
-    int m_unreadAnchorCount = 0;
-    bool m_unreadAnchorResolving = false;
-    bool m_waitingInitialMessages = false;
-    bool m_messagesReloading = false;
-    bool m_refillingAfterReset = false;
     bool m_waitingForSelectedChatItem = false;
     // One chat-list `extend` in flight at a time; cleared by the view's `ready`
     // (or by a rejected extend) so scrolling cannot pile requests up.
     bool m_chatsExtendPending = false;
     bool m_archivedExtendPending = false;
-    bool m_olderMessagesLoading = false;
-    bool m_newerMessagesLoading = false;
-    bool m_canLoadOlderMessages = false;
-    bool m_canLoadNewerMessages = false;
-    bool m_olderMessagesFailed = false;
-    bool m_newerMessagesFailed = false;
-    bool m_messagesAtLiveEdge = false;
-    bool m_phoneHistoryRequesting = false;
     bool m_conversationVisible = false;
-    int m_messagesGeneration = 0;
-    int m_phoneHistoryGeneration = 0;
 
     // Chat-open stopwatch (WHATKEVR_PERF=1 only). Started in subscribeMessages
     // and read by markChatOpenPhase; m_openPhaseRows records how many rows had

@@ -5,6 +5,8 @@ set_source_files_properties(qml/I18n.qml qml/Palette.qml PROPERTIES
 # Everything the app is made of except main.cpp, kept in a variable so the DN9
 # delegate benchmark below can build the exact same code into its own binary.
 set(WHATKEVR_SOURCES
+    app/conversationsession.cpp
+    app/conversationsession.h
     app/protocolcontroller.cpp
     app/protocolcontroller.h
     app/protocolstickercontroller.cpp
