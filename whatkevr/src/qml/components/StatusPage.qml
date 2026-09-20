@@ -24,7 +24,8 @@ Kirigami.ScrollablePage {
         Whatevr.ProtocolController.openStatus()
         root.rebuildGroups()
     }
-    Component.onDestruction: Whatevr.ProtocolController.closeStatus()
+    // Guarded: at engine teardown the singleton may already be null.
+    Component.onDestruction: { const c = Whatevr.ProtocolController; if (c) c.closeStatus() }
 
     // Contact groups rebuilt from the flat model: newest status first, so the
     // first time a sender appears is its recency rank. Each entry: {senderId,

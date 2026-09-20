@@ -147,21 +147,29 @@ type Message struct {
 	// PollData is the static poll definition JSON {question, options[],
 	// selectable} for kind=poll rows; PollTally is the live tally JSON
 	// {optionName: voterCount}. GeoLat/GeoLong carry kind=location rows.
-	PollData        string
-	PollTally       string
-	GeoLat          float64
-	GeoLong         float64
-	IsRevoked       bool
-	IsForwarded     bool
-	IsEdited        bool
-	IsStarred       bool
-	PinnedAt        int64
-	PinnedUntil     int64
-	SendAttempts    int32
-	LastSendError   string
-	NextSendAttempt int64
-	ReplyTo         MessageReply
-	Reactions       []Reaction
+	PollData    string
+	PollTally   string
+	GeoLat      float64
+	GeoLong     float64
+	IsRevoked   bool
+	IsForwarded bool
+	IsEdited    bool
+	IsStarred   bool
+	PinnedAt    int64
+	PinnedUntil int64
+	// LinkPreviewURL/Title/Description/ThumbnailPath carry the sender-provided
+	// link preview from an ExtendedTextMessage (MatchedText + title/description
+	// + JPEGThumbnail). Only text rows carry one; the thumbnail is cached to a
+	// local file at ingest like any other thumbnail.
+	LinkPreviewURL           string
+	LinkPreviewTitle         string
+	LinkPreviewDescription   string
+	LinkPreviewThumbnailPath string
+	SendAttempts             int32
+	LastSendError            string
+	NextSendAttempt          int64
+	ReplyTo                  MessageReply
+	Reactions                []Reaction
 	// @-mentioned participants with names resolved at ingest. Empty for the
 	// vast majority of messages.
 	Mentions []MessageMention
@@ -224,8 +232,16 @@ type TextMessageInput struct {
 	IsGroup        bool
 	CountUnread    bool
 	IsForwarded    bool
-	ReplyTo        MessageReply
-	Mentions       []MessageMention
+	// LinkPreviewURL/Title/Description/ThumbnailPath carry the sender-provided
+	// link preview from an ExtendedTextMessage. The thumbnail file is cached
+	// by the caller (wa layer) like any other thumbnail; the store only keeps
+	// the path.
+	LinkPreviewURL           string
+	LinkPreviewTitle         string
+	LinkPreviewDescription   string
+	LinkPreviewThumbnailPath string
+	ReplyTo                  MessageReply
+	Mentions                 []MessageMention
 }
 
 type SavedTextMessage struct {
@@ -298,10 +314,11 @@ func saveTextMessageTx(ctx context.Context, tx *sql.Tx, input TextMessageInput) 
 	}
 
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO messages (id, chat_id, sender_id, sender_device, text, timestamp, direction, is_read, status, is_forwarded, mentioned_jids, reply_to_message_id, reply_to_sender_id, reply_to_sender_name, reply_to_text, reply_to_media_kind, reply_to_media_mime_type, reply_to_direction)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO messages (id, chat_id, sender_id, sender_device, text, timestamp, direction, is_read, status, is_forwarded, mentioned_jids, link_preview_url, link_preview_title, link_preview_description, link_preview_thumbnail_path, reply_to_message_id, reply_to_sender_id, reply_to_sender_name, reply_to_text, reply_to_media_kind, reply_to_media_mime_type, reply_to_direction)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO NOTHING
 	`, input.ID, input.ChatID, input.SenderID, input.SenderDevice, input.Text, input.Timestamp.Unix(), input.Direction, boolToInt(!input.CountUnread), input.Status, boolToInt(input.IsForwarded), encodeMentions(input.Mentions),
+		input.LinkPreviewURL, input.LinkPreviewTitle, input.LinkPreviewDescription, input.LinkPreviewThumbnailPath,
 		input.ReplyTo.MessageID, input.ReplyTo.SenderID, input.ReplyTo.SenderName, input.ReplyTo.Text, input.ReplyTo.MediaKind, input.ReplyTo.MediaMimeType, input.ReplyTo.Direction)
 	if err != nil {
 		return SavedTextMessage{}, err
@@ -829,8 +846,9 @@ const messageSelectPrefix = `
 	       COALESCE(NULLIF(s.name, ''), NULLIF(c.name, ''), ''),
 	       COALESCE(NULLIF(sa.local_path, ''), NULLIF(ca.local_path, ''), NULLIF(s.avatar_local_path, ''), NULLIF(c.avatar_local_path, ''), ''),
 	       m.sender_device,
-       m.text, m.timestamp, m.rowid, m.direction, m.is_read, m.status, m.media_kind, m.media_mime_type, m.media_local_path, m.media_thumbnail_local_path, m.media_width, m.media_height, m.media_animated, m.media_download_error,
+       m.text, m.timestamp, m.rowid, m.direction, m.is_read, m.status, m.media_kind, m.media_mime_type, m.media_local_path, m.media_thumbnail_local_path, m.media_width, m.media_height, m.media_animated, m.media_download_error, m.media_payload,
        m.media_duration_secs, m.media_size_bytes, m.media_file_name, m.media_page_count, m.media_waveform, m.media_played, m.is_view_once, m.poll_data, m.poll_tally, m.geo_lat, m.geo_long,
+       m.link_preview_url, m.link_preview_title, m.link_preview_description, m.link_preview_thumbnail_path,
        m.reply_to_message_id, m.reply_to_sender_id, m.reply_to_sender_name, m.reply_to_text, m.reply_to_media_kind, m.reply_to_media_mime_type, m.reply_to_direction,
 	       m.send_attempts, m.last_send_error, m.next_send_attempt, m.is_revoked, m.is_edited, m.is_starred, m.pinned_at, m.pinned_until, m.mentioned_jids
 	FROM messages m
@@ -2463,17 +2481,18 @@ func getMessageRow(ctx context.Context, queryer interface {
 		       COALESCE(NULLIF(s.name, ''), NULLIF(c.name, ''), ''),
 		       COALESCE(NULLIF(sa.local_path, ''), NULLIF(ca.local_path, ''), NULLIF(s.avatar_local_path, ''), NULLIF(c.avatar_local_path, ''), ''),
 		       m.sender_device,
-		       m.text, m.timestamp, m.rowid, m.direction, m.is_read, m.status, m.media_kind, m.media_mime_type, m.media_local_path, m.media_thumbnail_local_path, m.media_width, m.media_height, m.media_animated, m.media_download_error, m.media_payload, m.media_cache_key,
-	       m.media_duration_secs, m.media_size_bytes, m.media_file_name, m.media_page_count, m.media_waveform, m.media_played, m.is_view_once, m.poll_data, m.poll_tally, m.geo_lat, m.geo_long,
-	       m.reply_to_message_id, m.reply_to_sender_id, m.reply_to_sender_name, m.reply_to_text, m.reply_to_media_kind, m.reply_to_media_mime_type, m.reply_to_direction,
-		       m.send_attempts, m.last_send_error, m.next_send_attempt, m.is_revoked, m.is_edited, m.is_starred, m.pinned_at, m.pinned_until, m.mentioned_jids
-		FROM messages m
-		LEFT JOIN senders s ON s.id = m.sender_id
-		LEFT JOIN chats c ON c.id = m.sender_id
-		LEFT JOIN avatars sa ON sa.subject_kind = 'sender' AND sa.subject_id = m.sender_id
-		LEFT JOIN avatars ca ON ca.subject_kind = 'chat' AND ca.subject_id = m.sender_id
-		WHERE m.id = ?
-	`, id).Scan(
+	       m.text, m.timestamp, m.rowid, m.direction, m.is_read, m.status, m.media_kind, m.media_mime_type, m.media_local_path, m.media_thumbnail_local_path, m.media_width, m.media_height, m.media_animated, m.media_download_error, m.media_payload, m.media_cache_key,
+       m.media_duration_secs, m.media_size_bytes, m.media_file_name, m.media_page_count, m.media_waveform, m.media_played, m.is_view_once, m.poll_data, m.poll_tally, m.geo_lat, m.geo_long,
+       m.link_preview_url, m.link_preview_title, m.link_preview_description, m.link_preview_thumbnail_path,
+       m.reply_to_message_id, m.reply_to_sender_id, m.reply_to_sender_name, m.reply_to_text, m.reply_to_media_kind, m.reply_to_media_mime_type, m.reply_to_direction,
+	       m.send_attempts, m.last_send_error, m.next_send_attempt, m.is_revoked, m.is_edited, m.is_starred, m.pinned_at, m.pinned_until, m.mentioned_jids
+	FROM messages m
+	LEFT JOIN senders s ON s.id = m.sender_id
+	LEFT JOIN chats c ON c.id = m.sender_id
+	LEFT JOIN avatars sa ON sa.subject_kind = 'sender' AND sa.subject_id = m.sender_id
+	LEFT JOIN avatars ca ON ca.subject_kind = 'chat' AND ca.subject_id = m.sender_id
+	WHERE m.id = ?
+`, id).Scan(
 		&message.ID,
 		&message.ChatID,
 		&message.SenderID,
@@ -2507,6 +2526,10 @@ func getMessageRow(ctx context.Context, queryer interface {
 		&message.PollTally,
 		&message.GeoLat,
 		&message.GeoLong,
+		&message.LinkPreviewURL,
+		&message.LinkPreviewTitle,
+		&message.LinkPreviewDescription,
+		&message.LinkPreviewThumbnailPath,
 		&message.ReplyTo.MessageID,
 		&message.ReplyTo.SenderID,
 		&message.ReplyTo.SenderName,
@@ -2684,6 +2707,7 @@ func scanMessageRows(rows *sql.Rows, capacity int) ([]Message, error) {
 			&message.MediaHeight,
 			&message.MediaAnimated,
 			&message.MediaDownloadError,
+			&message.MediaPayload,
 			&message.MediaDurationSecs,
 			&message.MediaSizeBytes,
 			&message.MediaFileName,
@@ -2695,6 +2719,10 @@ func scanMessageRows(rows *sql.Rows, capacity int) ([]Message, error) {
 			&message.PollTally,
 			&message.GeoLat,
 			&message.GeoLong,
+			&message.LinkPreviewURL,
+			&message.LinkPreviewTitle,
+			&message.LinkPreviewDescription,
+			&message.LinkPreviewThumbnailPath,
 			&message.ReplyTo.MessageID,
 			&message.ReplyTo.SenderID,
 			&message.ReplyTo.SenderName,

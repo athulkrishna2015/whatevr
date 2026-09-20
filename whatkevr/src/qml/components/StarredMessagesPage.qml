@@ -29,7 +29,8 @@ Kirigami.ScrollablePage {
     Kirigami.Theme.colorSet: Kirigami.Theme.View
 
     Component.onCompleted: Whatevr.ProtocolController.openStarredMessages(root.chatId)
-    Component.onDestruction: Whatevr.ProtocolController.closeStarredMessages()
+    // Guarded: at engine teardown the singleton may already be null.
+    Component.onDestruction: { const c = Whatevr.ProtocolController; if (c) c.closeStarredMessages() }
 
     function showInChat(targetChatId, messageId) {
         Whatevr.ProtocolController.showMessageInChat(targetChatId, messageId)

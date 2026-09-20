@@ -7,6 +7,21 @@ PROTOCOL.md (stable at version 1: additive changes only).
 
 ### Fixed
 
+- Text messages with links now render the sender-provided link preview card
+  (title, description, thumbnail) between the reply quote and the body;
+  tapping opens the URL. Previews are stored at ingest, so rendering never
+  fetches. `link_preview` (`url`, `title`, `description`, `thumbnail_path`)
+  is documented on the message item.
+- Poll, contact, and location bubbles render again: the model reads the
+  nested `poll`/`contact`/`location` wire objects (question, per-option vote
+  counts, multi-select, contact name/phone, coordinates) instead of flat keys
+  the daemon never sent.
+- Scheduled messages have a viewer: "Scheduled messages" in the conversation
+  menu lists pending sends (soonest first) with per-row cancel, backed by new
+  `schedule.list`/`schedule.cancel` commands.
+- Quit now stops the daemon too (new `daemon.shutdown` command), so the
+  daemon-owned tray icon leaves with the frontend instead of lingering
+  headless.
 - Channel message subscriptions now use the daemon's `channel_id` parameter,
   so followed-channel timelines load correctly again.
 - Channel posts now carry their server IDs on the wire and support add/remove

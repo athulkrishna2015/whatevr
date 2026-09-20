@@ -895,3 +895,43 @@ func TestNormalizedWaveformRejectsWrongShapes(t *testing.T) {
 		t.Errorf("clamped value = %d, want 100", got[0])
 	}
 }
+
+func TestLinkPreviewFromMessageExtractsSenderPreview(t *testing.T) {
+	c := &Client{}
+	chatID := "chat@s.whatsapp.net"
+	msg := &waE2E.Message{
+		ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+			Text:          proto.String("check https://example.com/a"),
+			MatchedText:   proto.String("https://example.com/a"),
+			Title:         proto.String("Example"),
+			Description:   proto.String("An example page"),
+			JPEGThumbnail: []byte{0xff, 0xd8, 0xff},
+		},
+	}
+	preview := c.linkPreviewFromMessage(context.Background(), chatID, "ext-1", msg)
+	if preview == nil {
+		t.Fatal("expected link preview, got nil")
+	}
+	if preview.URL != "https://example.com/a" || preview.Title != "Example" || preview.Description != "An example page" {
+		t.Fatalf("preview facts wrong: %+v", preview)
+	}
+	if preview.ThumbnailPath == "" {
+		t.Fatal("expected preview thumbnail to be cached to a file")
+	}
+}
+
+func TestLinkPreviewFromMessageNilWithoutMatchedText(t *testing.T) {
+	c := &Client{}
+	cases := map[string]*waE2E.Message{
+		"plain conversation": {Conversation: proto.String("hello https://example.com")},
+		"extended without match": {ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+			Text: proto.String("hello"),
+		}},
+		"nil": nil,
+	}
+	for name, msg := range cases {
+		if got := c.linkPreviewFromMessage(context.Background(), "chat@s.whatsapp.net", "ext-1", msg); got != nil {
+			t.Fatalf("%s: expected nil preview, got %+v", name, got)
+		}
+	}
+}

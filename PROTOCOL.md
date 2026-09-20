@@ -254,6 +254,7 @@ correlation (e.g. to scroll to your own just-sent message when it upserts).
 | --- | --- | --- |
 | `session.update` | `focused` (bool), `active_chat_id` | `{}`: feeds notification suppression and `open_chat` routing |
 | `daemon.reconnect` | none | `{}` |
+| `daemon.shutdown` | none | `{}`: stops the daemon after the ack flushes (Quit path; tray icon is daemon-owned) |
 | `account.logout` | none | `{}` |
 
 **Chats**
@@ -414,6 +415,17 @@ Media-bearing kinds carry `media` (`mime`, dimensions, `thumbnail_path`,
 amplitude buckets of 0-100, the one piece of media data that rides the socket
 rather than a file, because the bubble needs it before any download), and
 `played`. Captions ride the item-level `text`, for every kind.
+
+Structured kinds carry their facts as nested objects: `poll` (`question`,
+`options`, `selectable`, `votes`, `total`), `contact` (`name`, `phone`,
+`vcard`), `location` (`lat`, `long`, `name`).
+
+Text rows may carry `link_preview` (`url`, `title`, `description`,
+`thumbnail_path`): the sender-provided preview from the sender's
+`ExtendedTextMessage` (`MatchedText` plus the title/description/thumbnail the
+sender's client fetched when composing). Everything is stored at ingest, so
+rendering never fetches — the thumbnail is cached to a local file like any
+other thumbnail.
 
 The download lifecycle is: `media.download` → message upsert with
 `downloading` true → byte progress in `transfers` → message upsert with

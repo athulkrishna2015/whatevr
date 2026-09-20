@@ -87,6 +87,11 @@ Item {
     required property double locationLng
     required property string locationName
     required property string locationAddress
+    // Sender-provided link preview (daemon `link_preview` object as a var map:
+    // {url, title, description, thumbnail_path}). Empty when the message
+    // carries none.
+    required property var linkPreview
+    required property bool hasLinkPreview
 
     // Raw text roles. A long message is delivered twice — the full text and a
     // truncated preview — and which one is shown depends on `textExpanded`,
@@ -277,7 +282,11 @@ Item {
         * (displayEmojiOnlyCount === 1 ? 2.8 : displayEmojiOnlyCount === 2 ? 2.2 : 1.8)
     readonly property bool isAnimatedSticker: isSticker && (mediaAnimated || mediaMimeType === "image/gif")
     readonly property bool isLottieSticker: isSticker && mediaMimeType === "application/was"
-    readonly property bool isRenderableStickerImage: isSticker && isImage && !isLottieSticker
+    // NB: isImage explicitly excludes stickers, so sticker renderability
+    // must not depend on it (that made every static/animated sticker
+    // invisible while Lottie ones rendered fine).
+    readonly property bool isRenderableStickerImage: isSticker && !isLottieSticker
+    readonly property bool hasStickerThumbnail: isSticker && mediaThumbnailLocalPath.length > 0
     readonly property bool hasLocalImage: isImage && mediaLocalPath.length > 0
     readonly property bool hasThumbnailImage: isImage && mediaThumbnailLocalPath.length > 0
     readonly property bool hasLocalSticker: isSticker
@@ -636,6 +645,11 @@ Item {
         if (mediaSlot.visible) {
             return mediaSlot.y + mediaSlot.height + Kirigami.Units.smallSpacing
         }
+        if (root.hasLinkPreview) {
+            if (linkPreviewLoader.item)
+                return linkPreviewLoader.y + linkPreviewLoader.height + Kirigami.Units.smallSpacing
+            return root.innerPadding
+        }
         if (root.hasReplyPreview) {
             return root.innerPadding + replyPreviewLoader.height + Kirigami.Units.smallSpacing - root.bodyTopInsetCorrection
         }
@@ -648,6 +662,9 @@ Item {
         }
         if (root.hasBody) {
             return bodyTextLoader.y + bodyTextLoader.height
+        }
+        if (root.hasLinkPreview && linkPreviewLoader.item) {
+            return linkPreviewLoader.y + linkPreviewLoader.height
         }
         if (root.hasStructuredContent) {
             const loader = root.isPoll ? pollLoader : (root.isContact ? contactLoader : locationLoader)
@@ -1034,6 +1051,104 @@ Item {
                     fillColor: Qt.alpha(Kirigami.Theme.textColor, root.isOutgoing ? 0.06 : 0.045)
                     borderColor: Qt.alpha(Kirigami.Theme.textColor, 0.07)
                     onActivated: messageId => root.replyPreviewActivated(messageId)
+                }
+            }
+
+            // Sender-provided link preview card: title/description/thumbnail
+            // the sender's client fetched when composing. Sits between the
+            // reply quote and the body; tapping opens the URL externally.
+            Loader {
+                id: linkPreviewLoader
+
+                active: root.hasLinkPreview && !root.hasStructuredContent && !root.hasInlineMedia
+                x: root.innerPadding
+                y: root.hasReplyPreview
+                   ? root.innerPadding + replyPreviewLoader.height + Kirigami.Units.smallSpacing
+                   : root.innerPadding
+                width: root.textRegionWidth
+
+                sourceComponent: Rectangle {
+                    width: parent.width
+                    // Height follows the content row; the loader itself is
+                    // sized by this implicit height.
+                    implicitHeight: previewRow.implicitHeight + Kirigami.Units.smallSpacing * 2
+                    radius: Kirigami.Units.cornerRadius
+                    color: Qt.alpha(Kirigami.Theme.textColor, root.isOutgoing ? 0.06 : 0.045)
+                    border.color: Qt.alpha(Kirigami.Theme.textColor, 0.07)
+
+                    Row {
+                        id: previewRow
+
+                        anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.margins: Kirigami.Units.smallSpacing
+                        spacing: Kirigami.Units.smallSpacing
+                        // Implicit height is the row's natural height; the
+                        // loader sizes to it.
+                        height: implicitHeight
+
+                        Image {
+                            id: previewThumb
+
+                            width: Kirigami.Units.gridUnit * 2.5
+                            height: Kirigami.Units.gridUnit * 2.5
+                            visible: String(root.linkPreview.thumbnail_path || "").length > 0
+                            source: visible ? Whatevr.ProtocolController.localFileUrl(root.linkPreview.thumbnail_path) : ""
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                            cache: true
+                            smooth: true
+                        }
+
+                        Column {
+                            id: previewColumn
+
+                            width: parent.width - (previewThumb.visible ? previewThumb.width + parent.spacing : 0)
+                            spacing: 1
+
+                            Label {
+                                text: String(root.linkPreview.title || root.linkPreview.url || "")
+                                font.weight: Font.DemiBold
+                                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                                elide: Text.ElideRight
+                                maximumLineCount: 2
+                                wrapMode: Text.Wrap
+                                width: parent.width
+                                visible: text.length > 0
+                            }
+                            Label {
+                                text: String(root.linkPreview.description || "")
+                                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                                color: Kirigami.Theme.disabledTextColor
+                                elide: Text.ElideRight
+                                maximumLineCount: 2
+                                wrapMode: Text.Wrap
+                                width: parent.width
+                                visible: text.length > 0
+                            }
+                            Label {
+                                text: String(root.linkPreview.url || "")
+                                font.pointSize: Kirigami.Theme.smallFont.pointSize
+                                color: Kirigami.Theme.linkColor
+                                elide: Text.ElideMiddle
+                                maximumLineCount: 1
+                                width: parent.width
+                                visible: text.length > 0 && String(root.linkPreview.title || "").length > 0
+                            }
+                        }
+                    }
+
+                    TapHandler {
+                        onTapped: {
+                            const url = String(root.linkPreview.url || "")
+                            if (url.length > 0)
+                                Qt.openUrlExternally(url)
+                        }
+                    }
+                    HoverHandler {
+                        cursorShape: Qt.PointingHandCursor
+                    }
                 }
             }
 

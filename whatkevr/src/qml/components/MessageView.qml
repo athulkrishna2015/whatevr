@@ -13,6 +13,9 @@ Item {
 
     property string chatId: ""
     property alias model: list.model
+    // Export dialog lives inside this component; QML callers cannot reach a
+    // nested id without an alias.
+    property alias exportChatDialog: exportChatDialog
     property bool loadingMessages: false
     property bool loadingOlderMessages: false
     property bool loadingNewerMessages: false

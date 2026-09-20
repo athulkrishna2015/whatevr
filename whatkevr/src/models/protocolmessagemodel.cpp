@@ -467,23 +467,43 @@ QVariant ProtocolMessageModel::data(const QModelIndex &index, int role) const
         return std::min(1.0, static_cast<double>(received) / static_cast<double>(total));
     }
     case PollQuestionRole:
-        return item.value(QStringLiteral("poll_question")).toString();
-    case PollOptionsRole:
-        return item.value(QStringLiteral("poll_options")).toList();
+        return poll(item).value(QStringLiteral("question")).toString();
+    case PollOptionsRole: {
+        // The wire carries options as plain strings plus a votes map; the
+        // bubble wants per-option {text, count, voted} entries.
+        const QVariantMap pollData = poll(item);
+        const QVariantList options = pollData.value(QStringLiteral("options")).toList();
+        const QVariantMap votes = pollData.value(QStringLiteral("votes")).toMap();
+        QVariantList result;
+        result.reserve(options.size());
+        for (const QVariant &option : options) {
+            const QString text = option.toString();
+            result.append(QVariantMap{
+                {QStringLiteral("text"), text},
+                {QStringLiteral("count"), votes.value(text).toInt()},
+                {QStringLiteral("voted"), false},
+            });
+        }
+        return result;
+    }
     case PollMultiSelectRole:
-        return item.value(QStringLiteral("poll_multi_select")).toBool();
+        return poll(item).value(QStringLiteral("selectable")).toInt() > 1;
     case ContactNameRole:
-        return item.value(QStringLiteral("contact_name")).toString();
+        return contact(item).value(QStringLiteral("name")).toString();
     case ContactPhoneRole:
-        return item.value(QStringLiteral("contact_phone")).toString();
+        return contact(item).value(QStringLiteral("phone")).toString();
     case LocationLatRole:
-        return item.value(QStringLiteral("location_lat")).toDouble();
+        return location(item).value(QStringLiteral("lat")).toDouble();
     case LocationLngRole:
-        return item.value(QStringLiteral("location_lng")).toDouble();
+        return location(item).value(QStringLiteral("long")).toDouble();
     case LocationNameRole:
-        return item.value(QStringLiteral("location_name")).toString();
+        return location(item).value(QStringLiteral("name")).toString();
     case LocationAddressRole:
-        return item.value(QStringLiteral("location_address")).toString();
+        return QString();
+    case LinkPreviewRole:
+        return linkPreview(item);
+    case HasLinkPreviewRole:
+        return !linkPreview(item).isEmpty();
     default:
         return {};
     }
@@ -563,6 +583,8 @@ QHash<int, QByteArray> ProtocolMessageModel::roleNames() const
         {LocationLngRole, "locationLng"},
         {LocationNameRole, "locationName"},
         {LocationAddressRole, "locationAddress"},
+        {LinkPreviewRole, "linkPreview"},
+        {HasLinkPreviewRole, "hasLinkPreview"},
     };
 }
 
@@ -597,6 +619,26 @@ QVariantMap ProtocolMessageModel::media(const QVariantMap &item)
 QVariantMap ProtocolMessageModel::reply(const QVariantMap &item)
 {
     return item.value(QStringLiteral("reply_to")).toMap();
+}
+
+QVariantMap ProtocolMessageModel::poll(const QVariantMap &item)
+{
+    return item.value(QStringLiteral("poll")).toMap();
+}
+
+QVariantMap ProtocolMessageModel::contact(const QVariantMap &item)
+{
+    return item.value(QStringLiteral("contact")).toMap();
+}
+
+QVariantMap ProtocolMessageModel::location(const QVariantMap &item)
+{
+    return item.value(QStringLiteral("location")).toMap();
+}
+
+QVariantMap ProtocolMessageModel::linkPreview(const QVariantMap &item)
+{
+    return item.value(QStringLiteral("link_preview")).toMap();
 }
 
 QString ProtocolMessageModel::senderDisplayName(const QVariantMap &item)

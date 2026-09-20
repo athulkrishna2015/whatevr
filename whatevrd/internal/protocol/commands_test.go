@@ -270,6 +270,10 @@ func (f *fakeCommandActions) ScheduleText(_ context.Context, chatID, text string
 	f.sendTextChat, f.sendTextText = chatID, text
 	return 42, f.err
 }
+func (f *fakeCommandActions) ListScheduledMessages(_ context.Context, _ string) ([]appstore.ScheduledMessage, error) {
+	return nil, nil
+}
+func (f *fakeCommandActions) CancelScheduledMessage(_ context.Context, _ int64) error { return nil }
 func (f *fakeCommandActions) SendMediaWithMentions(_ context.Context, chatID, path, caption, reply string, mentions []string) (appstore.SavedTextMessage, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

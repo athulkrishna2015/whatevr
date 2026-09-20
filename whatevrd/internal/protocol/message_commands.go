@@ -40,6 +40,52 @@ func (h commandHandlers) scheduleText(_ *conn, req request) (any, *Error) {
 	return map[string]any{"scheduled_id": id}, nil
 }
 
+type scheduleListParams struct {
+	ChatID string `json:"chat_id"`
+}
+
+func (h commandHandlers) scheduleList(_ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p scheduleListParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	messages, err := h.actions.ListScheduledMessages(context.Background(), strings.TrimSpace(p.ChatID))
+	if perr := mapCommandError(err); perr != nil {
+		return nil, perr
+	}
+	items := make([]map[string]any, 0, len(messages))
+	for _, m := range messages {
+		items = append(items, map[string]any{
+			"id":      m.ID,
+			"chat_id": m.ChatID,
+			"text":    m.Text,
+			"send_at": m.SendAt,
+		})
+	}
+	return map[string]any{"messages": items}, nil
+}
+
+type scheduleCancelParams struct {
+	ID int64 `json:"id"`
+}
+
+func (h commandHandlers) scheduleCancel(_ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p scheduleCancelParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if p.ID <= 0 {
+		return nil, errorf(CodeInvalidParams, "id is required")
+	}
+	return nil, mapCommandError(h.actions.CancelScheduledMessage(context.Background(), p.ID))
+}
+
 type sendTextParams struct {
 	ChatID   string   `json:"chat_id"`
 	Text     string   `json:"text"`

@@ -470,6 +470,9 @@ func (db *DB) migrate(ctx context.Context) error {
 	if err := db.ensureMessageRevokedColumn(ctx); err != nil {
 		return err
 	}
+	if err := db.ensureLinkPreviewColumns(ctx); err != nil {
+		return err
+	}
 	if err := db.ensureMessageReceiptsTable(ctx); err != nil {
 		return err
 	}
@@ -661,6 +664,48 @@ func (db *DB) ensureMessageRevokedColumn(ctx context.Context) error {
 	} {
 		if _, err := db.conn.ExecContext(ctx, statement); err != nil {
 			return err
+		}
+	}
+	return nil
+}
+
+func (db *DB) ensureLinkPreviewColumns(ctx context.Context) error {
+	rows, err := db.conn.QueryContext(ctx, `PRAGMA table_info(messages)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	existing := make(map[string]bool)
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, pk int
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		existing[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	alterations := []struct {
+		col string
+		def string
+	}{
+		{"link_preview_url", `ALTER TABLE messages ADD COLUMN link_preview_url TEXT NOT NULL DEFAULT ''`},
+		{"link_preview_title", `ALTER TABLE messages ADD COLUMN link_preview_title TEXT NOT NULL DEFAULT ''`},
+		{"link_preview_description", `ALTER TABLE messages ADD COLUMN link_preview_description TEXT NOT NULL DEFAULT ''`},
+		{"link_preview_thumbnail_path", `ALTER TABLE messages ADD COLUMN link_preview_thumbnail_path TEXT NOT NULL DEFAULT ''`},
+	}
+	for _, a := range alterations {
+		if existing[a.col] {
+			continue
+		}
+		if _, err := db.conn.ExecContext(ctx, a.def); err != nil {
+			return fmt.Errorf("add messages.%s: %w", a.col, err)
 		}
 	}
 	return nil

@@ -46,7 +46,25 @@ Kirigami.ApplicationWindow {
     property bool quitting: false
     function quitApplication() {
         quitting = true
+        // Ask the daemon to exit too (tray icon is daemon-owned), then quit
+        // the frontend even if the daemon is already gone.
+        Whatevr.ProtocolController.shutdownDaemon()
         Qt.quit()
+    }
+    // Sidebar Home/DMs/Groups/Unread/Favorites entry point: reset the left
+    // column to chats and show the conversation column.
+    function openConversation() {
+        if (currentMode !== "chat") {
+            return
+        }
+        ensureChatPages()
+        if (chatListPageItem)
+            chatListPageItem.workspaceMode = "chats"
+        navTargetChatId = Whatevr.ProtocolController.selectedChatId
+        workspacePageItem.openConversation()
+        navProgrammaticIndexChange = true
+        pageStack.currentIndex = Whatevr.ProtocolController.hasSelectedChat ? 1 : 0
+        navProgrammaticIndexChange = false
     }
     onClosing: closeEvent => {
         if (Whatevr.Settings.closeToTray && !quitting) {

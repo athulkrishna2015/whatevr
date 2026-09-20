@@ -2207,3 +2207,60 @@ func TestSaveMessagesBatchMatchesSingleSaveSemantics(t *testing.T) {
 		t.Fatalf("expected 2 stored messages, got %d", len(messages))
 	}
 }
+
+func TestSaveTextMessagePersistsLinkPreview(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	saved, err := db.SaveTextMessage(ctx, TextMessageInput{
+		ID:                       "chat-1:msg-1",
+		ChatID:                   "chat-1",
+		SenderID:                 "sender-1",
+		Text:                     "check https://example.com/a",
+		Timestamp:                time.Unix(100, 0),
+		Direction:                DirectionIncoming,
+		Status:                   StatusDelivered,
+		LinkPreviewURL:           "https://example.com/a",
+		LinkPreviewTitle:         "Example",
+		LinkPreviewDescription:   "An example page",
+		LinkPreviewThumbnailPath: "/cache/linkpreview.jpg",
+	})
+	if err != nil {
+		t.Fatalf("save message: %v", err)
+	}
+	if saved.Message.LinkPreviewURL != "https://example.com/a" || saved.Message.LinkPreviewTitle != "Example" || saved.Message.LinkPreviewDescription != "An example page" || saved.Message.LinkPreviewThumbnailPath != "/cache/linkpreview.jpg" {
+		t.Fatalf("saved link preview = %+v", saved.Message)
+	}
+
+	messages, err := db.ListMessages(ctx, "chat-1", 10, "")
+	if err != nil {
+		t.Fatalf("list messages: %v", err)
+	}
+	if len(messages) != 1 {
+		t.Fatalf("expected 1 message, got %d", len(messages))
+	}
+	got := messages[0]
+	if got.LinkPreviewURL != "https://example.com/a" || got.LinkPreviewTitle != "Example" || got.LinkPreviewDescription != "An example page" || got.LinkPreviewThumbnailPath != "/cache/linkpreview.jpg" {
+		t.Fatalf("listed link preview = %+v", got)
+	}
+
+	plain, err := db.SaveTextMessage(ctx, TextMessageInput{
+		ID:        "chat-1:msg-2",
+		ChatID:    "chat-1",
+		SenderID:  "sender-1",
+		Text:      "no links here",
+		Timestamp: time.Unix(200, 0),
+		Direction: DirectionIncoming,
+		Status:    StatusDelivered,
+	})
+	if err != nil {
+		t.Fatalf("save plain message: %v", err)
+	}
+	if plain.Message.LinkPreviewURL != "" {
+		t.Fatalf("plain message has link preview: %+v", plain.Message)
+	}
+}

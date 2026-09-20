@@ -599,3 +599,113 @@ func TestMessagesViewInboundViewOnceRendersTombstone(t *testing.T) {
 	}
 	c.expectReady(sub, true)
 }
+
+func TestMessagesViewLinkPreviewItemShape(t *testing.T) {
+	socketPath, _, db := startChatsTestServer(t)
+	chat := "c@s.whatsapp.net"
+	if _, err := db.SaveTextMessage(context.Background(), store.TextMessageInput{
+		ID:                       "link-1",
+		ChatID:                   chat,
+		Text:                     "check https://example.com/a",
+		Timestamp:                time.Unix(1_700_000_000, 0),
+		Direction:                store.DirectionIncoming,
+		LinkPreviewURL:           "https://example.com/a",
+		LinkPreviewTitle:         "Example",
+		LinkPreviewDescription:   "An example page",
+		LinkPreviewThumbnailPath: "/cache/linkpreview.jpg",
+	}); err != nil {
+		t.Fatalf("seed link message: %v", err)
+	}
+
+	c := dialTest(t, socketPath)
+	c.hello()
+	sub := c.subscribe(2, fmt.Sprintf(`{"view":"messages","chat_id":%q}`, chat))
+	item := c.expectUpsert(sub, "link-1")["item"].(map[string]any)
+	preview, ok := item["link_preview"].(map[string]any)
+	if !ok {
+		t.Fatalf("link item missing link_preview: %v", item)
+	}
+	if preview["url"] != "https://example.com/a" || preview["title"] != "Example" || preview["description"] != "An example page" || preview["thumbnail_path"] != "/cache/linkpreview.jpg" {
+		t.Fatalf("link preview fields wrong: %v", preview)
+	}
+	c.expectReady(sub, true)
+}
+
+func TestMessagesViewPollContactLocationShapes(t *testing.T) {
+	socketPath, _, db := startChatsTestServer(t)
+	chat := "c@s.whatsapp.net"
+	base := time.Unix(1_700_000_000, 0)
+	if _, err := db.SaveMediaMessage(context.Background(), store.MediaMessageInput{
+		TextMessageInput: store.TextMessageInput{
+			ID:        "poll-1",
+			ChatID:    chat,
+			Timestamp: base,
+			Direction: store.DirectionIncoming,
+		},
+		MediaKind: store.MediaKindPoll,
+		PollData:  `{"question":"dinner?","options":["yes","no"],"selectable":1}`,
+		PollTally: `{"yes":2}`,
+	}); err != nil {
+		t.Fatalf("seed poll: %v", err)
+	}
+	if _, err := db.SaveMediaMessage(context.Background(), store.MediaMessageInput{
+		TextMessageInput: store.TextMessageInput{
+			ID:        "contact-1",
+			ChatID:    chat,
+			Text:      "Bob",
+			Timestamp: base.Add(time.Second),
+			Direction: store.DirectionIncoming,
+		},
+		MediaKind:    store.MediaKindContact,
+		MediaPayload: []byte("BEGIN:VCARD\nTEL:+1234\nEND:VCARD"),
+	}); err != nil {
+		t.Fatalf("seed contact: %v", err)
+	}
+	if _, err := db.SaveMediaMessage(context.Background(), store.MediaMessageInput{
+		TextMessageInput: store.TextMessageInput{
+			ID:        "loc-1",
+			ChatID:    chat,
+			Text:      "Here",
+			Timestamp: base.Add(2 * time.Second),
+			Direction: store.DirectionIncoming,
+		},
+		MediaKind: store.MediaKindLocation,
+		GeoLat:    1.5,
+		GeoLong:   2.5,
+	}); err != nil {
+		t.Fatalf("seed location: %v", err)
+	}
+
+	c := dialTest(t, socketPath)
+	c.hello()
+	sub := c.subscribe(2, fmt.Sprintf(`{"view":"messages","chat_id":%q}`, chat))
+	items := map[string]map[string]any{}
+	for _, id := range []string{"poll-1", "contact-1", "loc-1"} {
+		msg := c.recvEvent()
+		item, ok := msg["item"].(map[string]any)
+		if !ok {
+			t.Fatalf("upsert without an item: %v", msg)
+		}
+		items[item["id"].(string)] = item
+		_ = id
+	}
+	pollItem := items["poll-1"]
+	poll, ok := pollItem["poll"].(map[string]any)
+	if !ok || poll["question"] != "dinner?" {
+		t.Fatalf("poll item wrong: %v", pollItem)
+	}
+	if votes, ok := poll["votes"].(map[string]any); !ok || votes["yes"] != float64(2) {
+		t.Fatalf("poll votes wrong: %v", poll)
+	}
+	contactItem := items["contact-1"]
+	contact, ok := contactItem["contact"].(map[string]any)
+	if !ok || contact["name"] != "Bob" || contact["phone"] != "+1234" {
+		t.Fatalf("contact item wrong: %v", contactItem)
+	}
+	locItem := items["loc-1"]
+	loc, ok := locItem["location"].(map[string]any)
+	if !ok || loc["lat"] != float64(1.5) || loc["long"] != float64(2.5) || loc["name"] != "Here" {
+		t.Fatalf("location item wrong: %v", locItem)
+	}
+	c.expectReady(sub, true)
+}

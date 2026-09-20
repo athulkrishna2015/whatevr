@@ -25,7 +25,8 @@ Kirigami.ScrollablePage {
         : Whatevr.I18n.i18nc("@title:window", "Media")
 
     Component.onCompleted: Whatevr.ProtocolController.openChatMedia(chatId)
-    Component.onDestruction: Whatevr.ProtocolController.closeChatMedia()
+    // Guarded: at engine teardown the singleton may already be null.
+    Component.onDestruction: { const c = Whatevr.ProtocolController; if (c) c.closeChatMedia() }
 
     function applyFilter(kind) {
         mediaFilter = kind

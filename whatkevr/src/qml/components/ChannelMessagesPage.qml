@@ -19,7 +19,8 @@ Kirigami.ScrollablePage {
     Kirigami.Theme.colorSet: Kirigami.Theme.View
 
     Component.onCompleted: Whatevr.ProtocolController.openChannelMessages(root.channelJid, root.channelName)
-    Component.onDestruction: Whatevr.ProtocolController.closeChannelMessages()
+    // Guarded: at engine teardown the singleton may already be null.
+    Component.onDestruction: { const c = Whatevr.ProtocolController; if (c) c.closeChannelMessages() }
 
     property string lastMarkedKey: ""
 

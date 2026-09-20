@@ -1758,6 +1758,48 @@ void ProtocolController::scheduleText(const QString &text, qint64 sendAt)
                       });
 }
 
+QVariantList ProtocolController::scheduledMessages() const
+{
+    return m_scheduledMessages;
+}
+
+void ProtocolController::refreshScheduledMessages(const QString &chatId)
+{
+    m_client->request(QStringLiteral("schedule.list"),
+                      {{QStringLiteral("chat_id"), chatId}},
+                      [this](const QJsonObject &result, const ProtocolError &error) {
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(error.message.isEmpty()
+                                                             ? i18nc("@info", "Unable to load scheduled messages")
+                                                             : error.message);
+                              return;
+                          }
+                          m_scheduledMessages.clear();
+                          for (const QJsonValue &value : result.value(QStringLiteral("messages")).toArray()) {
+                              m_scheduledMessages.append(value.toObject().toVariantMap());
+                          }
+                          Q_EMIT scheduledMessagesChanged();
+                      });
+}
+
+void ProtocolController::cancelScheduledMessage(qlonglong id, const QString &chatId)
+{
+    if (id <= 0) {
+        return;
+    }
+    m_client->request(QStringLiteral("schedule.cancel"),
+                      {{QStringLiteral("id"), id}},
+                      [this, chatId](const QJsonObject &, const ProtocolError &error) {
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(error.message.isEmpty()
+                                                             ? i18nc("@info", "Unable to cancel scheduled message")
+                                                             : error.message);
+                              return;
+                          }
+                          refreshScheduledMessages(chatId);
+                      });
+}
+
 void ProtocolController::sendMedia(const QString &fileUrl, const QString &caption, const QString &replyToMessageId, const QString &kind, bool viewOnce)
 {
     if (m_selectedChatId.isEmpty() || fileUrl.isEmpty() || m_sendInFlight || !selectedChatCanSend()) {
@@ -3699,6 +3741,16 @@ void ProtocolController::setProfileStatus(const QString &text)
 void ProtocolController::logout()
 {
     sendSettingsCommand(QStringLiteral("account.logout"), {}, i18nc("@info", "Logout failed"));
+}
+
+void ProtocolController::shutdownDaemon()
+{
+    // Fire-and-forget: the daemon acks, then exits on its own timer. The
+    // frontend quits regardless so a dead/absent daemon never blocks exit.
+    if (!m_client) {
+        return;
+    }
+    m_client->request(QStringLiteral("daemon.shutdown"), {}, [](const QJsonObject &, const ProtocolError &) {});
 }
 
 // --- history-sync strip (D2b2) --------------------------------------------

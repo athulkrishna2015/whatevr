@@ -93,6 +93,8 @@ public:
         LocationLngRole,
         LocationNameRole,
         LocationAddressRole,
+        LinkPreviewRole,
+        HasLinkPreviewRole,
         SenderDeviceRole,
     };
     Q_ENUM(Role)
@@ -148,6 +150,10 @@ private:
     [[nodiscard]] static QVariantMap sender(const QVariantMap &item);
     [[nodiscard]] static QVariantMap media(const QVariantMap &item);
     [[nodiscard]] static QVariantMap reply(const QVariantMap &item);
+    [[nodiscard]] static QVariantMap poll(const QVariantMap &item);
+    [[nodiscard]] static QVariantMap contact(const QVariantMap &item);
+    [[nodiscard]] static QVariantMap location(const QVariantMap &item);
+    [[nodiscard]] static QVariantMap linkPreview(const QVariantMap &item);
     [[nodiscard]] static QString senderDisplayName(const QVariantMap &item);
     [[nodiscard]] static QString initialsForName(const QString &name);
     [[nodiscard]] static int directionValue(const QString &direction);

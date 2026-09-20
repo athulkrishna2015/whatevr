@@ -15,7 +15,8 @@ Kirigami.ScrollablePage {
     Kirigami.Theme.colorSet: Kirigami.Theme.View
 
     Component.onCompleted: Whatevr.ProtocolController.openLogs()
-    Component.onDestruction: Whatevr.ProtocolController.closeLogs()
+    // Guarded: at engine teardown the singleton may already be null.
+    Component.onDestruction: { const c = Whatevr.ProtocolController; if (c) c.closeLogs() }
 
     header: RowLayout {
         width: parent.width

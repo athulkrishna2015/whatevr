@@ -548,6 +548,11 @@ type messageItem struct {
 	Contact *messageContact `json:"contact,omitempty"`
 	// Location carries a location-kind row: coordinates plus place name.
 	Location *messageLocation `json:"location,omitempty"`
+	// LinkPreview carries the sender-provided link preview for a text row:
+	// the matched URL plus the title/description/thumbnail the sender's
+	// client fetched when composing. No fetch happens here — everything is
+	// stored at ingest.
+	LinkPreview *messageLinkPreview `json:"link_preview,omitempty"`
 }
 
 type messageSender struct {
@@ -625,6 +630,13 @@ type messageLocation struct {
 	Name string  `json:"name,omitempty"`
 }
 
+type messageLinkPreview struct {
+	URL           string `json:"url"`
+	Title         string `json:"title,omitempty"`
+	Description   string `json:"description,omitempty"`
+	ThumbnailPath string `json:"thumbnail_path,omitempty"`
+}
+
 func messageItemFromStore(m store.Message) messageItem {
 	kind := messageKind(m)
 	item := messageItem{
@@ -649,6 +661,7 @@ func messageItemFromStore(m store.Message) messageItem {
 		Poll:        messagePollFromStore(m),
 		Contact:     messageContactFromStore(m),
 		Location:    messageLocationFromStore(m),
+		LinkPreview: messageLinkPreviewFromStore(m),
 	}
 	if r := m.ReplyTo; r.MessageID != "" {
 		item.ReplyTo = &messageReply{
@@ -881,6 +894,22 @@ func messageLocationFromStore(m store.Message) *messageLocation {
 		return nil
 	}
 	return &messageLocation{Lat: m.GeoLat, Long: m.GeoLong, Name: strings.TrimSpace(m.Text)}
+}
+
+// messageLinkPreviewFromStore projects a text row's sender-provided link
+// preview. Only the URL is required; title/description/thumbnail are whatever
+// the sender's client supplied (often just a title, sometimes nothing but the
+// URL — the bubble still renders the card so the link is tappable).
+func messageLinkPreviewFromStore(m store.Message) *messageLinkPreview {
+	if strings.TrimSpace(m.LinkPreviewURL) == "" {
+		return nil
+	}
+	return &messageLinkPreview{
+		URL:           m.LinkPreviewURL,
+		Title:         m.LinkPreviewTitle,
+		Description:   m.LinkPreviewDescription,
+		ThumbnailPath: m.LinkPreviewThumbnailPath,
+	}
 }
 
 // waveformToWire widens the stored bytes into JSON numbers. Frontends get a

@@ -105,6 +105,14 @@ func (c *Client) ScheduleText(ctx context.Context, chatID, text string, sendAt t
 	return c.store.ScheduleText(ctx, chatID, text, sendAt)
 }
 
+func (c *Client) ListScheduledMessages(ctx context.Context, chatID string) ([]appstore.ScheduledMessage, error) {
+	return c.store.ListScheduledMessages(ctx, chatID, 200)
+}
+
+func (c *Client) CancelScheduledMessage(ctx context.Context, id int64) error {
+	return c.store.DeleteScheduledMessage(ctx, id)
+}
+
 func (c *Client) SetChatPresence(ctx context.Context, chatID string, composing bool) error {
 	client := c.currentClient()
 	if client == nil || !client.IsLoggedIn() {

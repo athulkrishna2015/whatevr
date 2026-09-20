@@ -66,6 +66,10 @@ func (fixtureCommands) SendText(_ context.Context, chatID, text, _ string, _ []s
 func (fixtureCommands) ScheduleText(context.Context, string, string, time.Time) (int64, error) {
 	return 1, nil
 }
+func (fixtureCommands) ListScheduledMessages(context.Context, string) ([]appstore.ScheduledMessage, error) {
+	return nil, nil
+}
+func (fixtureCommands) CancelScheduledMessage(context.Context, int64) error { return nil }
 func (fixtureCommands) SendMediaWithMentions(_ context.Context, chatID, path, caption, _ string, _ []string) (appstore.SavedTextMessage, error) {
 	return appstore.SavedTextMessage{Message: appstore.Message{ID: chatID + ":fixture-media", ChatID: chatID, Text: caption, MediaLocalPath: path}}, nil
 }

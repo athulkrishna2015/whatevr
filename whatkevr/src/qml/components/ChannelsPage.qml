@@ -18,7 +18,8 @@ Kirigami.ScrollablePage {
     Kirigami.Theme.colorSet: Kirigami.Theme.View
 
     Component.onCompleted: Whatevr.ProtocolController.openChannels()
-    Component.onDestruction: Whatevr.ProtocolController.closeChannels()
+    // Guarded: at engine teardown the singleton may already be null.
+    Component.onDestruction: { const c = Whatevr.ProtocolController; if (c) c.closeChannels() }
 
     actions: [
         Kirigami.Action {

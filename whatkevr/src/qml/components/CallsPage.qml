@@ -17,7 +17,8 @@ Kirigami.ScrollablePage {
     Kirigami.Theme.colorSet: Kirigami.Theme.View
 
     Component.onCompleted: Whatevr.ProtocolController.openCalls()
-    Component.onDestruction: Whatevr.ProtocolController.closeCalls()
+    // Guarded: at engine teardown the singleton may already be null.
+    Component.onDestruction: { const c = Whatevr.ProtocolController; if (c) c.closeCalls() }
 
     function callerLabel(item) {
         const caller = item.caller || {}

@@ -110,6 +110,7 @@ set(WHATKEVR_QML_FILES
         qml/components/ChatListPane.qml
         qml/components/ConversationPane.qml
         qml/components/StarredMessagesPage.qml
+        qml/components/ScheduledMessagesPage.qml
         qml/components/StatusPage.qml
         qml/components/StatusViewerPage.qml
         qml/components/StatusPostDialog.qml

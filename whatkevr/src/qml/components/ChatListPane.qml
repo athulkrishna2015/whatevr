@@ -201,10 +201,108 @@ Kirigami.Page {
                     }
                 }
 
+                ColumnLayout {
+                    id: chatColumn
+
+                    anchors.fill: parent
+                    spacing: 0
+                    visible: root.workspaceMode === "chats"
+
+                    // Archived section in normal layout flow above the chat
+                    // list (not a ListView header): the button never scrolls
+                    // away, and expanding grows downward, pushing the chat
+                    // list down. Collapsing needs no scrolling back up.
+                    ColumnLayout {
+                        id: archivedSection
+
+                        Layout.fillWidth: true
+                        spacing: 0
+                        visible: Whatevr.ProtocolController.archivedCount > 0
+                                 || Whatevr.ProtocolController.archivedLoading
+
+                        ItemDelegate {
+                            id: archivedHeader
+
+                            Layout.fillWidth: true
+                            implicitHeight: Kirigami.Units.gridUnit * 2.0
+                            padding: 0
+                            onClicked: chatList.archivedExpanded = !chatList.archivedExpanded
+
+                            contentItem: RowLayout {
+                                spacing: Kirigami.Units.largeSpacing
+
+                                Kirigami.Icon {
+                                    Layout.leftMargin: Kirigami.Units.largeSpacing
+                                    implicitWidth: Kirigami.Units.iconSizes.small
+                                    implicitHeight: Kirigami.Units.iconSizes.small
+                                    source: chatList.archivedExpanded ? "go-down-symbolic" : "go-next-symbolic"
+                                    color: Kirigami.Theme.textColor
+                                    isMask: true
+                                }
+
+                                Kirigami.Icon {
+                                    implicitWidth: Kirigami.Units.iconSizes.small
+                                    implicitHeight: Kirigami.Units.iconSizes.small
+                                    source: "package-x-generic-symbolic"
+                                    color: Kirigami.Theme.neutralTextColor
+                                    isMask: true
+                                }
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    // archivedCount is the loaded window, not the
+                                    // total: while the daemon still has archived
+                                    // chats past it, say so rather than state a
+                                    // number that is quietly wrong.
+                                    text: Whatevr.ProtocolController.archivedExhausted
+                                          ? Whatevr.I18n.i18nc("@title:group chat list section",
+                                                               "Archived (%1)",
+                                                               Whatevr.ProtocolController.archivedCount)
+                                          : Whatevr.I18n.i18nc("@title:group chat list section, more are still loading",
+                                                               "Archived (%1+)",
+                                                               Whatevr.ProtocolController.archivedCount)
+                                    elide: Text.ElideRight
+                                    font.bold: true
+                                }
+                            }
+                        }
+
+                        ListView {
+                            id: archivedList
+
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: chatList.archivedExpanded
+                                ? Math.min(contentHeight,
+                                           Math.max(Kirigami.Units.gridUnit * 6,
+                                                    chatListViewport.height * 0.45))
+                                : 0
+                            visible: chatList.archivedExpanded
+                            clip: true
+                            model: Whatevr.ProtocolController.archivedChatsModel
+                            currentIndex: -1
+                            boundsBehavior: Flickable.StopAtBounds
+                            flickableDirection: Flickable.VerticalFlick
+                            acceptedButtons: Qt.NoButton
+                            reuseItems: true
+                            spacing: 0
+                            ScrollBar.vertical: DiscreetScrollBar {}
+                            delegate: chatRowDelegate
+
+                            onContentYChanged: {
+                                if (contentHeight <= 0 || Whatevr.ProtocolController.archivedExhausted)
+                                    return
+                                if (contentY + height > contentHeight - Kirigami.Units.gridUnit * 10)
+                                    Whatevr.ProtocolController.loadMoreArchivedChats()
+                            }
+                        }
+                    }
+
                 ListView {
                 id: chatList
 
-                    visible: root.workspaceMode === "chats" && !Whatevr.ProtocolController.searchActive
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    visible: !Whatevr.ProtocolController.searchActive
 
                 property string contextChatId: ""
                 property bool contextChatPinned: false
@@ -235,9 +333,8 @@ Kirigami.Page {
                 // The `chats` views are windowed (DN6), so the list asks the
                 // daemon for the next page as the bottom comes into reach.
                 // Ordering and membership stay entirely daemon-side — this only
-                // decides *when* to widen the window. The archived section
-                // lives in this list's header, so the same trigger feeds it
-                // once it is expanded.
+                // decides *when* to widen the window. The archived section is
+                // a separate list above with its own paging trigger.
                 function maybeLoadMore() {
                     if (contentHeight <= 0) {
                         return
@@ -324,82 +421,6 @@ Kirigami.Page {
                 }
 
                 delegate: chatRowDelegate
-
-                // The archived chats are a separate `chats` subscription
-                // (`archived: true`); they render in a collapsible header section
-                // at the top of the list. Reusing chatRowDelegate keeps the
-                // rows identical; each archived row collapses to nothing until the
-                // section is expanded (the delegate's own archived-collapse logic).
-                headerPositioning: ListView.InlineHeader
-                header: Column {
-                    width: chatList.width
-                    // Keep the archive section in normal list flow: expanded
-                    // rows must grow downward instead of covering rows above it.
-                    z: 1
-
-                    ItemDelegate {
-                        id: archivedHeader
-
-                        width: parent.width
-                        visible: Whatevr.ProtocolController.archivedCount > 0
-                        implicitHeight: visible ? Kirigami.Units.gridUnit * 2.0 : 0
-                        padding: 0
-                        onClicked: {
-                            chatList.archivedExpanded = !chatList.archivedExpanded
-                            if (chatList.archivedExpanded)
-                                chatList.positionViewAtBeginning()
-                        }
-
-                        contentItem: RowLayout {
-                            spacing: Kirigami.Units.largeSpacing
-
-                            Kirigami.Icon {
-                                Layout.leftMargin: Kirigami.Units.largeSpacing
-                                implicitWidth: Kirigami.Units.iconSizes.small
-                                implicitHeight: Kirigami.Units.iconSizes.small
-                                source: chatList.archivedExpanded ? "go-down-symbolic" : "go-next-symbolic"
-                                color: Kirigami.Theme.textColor
-                                isMask: true
-                            }
-
-                            Kirigami.Icon {
-                                implicitWidth: Kirigami.Units.iconSizes.small
-                                implicitHeight: Kirigami.Units.iconSizes.small
-                                source: "package-x-generic-symbolic"
-                                color: Kirigami.Theme.neutralTextColor
-                                isMask: true
-                            }
-
-                            Label {
-                                Layout.fillWidth: true
-                                // archivedCount is the loaded window, not the
-                                // total: while the daemon still has archived
-                                // chats past it, say so rather than state a
-                                // number that is quietly wrong.
-                                text: Whatevr.ProtocolController.archivedExhausted
-                                      ? Whatevr.I18n.i18nc("@title:group chat list section",
-                                                           "Archived (%1)",
-                                                           Whatevr.ProtocolController.archivedCount)
-                                      : Whatevr.I18n.i18nc("@title:group chat list section, more are still loading",
-                                                           "Archived (%1+)",
-                                                           Whatevr.ProtocolController.archivedCount)
-                                elide: Text.ElideRight
-                                font.bold: true
-                            }
-                        }
-                    }
-
-                    // A Repeater builds every delegate it is given, so binding
-                    // the model unconditionally instantiated a full chat row for
-                    // each archived chat at startup — all of them collapsed to
-                    // zero height behind a section nobody had opened yet.
-                    Repeater {
-                        model: chatList.archivedExpanded
-                               ? Whatevr.ProtocolController.archivedChatsModel
-                               : null
-                        delegate: chatRowDelegate
-                    }
-                }
 
                 Menu {
                     id: chatContextMenu
@@ -559,9 +580,10 @@ Kirigami.Page {
                           : Whatevr.I18n.i18nc("@info", "No chats yet")
                     explanation: Whatevr.ProtocolController.historySyncVisible
                                  ? Whatevr.I18n.i18nc("@info", "Your chats will appear here in a moment. You can start using them as they arrive.")
-                                 : Whatevr.I18n.i18nc("@info", "Chats will appear here as history sync stores them locally.")
+                                  : Whatevr.I18n.i18nc("@info", "Chats will appear here as history sync stores them locally.")
                 }
             }
+            } // chatColumn: archived section above, chat list below
 
             // Search results replace the chat list while a query is active.
             // Chat-name matches and message-text matches are split into two
@@ -571,7 +593,7 @@ Kirigami.Page {
 
                 anchors.fill: parent
                 clip: true
-                visible: Whatevr.ProtocolController.searchActive
+                visible: Whatevr.ProtocolController.searchActive && root.workspaceMode === "chats"
                 model: Whatevr.ProtocolController.searchResultsModel
                 currentIndex: -1
                 boundsBehavior: Flickable.StopAtBounds

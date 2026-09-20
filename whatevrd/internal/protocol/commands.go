@@ -92,6 +92,8 @@ type CommandActions interface {
 
 	SendText(context.Context, string, string, string, []string) (appstore.SavedTextMessage, error)
 	ScheduleText(context.Context, string, string, time.Time) (int64, error)
+	ListScheduledMessages(context.Context, string) ([]appstore.ScheduledMessage, error)
+	CancelScheduledMessage(context.Context, int64) error
 	SendMediaWithMentions(context.Context, string, string, string, string, []string) (appstore.SavedTextMessage, error)
 	SendMediaWithOptions(context.Context, string, string, string, string, []string, app.MediaSendOptions) (appstore.SavedTextMessage, error)
 	SendPoll(context.Context, string, string, []string, bool) (appstore.SavedTextMessage, error)
@@ -170,7 +172,7 @@ type CommandActions interface {
 // RegisterDaemonCommands registers the command surface from PROTOCOL.md.
 func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.commandActions = actions
-	cmd := commandHandlers{actions: actions}
+	cmd := commandHandlers{actions: actions, server: s}
 	// Local-only commands (store enqueue, session state, transient DB queries)
 	// stay synchronous on the dispatch loop; anything that performs a WhatsApp
 	// round trip is backgrounded via backgroundNet so it cannot stall the
@@ -178,6 +180,7 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	// sticker send may first fetch a missing sticker file, so it is backgrounded.
 	s.RegisterCommand("session.update", cmd.sessionUpdate)
 	s.RegisterCommand("daemon.reconnect", cmd.daemonReconnect)
+	s.RegisterCommand("daemon.shutdown", cmd.daemonShutdown)
 	s.RegisterCommand("account.logout", backgroundNet(cmd.accountLogout, false))
 	s.RegisterCommand("chat.mark_read", backgroundNet(cmd.chatMarkRead, false))
 	s.RegisterCommand("chat.mark_all_read", backgroundNet(cmd.chatMarkAllRead, false))
@@ -195,6 +198,8 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("chat.export", backgroundNet(cmd.chatExport, false))
 	s.RegisterCommand("send.text", cmd.sendText)
 	s.RegisterCommand("schedule.text", cmd.scheduleText)
+	s.RegisterCommand("schedule.list", cmd.scheduleList)
+	s.RegisterCommand("schedule.cancel", cmd.scheduleCancel)
 	s.RegisterCommand("send.media", cmd.sendMedia)
 	s.RegisterCommand("send.media_batch", cmd.sendMediaBatch)
 	s.RegisterCommand("send.sticker", backgroundNet(cmd.sendSticker, false))
@@ -282,6 +287,7 @@ func (s *Server) handler(name string) (handlerFunc, bool) {
 
 type commandHandlers struct {
 	actions CommandActions
+	server  *Server
 }
 
 func (h commandHandlers) requireActions() *Error {

@@ -664,10 +664,21 @@ Kirigami.Page {
             }
 
             ToolButton {
+                id: chatMenuButton
+
                 icon.name: "view-more-symbolic"
                 display: AbstractButton.IconOnly
                 text: Whatevr.I18n.i18nc("@action:button chat header menu", "Chat menu")
-                onClicked: explicitChatHeaderMenu.open()
+                // Anchor the popup under the button, right-aligned, instead
+                // of open() which drops it at a default (left) position.
+                onClicked: {
+                    const pos = chatMenuButton.mapToItem(explicitChatHeaderMenu.parent,
+                                                         0, chatMenuButton.height)
+                    explicitChatHeaderMenu.x = pos.x + chatMenuButton.width
+                        - explicitChatHeaderMenu.implicitWidth
+                    explicitChatHeaderMenu.y = pos.y
+                    explicitChatHeaderMenu.open()
+                }
             }
 
             Menu {
@@ -691,6 +702,15 @@ Kirigami.Page {
                     text: Whatevr.I18n.i18nc("@action:menu starred chat messages", "Starred messages")
                     icon.name: "starred-symbolic"
                     onTriggered: applicationWindow().openWorkspace("starred")
+                }
+                MenuItem {
+                    text: Whatevr.I18n.i18nc("@action:menu scheduled messages", "Scheduled messages")
+                    icon.name: "appointment-new-symbolic"
+                    onTriggered: applicationWindow().pageStack.layers.push(
+                        Qt.resolvedUrl("ScheduledMessagesPage.qml"), {
+                            chatId: Whatevr.ProtocolController.selectedChatId,
+                            chatName: Whatevr.ProtocolController.selectedChatName
+                        })
                 }
                 MenuItem {
                     text: Whatevr.I18n.i18nc("@action:menu export chat", "Export chat…")

@@ -582,12 +582,21 @@ public:
     Q_INVOKABLE void setAutoDownloadLimit(qint64 maxBytes);
     Q_INVOKABLE void setProfileStatus(const QString &text);
     Q_INVOKABLE void logout();
+    // Asks the daemon to exit (tray icon is daemon-owned) for a full quit.
+    // Fire-and-forget: safe to call when the daemon is already gone.
+    Q_INVOKABLE void shutdownDaemon();
 
     // Composer send paths (D4a): map straight to `send.text`/`send.media`; the
     // daemon acks with an id only, the rendered message arrives via the
     // `messages` view. mentionedJids/replyToMessageId/caption may be empty.
     Q_INVOKABLE void sendText(const QString &text, const QString &replyToMessageId, const QStringList &mentionedJids);
     Q_INVOKABLE void scheduleText(const QString &text, qint64 sendAt);
+    // Scheduled-messages viewer session: one-shot list for the page plus
+    // cancel. Rows are {id, chat_id, text, send_at}.
+    Q_PROPERTY(QVariantList scheduledMessages READ scheduledMessages NOTIFY scheduledMessagesChanged FINAL)
+    [[nodiscard]] QVariantList scheduledMessages() const;
+    Q_INVOKABLE void refreshScheduledMessages(const QString &chatId);
+    Q_INVOKABLE void cancelScheduledMessage(qlonglong id, const QString &chatId);
     // kind is "", "image", "video", "audio", "voice" or "document" ("" classifies
     // from the file); viewOnce sends photo/video/audio view-once. QML may keep
     // calling with three arguments — the defaults preserve the old behavior.
@@ -804,6 +813,7 @@ public:
     // is issued, not when it is acked: the snap should feel immediate, and the
     // row lands through the messages view either way.
     void messageSent();
+    void scheduledMessagesChanged();
     void openChatRequested(const QString &chatId);
     // Raise and focus the window: a second launch, or a deep link arriving
     // before the chat shell exists.
@@ -1043,6 +1053,8 @@ private:
     // Composer send state (D4a).
     bool m_sendInFlight = false;
     QString m_composerErrorText;
+    // Scheduled-messages viewer session (one-shot list, refreshed per open).
+    QVariantList m_scheduledMessages;
     // The chat a local "composing" was last sent true for, so a stop is only
     // sent to the chat that actually owns the composing state (mirrors
     // AppController::m_localComposingChatId).

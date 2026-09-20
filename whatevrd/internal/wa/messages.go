@@ -1309,7 +1309,7 @@ func (c *Client) textMessageInput(ctx context.Context, evt *events.Message, opts
 
 	direction, status := messageDirectionAndStatus(info, opts)
 
-	return appstore.TextMessageInput{
+	input := appstore.TextMessageInput{
 		ID:             internalMessageIDForChat(chatID, info.ID),
 		ChatID:         chatID,
 		ChatName:       c.chatName(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
@@ -1324,7 +1324,49 @@ func (c *Client) textMessageInput(ctx context.Context, evt *events.Message, opts
 		CountUnread:    shouldCountUnread(evt, opts),
 		ReplyTo:        c.replyFromContextInfo(ctx, chatID, contextInfoFromMessage(evt.Message)),
 		Mentions:       c.mentionsFromMessage(ctx, evt.Message),
-	}, true
+	}
+	if preview := c.linkPreviewFromMessage(ctx, chatID, info.ID, evt.Message); preview != nil {
+		input.LinkPreviewURL = preview.URL
+		input.LinkPreviewTitle = preview.Title
+		input.LinkPreviewDescription = preview.Description
+		input.LinkPreviewThumbnailPath = preview.ThumbnailPath
+	}
+	return input, true
+}
+
+// linkPreview holds the sender-provided preview facts from an
+// ExtendedTextMessage: the matched URL plus the title/description/thumbnail
+// the sender's client fetched when composing.
+type linkPreview struct {
+	URL           string
+	Title         string
+	Description   string
+	ThumbnailPath string
+}
+
+// linkPreviewFromMessage extracts the sender-provided link preview from a
+// message, or nil when it carries none. The thumbnail bytes are cached to a
+// local file like any other thumbnail; the wire JPEG is small (a preview
+// thumbnail) so no fetch is needed.
+func (c *Client) linkPreviewFromMessage(ctx context.Context, chatID, externalID string, message *waE2E.Message) *linkPreview {
+	_ = ctx
+	extended := message.GetExtendedTextMessage()
+	if extended == nil {
+		return nil
+	}
+	matched := strings.TrimSpace(extended.GetMatchedText())
+	if matched == "" {
+		return nil
+	}
+	preview := &linkPreview{
+		URL:         matched,
+		Title:       strings.TrimSpace(extended.GetTitle()),
+		Description: strings.TrimSpace(extended.GetDescription()),
+	}
+	if len(extended.GetJPEGThumbnail()) > 0 {
+		preview.ThumbnailPath = c.saveMessageThumbnailWithExtension(chatID, internalMessageIDForChat(chatID, externalID)+"-linkpreview", extended.GetJPEGThumbnail(), ".thumb.jpg")
+	}
+	return preview
 }
 
 // mentionedJIDsFromMessage pulls the @-mention JID list out of a message's
