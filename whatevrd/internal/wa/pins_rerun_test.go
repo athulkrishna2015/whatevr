@@ -16,7 +16,8 @@ import (
 // request left the empty snapshot as the last word, and ReconcileChatPins is
 // full authority, so the account finished its first sync with no pins at all.
 func TestPinRecoveryAskedForWhileRunningRunsAgain(t *testing.T) {
-	c := &Client{}
+	c := &Client{session: newAccountSession(context.Background())}
+	defer c.session.end()
 
 	var mu sync.Mutex
 	runs := 0
@@ -24,7 +25,7 @@ func TestPinRecoveryAskedForWhileRunningRunsAgain(t *testing.T) {
 	release := make(chan struct{})
 	done := make(chan struct{})
 
-	c.startPinnedChatRecovery(context.Background(), "test", func(context.Context) error {
+	c.startPinnedChatRecovery("test", func(context.Context) error {
 		mu.Lock()
 		runs++
 		first := runs == 1
@@ -45,7 +46,7 @@ func TestPinRecoveryAskedForWhileRunningRunsAgain(t *testing.T) {
 	}
 
 	// Asked for again while the first is still running.
-	c.startPinnedChatRecovery(context.Background(), "test", func(context.Context) error {
+	c.startPinnedChatRecovery("test", func(context.Context) error {
 		t.Error("a second goroutine was started while one was already running")
 		return nil
 	})

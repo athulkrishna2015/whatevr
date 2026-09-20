@@ -1,6 +1,7 @@
 package wa
 
 import (
+	"context"
 	"testing"
 
 	"go.mau.fi/whatsmeow/types/events"
@@ -15,16 +16,19 @@ import (
 // answer false.
 func TestHandleEventAcksWhatRedeliveryCannotFix(t *testing.T) {
 	client := &Client{daemon: app.NewDaemon(app.Paths{}), log: waLog.Noop}
-	client.eventGen.Store(7)
 
 	// An event for a superseded account: its database is gone, and asking for
 	// it again would only replay it into the wrong one.
-	if !client.handleEvent(3, &events.Blocklist{}) {
-		t.Fatal("a superseded generation refused the ack, which would redeliver forever")
+	dead := newAccountSession(context.Background())
+	dead.end()
+	if !client.handleEvent(dead, &events.Blocklist{}) {
+		t.Fatal("a superseded session refused the ack, which would redeliver forever")
 	}
 
 	// An event with no message in it stores nothing and never will.
-	if !client.handleEvent(7, &events.Blocklist{}) {
+	live := newAccountSession(context.Background())
+	defer live.end()
+	if !client.handleEvent(live, &events.Blocklist{}) {
 		t.Fatal("a non-message event refused the ack")
 	}
 }

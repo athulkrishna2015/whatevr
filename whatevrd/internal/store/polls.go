@@ -410,3 +410,7 @@ func (db *DB) cachedSelfJID() string {
 	}
 	return ""
 }
+
+// CachedSelfJIDForTest exposes the cache so a logout test can assert it was
+// cleared. Nothing in the daemon reads it.
+func (db *DB) CachedSelfJIDForTest() string { return db.cachedSelfJID() }

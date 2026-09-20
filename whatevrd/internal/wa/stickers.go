@@ -152,7 +152,7 @@ func (c *Client) SetStickerPackInstalled(ctx context.Context, packID string, ins
 		// Warm the pack in the background so the category tab is instant by
 		// the time the user opens it. Failures stay silent; the picker
 		// downloads on demand anyway.
-		go c.warmStickerPack(c.backgroundContext(), packID)
+		c.spawn(func(ctx context.Context) { c.warmStickerPack(ctx, packID) })
 	}
 	c.publishStickerLibraryChangedDebounced(app.StickerSourceUnspecified)
 	pack, _, err := c.store.GetStickerPack(ctx, packID)

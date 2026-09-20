@@ -124,7 +124,7 @@ func (c *Client) signalHistorySyncWorker() {
 	c.historySyncWake = false
 	c.historySyncMu.Unlock()
 
-	go c.runHistorySyncWorker(c.backgroundContext())
+	c.spawn(c.runHistorySyncWorker)
 }
 
 func (c *Client) runHistorySyncWorker(ctx context.Context) {
@@ -180,7 +180,7 @@ func (c *Client) processHistorySyncChunk(ctx context.Context, chunk appstore.His
 		blob, err := client.DownloadHistorySync(ctx, historySyncNotificationFromChunk(chunk), true)
 		if err != nil {
 			_ = c.store.MarkHistorySyncChunkFailed(ctx, chunk.ID, err.Error())
-			_ = client.SendHistorySyncServerErrorReceipt(context.WithoutCancel(ctx), chunk.ID, chunk.MediaKey)
+			_ = client.SendHistorySyncServerErrorReceipt(c.backgroundContext(), chunk.ID, chunk.MediaKey)
 			c.log.Warnf("Failed to download history sync chunk %s: %v", chunk.ID, err)
 			return false
 		}
@@ -230,7 +230,7 @@ func (c *Client) processHistorySyncChunk(ctx context.Context, chunk appstore.His
 	}
 	c.log.Debugf("Finished history sync chunk %s (type %d, chunk %d, progress %d) in %s", chunk.ID, chunk.SyncType, chunk.ChunkOrder, chunk.Progress, time.Since(started).Round(time.Millisecond))
 	if chunk.DirectPath != "" {
-		go c.deleteHistorySyncMedia(context.WithoutCancel(ctx), client, chunk)
+		c.spawn(func(ctx context.Context) { c.deleteHistorySyncMedia(ctx, client, chunk) })
 	}
 	return true
 }

@@ -138,7 +138,7 @@ func (c *Client) GetContactInfo(ctx context.Context, jidStr string) (app.Contact
 	// makes the contact card open slowly. Return the card now from local data
 	// and stream the status in afterwards via a ContactInfoUpdated event.
 	if client != nil && client.IsLoggedIn() {
-		go c.refreshContactStatus(context.WithoutCancel(ctx), pnJID)
+		c.spawn(func(ctx context.Context) { c.refreshContactStatus(ctx, pnJID) })
 	}
 
 	return info, nil
@@ -223,7 +223,7 @@ func (c *Client) GetGroupInfo(ctx context.Context, chatID string) (app.GroupInfo
 
 	client := c.currentClient()
 	if client != nil && client.IsLoggedIn() {
-		go c.refreshGroupInfoLive(context.WithoutCancel(ctx), chatJID, out.AvatarLocalPath)
+		c.spawn(func(ctx context.Context) { c.refreshGroupInfoLive(ctx, chatJID, out.AvatarLocalPath) })
 	}
 
 	return out, nil
@@ -320,7 +320,7 @@ func (c *Client) resolveGroupMembers(ctx context.Context, sources []groupMemberS
 	// to wait for them. Detached from ctx: the caller's context dies with the
 	// subscribe that triggered it, but the fetch is worth finishing.
 	if len(needAvatar) > 0 {
-		go c.queueAvatarRefreshes(context.WithoutCancel(ctx), needAvatar)
+		c.spawn(func(ctx context.Context) { c.queueAvatarRefreshes(ctx, needAvatar) })
 	}
 	return members
 }

@@ -162,7 +162,7 @@ func (c *Client) DownloadMessageMedia(ctx context.Context, messageID string) (ap
 		}
 		c.daemon.PublishMediaDownloadChanged(message.ID, message.ChatID, false, errorText, 0, totalBytes)
 		if errorText != "" {
-			updated, err := c.store.SetMessageMediaDownloadError(context.Background(), message.ID, errorText)
+			updated, err := c.store.SetMessageMediaDownloadError(c.backgroundContext(), message.ID, errorText)
 			if err != nil {
 				c.log.Errorf("Persist media download error for %s: %v", message.ID, err)
 				return

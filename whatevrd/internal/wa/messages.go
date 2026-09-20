@@ -54,11 +54,11 @@ type ingestOptions struct {
 	timestampOverride time.Time
 }
 
-func (c *Client) handleHistorySync(eventGen uint64, evt *events.HistorySync) {
-	if !c.isCurrentEventGeneration(eventGen) {
+func (c *Client) handleHistorySync(sess *accountSession, evt *events.HistorySync) {
+	if !sess.alive() {
 		return
 	}
-	ctx := c.backgroundContext()
+	ctx := sess.detached()
 	if ctx.Err() != nil {
 		return
 	}
@@ -386,10 +386,10 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		// The initial sync has settled: merge LID-duplicated chats, apply any
 		// app-state entries that were parked awaiting LID→PN mappings, and
 		// let the background refresher start filling in chat avatars.
-		go func() {
+		c.spawn(func(ctx context.Context) {
 			c.reconcileAfterHistorySync(ctx)
 			c.kickAvatarBackgroundRefresh()
-		}()
+		})
 	}
 
 	return stored

@@ -335,10 +335,13 @@ func connectionRetry(attempt int, err error) retryPlan {
 func (c *Client) resetAfterExternalLogout() {
 	c.lifecycleMu.Lock()
 	defer c.lifecycleMu.Unlock()
-	c.eventGen.Add(1)
 
 	ctx := context.Background()
-	c.cancelRunContextLocked()
+	c.endSessionLocked()
+	// The loops come back whatever happens below. A failed wipe used to return
+	// here and leave the daemon with no supervisor, so it never reconnected and
+	// never asked for a QR either.
+	defer c.restartRunLoopsLocked()
 
 	c.mu.Lock()
 	old := c.client
@@ -355,9 +358,7 @@ func (c *Client) resetAfterExternalLogout() {
 
 	if err := c.wipeAccountData(ctx); err != nil {
 		c.log.Errorf("Failed to wipe account data after remote logout: %v", err)
-		return
 	}
-	c.restartRunLoopsLocked()
 }
 
 func (c *Client) Logout(ctx context.Context) error {
@@ -365,7 +366,6 @@ func (c *Client) Logout(ctx context.Context) error {
 	defer c.lifecycleMu.Unlock()
 
 	c.daemon.SetStateDetail(app.StateConnecting, "Logging out and clearing local session data")
-	c.eventGen.Add(1)
 
 	client := c.currentClient()
 	if client != nil {
@@ -379,14 +379,16 @@ func (c *Client) Logout(ctx context.Context) error {
 			client.Disconnect()
 		}
 	}
-	c.cancelRunContextLocked()
+	c.endSessionLocked()
+	// Same as the external-logout path: a failed wipe must not leave the daemon
+	// without a supervisor.
+	defer c.restartRunLoopsLocked()
 
 	if err := c.wipeAccountData(context.Background()); err != nil {
 		return err
 	}
 
 	c.daemon.SetStateDetail(app.StateNeedLogin, "Logged out")
-	c.restartRunLoopsLocked()
 	return nil
 }
 
@@ -441,6 +443,7 @@ func (c *Client) wipeAccountData(ctx context.Context) error {
 	c.mu.Unlock()
 
 	c.resetInMemoryAccountState()
+	c.daemon.ResetAccountState()
 
 	return c.resetClient(ctx)
 }
@@ -518,6 +521,67 @@ func (c *Client) resetInMemoryAccountState() {
 			req.timer.Stop()
 		}
 	}
+
+	c.posterMu.Lock()
+	c.posterHigh = nil
+	c.posterLow = nil
+	c.posterQueued = nil
+	c.posterMu.Unlock()
+
+	// The cancels belong to downloads started on the previous session's
+	// context, which is already cancelled; calling them is what releases the
+	// waiters instead of leaving them on a channel nobody will close.
+	c.mediaDownloadMu.Lock()
+	downloads := c.mediaDownloads
+	c.mediaDownloads = nil
+	c.mediaDownloadMu.Unlock()
+	for _, download := range downloads {
+		if download.cancel != nil {
+			download.cancel()
+		}
+	}
+
+	c.mediaRetryMu.Lock()
+	c.mediaRetries = nil
+	c.mediaRetryMu.Unlock()
+
+	c.mediaStreamMu.Lock()
+	c.mediaStreams = nil
+	c.mediaStreamMu.Unlock()
+
+	c.messageStickerMu.Lock()
+	c.messageStickerLocks = nil
+	c.messageStickerMu.Unlock()
+
+	c.stickerMu.Lock()
+	c.stickerDownloads = nil
+	stickerTimers := c.stickerLibraryTimers
+	c.stickerLibraryTimers = nil
+	c.stickerMu.Unlock()
+	for _, timer := range stickerTimers {
+		timer.Stop()
+	}
+
+	c.presenceMu.Lock()
+	c.cancelPresenceOfflineTimerLocked()
+	c.lastPresence = ""
+	c.presenceMu.Unlock()
+
+	// Latches. Each one says "work is already queued or running"; left set, the
+	// next account's first request for that work is dropped as a duplicate.
+	c.reconnectNow.Store(false)
+	c.pinBackfill.Store(false)
+	c.pinBackfillAgain.Store(false)
+
+	c.historySyncMu.Lock()
+	c.historySyncRunning = false
+	c.historySyncWake = false
+	c.historySyncMu.Unlock()
+
+	c.privacyPublishMu.Lock()
+	c.privacyPublishRunning = false
+	c.privacyPublishAgain = false
+	c.privacyPublishMu.Unlock()
 }
 
 // restartRunLoopsLocked restarts the background loops torn down by a wipe.

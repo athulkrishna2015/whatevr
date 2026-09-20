@@ -94,7 +94,7 @@ func (c *Client) maybeResolveGroupInvite(ctx context.Context, message appstore.M
 		return
 	}
 	c.log.Debugf("Resolving group invite %s for %s", message.ID, payload.GroupJID)
-	go c.resolveGroupInvite(context.WithoutCancel(ctx), message.ID)
+	c.spawn(func(ctx context.Context) { c.resolveGroupInvite(ctx, message.ID) })
 }
 
 // resolveGroupInvite asks WhatsApp what the invite code actually points at and

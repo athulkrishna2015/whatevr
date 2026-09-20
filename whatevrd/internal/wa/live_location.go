@@ -250,7 +250,7 @@ func (c *Client) applyLivePositionToRow(ctx context.Context, messageID string, p
 	// Redrawing the map is a network round trip, so it never blocks the event
 	// handler: whatsmeow dispatches events serially and a stalled handler stalls
 	// every message behind it.
-	go c.redrawLiveLocationMap(c.backgroundContext(), updated)
+	c.spawn(func(ctx context.Context) { c.redrawLiveLocationMap(ctx, updated) })
 }
 
 // redrawLiveLocationMap re-stitches a moving share's map. It runs only when the

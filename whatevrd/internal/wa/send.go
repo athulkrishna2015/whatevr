@@ -984,7 +984,7 @@ func (c *Client) handleReceipt(evt *events.Receipt, offlineSync bool) {
 		return
 	}
 
-	ctx := context.Background()
+	ctx := c.backgroundContext()
 	normalizedChat := c.normalizeJIDForChat(ctx, evt.Chat)
 	chatID := normalizedChat.String()
 	if chatID == "" {

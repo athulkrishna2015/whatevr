@@ -62,7 +62,7 @@ type avatarJob struct {
 	force   bool
 }
 
-func (c *Client) startAvatarWorker(ctx context.Context) {
+func (c *Client) startAvatarWorker(sess *accountSession) {
 	c.avatarMu.Lock()
 	if c.avatarQueued == nil {
 		c.avatarQueued = make(map[appstore.AvatarSubject]avatarPriority)
@@ -75,9 +75,9 @@ func (c *Client) startAvatarWorker(ctx context.Context) {
 	}
 	c.avatarMu.Unlock()
 	for range avatarWorkerCount {
-		c.startRunGoroutine(func() { c.runAvatarWorker(ctx) })
+		sess.spawn(c.runAvatarWorker)
 	}
-	c.startRunGoroutine(func() { c.runAvatarBackgroundRefresher(ctx) })
+	sess.spawn(c.runAvatarBackgroundRefresher)
 }
 
 func (c *Client) runAvatarWorker(ctx context.Context) {
@@ -724,7 +724,7 @@ func (c *Client) notifyWithAvatar(ctx context.Context, message app.Message, chat
 		c.notifier.NotifyMessage(ctx, message, chat, opts)
 		return
 	}
-	go func() {
+	c.spawn(func(ctx context.Context) {
 		const pollInterval = 150 * time.Millisecond
 		deadline := time.Now().Add(1500 * time.Millisecond)
 		for time.Now().Before(deadline) && ctx.Err() == nil {
@@ -743,7 +743,7 @@ func (c *Client) notifyWithAvatar(ctx context.Context, message app.Message, chat
 			}
 		}
 		c.notifier.NotifyMessage(ctx, message, chat, opts)
-	}()
+	})
 }
 
 func (c *Client) handlePictureEvent(ctx context.Context, evt *events.Picture) {

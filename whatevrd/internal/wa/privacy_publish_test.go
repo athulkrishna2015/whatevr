@@ -18,7 +18,8 @@ import (
 // rather than one goroutine each.
 func TestPrivacySettingsChangeDoesNotBlockTheEventQueue(t *testing.T) {
 	client := &Client{daemon: app.NewDaemon(app.Paths{}), log: waLog.Noop}
-	client.eventGen.Store(1)
+	sess := newAccountSession(context.Background())
+	client.session = sess
 
 	var reads atomic.Int64
 	started := make(chan struct{}, 8)
@@ -32,7 +33,7 @@ func TestPrivacySettingsChangeDoesNotBlockTheEventQueue(t *testing.T) {
 
 	returned := make(chan struct{})
 	go func() {
-		client.handleEvent(1, &events.PrivacySettings{})
+		client.handleEvent(sess, &events.PrivacySettings{})
 		close(returned)
 	}()
 	select {
@@ -43,11 +44,16 @@ func TestPrivacySettingsChangeDoesNotBlockTheEventQueue(t *testing.T) {
 
 	// The read is in flight. Two more changes land while it is.
 	<-started
-	client.handleEvent(1, &events.PrivacySettings{})
-	client.handleEvent(1, &events.PrivacySettings{})
+	client.handleEvent(sess, &events.PrivacySettings{})
+	client.handleEvent(sess, &events.PrivacySettings{})
 
 	close(release)
-	client.runWG.Wait()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no catch-up read, so the changes that landed during the first one were dropped")
+	}
+	sess.end()
 
 	if got := reads.Load(); got != 2 {
 		t.Fatalf("three changes caused %d reads, want 2 (the one in flight plus one catch-up)", got)

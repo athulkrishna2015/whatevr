@@ -116,8 +116,7 @@ func (c *Client) signalPrivacySettingsPublish() {
 	c.privacyPublishAgain = false
 	c.privacyPublishMu.Unlock()
 
-	ctx := c.backgroundContext()
-	c.startRunGoroutine(func() {
+	c.spawn(func(ctx context.Context) {
 		for {
 			fetch := c.privacyFetch
 			if fetch == nil {

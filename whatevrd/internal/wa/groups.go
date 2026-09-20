@@ -28,7 +28,7 @@ func (c *Client) handleJoinedGroup(ctx context.Context, evt *events.JoinedGroup)
 		c.ensureOrUpdateGroupName(ctx, chatJID, name)
 		return
 	}
-	go c.refreshGroupName(context.WithoutCancel(ctx), chatJID)
+	c.spawn(func(ctx context.Context) { c.refreshGroupName(ctx, chatJID) })
 }
 
 func (c *Client) handleGroupInfoEvent(ctx context.Context, evt *events.GroupInfo) {
@@ -156,14 +156,14 @@ func (c *Client) maybeRefreshGroupParticipants(ctx context.Context, chatJID type
 	c.groupParticipantsInFlight[chatID] = true
 	c.groupParticipantsMu.Unlock()
 
-	go func() {
+	c.spawn(func(ctx context.Context) {
 		defer func() {
 			c.groupParticipantsMu.Lock()
 			delete(c.groupParticipantsInFlight, chatID)
 			c.groupParticipantsMu.Unlock()
 		}()
-		c.refreshGroupParticipants(context.WithoutCancel(ctx), chatJID)
-	}()
+		c.refreshGroupParticipants(ctx, chatJID)
+	})
 }
 
 func (c *Client) refreshGroupParticipants(ctx context.Context, chatJID types.JID) {
@@ -227,11 +227,11 @@ func (c *Client) refreshRawGroupNameForChat(ctx context.Context, chat appstore.C
 	if err != nil || jid.Server != types.GroupServer {
 		return
 	}
-	go c.refreshGroupName(context.WithoutCancel(ctx), jid)
+	c.spawn(func(ctx context.Context) { c.refreshGroupName(ctx, jid) })
 }
 
 func (c *Client) startUnresolvedGroupNameBackfill(ctx context.Context) {
-	go c.backfillUnresolvedGroupNames(context.WithoutCancel(ctx))
+	c.spawn(c.backfillUnresolvedGroupNames)
 }
 
 func (c *Client) backfillUnresolvedGroupNames(ctx context.Context) {

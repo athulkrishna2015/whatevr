@@ -31,9 +31,6 @@ type connState struct {
 	retryAttempt  int32
 	nextRetryUnix int64
 	canReconnect  bool
-	// seq increases on every publish, so a consumer can tell which of two
-	// snapshots is newer without comparing their contents.
-	seq uint64
 }
 
 type Daemon struct {
@@ -66,6 +63,19 @@ func NewDaemon(paths Paths) *Daemon {
 	return d
 }
 
+// ResetAccountState drops the account-scoped snapshots the daemon replays to a
+// new subscriber. Without it the previous account's QR, typing indicators,
+// history-sync progress and in-flight downloads were handed to the next
+// account's first frontend.
+func (d *Daemon) ResetAccountState() {
+	d.subMu.Lock()
+	d.latestQR = nil
+	d.latestHistorySync = nil
+	d.presenceByChatID = make(map[string]presenceState)
+	d.mediaDownloads = make(map[string]MediaDownloadEvent)
+	d.subMu.Unlock()
+}
+
 func (d *Daemon) SetState(state State) {
 	d.SetStateDetail(state, "")
 }
@@ -74,7 +84,6 @@ func (d *Daemon) SetStateDetail(state State, detail string) {
 	d.connMu.Lock()
 	d.conn.state = state
 	d.conn.detail = detail
-	d.conn.seq++
 	snapshot := d.conn
 	d.connMu.Unlock()
 
@@ -104,7 +113,6 @@ func (d *Daemon) SetConnection(state State, detail string, attempt int32, nextRe
 		retryAttempt:  attempt,
 		nextRetryUnix: nextRetryUnix,
 		canReconnect:  canReconnect,
-		seq:           d.conn.seq + 1,
 	}
 	snapshot := d.conn
 	d.connMu.Unlock()

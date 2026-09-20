@@ -43,11 +43,11 @@ type Client struct {
 	pendingAppStateMu sync.Mutex
 	pendingAppState   map[types.JID]pendingAppStateEntry
 
+	// lifecycleMu serializes start/logout/close; sessionMu guards the handle
+	// itself so any goroutine can ask which account it is working for.
 	lifecycleMu sync.Mutex
-	runMu       sync.Mutex
-	runCtx      context.Context
-	runCancel   context.CancelFunc
-	runWG       sync.WaitGroup
+	sessionMu   sync.Mutex
+	session     *accountSession
 
 	presenceMu       sync.Mutex
 	frontendSessions map[string]frontendSession
@@ -146,7 +146,6 @@ type Client struct {
 	sendTimings   map[string]*sendTiming
 	reconnectCh   chan struct{} // supervisor wakeup: reconnect immediately
 	reconnectNow  atomic.Bool
-	eventGen      atomic.Uint64
 	pinBackfill   atomic.Bool
 	// Set when a recovery is asked for while one is already running, so the
 	// request is re-run rather than dropped: the pass in flight may be reading
@@ -258,14 +257,14 @@ func (c *Client) Start(ctx context.Context) {
 // first start and post-logout restart go through it; when they were separate,
 // restart quietly dropped three loops and the poster queue grew with no consumer.
 func (c *Client) startRunLoopsLocked(ctx context.Context) {
-	runCtx := c.replaceRunContextLocked(ctx)
-	c.startRunGoroutine(func() { c.runConnectionSupervisor(runCtx) })
-	c.startRunGoroutine(func() { c.runConnectionReconciler(runCtx) })
-	c.startRunGoroutine(func() { c.runSendQueue(runCtx) })
-	c.startRunGoroutine(func() { c.runVideoPosterWorker(runCtx) })
-	c.startRunGoroutine(c.repairCachedWebPAlphaFlags)
-	c.startRunGoroutine(func() { c.runLiveLocationSweeper(runCtx) })
-	c.startAvatarWorker(runCtx)
+	sess := c.beginSessionLocked(ctx)
+	sess.spawn(c.runConnectionSupervisor)
+	sess.spawn(c.runConnectionReconciler)
+	sess.spawn(c.runSendQueue)
+	sess.spawn(c.runVideoPosterWorker)
+	sess.spawn(c.repairCachedWebPAlphaFlags)
+	sess.spawn(c.runLiveLocationSweeper)
+	c.startAvatarWorker(sess)
 }
 
 func (c *Client) Reconnect(ctx context.Context) error {
@@ -285,7 +284,7 @@ func (c *Client) requestReconnect(forceClose bool) {
 
 func (c *Client) Close() error {
 	c.lifecycleMu.Lock()
-	c.cancelRunContextLocked()
+	c.endSessionLocked()
 	c.lifecycleMu.Unlock()
 
 	c.mu.Lock()
@@ -301,51 +300,41 @@ func (c *Client) Close() error {
 	return container.Close()
 }
 
-func (c *Client) replaceRunContextLocked(parent context.Context) context.Context {
-	c.cancelRunContextLocked()
+// beginSessionLocked ends the session in flight and installs a fresh one.
+// Callers hold lifecycleMu.
+func (c *Client) beginSessionLocked(parent context.Context) *accountSession {
+	c.endSessionLocked()
 
-	if parent == nil {
-		parent = context.Background()
-	}
-	c.runMu.Lock()
-	c.runCtx, c.runCancel = context.WithCancel(parent)
-	runCtx := c.runCtx
-	c.runMu.Unlock()
-	return runCtx
+	sess := newAccountSession(parent)
+	c.sessionMu.Lock()
+	c.session = sess
+	c.sessionMu.Unlock()
+	return sess
 }
 
-func (c *Client) cancelRunContextLocked() {
-	c.runMu.Lock()
-	if c.runCancel != nil {
-		c.runCancel()
-		c.runCancel = nil
-	}
-	c.runCtx = nil
-	c.runMu.Unlock()
-	c.runWG.Wait()
+func (c *Client) endSessionLocked() {
+	c.sessionMu.Lock()
+	sess := c.session
+	c.session = nil
+	c.sessionMu.Unlock()
+
+	sess.end()
 }
 
-func (c *Client) startRunGoroutine(fn func()) {
-	c.runWG.Add(1)
-	go func() {
-		defer c.runWG.Done()
-		fn()
-	}()
+func (c *Client) currentSession() *accountSession {
+	c.sessionMu.Lock()
+	defer c.sessionMu.Unlock()
+	return c.session
 }
 
-func (c *Client) cancelRunContext() {
-	c.lifecycleMu.Lock()
-	c.cancelRunContextLocked()
-	c.lifecycleMu.Unlock()
+// spawn runs fn under whichever account is current, so a logout waits for it
+// rather than letting it write into a database being emptied.
+func (c *Client) spawn(fn func(context.Context)) {
+	c.currentSession().spawn(fn)
 }
 
 func (c *Client) backgroundContext() context.Context {
-	c.runMu.Lock()
-	defer c.runMu.Unlock()
-	if c.runCtx != nil {
-		return c.runCtx
-	}
-	return context.Background()
+	return c.currentSession().detached()
 }
 
 func (c *Client) resetClient(ctx context.Context) error {
@@ -375,11 +364,17 @@ func (c *Client) resetClient(ctx context.Context) error {
 	// phone. Without this the hole in the transcript is permanent and the only
 	// way out is to open WhatsApp on the phone and hope.
 	client.AutomaticMessageRerequestFromPhone = true
-	eventGen := c.eventGen.Add(1)
 	// With success status, returning false makes whatsmeow skip the ack so the
 	// server redelivers. Without it a failed store lost the message for good.
 	client.AddEventHandlerWithSuccessStatus(func(raw any) bool {
-		return c.handleEvent(eventGen, raw)
+		sess := c.currentSession()
+		// An event from a superseded client, or one that arrives while the
+		// account is being torn down, belongs to a database that is gone. Ack
+		// it: redelivery would only replay it into the wrong account.
+		if !sess.alive() || c.currentClient() != client {
+			return true
+		}
+		return c.handleEvent(sess, raw)
 	})
 
 	c.mu.Lock()
