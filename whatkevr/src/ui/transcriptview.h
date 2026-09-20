@@ -153,6 +153,7 @@ private Q_SLOTS:
     void onModelUpdated(const QQmlChangeSet &changeSet, bool reset);
     void onInitItem(int index, QObject *object);
     void onCreatedItem(int index, QObject *object);
+    void onDestroyingItem(QObject *object);
     // A built row reporting a new height. No argument: the sender is the row,
     // which is what lets this be a unique connection (a lambda cannot be one,
     // and a pooled delegate is adopted again every time it comes back).
@@ -193,6 +194,8 @@ private:
 
     void scheduleLayout();
     void applyLayout();
+    // Take a model change that arrived mid-layout, on the next turn.
+    void resyncFromModel();
     [[nodiscard]] qreal targetContentYFor(int index, int mode) const;
     void applyContentY(qreal y);
 
@@ -223,6 +226,7 @@ private:
     bool m_anchorAtBottom = false;
     bool m_layoutScheduled = false;
     bool m_inLayout = false;
+    bool m_resyncQueued = false;
     bool m_measuring = false;
     bool m_settingContentY = false;
     QQuickItem *m_footerItem = nullptr;

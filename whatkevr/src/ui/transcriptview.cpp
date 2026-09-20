@@ -93,6 +93,8 @@ void TranscriptView::setModel(const QVariant &model)
     connect(m_delegateModel, &QQmlInstanceModel::modelUpdated, this, &TranscriptView::onModelUpdated);
     connect(m_delegateModel, &QQmlInstanceModel::initItem, this, &TranscriptView::onInitItem);
     connect(m_delegateModel, &QQmlInstanceModel::createdItem, this, &TranscriptView::onCreatedItem);
+    connect(m_delegateModel, &QQmlInstanceModel::destroyingItem, this,
+            &TranscriptView::onDestroyingItem);
 
     if (isComponentComplete()) {
         m_delegateModel->componentComplete();
@@ -121,6 +123,10 @@ void TranscriptView::setDelegate(QQmlComponent *delegate)
         connect(m_delegateModel, &QQmlInstanceModel::modelUpdated, this, &TranscriptView::onModelUpdated);
         connect(m_delegateModel, &QQmlInstanceModel::initItem, this, &TranscriptView::onInitItem);
         connect(m_delegateModel, &QQmlInstanceModel::createdItem, this, &TranscriptView::onCreatedItem);
+        connect(m_delegateModel, &QQmlInstanceModel::destroyingItem, this,
+                &TranscriptView::onDestroyingItem);
+    connect(m_delegateModel, &QQmlInstanceModel::destroyingItem, this,
+            &TranscriptView::onDestroyingItem);
         if (isComponentComplete()) {
             m_delegateModel->componentComplete();
         }
@@ -438,6 +444,28 @@ void TranscriptView::onCreatedItem(int index, QObject *object)
     scheduleLayout();
 }
 
+// The model is destroying a delegate we are holding.
+//
+// It does this on its own account, not only when we release: a model reset
+// destroys every item, and so does a row being removed from under one. Without
+// answering this the view kept the pointer and laid the row out on the next
+// polish, which is a use-after-free and exactly how opening a chat crashed.
+void TranscriptView::onDestroyingItem(QObject *object)
+{
+    auto *item = qobject_cast<QQuickItem *>(object);
+    if (!item) {
+        return;
+    }
+    const int index = m_itemRows.value(item, -1);
+    m_itemRows.remove(item);
+    if (index >= 0 && m_items.value(index, nullptr) == item) {
+        m_items.remove(index);
+    }
+    if (!m_inLayout) {
+        scheduleLayout();
+    }
+}
+
 void TranscriptView::releaseItem(int index)
 {
     if (m_requested.remove(index) && m_delegateModel) {
@@ -479,9 +507,22 @@ void TranscriptView::releaseAllItems()
 
 void TranscriptView::layoutRow(int index, QQuickItem *item)
 {
+    // Setting the width lays the delegate out, and a chat row's layout runs
+    // real QML: Loaders instantiate, text shapes, bindings reach the
+    // controller. Any of that can reach back into the model, so the row can be
+    // gone by the time the call returns. Hold it weakly and check.
+    QPointer<QQuickItem> alive(item);
     m_measuring = true;
     item->setWidth(width());
+    m_measuring = false;
+    if (!alive) {
+        return;
+    }
+    if (index < 0 || index >= m_rows.size()) {
+        return; // the index moved under this row; the next layout places it
+    }
     item->setVisible(true);
+    m_measuring = true;
     const qreal measured = item->height();
     m_measuring = false;
     if (measured > 0 && !qFuzzyCompare(m_rows.at(index).height, measured)) {
@@ -585,9 +626,13 @@ void TranscriptView::applyLayout()
     // Every built row is repositioned against the settled index, including the
     // ones measured on the second pass. Missing this left visible gaps between
     // rows wherever a delegate turned out taller than its estimate.
-    for (auto it = m_items.constBegin(); it != m_items.constEnd(); ++it) {
-        if (it.key() >= 0 && it.key() < n) {
-            it.value()->setY(rowTop(it.key()));
+    const QList<int> built = m_items.keys();
+    for (int index : built) {
+        if (index < 0 || index >= n) {
+            continue;
+        }
+        if (QQuickItem *item = m_items.value(index, nullptr)) {
+            item->setY(rowTop(index));
         }
     }
 
@@ -746,8 +791,38 @@ void TranscriptView::componentComplete()
     scheduleLayout();
 }
 
+// Rebuild everything from the model as it stands now. Used when a change
+// arrived at a moment it could not safely be applied.
+void TranscriptView::resyncFromModel()
+{
+    m_resyncQueued = false;
+    releaseAllItems();
+    m_rows.fill(Row{estimatedRowHeight(), false}, count());
+    rebuildTree();
+    m_anchorRow = -1;
+    m_anchorAtBottom = false;
+    syncContentHeight();
+    scheduleLayout();
+    Q_EMIT countChanged();
+}
+
 void TranscriptView::onModelUpdated(const QQmlChangeSet &changeSet, bool reset)
 {
+    if (m_inLayout) {
+        // The change was raised from inside a layout, which is what happens
+        // when laying a row out runs QML that reaches the model. Releasing
+        // rows here frees the one the layout is standing on; the backtrace for
+        // that is a fault inside QQuickItem::setWidth. Take it on the next
+        // turn instead, as a full resync: a change set applied out of order
+        // against rows that have since moved is worse than rebuilding.
+        if (!m_resyncQueued) {
+            m_resyncQueued = true;
+            QMetaObject::invokeMethod(this, &TranscriptView::resyncFromModel,
+                                      Qt::QueuedConnection);
+        }
+        return;
+    }
+
     const qreal estimate = estimatedRowHeight();
 
     if (reset) {

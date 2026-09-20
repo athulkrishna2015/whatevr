@@ -27,10 +27,13 @@ class TestTranscriptView : public QObject
 private:
     // Rows whose delegate is exactly as tall as the number in the row, so a
     // test can state the geometry it expects rather than measure it.
+    QStringListModel *m_model = nullptr;
+
     QQuickItem *build(QQmlEngine *engine, QQuickWindow *window, const QStringList &heights,
                       qreal viewHeight = 200, qreal spacing = 0)
     {
         auto *model = new QStringListModel(heights, engine);
+        m_model = model;
         QQmlComponent component(engine);
         component.setData(QByteArrayLiteral(R"(
             import QtQuick
@@ -247,6 +250,130 @@ private Q_SLOTS:
         QQuickItem *older = transcript->itemAtIndex(3);
         QVERIFY2(older, "row 3 was never built");
         QCOMPARE(older->y() + older->height(), grower->y());
+    }
+
+    // The model destroying a delegate the view is holding must not leave the
+    // view holding it.
+    //
+    // A reset destroys every built item, and a removed row destroys its own.
+    // The view answered neither, so m_items kept pointers into freed memory and
+    // the next polish laid them out: opening a chat, which resets the model and
+    // refills it, segfaulted in setWidth on a destroyed delegate.
+    void aModelResetDoesNotLeaveTheViewHoldingDeadRows()
+    {
+        QQmlEngine engine;
+        QQuickWindow window;
+        window.resize(100, 200);
+        QStringList heights;
+        for (int i = 0; i < 30; ++i) {
+            heights.append(QStringLiteral("30"));
+        }
+        auto *view = build(&engine, &window, heights);
+        QVERIFY(view);
+        QVERIFY(m_model);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        QMetaObject::invokeMethod(view, "forceLayout");
+        QTest::qWait(50);
+
+        auto *transcript = qobject_cast<TranscriptView *>(view);
+        QVERIFY2(transcript->itemAtIndex(transcript->count() - 1)
+                     || transcript->itemAtIndex(0),
+                 "no rows were built, so this exercises nothing");
+
+        // A refill: exactly what opening a chat does to the transcript model.
+        QStringList replacement;
+        for (int i = 0; i < 25; ++i) {
+            replacement.append(QStringLiteral("40"));
+        }
+        m_model->setStringList(replacement);
+        QMetaObject::invokeMethod(view, "forceLayout");
+        QTest::qWait(50);
+        QMetaObject::invokeMethod(view, "forceLayout");
+
+        QCOMPARE(transcript->count(), 25);
+        for (int i = 0; i < transcript->count(); ++i) {
+            if (QQuickItem *item = transcript->itemAtIndex(i)) {
+                // Reaching into it at all is the point: a dangling pointer
+                // faults here rather than answering.
+                QVERIFY(item->height() >= 0);
+            }
+        }
+
+        // And a removal, which destroys only the rows it takes.
+        m_model->removeRows(0, 5);
+        QMetaObject::invokeMethod(view, "forceLayout");
+        QTest::qWait(50);
+        QMetaObject::invokeMethod(view, "forceLayout");
+        QCOMPARE(transcript->count(), 20);
+        for (int i = 0; i < transcript->count(); ++i) {
+            if (QQuickItem *item = transcript->itemAtIndex(i)) {
+                QVERIFY(item->height() >= 0);
+            }
+        }
+    }
+
+    // A delegate that reaches the model while it is being laid out must not
+    // take the layout down with it.
+    //
+    // Setting a row's width lays the delegate out, and a chat row's layout runs
+    // real QML: Loaders instantiate, text shapes, bindings reach the
+    // controller. If any of that changes the model, the old code released every
+    // built row from inside the model signal, freeing the one the layout was
+    // standing on, and returned into it. The backtrace was a fault inside
+    // QQuickItem::setWidth, which is where opening a chat crashed.
+    void aDelegateThatChangesTheModelMidLayoutDoesNotFreeTheRowUnderIt()
+    {
+        QQmlEngine engine;
+        QQuickWindow window;
+        window.resize(100, 200);
+        QStringList heights;
+        for (int i = 0; i < 30; ++i) {
+            heights.append(QStringLiteral("30"));
+        }
+        auto *view = build(&engine, &window, heights);
+        QVERIFY(view);
+        QVERIFY(m_model);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        QMetaObject::invokeMethod(view, "forceLayout");
+        QTest::qWait(50);
+
+        auto *transcript = qobject_cast<TranscriptView *>(view);
+        QQuickItem *row = nullptr;
+        for (int i = 0; i < transcript->count() && !row; ++i) {
+            row = transcript->itemAtIndex(i);
+        }
+        QVERIFY2(row, "no rows were built, so this exercises nothing");
+
+        // Stand in for the delegate's own QML: the moment this row is given a
+        // width, the model changes underneath the layout that is setting it.
+        int fired = 0;
+        QMetaObject::Connection reentry = connect(row, &QQuickItem::widthChanged,
+                                                  transcript, [this, &fired] {
+            if (fired++ > 0) {
+                return;
+            }
+            QStringList replacement;
+            for (int i = 0; i < 18; ++i) {
+                replacement.append(QStringLiteral("45"));
+            }
+            m_model->setStringList(replacement);
+        });
+
+        view->setWidth(140);
+        QMetaObject::invokeMethod(view, "forceLayout");
+        QTest::qWait(100);
+        QMetaObject::invokeMethod(view, "forceLayout");
+        disconnect(reentry);
+
+        QVERIFY2(fired > 0, "the re-entrant model change never happened");
+        QCOMPARE(transcript->count(), 18);
+        for (int i = 0; i < transcript->count(); ++i) {
+            if (QQuickItem *item = transcript->itemAtIndex(i)) {
+                QVERIFY(item->height() >= 0);
+            }
+        }
     }
 
     // originY stays zero, which is the number the old positioning could not
