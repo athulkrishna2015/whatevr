@@ -61,7 +61,7 @@ func TestPanesNeverOverlapOrRunOffTheScreen(t *testing.T) {
 	}
 	for _, s := range sizes {
 		for _, focused := range []bool{false, true} {
-			l := Compute(s.cols, s.rows, focused)
+			l := Compute(s.cols, s.rows, focused, 1)
 			panesTile(t, l, s.cols, s.rows)
 		}
 	}
@@ -69,7 +69,7 @@ func TestPanesNeverOverlapOrRunOffTheScreen(t *testing.T) {
 
 func TestWideAndCompactAlwaysShowBothPanes(t *testing.T) {
 	for _, cols := range []int{120, 100, 99, 68} {
-		l := Compute(cols, 30, false)
+		l := Compute(cols, 30, false, 1)
 		if l.ChatList.Empty() {
 			t.Errorf("%d cols: no chat list", cols)
 		}
@@ -83,7 +83,7 @@ func TestWideAndCompactAlwaysShowBothPanes(t *testing.T) {
 }
 
 func TestStackShowsOnePaneAtATime(t *testing.T) {
-	onList := Compute(50, 24, true)
+	onList := Compute(50, 24, true, 1)
 	if onList.ChatList.Width != 50 {
 		t.Errorf("focused list width = %d, want the whole screen", onList.ChatList.Width)
 	}
@@ -91,7 +91,7 @@ func TestStackShowsOnePaneAtATime(t *testing.T) {
 		t.Error("the transcript is drawn under the chat list")
 	}
 
-	onChat := Compute(50, 24, false)
+	onChat := Compute(50, 24, false, 1)
 	if !onChat.ChatList.Empty() {
 		t.Error("the chat list is still drawn when the conversation has the screen")
 	}
@@ -103,7 +103,7 @@ func TestStackShowsOnePaneAtATime(t *testing.T) {
 func TestAVeryShortScreenStillLeavesATranscript(t *testing.T) {
 	// Chrome gives way before content does. A terminal with four rows shows
 	// messages and a composer, not a header and a hint bar.
-	l := Compute(90, 4, false)
+	l := Compute(90, 4, false, 1)
 	if l.Transcript.Height < 1 {
 		t.Errorf("no transcript rows in %+v", l)
 	}
@@ -115,8 +115,8 @@ func TestAVeryShortScreenStillLeavesATranscript(t *testing.T) {
 func TestGeometryDoesNotDependOnAnythingButSize(t *testing.T) {
 	// The tier-independence invariant, stated as a test: Compute takes no
 	// capability, so the same size is always the same geometry.
-	a := Compute(100, 30, false)
-	b := Compute(100, 30, false)
+	a := Compute(100, 30, false, 1)
+	b := Compute(100, 30, false, 1)
 	if a != b {
 		t.Errorf("same size gave two layouts:\n%+v\n%+v", a, b)
 	}

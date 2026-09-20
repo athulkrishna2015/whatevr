@@ -82,6 +82,7 @@ func Detect(vx *vaxis.Vaxis) Caps {
 		Hyperlinks:    vx.CanHyperlink(),
 		UnicodeCore:   vx.CanUnicodeCore(),
 		ExplicitWidth: vx.CanExplicitWidth(),
+		TextScale:     vx.CanTextScale(),
 		InBandResize:  vx.CanInBandResize(),
 		ReportsBG:     vx.CanReportBackgroundColor(),
 	}

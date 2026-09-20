@@ -44,9 +44,15 @@ type App struct {
 	selected   int
 	activeChat string
 	listTop    int
-	transport  proto.State
-	lastErr    error
-	quit       bool
+	// hovered is the chat under the pointer, as an index into the list, or
+	// -1. Anything clickable answers the pointer, and a chat row is the most
+	// clickable thing whattui has.
+	hovered   int
+	transport proto.State
+	lastErr   error
+	quit      bool
+
+	composer composer
 
 	conversation *conversation
 }
@@ -54,13 +60,14 @@ type App struct {
 // New wires an app to a terminal and a daemon. It does not connect.
 func New(vx *vaxis.Vaxis, caps term.Caps, client *proto.Client) *App {
 	a := &App{
-		vx:     vx,
-		caps:   caps,
-		theme:  theme.Default(),
-		client: client,
-		chats:  view.NewCollection[proto.ChatRow](),
-		conn:   view.NewObject[proto.Connection](),
-		focus:  FocusList,
+		vx:      vx,
+		caps:    caps,
+		theme:   paletteFor(vx, caps),
+		client:  client,
+		chats:   view.NewCollection[proto.ChatRow](),
+		conn:    view.NewObject[proto.Connection](),
+		focus:   FocusList,
+		hovered: -1,
 	}
 
 	client.OnState = a.onTransport
@@ -70,6 +77,23 @@ func New(vx *vaxis.Vaxis, caps term.Caps, client *proto.Client) *App {
 		vx.PostEvent(redraw{})
 	}
 	return a
+}
+
+// paletteFor asks the terminal what it is wearing and builds the palette out
+// of that. A terminal that will not say, or cannot show more than sixteen
+// colours, gets the indexed palette, which is its own colours anyway.
+//
+// The queries are round trips and must not happen from the render loop, so
+// they happen exactly here, once, before there is a loop.
+func paletteFor(vx *vaxis.Vaxis, caps term.Caps) theme.Theme {
+	if caps.Tier < term.TierColor {
+		return theme.Default()
+	}
+	var bg, fg vaxis.Color
+	if caps.ReportsBG {
+		bg, fg = vx.QueryBackground(), vx.QueryForeground()
+	}
+	return theme.Derive(bg, fg)
 }
 
 // redraw wakes the event loop after the client applied a batch.
@@ -102,10 +126,17 @@ func (a *App) Run() error {
 		case vaxis.Key:
 			a.onKey(ev)
 		case vaxis.Mouse:
-			a.onMouse(ev)
+			// Motion arrives for every pixel the pointer crosses. Laying the
+			// whole transcript out again for a move that changed nothing is
+			// the difference between a responsive pointer and a hot cpu.
+			if !a.onMouse(ev) {
+				continue
+			}
 		case vaxis.Resize:
-			// Geometry follows the size and nothing else, so a resize is
-			// just another draw.
+			// vaxis does not resize itself: the size arrives as an event and
+			// the application says when to believe it. Geometry follows the
+			// size and nothing else, so believing it is the whole handler.
+			a.vx.Resize(ev)
 		case vaxis.Redraw, redraw:
 		case vaxis.QuitEvent:
 			return nil
@@ -145,11 +176,14 @@ func (a *App) status() (string, vaxis.Color, bool) {
 	a.mu.Unlock()
 
 	if transport != proto.Ready {
-		msg := "connecting to whatevrd"
-		if lastErr != nil {
-			msg = fmt.Sprintf("whatevrd unreachable: %v", lastErr)
+		switch {
+		case lastErr == nil:
+			return "connecting to whatevrd", a.theme.TextMuted, true
+		case proto.NotRunning(lastErr):
+			return "whatevrd is not running", a.theme.Error, true
+		default:
+			return fmt.Sprintf("whatevrd unreachable: %v", lastErr), a.theme.Error, true
 		}
-		return msg, a.theme.Error, true
 	}
 
 	c, ok := a.conn.Value()
@@ -172,11 +206,84 @@ func (a *App) status() (string, vaxis.Color, bool) {
 	}
 }
 
+// hover records what the pointer is over and reports whether that changed.
+func (a *App) hover(chat int) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.hovered == chat {
+		return false
+	}
+	a.hovered = chat
+	return true
+}
+
+// notice is the panel that replaces the transcript when there is nothing to
+// show and a reason for it. It returns nothing at all when the reason is that
+// the reader has simply not picked a chat yet, which the transcript says in
+// its own words.
+//
+// This is the moment most terminal clients get wrong: a dial error and an
+// exit, where what the reader needs is the name of the service and the line
+// that starts it.
+func (a *App) notice() (title string, colour vaxis.Color, body []string, ok bool) {
+	a.mu.Lock()
+	transport, lastErr := a.transport, a.lastErr
+	a.mu.Unlock()
+
+	if transport == proto.Ready {
+		c, have := a.conn.Value()
+		if !have {
+			return "", 0, nil, false
+		}
+		switch c.State {
+		case "need_login":
+			return "not paired with a phone", a.theme.Warning, []string{
+				"whattui cannot show a chat until whatevr is linked",
+				"to your phone. pair it, then come back:",
+				"",
+				"  whatkevr",
+			}, true
+		case "offline":
+			return "whatsapp is offline", a.theme.Error, []string{
+				"the daemon is running and is not connected.",
+				"it retries on its own.",
+			}, true
+		}
+		return "", 0, nil, false
+	}
+
+	if lastErr != nil && proto.NotRunning(lastErr) {
+		return "whatevrd is not running", a.theme.Error, []string{
+			"whattui talks to the daemon, never to whatsapp.",
+			"nothing is listening on",
+			"",
+			"  " + a.client.SocketPath(),
+			"",
+			"start it and whattui connects on its own:",
+			"",
+			"  systemctl --user start whatevrd",
+		}, true
+	}
+	if lastErr != nil {
+		return "cannot reach whatevrd", a.theme.Error, []string{
+			lastErr.Error(),
+			"",
+			"retrying every second.",
+		}, true
+	}
+	return "connecting to whatevrd", a.theme.TextMuted, []string{a.client.SocketPath()}, true
+}
+
 func (a *App) layout() layout.Layout {
 	win := a.vx.Window()
 	cols, rows := win.Size()
 	a.mu.Lock()
 	listFocused := a.focus == FocusList || a.activeChat == ""
 	a.mu.Unlock()
-	return layout.Compute(cols, rows, listFocused)
+
+	// Twice, because the composer's height depends on the width it gets and
+	// the width it gets depends on nothing but the shape. The first pass is
+	// only ever read for that width.
+	l := layout.Compute(cols, rows, listFocused, 1)
+	return layout.Compute(cols, rows, listFocused, a.composerRows(l.Composer.Width))
 }

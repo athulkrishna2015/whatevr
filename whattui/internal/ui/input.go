@@ -18,10 +18,22 @@ func (a *App) onKey(k vaxis.Key) {
 
 	// Quit is the one binding that works from everywhere, because a terminal
 	// application that can trap you is a terminal application people
-	// uninstall.
-	if k.Matches('c', vaxis.ModCtrl) || k.Matches('q', vaxis.ModCtrl) {
+	// uninstall. Ctrl+C clears the line first when there is one, which is
+	// what it does in every shell.
+	if k.Matches('q', vaxis.ModCtrl) {
 		a.mu.Lock()
 		a.quit = true
+		a.mu.Unlock()
+		return
+	}
+	if k.Matches('c', vaxis.ModCtrl) {
+		a.mu.Lock()
+		typed := !a.composer.empty()
+		if typed {
+			a.composer.clear()
+		} else {
+			a.quit = true
+		}
 		a.mu.Unlock()
 		return
 	}
@@ -58,7 +70,25 @@ func (a *App) onListKey(k vaxis.Key) {
 		a.openSelected()
 	case k.Matches(vaxis.KeyTab):
 		a.cycleFocus(1)
+	case k.Matches(vaxis.KeyTab, vaxis.ModShift):
+		a.cycleFocus(-1)
+	default:
+		// Typing in a list is trying to talk, not trying to navigate. Hand
+		// the keystroke to the composer rather than swallowing it.
+		if k.Text != "" && a.activeChat != "" && !isListNav(k) {
+			a.setFocus(FocusComposer)
+			a.onComposerKey(k)
+		}
 	}
+}
+
+// isListNav are the vim aliases, which stay aliases rather than becoming text.
+func isListNav(k vaxis.Key) bool {
+	switch k.Text {
+	case "j", "k", "g", "G", "l":
+		return k.Modifiers == 0
+	}
+	return false
 }
 
 func (a *App) onTranscriptKey(k vaxis.Key) {
@@ -75,24 +105,22 @@ func (a *App) onTranscriptKey(k vaxis.Key) {
 		a.setFocus(FocusComposer)
 	case k.Matches(vaxis.KeyTab):
 		a.cycleFocus(1)
+	case k.Matches(vaxis.KeyTab, vaxis.ModShift):
+		a.cycleFocus(-1)
+	default:
+		if k.Text != "" && a.activeChat != "" && !isTranscriptNav(k) {
+			a.setFocus(FocusComposer)
+			a.onComposerKey(k)
+		}
 	}
 }
 
-// onComposerKey is where the composer-first rule lives. While there is nothing
-// typed, the arrows belong to the transcript; the moment there is, they belong
-// to the text.
-func (a *App) onComposerKey(k vaxis.Key) {
-	switch {
-	case k.Matches(vaxis.KeyEsc):
-		a.setFocus(FocusList)
-	case k.Matches(vaxis.KeyTab):
-		a.cycleFocus(1)
-	case k.Matches(vaxis.KeyUp), k.Matches(vaxis.KeyPgUp):
-		a.setFocus(FocusTranscript)
-		a.scrollTranscript(1)
-	case k.Matches(vaxis.KeyDown), k.Matches(vaxis.KeyPgDown):
-		a.scrollTranscript(-1)
+func isTranscriptNav(k vaxis.Key) bool {
+	switch k.Text {
+	case "j", "k":
+		return k.Modifiers == 0
 	}
+	return false
 }
 
 func (a *App) cycleFocus(by int) {
@@ -204,13 +232,11 @@ func (a *App) listPage() int {
 
 func (a *App) listPageLocked() int {
 	cols, rows := a.vx.Window().Size()
-	l := layout.Compute(cols, rows, true)
-	return l.ChatList.Height
+	return layout.Compute(cols, rows, true, 1).VisibleChats()
 }
 
 func (a *App) transcriptPage() int {
-	cols, rows := a.vx.Window().Size()
-	l := layout.Compute(cols, rows, false)
+	l := a.layout()
 	if l.Transcript.Height < 1 {
 		return 1
 	}
@@ -218,44 +244,73 @@ func (a *App) transcriptPage() int {
 }
 
 // onMouse is the other half of the promise: everything the keyboard can do,
-// the pointer can do too.
-func (a *App) onMouse(m vaxis.Mouse) {
+// the pointer can do too. It reports whether the frame needs drawing again,
+// because motion arrives for every pixel and most of it changes nothing.
+func (a *App) onMouse(m vaxis.Mouse) bool {
 	l := a.layout()
+	over := -1
+	if inRect(m, l.ChatList) && !l.ChatList.Empty() {
+		a.mu.Lock()
+		top := a.listTop
+		a.mu.Unlock()
+		if at := l.ChatAt(m.Row); at >= 0 && top+at < a.chats.Len() {
+			over = top + at
+		}
+	}
+	dirty := a.hover(over)
 
 	switch m.Button {
 	case vaxis.MouseWheelUp:
 		if inRect(m, l.ChatList) {
-			a.moveSelection(-1)
-			return
+			a.scrollList(-1)
+			return true
 		}
 		a.scrollTranscript(1)
+		return true
 	case vaxis.MouseWheelDown:
 		if inRect(m, l.ChatList) {
-			a.moveSelection(1)
-			return
+			a.scrollList(1)
+			return true
 		}
 		a.scrollTranscript(-1)
+		return true
 	case vaxis.MouseLeftButton:
 		if m.EventType != vaxis.EventPress {
-			return
+			return dirty
 		}
-		if inRect(m, l.ChatList) {
-			a.mu.Lock()
-			top := a.listTop
-			a.mu.Unlock()
+		if over >= 0 {
 			a.setFocus(FocusList)
-			a.setSelection(top + m.Row - l.ChatList.Row)
+			a.setSelection(over)
 			a.openSelected()
-			return
+			return true
 		}
 		if inRect(m, l.Composer) {
 			a.setFocus(FocusComposer)
-			return
+			return true
 		}
 		if inRect(m, l.Transcript) {
 			a.setFocus(FocusTranscript)
+			return true
 		}
 	}
+	return dirty
+}
+
+// scrollList moves the window without moving the selection, which is what a
+// wheel does everywhere else.
+func (a *App) scrollList(by int) {
+	n := a.chats.Len()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	page := a.listPageLocked()
+	top := a.listTop + by
+	if top > n-page {
+		top = n - page
+	}
+	if top < 0 {
+		top = 0
+	}
+	a.listTop = top
 }
 
 func inRect(m vaxis.Mouse, r layout.Rect) bool {

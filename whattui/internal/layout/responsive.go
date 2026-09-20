@@ -76,14 +76,19 @@ const (
 	fullChromeAt  = 20
 	tightChromeAt = 12
 
+	maxComposerRows   = 5
+	minTranscriptRows = 4
+
 	wideListWidth    = 34
 	compactListWidth = 26
 	railWidth        = 4
 )
 
 // Compute lays out one frame. listFocused only matters when the screen is too
-// narrow to hold both panes.
-func Compute(cols, rows int, listFocused bool) Layout {
+// narrow to hold both panes. composerRows is how many rows the text being
+// written wants; it gets them only as long as the transcript keeps enough to
+// still be a transcript.
+func Compute(cols, rows int, listFocused bool, composerRows int) Layout {
 	l := Layout{Shape: shapeFor(cols), Chrome: chromeFor(rows), ListFocused: listFocused}
 
 	listWidth := 0
@@ -120,12 +125,23 @@ func Compute(cols, rows int, listFocused bool) Layout {
 		return l
 	}
 
-	headerRows, hintRows, composerRows := 1, 1, 1
+	headerRows, hintRows := 1, 1
+	if composerRows < 1 {
+		composerRows = 1
+	}
+	if composerRows > maxComposerRows {
+		composerRows = maxComposerRows
+	}
 	switch l.Chrome {
 	case ChromeMinimal:
 		headerRows = 0
 	case ChromeTight:
 		headerRows = 1
+	}
+	// The composer gives its rows back before the header and the hint bar do:
+	// a long draft is worth less than being able to see what it answers.
+	for composerRows > 1 && rows-headerRows-hintRows-composerRows < minTranscriptRows {
+		composerRows--
 	}
 	if rows < headerRows+hintRows+composerRows+1 {
 		headerRows, hintRows = 0, 0
@@ -147,6 +163,38 @@ func Compute(cols, rows int, listFocused bool) Layout {
 
 	l.HintBar = Rect{Col: convCol, Row: row, Width: convWidth, Height: hintRows}
 	return l
+}
+
+// ChatRowHeight is how many rows one chat occupies. Wide has the room for
+// what a chat row is actually for: who it is, and what they last said.
+//
+// One function because three callers have to agree: the one that draws the
+// rows, the one that pages the list, and the one that turns a click into the
+// row under the pointer. They disagreed once, and a click landing on a
+// different chat than the pointer was over is the result.
+func (l Layout) ChatRowHeight() int {
+	if l.Shape == ShapeWide {
+		return 2
+	}
+	return 1
+}
+
+// VisibleChats is how many chats fit in the list.
+func (l Layout) VisibleChats() int {
+	return l.ChatList.Height / l.ChatRowHeight()
+}
+
+// ChatAt turns a screen row into an index into the visible chats, counting
+// from the one at the top of the list. Out of the pane is -1.
+func (l Layout) ChatAt(row int) int {
+	if l.ChatList.Empty() || row < l.ChatList.Row || row >= l.ChatList.Row+l.ChatList.Height {
+		return -1
+	}
+	at := (row - l.ChatList.Row) / l.ChatRowHeight()
+	if at >= l.VisibleChats() {
+		return -1
+	}
+	return at
 }
 
 func shapeFor(cols int) Shape {

@@ -3,11 +3,14 @@ package proto
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -183,4 +186,17 @@ func (c *Client) ServerInfo() *ServerInfo {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.info
+}
+
+// SocketPath is where this client dials, resolved. Worth showing a reader who
+// is being told the daemon is not there.
+func (c *Client) SocketPath() string { return c.socketPath }
+
+// NotRunning reports whether a transport error means there is nothing
+// listening, as opposed to something listening that went wrong. The two need
+// different words: one is a service to start, the other is a bug to report.
+func NotRunning(err error) bool {
+	return errors.Is(err, syscall.ENOENT) ||
+		errors.Is(err, syscall.ECONNREFUSED) ||
+		errors.Is(err, fs.ErrNotExist)
 }
