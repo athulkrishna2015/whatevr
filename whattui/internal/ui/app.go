@@ -63,6 +63,9 @@ type App struct {
 	sel    selection
 	drag   drag
 	blocks []layout.Rect
+	// Where each message landed last frame, so the pointer can find the one
+	// it is over. A run is one shape; this is what tells its messages apart.
+	messages []messageAt
 
 	// toastText is the transient line that says what just happened, and
 	// toastUntil is when it stops being true.
@@ -80,6 +83,12 @@ type App struct {
 	// -1. Anything clickable answers the pointer, and a chat row is the most
 	// clickable thing whattui has.
 	hovered int
+	// hoveredMsg is the message under the pointer, by id.
+	hoveredMsg string
+	// boxed draws a panel around every message instead of a rule down the
+	// side of a run. Off by default: a shape per message is a screenful of
+	// boxes, and the run is the thing worth a shape.
+	boxed bool
 	// shape is the mouse cursor the terminal was last told to wear.
 	shape     vaxis.MouseShape
 	transport proto.State
@@ -376,6 +385,33 @@ func (a *App) status() (string, vaxis.Color, bool) {
 	default:
 		return c.State, a.theme.TextMuted, true
 	}
+}
+
+// hoverMessage records which message the pointer is over and reports whether
+// that changed. Runs are one shape each, so this is the only thing that says
+// where one message in a run ends and the next begins.
+func (a *App) hoverMessage(id string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.hoveredMsg == id {
+		return false
+	}
+	a.hoveredMsg = id
+	return true
+}
+
+// messageUnder is the message the pointer is on, from where the last frame put
+// them.
+func (a *App) messageUnder(m vaxis.Mouse) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, at := range a.messages {
+		if m.Col >= at.at.Col && m.Col < at.at.Col+at.at.Width &&
+			m.Row >= at.at.Row && m.Row < at.at.Row+at.at.Height {
+			return at.id
+		}
+	}
+	return ""
 }
 
 // hover records what the pointer is over and reports whether that changed.

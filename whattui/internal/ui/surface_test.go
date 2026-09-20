@@ -7,65 +7,56 @@ import (
 	"whattui/internal/term"
 )
 
-// bubbleBox is where the first bubble's side glyphs are, in cells. A bubble is
-// as tall as its content and has an edge down either side of it, so the box is
-// the first pair of edges and every row they run for.
-func bubbleBox(a *App) (col, row, w, h int, ok bool) {
-	// Inside the transcript only: the chat list's own rule is the same glyph
-	// running the whole height of the screen.
+// ruleOf finds the first speaker rule in the transcript, in cells: the column
+// it stands in, the row it starts at, and how far it runs.
+func ruleOf(a *App) (col, row, height int, ok bool) {
 	pane := a.layout().Transcript
-	cols, rows := pane.Col+pane.Width, pane.Row+pane.Height
-	edge := func(c, r int) bool {
-		g := a.vx.Cell(c, r).Grapheme
-		return g == "│" || g == "|"
-	}
-	for r := pane.Row; r < rows; r++ {
-		for c := pane.Col; c < cols; c++ {
-			if !edge(c, r) {
-				continue
-			}
-			right := c + 1
-			for right < cols && !edge(right, r) {
-				right++
-			}
-			if right >= cols {
+	for c := pane.Col; c < pane.Col+pane.Width; c++ {
+		for r := pane.Row; r < pane.Row+pane.Height; r++ {
+			if g := a.vx.Cell(c, r).Grapheme; g != "▎" && g != "|" {
 				continue
 			}
 			bottom := r
-			for bottom+1 < rows && edge(c, bottom+1) && edge(right, bottom+1) {
+			for bottom+1 < pane.Row+pane.Height {
+				if g := a.vx.Cell(c, bottom+1).Grapheme; g != "▎" && g != "|" {
+					break
+				}
 				bottom++
 			}
-			return c, r, right - c + 1, bottom - r + 1, true
+			return c, r, bottom - r + 1, true
 		}
 	}
-	return 0, 0, 0, 0, false
+	return 0, 0, 0, false
 }
 
-// A tier changes the ink and never the position. What the graphics tier
-// places as one image is exactly the rectangle the tier below draws with box
-// glyphs, which is the whole promise of "geometry is tier independent".
-func TestAPaintedBubbleCoversTheCellsATypedOneWouldHave(t *testing.T) {
+// A tier changes the ink and never the position. What the graphics tier draws
+// as a hairline is exactly the column the tier below fills with a glyph, which
+// is the whole promise of "geometry is tier independent".
+func TestAPaintedRuleCoversTheCellsATypedOneWouldHave(t *testing.T) {
 	typed := goldenApp(100, 30, term.TierColor)
 	typed.paint()
-	col, row, w, h, ok := bubbleBox(typed)
+	col, row, height, ok := ruleOf(typed)
 	if !ok {
-		t.Fatal("the typed tier drew no bubble")
+		t.Fatal("the typed tier drew no rule")
 	}
 
 	painted := goldenApp(100, 30, term.TierGraphics)
 	painted.paint()
-	if _, _, _, _, ok := bubbleBox(painted); ok {
-		t.Fatal("the painted tier drew border glyphs as well as chrome")
+	if _, _, _, ok := ruleOf(painted); ok {
+		t.Fatal("the painted tier drew rule glyphs as well as chrome")
 	}
 	for _, s := range painted.surfaces {
+		if _, isRule := s.spec.(paint.Rule); !isRule {
+			continue
+		}
 		if s.col == col && s.row == row {
-			if s.w != w || s.h != h {
-				t.Fatalf("chrome is %dx%d cells, the glyphs were %dx%d", s.w, s.h, w, h)
+			if s.w != 1 || s.h != height {
+				t.Fatalf("the rule is %dx%d cells, the glyphs were 1x%d", s.w, s.h, height)
 			}
 			return
 		}
 	}
-	t.Fatalf("nothing was painted at %d,%d, where the bubble is", col, row)
+	t.Fatalf("nothing was painted at %d,%d, where the rule is", col, row)
 }
 
 // A panel is a hole in the frame. An image at a negative z is drawn over the
@@ -142,31 +133,30 @@ func TestChromeClippedByAPaneIsTheSameUpload(t *testing.T) {
 	t.Fatal("every placement has an upload of its own")
 }
 
-// Text over chrome never sets the bubble's own colour as a cell background:
-// the image already carries that ground, and a cell painted with it would
-// tint the picture a second time.
-func TestTextOverChromeKeepsThePanesGround(t *testing.T) {
+// Boxes are the opt-in shape, and the words inside one never set the box's own
+// colour as a cell background: the image already carries that ground, and a
+// cell painted with it would tint the picture a second time.
+func TestTextInABoxKeepsThePanesGround(t *testing.T) {
 	a := goldenApp(100, 30, term.TierGraphics)
+	a.boxed = true
 	a.paint()
-	if len(a.surfaces) == 0 {
-		t.Fatal("no chrome on this frame")
-	}
-	bubbles := 0
+
+	boxes := 0
 	for _, s := range a.surfaces {
 		if _, ok := s.spec.(paint.Bubble); !ok {
 			continue
 		}
-		bubbles++
+		boxes++
 		for row := s.row; row < s.row+s.h; row++ {
 			for col := s.col; col < s.col+s.w; col++ {
 				if bg := a.vx.Cell(col, row).Background; bg != a.theme.Background {
-					t.Fatalf("cell %d,%d under a bubble has background %v, want the pane's %v",
+					t.Fatalf("cell %d,%d under a box has background %v, want the pane's %v",
 						col, row, bg, a.theme.Background)
 				}
 			}
 		}
 	}
-	if bubbles == 0 {
-		t.Fatal("no bubbles on this frame")
+	if boxes == 0 {
+		t.Fatal("no boxes on this frame")
 	}
 }

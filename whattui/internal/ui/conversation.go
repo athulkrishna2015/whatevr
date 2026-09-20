@@ -41,6 +41,12 @@ type conversation struct {
 	// cacheGroup is whether the chat is a group, because whether a message
 	// says who sent it depends on that and on nothing in the message.
 	cacheGroup bool
+	// cacheBoxed is which shape the transcript is drawn with, because that
+	// changes how wide a message is allowed to be.
+	cacheBoxed bool
+	// runs is the window gathered into runs, newest first, which is the order
+	// the transcript draws them in.
+	runs []run
 	// selected is the message the actions act on, by id, or empty for none.
 	selected string
 
@@ -113,11 +119,21 @@ const messagePageSize = 60
 func (a *App) loadOlder() {
 	a.mu.Lock()
 	c := a.conversation
-	if c == nil || c.extendPending || c.olderFailed || !c.canLoadOlder {
+	a.mu.Unlock()
+	if c == nil {
+		return
+	}
+	// Asked before this lock is taken, never under it. A collection has a
+	// lock of its own and the daemon's goroutine writes through it: taking
+	// them in two different orders is how two goroutines stop forever.
+	exhausted, has := c.msgs.Exhausted()
+
+	a.mu.Lock()
+	if a.conversation != c || c.extendPending || c.olderFailed || !c.canLoadOlder {
 		a.mu.Unlock()
 		return
 	}
-	if exhausted, has := c.msgs.Exhausted(); has && exhausted {
+	if has && exhausted {
 		c.canLoadOlder = false
 		a.mu.Unlock()
 		return

@@ -30,6 +30,10 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "build" / "whattui-screenshots"
 FIXTURE = ROOT / "whattui" / "testdata" / "visual" / "fixture.ndjson"
+# The data actually served. Another file is fine: this is a camera, and what
+# you point it at is your business. It still has to be a file, never a real
+# account.
+fixture = FIXTURE
 KITTY_CONFIG = ROOT / "scripts" / "whattui-kitty.conf"
 DEFAULT_SIZE = (120, 40)
 # The states worth a picture, each opened the way a user opens it and each
@@ -241,7 +245,7 @@ class HeadlessOutput:
 def validate_fixture() -> int:
     views: set[str] = set()
     messages = 0
-    with FIXTURE.open(encoding="utf-8") as stream:
+    with fixture.open(encoding="utf-8") as stream:
         for number, raw in enumerate(stream, 1):
             text = raw.strip()
             if not text or text.startswith("#"):
@@ -249,13 +253,13 @@ def validate_fixture() -> int:
             try:
                 frame = json.loads(text)
             except json.JSONDecodeError as exc:
-                raise Failure(f"{FIXTURE}:{number}: {exc}") from exc
+                raise Failure(f"{fixture}:{number}: {exc}") from exc
             if (
                 not isinstance(frame, dict)
                 or not frame.get("view")
                 or not frame.get("event")
             ):
-                raise Failure(f"{FIXTURE}:{number}: frame needs view and event")
+                raise Failure(f"{fixture}:{number}: frame needs view and event")
             views.add(str(frame["view"]))
             messages += frame["view"] == "messages"
     if not {"connection", "chats", "messages"}.issubset(views) or messages < 8:
@@ -743,7 +747,7 @@ def start_fixture(
             "--ready-file",
             str(ready),
             "--script",
-            str(FIXTURE),
+            str(fixture),
         ],
         cwd=ROOT / "whatevrd",
         stdout=log,
@@ -778,7 +782,7 @@ def self_check() -> dict[str, Any]:
     if not KITTY_CONFIG.is_file():
         raise Failure(f"missing {KITTY_CONFIG}")
     return {
-        "fixture": str(FIXTURE.relative_to(ROOT)),
+        "fixture": str(fixture),
         "fixture_messages": messages,
         "kitty_config": str(KITTY_CONFIG.relative_to(ROOT)),
         "tools": tools_metadata(),
@@ -875,6 +879,11 @@ def main() -> int:
     )
     parser.add_argument("--name", help="basename for an ad hoc shot")
     parser.add_argument(
+        "--fixture",
+        type=Path,
+        help=f"ndjson to serve instead of {FIXTURE.relative_to(ROOT)}",
+    )
+    parser.add_argument(
         "--out",
         type=Path,
         default=OUTPUT,
@@ -917,6 +926,12 @@ def main() -> int:
         if args.child_command and args.child_command[0] == "--":
             args.child_command = args.child_command[1:]
         return child_mode(args)
+
+    if args.fixture:
+        global fixture
+        fixture = args.fixture.resolve()
+        if not fixture.is_file():
+            raise Failure(f"no such fixture: {fixture}")
 
     if args.list:
         for name, (cols, rows, keys, _) in sorted(SCENARIOS.items()):

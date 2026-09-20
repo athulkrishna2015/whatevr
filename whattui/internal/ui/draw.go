@@ -28,8 +28,9 @@ func (a *App) paint() {
 	// Asked once, before anything is measured: a frame that measures in cells
 	// and draws in pixels is a frame with a hole in it.
 	a.shaping = a.shaper.Begin()
-	// All three are where the last frame put things, and this is a new one.
+	// All of these are where the last frame put things, and this is a new one.
 	a.blocks = a.blocks[:0]
+	a.messages = a.messages[:0]
 	a.placements = a.placements[:0]
 	a.surfaces = a.surfaces[:0]
 
@@ -267,7 +268,7 @@ func relTime(t time.Time) string {
 }
 
 func (a *App) drawRailRow(line vaxis.Window, c proto.ChatRow, bg vaxis.Color, unread bool) {
-	a.avatar(line, 0, 0, 3, 1, c, bg)
+	a.avatar(line, 0, 0, 3, 1, c.ID, c.Name, bg)
 	if unread {
 		a.print(line, 3, 0, vaxis.Style{Foreground: a.theme.Accent, Background: bg}, "\u2022")
 	}
@@ -281,7 +282,7 @@ func (a *App) drawAvatar(pane vaxis.Window, row, height int, c proto.ChatRow, bg
 	if height >= 2 {
 		width, scale = 4, 2
 	}
-	a.avatar(pane, 1, row, width, scale, c, bg)
+	a.avatar(pane, 1, row, width, scale, c.ID, c.Name, bg)
 	return 1 + width
 }
 
@@ -289,8 +290,8 @@ func (a *App) drawAvatar(pane vaxis.Window, row, height int, c proto.ChatRow, bg
 // number of cells around a scaled initial and an odd number around a plain
 // one, for the same reason either way: the letter has to land on the centre
 // of the circle rather than beside it.
-func (a *App) avatar(win vaxis.Window, col, row, width, scale int, c proto.ChatRow, bg vaxis.Color) {
-	ident := a.theme.IdentityFor(c.ID)
+func (a *App) avatar(win vaxis.Window, col, row, width, scale int, id, name string, bg vaxis.Color) {
+	ident := a.theme.IdentityFor(id)
 	if fill, ok := theme.Paint(bg, ident, discMix); ok && a.painted() {
 		a.paintRect(win, col, row, width, scale, func(pw, ph int) paint.Spec {
 			return paint.Disc{W: pw, H: ph, Fill: fill}
@@ -299,7 +300,7 @@ func (a *App) avatar(win vaxis.Window, col, row, width, scale int, c proto.ChatR
 	// The block is claimed at every tier: a terminal that cannot scale draws
 	// the letter small in the top left of it and nothing moves.
 	win.New(col+(width-scale)/2, row, scale, scale).PrintScaled(0, vaxis.Segment{
-		Text:  avatarGlyph(c),
+		Text:  initial(name),
 		Style: vaxis.Style{Foreground: ident, Background: bg},
 		Size:  vaxis.Scaled(scale, 0),
 	})
@@ -310,13 +311,9 @@ func (a *App) avatar(win vaxis.Window, col, row, width, scale int, c proto.ChatR
 // them is not a bag of sweets.
 const discMix = 0.22
 
-// avatarGlyph is the initial to stand in for a picture until the picture is
-// drawn. Groups and people read differently at a glance.
-func avatarGlyph(c proto.ChatRow) string {
-	name := strings.TrimSpace(c.Name)
-	if name == "" {
-		return "?"
-	}
+// initial is the letter to stand in for a picture until there are pictures.
+func initial(name string) string {
+	name = strings.TrimSpace(name)
 	for _, r := range name {
 		return strings.ToUpper(string(r))
 	}
@@ -414,7 +411,7 @@ func (a *App) drawTranscript(win vaxis.Window, r layout.Rect) {
 			}, msg)
 			return
 		}
-		a.refreshTranscript(c, items, w, h)
+		a.refreshTranscript(c, items, state, w, h)
 		if c.scroll > c.maxScroll(h) {
 			c.scroll = c.maxScroll(h)
 		}
@@ -425,34 +422,22 @@ func (a *App) drawTranscript(win vaxis.Window, r layout.Rect) {
 		// are reading. The scroll pushes the first message below the pane,
 		// and everything above it follows.
 		bottom := h + scroll
-		for i := 0; i < len(items) && bottom > 0; i++ {
-			e := c.cache[items[i].ID]
-			bottom -= e.height
+		for i := 0; i < len(c.runs) && bottom > 0; i++ {
+			r := c.runs[i]
+			bottom -= r.height
 			if bottom < h {
-				a.drawEntry(pane, e, bottom, w)
+				a.drawRun(pane, c, r, bottom, w)
 			}
 			bottom--
 		}
+		a.drawScrollbar(pane, w, h, c.contentRows, scroll)
 	})
 }
 
 // layoutMessage turns one row into a bubble. Every kind ends up here, and a
 // kind whattui does not draw itself renders the daemon's fallback, so the
 // transcript is never blank because of a message nobody taught it.
-func (a *App) layoutMessage(m proto.MessageRow, paneWidth int, named bool) bubble {
-	header := ""
-	headerStyle := vaxis.Style{}
-	// Who is talking is the first thing you need in a group, and it is the
-	// main place colour earns its keep. Said once per run of messages, and
-	// never in a chat with one other person, where it is noise.
-	if named && !m.Outgoing() && m.Sender.Name != "" {
-		header = m.Sender.Name
-		headerStyle = vaxis.Style{
-			Foreground: a.theme.IdentityFor(m.Sender.ID),
-			Attribute:  vaxis.AttrBold,
-		}
-	}
-
+func (a *App) layoutMessage(m proto.MessageRow, paneWidth int) block {
 	quote := ""
 	if m.ReplyTo != nil {
 		quote = m.ReplyTo.Text
@@ -461,47 +446,47 @@ func (a *App) layoutMessage(m proto.MessageRow, paneWidth int, named bool) bubbl
 		}
 	}
 
-	max := paneWidth * 3 / 4
-	if max < 24 {
-		max = paneWidth - 4
-	}
-	b := a.layoutBubble(header, quote, m.Body(), a.messageFooter(m), max, headerStyle, m.Outgoing())
+	b := a.layoutBlock(quote, m.Body(), a.messageStamp(m), a.runRoom(paneWidth))
 
 	// A message that is nothing but emoji draws big, the way it does in every
 	// other chat client, because the size is what the message means.
 	if n := emojiOnlyCount(m.Text); n > 0 && !m.Revoked && len(b.body) == 1 {
-		// Clamped to the room the bubble can grow into, not the room it
-		// currently occupies: the bubble is sized by its content, and at this
-		// point the content is about to get three times bigger.
+		// Clamped to the room the column can grow into, not the room it
+		// currently occupies: the message is sized by its content, and at
+		// this point the content is about to get three times bigger.
 		//
 		// Clamping at all is not politeness. A terminal discards a multicell
 		// character that does not fit, so an unclamped scale is not a big
 		// emoji, it is a missing one.
-		room := max - 2*bubblePadX - 2
+		room := a.runRoom(paneWidth)
 		glyphs := lineText(b.body[0])
 		b.scale = layout.Clamp(bigEmojiScale(n), a.width(glyphs), room, a.transcriptPage())
-		b.inner = minInt(maxInt(b.inner, a.width(glyphs)*b.scale), room)
-		if !a.footerFitsInline(b) {
-			b.inner = minInt(maxInt(b.inner, a.width(b.footer)), room)
-		}
+		b.width = minInt(a.width(glyphs)*b.scale, room)
 	}
 	return b
 }
 
-// messageFooter is the time and the delivery state.
+// messageStamp is what stands in the gutter beside a message: when it was
+// sent, whether it has been edited, and where it got to.
 //
 // Every state is its own glyph, not just its own colour: one tick sent, two
 // delivered, two filled read. Colour reinforces it rather than carrying it, so
 // the state survives NO_COLOR, a colour-blind reader, and the plain tier.
-func (a *App) messageFooter(m proto.MessageRow) string {
+func (a *App) messageStamp(m proto.MessageRow) string {
 	stamp := time.Unix(m.Timestamp, 0).Format("15:04")
-	if m.Edited {
-		stamp += " edited"
+	// The pencil takes the space the ticks would have had, so an edited
+	// message is no wider than any other and the gutter stays the width of
+	// what it actually holds.
+	switch {
+	case m.Edited:
+		stamp += "✎"
+	case m.Outgoing():
+		stamp += " "
 	}
 	if !m.Outgoing() {
 		return stamp
 	}
-	return stamp + " " + statusGlyph(m.Status)
+	return stamp + statusGlyph(m.Status)
 }
 
 func statusGlyph(status string) string {

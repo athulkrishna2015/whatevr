@@ -284,6 +284,9 @@ func (a *App) onMouse(m vaxis.Mouse) bool {
 		}
 	}
 	dirty := a.hover(over)
+	if a.hoverMessage(a.messageUnder(m)) {
+		dirty = true
+	}
 	a.pointer(a.shapeFor(m, over))
 
 	switch m.Button {

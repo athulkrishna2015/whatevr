@@ -76,7 +76,7 @@ func TestAChangedMessageIsLaidOutAgain(t *testing.T) {
 	}))
 	c.msgs.Ready(true, true)
 	a.paint()
-	first := c.cache["m"].height
+	first := c.runs[0].height
 
 	c.msgs.Upsert("00000000000000000001", mustJSON(proto.MessageRow{
 		ID: "m", Kind: "text", Direction: "incoming",
@@ -84,7 +84,7 @@ func TestAChangedMessageIsLaidOutAgain(t *testing.T) {
 		Sender: proto.Sender{ID: "x", Name: "someone"},
 	}))
 	a.paint()
-	if got := c.cache["m"].height; got <= first {
+	if got := c.runs[0].height; got <= first {
 		t.Fatalf("height after the edit = %d, was %d", got, first)
 	}
 }
