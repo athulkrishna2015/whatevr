@@ -53,8 +53,8 @@ Item {
     required property bool mediaPlayed
     required property bool isRevoked
     required property bool isEdited
-    // WhatsApp forward marker (daemon `forwarded`). tdesktop renders a
-    // "Forwarded" header above the content; we do the same (framed bubbles).
+    // WhatsApp forward marker (daemon `forwarded`), rendered as a header
+    // above the bubble content in framed bubbles.
     required property bool isForwarded
     // Sender device id: 0 is the primary phone app, anything else a linked
     // device (Web/Desktop or another companion). Drives the footer mark.
@@ -205,7 +205,7 @@ Item {
     property real listWidth: 0
     readonly property bool showDateSeparator: dateSeparatorText.length > 0
     readonly property bool hasReplyPreview: replyToMessageId.length > 0
-    // Forwarded header (tdesktop pattern): framed bubbles only; frameless
+    // Forwarded header: framed bubbles only; frameless
     // rows (stickers/jumbo/video notes) draw no plate to hang it on.
     readonly property bool showForwardedHeader: isForwarded && !frameless
     readonly property real forwardedHeaderHeight: showForwardedHeader
@@ -1060,7 +1060,7 @@ Item {
 
                 sourceComponent: Label {
                     width: parent.width
-                    text: Whatevr.I18n.i18nc("@label forwarded message header (telegram pattern)", "Forwarded")
+                    text: Whatevr.I18n.i18nc("@label forwarded message header", "Forwarded")
                     font.italic: true
                     font.pointSize: Kirigami.Theme.smallFont.pointSize
                     color: Kirigami.Theme.highlightColor

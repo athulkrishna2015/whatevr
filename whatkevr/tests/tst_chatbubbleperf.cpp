@@ -240,7 +240,7 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("showSenderHeader"), true},
                     {QStringLiteral("showSenderAvatar"), true},
                     {QStringLiteral("showSenderGutter"), true}}), 99},
-        // Forwarded header active (tdesktop pattern): the loader instantiates
+        // Forwarded header active: the loader instantiates
         // its label subtree, four objects over the plain-text row (measured).
         {"text-forwarded",
          withProps(baseProps(),

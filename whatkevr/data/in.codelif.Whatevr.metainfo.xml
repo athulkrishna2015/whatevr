@@ -21,7 +21,7 @@
   <releases>
     <release version="0.8.8" date="2026-09-20">
       <description>
-        <p>Forwarded-message header borrowed from Telegram Desktop (bubbles show a Forwarded header; doc/tdesktop-notes.md adds the full whatkevr-vs-tdesktop verdict table). Inbound stickers now enter Recents, and the sticker picker stays open for multi-send like WhatsApp mobile (plain click sends and keeps it open, Ctrl+click closes).</p>
+        <p>Forwarded-message header (bubbles show a Forwarded header). Inbound stickers now enter Recents, and the sticker picker stays open for multi-send like WhatsApp mobile (plain click sends and keeps it open, Ctrl+click closes).</p>
       </description>
     </release>
     <release version="0.8.7" date="2026-09-19">

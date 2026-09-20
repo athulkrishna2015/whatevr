@@ -180,7 +180,7 @@ Now with that, here is the current feature map, this is for whatevrd+whatkevr.
 | Composer emoji inline search | ✅ | |
 | Edit sent messages | ✅ | Received message edits are handled too |
 | Delete messages | ✅ | |
-| Forward messages | ✅ | Bubbles show a Forwarded header (Telegram Desktop pattern) |
+| Forward messages | ✅ | Bubbles show a Forwarded header |
 | Star/bookmark messages | ✅ | |
 | Archive chats | ✅ | |
 | Mute chats | ✅ | |

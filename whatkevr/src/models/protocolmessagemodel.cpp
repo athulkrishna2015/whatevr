@@ -396,8 +396,8 @@ QVariant ProtocolMessageModel::data(const QModelIndex &index, int role) const
     case MediaPlayedRole:
         return mediaData().value(QStringLiteral("played")).toBool();
     case IsForwardedRole:
-        // Daemon `messages` item `forwarded` (tdesktop renders a "Forwarded"
-        // header; we dropped the flag entirely until now).
+        // Daemon `messages` item `forwarded`, rendered as a header above the
+        // bubble content.
         return item.value(QStringLiteral("forwarded")).toBool();
     case ShowSenderHeaderRole:
         return groupChat && !outgoing && startsSenderGroup(index.row());
