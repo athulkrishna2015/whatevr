@@ -74,8 +74,13 @@ test-whattui:
     @cd whattui && go test ./...
     @cd whattui && go test -race ./...
 
-# Real pixels from a real kitty on a Hyprland dummy monitor. Not part of `just
-# test`: it needs a live compositor, and CI has none.
+# A picture of whattui, at any size, in any state, from a real kitty on a
+# Hyprland dummy monitor. For looking at. Not part of `just test`: it needs a
+# live compositor, and CI has none.
+#
+#   just screenshot --list
+#   just screenshot --size 100x30 --scenario palette
+#   just screenshot --size 72x20 --keys ctrl+p,/,a,n --wait "> /an"
 screenshot *args:
     @scripts/whattui-screenshot {{args}}
 

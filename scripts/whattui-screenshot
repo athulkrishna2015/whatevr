@@ -1,5 +1,13 @@
 #!/usr/bin/env python3
-"""Capture and compare real whattui frames in an isolated kitty window."""
+"""Photograph real whattui frames in an isolated kitty window.
+
+For looking at, by a person or an agent. It builds whattui and the protocol
+fixture, serves committed synthetic data over a private socket, opens a kitty
+of exactly the size asked for on a Hyprland headless output nobody is looking
+at, drives it with whatever keys were asked for, and writes a png once the
+frame has stopped changing. The real account and the real screen are never
+involved.
+"""
 
 from __future__ import annotations
 
@@ -17,25 +25,26 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageChops
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "build" / "whattui-screenshots"
-GOLDENS = ROOT / "whattui" / "testdata" / "visual"
-FIXTURE = GOLDENS / "fixture.ndjson"
+FIXTURE = ROOT / "whattui" / "testdata" / "visual" / "fixture.ndjson"
 KITTY_CONFIG = ROOT / "scripts" / "whattui-kitty.conf"
-SIZES = ((120, 40), (90, 30), (60, 24), (38, 14))
-# The discovery surfaces, each opened the way a user opens it and each proved
-# on screen before it is photographed. name -> (cols, rows, keys, marker).
-SURFACES = {
-    "palette-120x40": (120, 40, ["ctrl+p"], "Command palette"),
-    "palette-90x30": (90, 30, ["ctrl+p"], "Command palette"),
-    "palette-38x14": (38, 14, ["ctrl+p"], "Command palette"),
-    "palette-chats-120x40": (120, 40, ["ctrl+p", "/", "a", "n"], "> /an"),
-    "slash-120x40": (120, 40, ["/"], "Slash commands"),
-    "slash-38x14": (38, 14, ["/"], "Slash commands"),
-    "help-120x40": (120, 40, ["tab", "?"], "Keyboard help"),
-    "leader-120x40": (120, 40, ["ctrl+x"], "^x"),
+DEFAULT_SIZE = (120, 40)
+# The states worth a picture, each opened the way a user opens it and each
+# proved on screen before it is photographed. Any of them can be taken at any
+# size; the size here is only the default.
+#
+# name -> (cols, rows, keys, marker on screen once the keys have landed)
+SCENARIOS = {
+    "chat": (120, 40, [], ""),
+    "palette": (120, 40, ["ctrl+p"], "Command palette"),
+    "palette-chats": (120, 40, ["ctrl+p", "/", "a", "n"], "> /an"),
+    "slash": (120, 40, ["/"], "Slash commands"),
+    "help": (120, 40, ["tab", "?"], "Keyboard help"),
+    "leader": (120, 40, ["ctrl+x"], "^x"),
+    "transcript": (120, 40, ["tab"], "scroll"),
 }
 TIMEOUT = 30.0
 OUTPUT_MODE = "1920x1200@60"
@@ -97,20 +106,6 @@ def wait_for(description: str, predicate: Any, timeout: float = TIMEOUT) -> Any:
         time.sleep(0.05)
     suffix = f": {last_error}" if last_error else ""
     raise Failure(f"timed out waiting for {description}{suffix}")
-
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def git_info(path: Path) -> dict[str, Any]:
-    commit = run(["git", "rev-parse", "HEAD"], cwd=path).stdout.strip()
-    dirty = bool(run(["git", "status", "--porcelain"], cwd=path).stdout.strip())
-    return {"commit": commit, "dirty": dirty}
 
 
 def tools_metadata() -> dict[str, str]:
@@ -585,20 +580,21 @@ class Harness:
             "pixels": pixels,
         }
 
+    # Three identical frames before the shutter: a frame caught mid-draw is a
+    # picture of a bug that is not there.
     def capture(
         self, state: dict[str, Any], name: str, expected: tuple[int, int]
-    ) -> dict[str, Any]:
+    ) -> Path:
         if self.pty_size(state) != expected:
             raise Failure(f"{name}: PTY is {self.pty_size(state)}, expected {expected}")
         previous: tuple[str, str] | None = None
         stable = 0
         attempts = 0
-        capture_info: dict[str, Any] = {}
         final = self.run_dir / f"{name}.png"
         while attempts < 20:
             attempts += 1
             candidate = self.run_dir / f".{name}-{attempts}.png"
-            method, capture_info = self.grim(state, candidate)
+            self.grim(state, candidate)
             text = self.text(state)
             with Image.open(candidate) as image:
                 image.load()
@@ -615,15 +611,7 @@ class Harness:
             raise Failure(f"{name}: pixels and get-text did not stabilize")
         for stale in self.run_dir.glob(f".{name}-*.png"):
             stale.unlink(missing_ok=True)
-        return {
-            "name": name,
-            "pty": list(expected),
-            "pixel_sha256": previous[0],
-            "text_sha256": previous[1],
-            "stability_captures": stable,
-            "capture_method": method,
-            **capture_info,
-        }
+        return final
 
     def hidden_tab_resize(self, state: dict[str, Any], cols: int, rows: int) -> None:
         hidden_id = int(
@@ -784,94 +772,6 @@ def stop_process(proc: subprocess.Popen[Any]) -> None:
             proc.wait(timeout=5)
 
 
-def capture_caps(run_dir: Path, binaries: dict[str, Path], fixture_socket: Path) -> str:
-    output = run_dir / "caps.txt"
-    env = os.environ.copy()
-    env.update({"TERM": "xterm-kitty", "WHATTUI_FONT": "Noto Sans Mono", "TZ": "UTC"})
-    result = run(
-        [str(binaries["whattui"]), "--caps", "--socket", str(fixture_socket)],
-        check=False,
-        env=env,
-    )
-    output.write_text((result.stdout or "") + (result.stderr or ""), encoding="utf-8")
-    return output.read_text(encoding="utf-8")
-
-
-def compatibility(metadata: dict[str, Any]) -> dict[str, Any]:
-    tools = metadata["tools"]
-    scenarios = {
-        entry["name"]: {"pty": entry["pty"], "pixels": entry["pixels"]}
-        for entry in metadata["scenarios"]
-    }
-    return {
-        "schema": metadata["schema"],
-        "fixture_sha256": metadata["fixture_sha256"],
-        "kitty_config_sha256": metadata["kitty_config_sha256"],
-        "tools": {
-            key: tools[key]
-            for key in ("kitty", "grim", "font", "font_version", "pillow")
-        },
-        "scenarios": scenarios,
-    }
-
-
-def compare_or_update(metadata: dict[str, Any], update: bool, no_compare: bool) -> None:
-    golden_meta_path = GOLDENS / "goldens.json"
-    names = [entry["name"] for entry in metadata["scenarios"]]
-    if update:
-        GOLDENS.mkdir(parents=True, exist_ok=True)
-        for name in names:
-            # Re-encoded rather than copied: grim writes a 2.6MB png where the
-            # same pixels compress to 80KB, and these live in the repository.
-            with Image.open(OUTPUT / f"{name}.png") as capture:
-                capture.convert("RGBA").save(
-                    GOLDENS / f"{name}.png", optimize=True, compress_level=9
-                )
-        golden_meta_path.write_text(
-            json.dumps({"compatibility": compatibility(metadata)}, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        return
-    if no_compare:
-        return
-    if not golden_meta_path.exists():
-        raise Failure(
-            "no committed goldens; inspect captures then run with --update-goldens"
-        )
-    golden_meta = json.loads(golden_meta_path.read_text(encoding="utf-8"))
-    if golden_meta.get("compatibility") != compatibility(metadata):
-        raise Failure(
-            "golden metadata is incompatible with this terminal/tool environment; refusing comparison"
-        )
-    diff_dir = OUTPUT / "diffs"
-    diff_dir.mkdir(exist_ok=True)
-    failures: list[str] = []
-    for name in names:
-        actual_path = OUTPUT / f"{name}.png"
-        expected_path = GOLDENS / f"{name}.png"
-        if not expected_path.exists():
-            failures.append(f"{name}: missing golden")
-            continue
-        with Image.open(actual_path) as actual_image, Image.open(
-            expected_path
-        ) as expected_image:
-            actual = actual_image.convert("RGBA")
-            expected = expected_image.convert("RGBA")
-            if actual.size != expected.size:
-                failures.append(f"{name}: size {actual.size} != {expected.size}")
-                continue
-            # Bytes, not getbbox: Pillow trims by alpha alone by default, so
-            # two images that differ in every colour and share an alpha
-            # channel compare equal and a broken frame passes.
-            if actual.tobytes() != expected.tobytes():
-                ImageChops.difference(actual, expected).save(diff_dir / f"{name}.png")
-                failures.append(f"{name}: pixels differ")
-            else:
-                (diff_dir / f"{name}.png").unlink(missing_ok=True)
-    if failures:
-        raise Failure("golden comparison failed: " + "; ".join(failures))
-
-
 def self_check() -> dict[str, Any]:
     required_tools()
     messages = validate_fixture()
@@ -880,9 +780,7 @@ def self_check() -> dict[str, Any]:
     return {
         "fixture": str(FIXTURE.relative_to(ROOT)),
         "fixture_messages": messages,
-        "fixture_sha256": sha256(FIXTURE),
         "kitty_config": str(KITTY_CONFIG.relative_to(ROOT)),
-        "kitty_config_sha256": sha256(KITTY_CONFIG),
         "tools": tools_metadata(),
     }
 
@@ -895,8 +793,104 @@ def install_signal_handlers() -> None:
     signal.signal(signal.SIGTERM, interrupted)
 
 
+def parse_size(text: str) -> tuple[int, int]:
+    try:
+        cols, rows = (int(part) for part in text.lower().split("x", 1))
+    except ValueError:
+        raise Failure(f"bad size {text!r}, want COLSxROWS such as 120x40") from None
+    if cols < 20 or rows < 6:
+        raise Failure(f"{text} is smaller than whattui can draw")
+    return cols, rows
+
+
+def shots_from(args: argparse.Namespace) -> list[dict[str, Any]]:
+    """What to photograph: a scenario, an ad hoc key sequence, or the default."""
+    sizes = [parse_size(text) for text in args.size]
+    keys = [key for group in args.keys for key in group.split(",") if key]
+    names = args.scenario or ([] if (keys or sizes) else ["chat"])
+
+    shots: list[dict[str, Any]] = []
+    for name in names:
+        cols, rows, scenario_keys, marker = SCENARIOS[name]
+        for size in sizes or [(cols, rows)]:
+            shots.append(
+                {
+                    "name": f"{name}-{size[0]}x{size[1]}",
+                    "size": size,
+                    "keys": scenario_keys,
+                    "marker": marker,
+                }
+            )
+    if keys:
+        for size in sizes or [DEFAULT_SIZE]:
+            shots.append(
+                {
+                    "name": args.name or f"keys-{size[0]}x{size[1]}",
+                    "size": size,
+                    "keys": keys,
+                    "marker": args.wait or "",
+                }
+            )
+    elif not names:
+        for size in sizes:
+            shots.append(
+                {
+                    "name": args.name or f"chat-{size[0]}x{size[1]}",
+                    "size": size,
+                    "keys": [],
+                    "marker": "",
+                }
+            )
+    return shots
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "--size",
+        action="append",
+        default=[],
+        metavar="COLSxROWS",
+        help="terminal size to shoot at (repeatable; default 120x40)",
+    )
+    parser.add_argument(
+        "--scenario",
+        action="append",
+        choices=sorted(SCENARIOS),
+        help="a state worth a picture (repeatable; see --list)",
+    )
+    parser.add_argument(
+        "--keys",
+        action="append",
+        default=[],
+        metavar="K1,K2",
+        help="kitty key names to send before the shot, such as ctrl+p or /,a,n",
+    )
+    parser.add_argument(
+        "--wait",
+        metavar="TEXT",
+        help="with --keys, text that must be on screen before the shot",
+    )
+    parser.add_argument("--name", help="basename for an ad hoc shot")
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=OUTPUT,
+        help=f"where the pngs go (default {OUTPUT.relative_to(ROOT)})",
+    )
+    parser.add_argument(
+        "--plain",
+        action="store_true",
+        help="force the plain tier, which is what a terminal without graphics shows",
+    )
+    parser.add_argument(
+        "--hidden-resize",
+        action="store_true",
+        help="resize behind a covering tab before the shot, which is the reflow no one watches",
+    )
+    parser.add_argument("--list", action="store_true", help="list the scenarios")
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -906,29 +900,6 @@ def main() -> int:
         "--probe",
         action="store_true",
         help="create, configure, verify, and remove a Hyprland headless output",
-    )
-    parser.add_argument(
-        "--scenario",
-        action="append",
-        choices=[
-            *(f"kitty-{cols}x{rows}" for cols, rows in SIZES),
-            *SURFACES,
-            "kitty-120x40-plain",
-            "resize-visible-67x24",
-            "resize-hidden-tab-67x24",
-            "resize-fresh-67x24",
-        ],
-        help="capture only this scenario (repeatable; default: all)",
-    )
-    parser.add_argument(
-        "--update-goldens",
-        action="store_true",
-        help="replace committed golden PNGs and compatibility metadata",
-    )
-    parser.add_argument(
-        "--no-compare",
-        action="store_true",
-        help="capture without comparing committed goldens",
     )
     parser.add_argument(
         "--keep-run-dir",
@@ -946,18 +917,20 @@ def main() -> int:
         if args.child_command and args.child_command[0] == "--":
             args.child_command = args.child_command[1:]
         return child_mode(args)
-    if args.update_goldens and args.no_compare:
-        parser.error("--update-goldens and --no-compare are mutually exclusive")
-    if args.update_goldens and args.scenario:
-        parser.error("--update-goldens requires the complete scenario matrix")
+
+    if args.list:
+        for name, (cols, rows, keys, _) in sorted(SCENARIOS.items()):
+            print(f"{name:16} {cols}x{rows:<4} {' '.join(keys) or '(nothing typed)'}")
+        return 0
 
     checked = self_check()
     if args.dry_run:
-        print(json.dumps(checked, indent=2))
+        print(json.dumps({**checked, "shots": shots_from(args)}, indent=2, default=str))
         return 0
     if not os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"):
         raise Failure("a live Hyprland session is required for pixel capture")
 
+    shots = shots_from(args)
     install_signal_handlers()
     headless = HeadlessOutput()
     if args.probe:
@@ -968,117 +941,36 @@ def main() -> int:
         finally:
             headless.remove()
 
-    if OUTPUT.exists():
-        shutil.rmtree(OUTPUT)
-    run_dir = OUTPUT / "run"
-    run_dir.mkdir(parents=True)
+    out = args.out
+    run_dir = out / "run"
+    run_dir.mkdir(parents=True, exist_ok=True)
     binaries = build_binaries(run_dir)
     fixture_proc: subprocess.Popen[Any] | None = None
     harness: Harness | None = None
-    scenarios: list[dict[str, Any]] = []
+    taken: list[Path] = []
     try:
         headless.create()
-        fixture_proc, fixture_socket, fixture_log = start_fixture(
-            run_dir, binaries["fixture"]
-        )
-        harness = Harness(OUTPUT, binaries, fixture_socket, headless)
-        selected = set(args.scenario or [])
-        for cols, rows in SIZES:
-            name = f"kitty-{cols}x{rows}"
-            if selected and name not in selected:
-                continue
-            state = harness.launch(cols, rows, name)
-            scenarios.append(harness.capture(state, name, (cols, rows)))
+        fixture_proc, fixture_socket, _ = start_fixture(run_dir, binaries["fixture"])
+        harness = Harness(out, binaries, fixture_socket, headless)
+        for shot in shots:
+            cols, rows = shot["size"]
+            name = shot["name"]
+            if args.hidden_resize:
+                # The window is opened larger and shrunk while a tab covers
+                # it, so what is photographed is a reflow nobody watched
+                # happen. Visibility reports stay on for exactly this.
+                state = harness.launch(120, 40, name, plain=args.plain, visibility=True)
+                harness.hidden_tab_resize(state, cols, rows)
+            else:
+                state = harness.launch(cols, rows, name, plain=args.plain)
+            if shot["keys"]:
+                harness.open_surface(state, shot["keys"], shot["marker"])
+            harness.capture(state, name, (cols, rows))
             harness.close(state)
-
-        for name, (cols, rows, keys, marker) in SURFACES.items():
-            if selected and name not in selected:
-                continue
-            state = harness.launch(cols, rows, name)
-            retried = harness.open_surface(state, keys, marker)
-            entry = harness.capture(state, name, (cols, rows))
-            entry["keys_retried"] = retried
-            scenarios.append(entry)
-            harness.close(state)
-
-        plain_name = "kitty-120x40-plain"
-        if not selected or plain_name in selected:
-            state = harness.launch(120, 40, plain_name, plain=True)
-            scenarios.append(harness.capture(state, plain_name, (120, 40)))
-            harness.close(state)
-
-        visible_name = "resize-visible-67x24"
-        if not selected or visible_name in selected:
-            state = harness.launch(120, 40, visible_name)
-            harness.resize(state, 67, 24)
-            harness.wait_text(state, "READY-HARNESS")
-            scenarios.append(harness.capture(state, visible_name, (67, 24)))
-            harness.close(state)
-
-        hidden_name = "resize-hidden-tab-67x24"
-        if not selected or hidden_name in selected:
-            # The one scenario that keeps kitty's visibility reports: a hidden
-            # tab is a window that really is not visible, and coming back from
-            # one is what this proves.
-            state = harness.launch(120, 40, hidden_name, visibility=True)
-            harness.hidden_tab_resize(state, 67, 24)
-            scenarios.append(harness.capture(state, hidden_name, (67, 24)))
-            harness.close(state)
-
-        fresh_name = "resize-fresh-67x24"
-        if not selected or fresh_name in selected:
-            state = harness.launch(67, 24, fresh_name)
-            scenarios.append(harness.capture(state, fresh_name, (67, 24)))
-            harness.close(state)
-
-        hidden = next(
-            (entry for entry in scenarios if entry["name"] == hidden_name), None
-        )
-        fresh = next(
-            (entry for entry in scenarios if entry["name"] == fresh_name), None
-        )
-        if (
-            hidden is not None
-            and fresh is not None
-            and hidden["pixel_sha256"] != fresh["pixel_sha256"]
-        ):
-            with Image.open(OUTPUT / f"{hidden_name}.png") as left_image, Image.open(
-                OUTPUT / f"{fresh_name}.png"
-            ) as right_image:
-                left, right = left_image.convert("RGBA"), right_image.convert("RGBA")
-                if left.size == right.size:
-                    diff_dir = OUTPUT / "diffs"
-                    diff_dir.mkdir(exist_ok=True)
-                    ImageChops.difference(left, right).save(
-                        diff_dir / "hidden-vs-fresh.png"
-                    )
-            raise Failure("hidden-tab resize pixels differ from a fresh 67x24 window")
-
-        metadata = {
-            "schema": 1,
-            "created_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "repository": git_info(ROOT),
-            "vaxis": git_info(ROOT / "whattui" / "vaxis"),
-            "headless_output": headless.metadata(),
-            "fixture_sha256": checked["fixture_sha256"],
-            "kitty_config_sha256": checked["kitty_config_sha256"],
-            "tools": checked["tools"],
-            "caps": capture_caps(run_dir, binaries, fixture_socket),
-            "logs": {
-                "fixture": str(fixture_log.relative_to(OUTPUT)),
-                "whattui": [
-                    str(path.relative_to(OUTPUT))
-                    for path in sorted((OUTPUT / "logs").glob("*.log"))
-                ],
-            },
-            "scenarios": scenarios,
-        }
-        (OUTPUT / "metadata.json").write_text(
-            json.dumps(metadata, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-        )
-        compare_or_update(metadata, args.update_goldens, args.no_compare)
-        print(f"captured {len(scenarios)} scenarios in {OUTPUT}")
-        return 0
+            taken.append(out / f"{name}.png")
+    except SignalExit as exc:
+        print(f"whattui-screenshot: {exc}", file=sys.stderr)
+        return 130
     finally:
         if harness is not None:
             harness.cleanup()
@@ -1087,6 +979,10 @@ def main() -> int:
         headless.remove()
         if not args.keep_run_dir:
             shutil.rmtree(run_dir, ignore_errors=True)
+
+    for path in taken:
+        print(path)
+    return 0
 
 
 if __name__ == "__main__":
