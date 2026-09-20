@@ -320,42 +320,74 @@ func (a *App) drawModal(win vaxis.Window) {
 	if width <= 0 || height <= 0 {
 		return
 	}
-	r := layout.Rect{Col: maxInt((w-width)/2, 0), Row: maxInt((h-height)/3, 0), Width: width, Height: height}
-	pane := sub(win, r)
-	fill(pane, a.theme.BackgroundPanel)
+	outer := layout.Rect{Col: maxInt((w-width)/2, 0), Row: maxInt((h-height)/3, 0), Width: width, Height: height}
+	pane := sub(win, outer)
+	panel := a.theme.BackgroundPanel
+	fill(pane, panel)
 	// A run is an image over the cell background: covering it with a panel
 	// hides the text under it and leaves the picture.
-	a.occlude(r)
+	a.occlude(outer)
 
 	title, prompt := "Commands", "> "
-	if kind == modalSlash {
+	switch kind {
+	case modalSlash:
 		title, prompt = "Slash commands", "/"
-	} else if kind == modalHelp {
+	case modalHelp:
 		title, prompt = "Keyboard help", "? "
 	}
-	a.print(pane, 1, 0, vaxis.Style{Foreground: a.theme.Accent, Background: a.theme.BackgroundPanel, Attribute: vaxis.AttrBold}, a.clip(title, width-2))
-	if height > 1 {
-		a.print(pane, 1, 1, vaxis.Style{Foreground: a.theme.Text, Background: a.theme.BackgroundPanel}, a.clip(prompt+query, width-2))
+
+	// The frame, so the panel reads as something on top of the transcript
+	// rather than a hole in it, and in the focused border colour because a
+	// modal is the only thing with focus while it is open. A terminal too
+	// small for a frame gets the content instead of the decoration.
+	inner := outer
+	if width > 4 && height > 4 {
+		bx := boxFor(a.caps)
+		edge := vaxis.Style{Foreground: a.theme.BorderActive, Background: panel}
+		a.print(pane, 0, 0, edge, bx.topLeft+strings.Repeat(bx.horizontal, width-2)+bx.topRight)
+		a.print(pane, 0, height-1, edge, bx.bottomLeft+strings.Repeat(bx.horizontal, width-2)+bx.bottomRight)
+		for row := 1; row < height-1; row++ {
+			a.print(pane, 0, row, edge, bx.vertical)
+			a.print(pane, width-1, row, edge, bx.vertical)
+		}
+		// The title sits in the top edge, the way a framed panel names itself.
+		a.print(pane, 2, 0, vaxis.Style{Foreground: a.theme.Accent, Background: panel, Attribute: vaxis.AttrBold},
+			" "+a.clip(title, maxInt(width-6, 1))+" ")
+		inner = layout.Rect{Col: outer.Col + 2, Row: outer.Row + 1, Width: width - 4, Height: height - 2}
+	} else {
+		a.print(pane, 0, 0, vaxis.Style{Foreground: a.theme.Accent, Background: panel, Attribute: vaxis.AttrBold},
+			a.clip(title, width))
+		inner = layout.Rect{Col: outer.Col, Row: outer.Row + 1, Width: width, Height: height - 1}
 	}
-	listRow := r.Row + minInt(3, height)
-	visible := maxInt(height-3, 0)
+	if inner.Width < 1 || inner.Height < 1 {
+		return
+	}
+
+	body := sub(win, inner)
+	a.print(body, 0, 0, vaxis.Style{Foreground: a.theme.Text, Background: panel}, a.clip(prompt+query, inner.Width))
+
+	// One blank row under the query, then the results. The list is what the
+	// panel is for, so it takes every row that is left.
+	listRow := inner.Row + 2
+	visible := maxInt(inner.Height-2, 0)
 
 	a.mu.Lock()
-	a.modal.rect = r
+	a.modal.rect = outer
 	a.modal.listRow = listRow
 	a.modal.visible = visible
 	shown := append([]modalChoice(nil), a.modal.selector.Visible(visible)...)
 	top := a.modal.selector.top
 	a.mu.Unlock()
+
 	for i, item := range shown {
 		absolute := top + i
-		bg := a.theme.BackgroundPanel
+		bg := panel
 		if absolute == selected {
 			bg = a.theme.BackgroundActive
 		} else if absolute == hovered {
 			bg = a.theme.BackgroundHover
 		}
-		line := pane.New(0, 3+i, width, 1)
+		line := body.New(0, 2+i, inner.Width, 1)
 		fill(line, bg)
 		style := vaxis.Style{Foreground: a.theme.Text, Background: bg}
 		detail := item.Detail
@@ -363,9 +395,11 @@ func (a *App) drawModal(win vaxis.Window) {
 			style.Foreground = a.theme.TextFaint
 			detail = item.Disabled
 		}
-		a.print(line, 1, 0, style, a.clip(item.Label, maxInt(width/2-1, 1)))
-		if width > 20 {
-			a.print(line, width/2, 0, vaxis.Style{Foreground: a.theme.TextMuted, Background: bg}, a.clip(detail, width-width/2-1))
+		split := inner.Width / 2
+		a.print(line, 0, 0, style, a.clip(item.Label, maxInt(split-1, 1)))
+		if inner.Width > 20 {
+			a.print(line, split, 0, vaxis.Style{Foreground: a.theme.TextMuted, Background: bg},
+				a.clip(detail, inner.Width-split))
 		}
 	}
 }
