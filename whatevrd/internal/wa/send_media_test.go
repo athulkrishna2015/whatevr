@@ -110,15 +110,22 @@ func TestVoiceSendNormalizesOggMime(t *testing.T) {
 	}
 }
 
-// TestDocumentSendSkipsMediaSizeCap locks in that "send as document" is not
-// size-checked like media: a 30 MiB video file staged as a document passes
-// the 25 MiB media ceiling, while the same file as video is still rejected.
+// TestDocumentSendSkipsMediaSizeCap locks in the per-kind ceilings: a 30 MiB
+// video file staged as a document passes (documents allow up to 2 GiB) and
+// as video (100 MiB ceiling), while a 150 MiB file is rejected as video but
+// still passes as a document.
 func TestDocumentSendSkipsMediaSizeCap(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "clip.mp4")
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		t.Fatalf("create temp file: %v", err)
+	}
+	// Sparse zeros sniff as application/octet-stream; lead with an ftyp box
+	// so content detection sees video/mp4.
+	if _, err := f.Write([]byte{0x00, 0x00, 0x00, 0x10, 'f', 't', 'y', 'p', 'm', 'p', '4', '1', 0x00, 0x00, 0x00, 0x00}); err != nil {
+		f.Close()
+		t.Fatalf("write ftyp header: %v", err)
 	}
 	if err := f.Truncate(30 * 1024 * 1024); err != nil {
 		f.Close()
@@ -129,7 +136,45 @@ func TestDocumentSendSkipsMediaSizeCap(t *testing.T) {
 	if _, _, _, _, _, err := readOutboundMedia(path, MediaSendOptions{Kind: "document"}); err != nil {
 		t.Fatalf("document readOutboundMedia: %v", err)
 	}
-	if _, _, _, _, _, err := readOutboundMedia(path, MediaSendOptions{Kind: "video"}); err == nil {
-		t.Fatal("expected video readOutboundMedia to reject a 30 MiB file")
+	if _, _, _, _, _, err := readOutboundMedia(path, MediaSendOptions{Kind: "video"}); err != nil {
+		t.Fatalf("video readOutboundMedia must accept a 30 MiB file: %v", err)
+	}
+
+	big := filepath.Join(dir, "big.mp4")
+	f, err = os.OpenFile(big, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	if _, err := f.Write([]byte{0x00, 0x00, 0x00, 0x10, 'f', 't', 'y', 'p', 'm', 'p', '4', '1', 0x00, 0x00, 0x00, 0x00}); err != nil {
+		f.Close()
+		t.Fatalf("write ftyp header: %v", err)
+	}
+	if err := f.Truncate(150 * 1024 * 1024); err != nil {
+		f.Close()
+		t.Fatalf("sparsify temp file: %v", err)
+	}
+	f.Close()
+
+	if _, _, _, _, _, err := readOutboundMedia(big, MediaSendOptions{Kind: "video"}); err == nil {
+		t.Fatal("expected video readOutboundMedia to reject a 150 MiB file")
+	}
+	if _, _, _, _, _, err := readOutboundMedia(big, MediaSendOptions{Kind: "document"}); err != nil {
+		t.Fatalf("document readOutboundMedia must accept a 150 MiB file: %v", err)
+	}
+
+	huge := filepath.Join(dir, "huge.mp4")
+	f, err = os.OpenFile(huge, os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatalf("create temp file: %v", err)
+	}
+	// Rejected at stat time, before any bytes are read.
+	if err := f.Truncate(2*1024*1024*1024 + 1); err != nil {
+		f.Close()
+		t.Fatalf("sparsify temp file: %v", err)
+	}
+	f.Close()
+
+	if _, _, _, _, _, err := readOutboundMedia(huge, MediaSendOptions{Kind: "document"}); err == nil {
+		t.Fatal("expected document readOutboundMedia to reject a file over 2 GiB")
 	}
 }

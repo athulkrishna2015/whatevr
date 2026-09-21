@@ -7,6 +7,11 @@ PROTOCOL.md (stable at version 1: additive changes only).
 
 ### Fixed
 
+- Send size caps now match the official Web client: videos up to 100 MiB and
+  any file staged as a document (including photos, videos and audio) up to
+  2 GiB; other media stays at 25 MiB. The server remains authoritative;
+  nothing above official limits is attempted.
+
 - Forwarded messages now show a "Forwarded" header above the bubble content
   (Telegram Desktop's `HistoryMessageForwarded` pattern): the daemon already
   stored and sent the `forwarded` flag, but the frontend dropped it. The

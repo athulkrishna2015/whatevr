@@ -32,13 +32,27 @@ import (
 
 const (
 	maxOutboundMediaBytes = 25 * 1024 * 1024
+	// Videos follow the official Web client ceiling (100 MB on fast
+	// connections; slower ones get 64 MB, which the daemon cannot know, so
+	// the upper bound applies and the server stays authoritative).
+	maxOutboundVideoBytes = 100 * 1024 * 1024
 	// Documents sent via "send as document" carry their own cap: WhatsApp
-	// accepts large documents (up to GBs), and neither size nor duration is
-	// validated for them the way media kinds are. 100 MiB bounds the daemon's
-	// whole-file buffering while covering real document use.
-	maxOutboundDocumentBytes = 100 * 1024 * 1024
+	// accepts documents up to 2 GB, and neither size nor duration is
+	// validated for them the way media kinds are. Whole-file buffering
+	// bounds real-world use below that; the cap matches the official
+	// client, the server stays authoritative, and nothing above official
+	// limits is sent (see doc/safety.md).
+	maxOutboundDocumentBytes = 2 * 1024 * 1024 * 1024
 	maxPinnedChats           = 3
 )
+
+// formatSizeCap renders a byte cap the way the send errors do.
+func formatSizeCap(sizeCap int64) string {
+	if sizeCap >= 1024*1024*1024 && sizeCap%(1024*1024*1024) == 0 {
+		return fmt.Sprintf("%d GiB", sizeCap/(1024*1024*1024))
+	}
+	return fmt.Sprintf("%d MiB", sizeCap/(1024*1024))
+}
 
 type readBatch struct {
 	sender     types.JID
@@ -372,14 +386,18 @@ func readOutboundMedia(filePath string, opts MediaSendOptions) (data []byte, mim
 	if info.Size() <= 0 {
 		return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file is empty")
 	}
-	// The size ceiling is per-kind: documents sent via "send as document"
-	// are not size- (or duration-) checked like media, up to their own cap.
+	// The size ceiling is per-kind: videos follow the official 100 MB
+	// ceiling, documents sent via "send as document" are not size- (or
+	// duration-) checked like media, up to their own 2 GB cap.
 	sizeCap := int64(maxOutboundMediaBytes)
-	if kindHint == "document" {
+	switch kindHint {
+	case "video":
+		sizeCap = maxOutboundVideoBytes
+	case "document":
 		sizeCap = maxOutboundDocumentBytes
 	}
 	if info.Size() > sizeCap {
-		return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file must be <= %d MiB", sizeCap/(1024*1024))
+		return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file must be <= %s", formatSizeCap(sizeCap))
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok || stat.Uid != uint32(os.Geteuid()) {
@@ -397,7 +415,7 @@ func readOutboundMedia(filePath string, opts MediaSendOptions) (data []byte, mim
 		return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file could not be read")
 	}
 	if len(data) > int(sizeCap) {
-		return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file must be <= %d MiB", sizeCap/(1024*1024))
+		return nil, "", "", "", "", app.NewCommandError(app.CommandErrorInvalidArgument, "media file must be <= %s", formatSizeCap(sizeCap))
 	}
 	mimeType = http.DetectContentType(data)
 	// WhatsApp GIFs are short MP4 videos with a gif-playback flag; sending the
