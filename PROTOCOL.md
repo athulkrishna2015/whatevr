@@ -213,7 +213,7 @@ noted; this inventory fixes the shape of the protocol, not every field name.
 | `connection` | none | object | daemon/WhatsApp state (`starting`, `need_login`, `connecting`, `online`, `reconnecting`, `offline`), retry info, pending outgoing count |
 | `login` | none | object | subscribing starts/attaches to the QR pairing flow when logged out; item carries `state` and current `qr` (`code`, `expires_at`). Phone-number pairing later adds a field, not a new mechanism |
 | `sync` | none | object | history sync progress: type, phase, percent, counts; `stalled` phase included |
-| `chats` | `filter` (`all`\|`direct`\|`groups`), `archived` (bool), `limit` | chat rows | full row per old `Chat` incl. preview, unread, mute/pin/archive, `history_exhausted`; typing indicators live in the `typing` view |
+| `chats` | `filter` (`all`\|`direct`\|`groups`\|`unread`\|`favorite`), `archived` (bool), `limit` | chat rows | full row per old `Chat` incl. preview, unread, mute/pin/favorite/archive, `history_exhausted`; typing indicators live in the `typing` view |
 | `chat` | `chat_id` | object | the same live chat row emitted by `chats`, independent of chat-list filters and windows |
 | `messages` | `chat_id`, `limit`, `anchor` (`latest` \| `unread` \| `{message_id}`) | message rows | subscribe meta returns `anchor_id` when anchored at unread; `remove` on delete-for-me; revocation is an upsert with `revoked: true` |
 | `typing` | none | one item per chat with anyone composing | id is the `chat_id`; `senders` (jid + display name; frontends compose the localized label); `remove` when the last sender stops. Global, unwindowed, and tiny: chat lists and conversation headers both read it, everyone else skips it |
@@ -234,7 +234,12 @@ noted; this inventory fixes the shape of the protocol, not every field name.
 | `sticker_packs` | none | packs | |
 | `sticker_pack` | `pack_id` | stickers | contents fetch is async; items land as they resolve |
 | `transfers` | none | active media transfers | `message_id`, `direction`, `received_bytes`, `total_bytes`, optional active `error`; `remove` on terminal success or failure. This view carries the byte counters only: whether a fetch is in flight at all is `media.downloading` on the message row, so a renderer never has to join two independently recomputed views and never sees the two disagree. `direction` is `"download"` today; outbound uploads are not yet modelled here (a known gap). A `media.stream` fetch reports through this view too, where `received_bytes` counts the chunks present rather than a sequential write head, so it can climb out of order as the viewer seeks |
+| `status` | none | contact statuses (stories) | one item per status update, newest first: `id`, `sender` (id, name), `timestamp`, `kind` (`text`\|media kinds), `fallback`, `text`, `viewed`, `media` (mime, path once downloaded, duration, filename). Statuses never create chat rows |
+| `status.kept` | none | keep-enabled senders | one `{id}` row per sender whose expired statuses the Status tab archives instead of hiding |
+| `status.muted` | none | muted senders | one `{id}` row per sender whose statuses the Status tab collects under Muted; mirrors the phone's muted-status list (synced from appstate, fetch direction) |
+| `calls` | none | ringing calls | one item per locally-ringing call: `id` (call id), `chat_id`, `caller` (id, name), `video`, `started_at`. `remove`d on terminate/reject; missed calls land in their chats as tombstone messages |
 | `notifications` | none | notification records | **Reserved, not served in protocol 1**: subscribing errors `not_found`. What the daemon would notify about, for applets, relays, and headless setups; the daemon's own D-Bus notifier is unaffected. Its shape waits on a real consumer (see *Open questions*) |
+| `daemon.logs` | `limit` (default 200) | log rows, oldest first | the daemon's own process log ring (`daemon.logs` command answers the same lines for a one-shot query). Items carry `time` (`YYYY/MM/DD HH:MM:SS`), `level` (`info`\|`warn`\|`error`\|`debug`), `text`; rows keep stable ids across refreshes so new lines stream in as upserts instead of churning the whole list |
 
 Avatar paths are embedded in chat/message/contact/member rows and refresh via
 ordinary upserts; visibility-driven fetching is automatic (see above).
@@ -250,6 +255,7 @@ correlation (e.g. to scroll to your own just-sent message when it upserts).
 | --- | --- | --- |
 | `session.update` | `focused` (bool), `active_chat_id` | `{}`: feeds notification suppression and `open_chat` routing |
 | `daemon.reconnect` | none | `{}` |
+| `daemon.shutdown` | none | `{}`: stops the daemon after the ack flushes (Quit path; tray icon is daemon-owned) |
 | `account.logout` | none | `{}` |
 
 **Chats**
@@ -257,12 +263,19 @@ correlation (e.g. to scroll to your own just-sent message when it upserts).
 | method | params | result |
 | --- | --- | --- |
 | `chat.mark_read` | `chat_id`, `up_to_message_id` | `{}` |
+| `chat.mark_all_read` | none | `{count}` |
 | `chat.pin` | `chat_id`, `pinned` | `{}` |
+| `chat.favorite` | `chat_id`, `favorite` | `{}` |
+| `chat_folder.create` | `name` | `{id}` |
+| `chat_folder.rename` | `folder_id`, `name` | `{}` |
+| `chat_folder.delete` | `folder_id` | `{}` |
+| `chat_folder.set_chat` | `chat_id`, `folder_id` (nullable) | `{}` |
 | `chat.archive` | `chat_id`, `archived` | `{}` |
 | `chat.mute` | `chat_id`, `muted`, `duration_secs` (0 = forever) | `{}` |
 | `chat.typing` | `chat_id`, `composing` | `{}` |
 | `chat.request_older` | `chat_id` | `{requested}`: asks the phone; results land as message upserts, exhaustion flips the chat row flag |
 | `chat.ensure_direct` | `jid` | `{chat_id}`: row appears in `chats` views |
+| `chat.export` | `chat_id`, `path` (absolute destination) | `{path}`: writes the chat transcript (.txt, official export shape) to a local file |
 
 `chat.mark_read` marks messages read through the frontend's visible horizon;
 `up_to_message_id` is the newest message the user has actually seen. The daemon
@@ -274,7 +287,8 @@ views.
 | method | params | result |
 | --- | --- | --- |
 | `send.text` | `chat_id`, `text`, `reply_to`, `mentions` (jids) | `{message_id}` |
-| `send.media` | `chat_id`, `path`, `caption`, `reply_to`, `mentions` | `{message_id}`: daemon copies the file into its cache immediately; the caller may delete its copy on return |
+| `schedule.text` | `chat_id`, `text`, `send_at` (Unix seconds) | `{scheduled_id}`: durable one-shot text send |
+| `send.media` | `chat_id`, `path`, `caption`, `reply_to`, `mentions`, `kind` (`image`\|`video`\|`audio`\|`voice`\|`document`, empty auto-classifies from the file), `view_once` (photo/video/audio only), `filename` (document display-name override) | `{message_id}`: daemon copies the file into its cache immediately; the caller may delete its copy on return |
 | `send.sticker` | `chat_id`, `cache_key`, `reply_to` | `{message_id}` |
 | `message.react` | `message_id`, `emoji` ("" removes) | `{}` |
 | `message.edit` | `message_id`, `text` | `{}`: may fail `expired` |
@@ -292,6 +306,66 @@ views.
 | `media.stream` | `message_id` | `{stream_id, url, mime, size_bytes, duration_secs}`: `stream_id` is opaque and identifies this request. The loopback range URL plays while the fetch is still running. The fetch continues to completion regardless, so the message still upserts with `media.path`, after which the path is what frontends should use. May fail `rejected` for media that cannot be streamed (no length or hash, a CDN that ignores ranges); the caller falls back to `media.download` |
 | `media.cancel_download` | `message_id` | `{}`: stops an in-flight `media.download` or `media.stream` fetch and closes the `transfers` row. Whatever has already landed on disk is kept, so a later `media.download` resumes rather than starting over. Fails `rejected` when nothing is in flight for that message |
 | `media.fetch_profile_picture` | `jid` | `{path}`: full resolution, for the avatar viewer |
+| `media.save` | `message_id` xor `status_id` xor `jid`, `path` (absolute destination) | `{path}`: copies a chat message, status, or profile picture out of the daemon cache, downloading first when the row carries keys but no bytes yet. Saving an inbound view-once row is the caller's deliberate per-item override of "view on your phone" |
+
+**Status**
+
+| method | params | result |
+| --- | --- | --- |
+| `status.mark_viewed` | `status_id` | `{}`: local viewed flag only; no viewed receipt is sent yet |
+| `status.post` | `text` xor `path`, `caption` | `{status_id}`: publishes a text or photo/video/audio status; the post itself arrives through the `status` view |
+| `status.download` | `status_id` | `{}`: progress is silent; path lands via status upsert |
+| `status.keep_sender` | `sender_id`, `kept` | `{}`: expired statuses of kept senders archive instead of hiding |
+| `status.mute_sender` | `sender_id`, `muted` | `{}`: muted senders collect under the Muted section |
+
+**Groups**
+
+| method | params | result |
+| --- | --- | --- |
+| `group.create` | `name`, `members` (jids), `photo_path` | `{chat_id}` |
+| `group.leave` | `chat_id` | `{}` |
+| `group.set_name` | `chat_id`, `name` | `{}` |
+| `group.set_topic` | `chat_id`, `description` | `{}` |
+| `group.set_photo` | `chat_id`, `path` (empty clears) | `{}` |
+| `group.invite_link` | `chat_id`, `reset` | `{link}` |
+| `group.join_link` | `link` (URL or bare code) | `{chat_id}` |
+| `group.members` | `chat_id`, `action` (`add`\|`remove`\|`promote`\|`demote`), `members` | `{}` |
+| `group.set_announce` | `chat_id`, `enabled` | `{}`: admins-only sending |
+| `group.set_locked` | `chat_id`, `enabled` | `{}`: admins-only info editing |
+
+**Communities**
+
+| method | params | result |
+| --- | --- | --- |
+| `community.subgroups` | `chat_id` (community) | `{groups: [{id, name}]}`: the sub-group directory |
+| `community.link` | `community_id`, `group_id` | `{}`: attach a group (admins) |
+| `community.unlink` | `community_id`, `group_id` | `{}`: detach a sub-group (admins) |
+
+**Calls**
+
+| method | params | result |
+| --- | --- | --- |
+| `call.reject` | `chat_id` | `{}`: declines the latest ringing call; silent no-op when none is ringing. Answering from the desktop is impossible (no media stack upstream), so reject + "answer on your phone" is the whole surface |
+
+**Channels**
+
+| method | params | result |
+| --- | --- | --- |
+| `channels.refresh` | none | `{count}` |
+| `channel.follow` | `channel_id` | `{}` |
+| `channel.follow_link` | `invite` | `{channel_id}` |
+| `channel.unfollow` | `channel_id` | `{}` |
+| `channel.mute` | `channel_id`, `muted` | `{}` |
+| `channel.mark_viewed` | `channel_id`, `server_ids` | `{}` |
+| `channel.react` | `channel_id`, `server_id`, `emoji` (empty removes) | `{}` |
+
+**Daemon**
+
+| method | params | result |
+| --- | --- | --- |
+| `daemon.backup_export` | `path` (default timestamped), `passphrase`, `use_keyring` | `{path, size_bytes}`: bundle of message store + session + media; encrypted (AES-256-GCM via scrypt) when a passphrase is given |
+| `daemon.backup_set_passphrase` | `passphrase` | `{}`: stores the backup passphrase in the OS keyring (Secret Service) |
+| `daemon.logs` | `limit` | `{lines}`: recent daemon log lines, oldest first, for debugging |
 
 **Settings, contacts, stickers**
 
@@ -333,7 +407,10 @@ A message item has a `kind`, kind-specific fields, and always:
   `timestamp`, `direction`, `status` (`pending`→`sent`→`delivered`→`read`, or
   `failed`), and the interaction state that applies to any kind: `reply_to`
   quote, `reactions`, `mentions`, `edited`, `revoked`, `starred`,
-  `pinned_until`, `kept` (somebody asked for a disappearing message to stay).
+  `pinned_until`, `view_once` (our own view-once sends; inbound view-once rows always render
+  the `unsupported` tombstone kind with a "View once …" fallback, keeping
+  their keys only so an explicit `media.save` can fetch them),
+  `kept` (somebody asked for a disappearing message to stay).
 
 The kinds: `text`, `image`, `sticker`, `video`, `gif`, `voice`, `audio`,
 `document`, `video_note`, `location`, `live_location`, `contact`, `contacts`,
@@ -379,6 +456,17 @@ Media-bearing kinds carry `media` (`mime`, dimensions, `thumbnail_path`,
 amplitude buckets of 0-100, the one piece of media data that rides the socket
 rather than a file, because the bubble needs it before any download), and
 `played`. Captions ride the item-level `text`, for every kind.
+
+Structured kinds carry their facts as nested objects: `poll` (`question`,
+`options`, `selectable`, `votes`, `total`), `contact` (`name`, `phone`,
+`vcard`), `location` (`lat`, `long`, `name`).
+
+Text rows may carry `link_preview` (`url`, `title`, `description`,
+`thumbnail_path`): the sender-provided preview from the sender's
+`ExtendedTextMessage` (`MatchedText` plus the title/description/thumbnail the
+sender's client fetched when composing). Everything is stored at ingest, so
+rendering never fetches — the thumbnail is cached to a local file like any
+other thumbnail.
 
 The download lifecycle is: `media.download` → message upsert with
 `downloading` true → byte progress in `transfers` → message upsert with

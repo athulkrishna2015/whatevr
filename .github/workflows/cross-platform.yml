@@ -1,0 +1,177 @@
+name: Cross-platform artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Annotated release tag to build, for example v0.8.7
+        required: true
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  windows:
+    name: Windows ${{ matrix.arch }}
+    continue-on-error: true
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Qt's public Windows ARM64 kits do not currently include the
+        # qtmultimedia module required by this project.
+        arch: [x64]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.10.0
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          modules: qtmultimedia
+      - name: Configure
+        shell: pwsh
+        run: cmake -S whatkevr -B build/windows -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build/windows --parallel 3
+      - name: Package
+        shell: pwsh
+        run: Compress-Archive -Path build/windows/bin/whatkevr.exe -DestinationPath build/whatevr-${env:RELEASE_TAG}-windows-${{ matrix.arch }}.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: build/*.zip
+
+  macos:
+    name: macOS ${{ matrix.arch }}
+    continue-on-error: true
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            qt_arch: clang_64
+          - arch: arm64
+            qt_arch: clang_arm64
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: 6.10.0
+          host: mac
+          target: desktop
+          arch: ${{ matrix.qt_arch }}
+          modules: qtmultimedia
+      - name: Configure
+        run: cmake -S whatkevr -B build/macos -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }}
+      - name: Build
+        run: cmake --build build/macos --parallel 3
+      - name: Package
+        run: ditto -c -k --sequesterRsrc --keepParent build/macos/bin/whatkevr build/whatevr-${RELEASE_TAG}-macos-${{ matrix.arch }}.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: build/*.zip
+
+  linux-x86_64:
+    name: Linux x86_64 artifact
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Explain unsupported Ubuntu toolchain
+        run: |
+          echo "The supported Linux build runs in the Arch release workflow." \
+               "This job remains experimental until KDE Craft/Flatpak toolchains are provisioned."
+          exit 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64
+          path: build/whatevr-*
+
+  linux-aarch64:
+    name: Linux aarch64 artifact
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Explain unsupported ARM KDE toolchain
+        run: |
+          echo "ARM64 packaging requires a KDE/Qt cross toolchain not available" \
+               "in the standard GitHub Ubuntu runner image."
+          exit 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-aarch64
+          path: build/whatevr-*
+
+  linux-packages:
+    name: Linux package recipes
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+      - name: Build AppImage, deb, Snap, and Flatpak when toolchains are available
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev
+          if test -f packaging/appimage/AppImageBuilder.yml; then
+            sudo apt-get install -y appimage-builder
+            appimage-builder --recipe packaging/appimage/AppImageBuilder.yml
+          fi
+          if test -f packaging/snap/snapcraft.yaml; then
+            sudo apt-get install -y snapcraft
+            snapcraft --destructive-mode
+          fi
+          if test -d packaging/flatpak; then
+            sudo apt-get install -y flatpak flatpak-builder
+            flatpak-builder --force-clean build/flatpak packaging/flatpak/*.yml
+          fi
+          if test -f packaging/debian/control; then dpkg-buildpackage -us -uc -b; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-packages
+          path: |
+            build/*.AppImage
+            build/*.deb
+            build/*.snap
+            build/*.flatpak
+          if-no-files-found: ignore
+
+  publish:
+    name: Publish cross-platform assets
+    needs: [windows, macos, linux-x86_64, linux-aarch64, linux-packages]
+    if: always() && (startsWith(github.ref, 'refs/tags/v') || inputs.tag != '')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+      - name: Flatten assets
+        run: find release-assets -type f -exec cp {} release-assets/ \; 2>/dev/null || true
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: release-assets/**
+          fail_on_unmatched_files: false
