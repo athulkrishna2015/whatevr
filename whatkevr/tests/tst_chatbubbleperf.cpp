@@ -83,6 +83,7 @@ QVariantMap baseProps()
         {QStringLiteral("senderName"), QStringLiteral("Aditi")},
         {QStringLiteral("senderAvatarLocalPath"), QString()},
         {QStringLiteral("senderInitials"), QStringLiteral("A")},
+        {QStringLiteral("senderDevice"), 0},
         {QStringLiteral("showSenderHeader"), false},
         {QStringLiteral("showSenderAvatar"), false},
         {QStringLiteral("showSenderGutter"), false},
@@ -122,6 +123,7 @@ QVariantMap baseProps()
         {QStringLiteral("waiting"), QVariantMap()},
         {QStringLiteral("isRevoked"), false},
         {QStringLiteral("isEdited"), false},
+        {QStringLiteral("isForwarded"), false},
         {QStringLiteral("isStarred"), false},
         {QStringLiteral("isPinned"), false},
         {QStringLiteral("mediaDownloading"), false},
@@ -362,6 +364,14 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("showSenderHeader"), true},
                     {QStringLiteral("showSenderAvatar"), true},
                     {QStringLiteral("showSenderGutter"), true}}), 85},
+        // Forwarded header active: the loader instantiates its label subtree.
+        // Budget is the measured ceiling (see below).
+        {"text-forwarded",
+         withProps(baseProps(),
+                   {{QStringLiteral("messageId"), QStringLiteral("m10")},
+                    {QStringLiteral("text"), shortBody},
+                    {QStringLiteral("layoutText"), shortBody},
+                    {QStringLiteral("isForwarded"), true}}), 59},
         {"image",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m6")},
@@ -369,7 +379,7 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("hasMedia"), true},
                     {QStringLiteral("mediaMimeType"), QStringLiteral("image/jpeg")},
                     {QStringLiteral("mediaWidth"), 1280},
-                    {QStringLiteral("mediaHeight"), 720}}), 113},
+                    {QStringLiteral("mediaHeight"), 720}}), 114},
         {"video",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m6-video")},
@@ -389,7 +399,7 @@ void ChatBubblePerf::delegateCost_data()
                    {{QStringLiteral("messageId"), QStringLiteral("m7")},
                     {QStringLiteral("mediaKind"), QStringLiteral("sticker")},
                     {QStringLiteral("hasMedia"), true},
-                    {QStringLiteral("mediaMimeType"), QStringLiteral("image/webp")}}), 145},
+                    {QStringLiteral("mediaMimeType"), QStringLiteral("image/webp")}}), 143},
         // A voice note and a video note are the two kinds whose layout is not a
         // picture: one is a fixed-height row inside the bubble, the other a
         // frameless circle with no bubble at all. Both are here so the cost of
@@ -401,7 +411,7 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("mediaKind"), QStringLiteral("voice")},
                     {QStringLiteral("hasMedia"), true},
                     {QStringLiteral("mediaMimeType"), QStringLiteral("audio/ogg")},
-                    {QStringLiteral("mediaDurationSecs"), 6}}), 131},
+                    {QStringLiteral("mediaDurationSecs"), 6}}), 129},
         // The other audio row: a shared track, which is a squared-off tile, a
         // filename and a plain seek line rather than a disc and a waveform.
         {"audio-file",
@@ -412,7 +422,7 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("mediaMimeType"), QStringLiteral("audio/mpeg")},
                     {QStringLiteral("mediaFileName"), QStringLiteral("Interstellar - Main.mp3")},
                     {QStringLiteral("mediaSizeBytes"), 4.2 * 1024 * 1024},
-                    {QStringLiteral("mediaDurationSecs"), 204}}), 137},
+                    {QStringLiteral("mediaDurationSecs"), 204}}), 135},
         {"video-note",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m9")},
@@ -421,7 +431,7 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("mediaMimeType"), QStringLiteral("video/mp4")},
                     {QStringLiteral("mediaWidth"), 480},
                     {QStringLiteral("mediaHeight"), 480},
-                    {QStringLiteral("mediaDurationSecs"), 11}}), 172},
+                    {QStringLiteral("mediaDurationSecs"), 11}}), 170},
     };
 
     for (const Sample &s : samples) {
@@ -2075,7 +2085,12 @@ void ChatBubblePerf::openingAChatBuildsItsWindowWithinBudget()
     //   band open, one Loader per media kind   4180 settled (76/row), 1462 painted, ~197ms
     //   band shut, one Loader for the family   3740 settled (68/row), 1310 painted,  ~65ms
     //   one Loader for the row's overlays      3473 settled (63/row), 1223 painted,  ~52ms
-    constexpr int kMaxObjects = 3580;
+    //
+    // Raised to 3900 after Arch/Qt 6.11 materialised 58 rows (3795 objects,
+    // 65.4/row) where the pinned baseline materialised 52 (3408, 65.5/row):
+    // the per-row cost is unchanged, so this is the runner's viewport math,
+    // not delegate regrowth. Keep close to measured; do not pad.
+    constexpr int kMaxObjects = 3900;
 
     CollectionViewModel source;
     ProtocolMessageModel model(&source);
