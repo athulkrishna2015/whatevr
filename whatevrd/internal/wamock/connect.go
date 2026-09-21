@@ -28,7 +28,13 @@ func (s *session) onConnected(ctx context.Context) error {
 		Server: types.DefaultUserServer,
 	}
 	s.lid = lidFor(s.jid)
-	return s.sendSuccess(ctx)
+	if err := s.sendSuccess(ctx); err != nil {
+		return err
+	}
+	// Everything the world has to say happens off the read loop: the client
+	// still has to upload its prekeys, and it cannot do that while we block.
+	go s.postLogin(ctx)
+	return nil
 }
 
 // sendSuccess is the node that flips whatsmeow's isLoggedIn. It is ignored

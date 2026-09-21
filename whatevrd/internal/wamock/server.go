@@ -43,10 +43,6 @@ type Options struct {
 	// is what you want when the QR screen itself is the thing being looked at.
 	ScanDelay time.Duration
 
-	// PreSeeded skips the QR entirely, for scenarios that want to boot straight
-	// into a logged-in account.
-	PreSeeded bool
-
 	// Login is the daemon's login event stream. The mock needs it to read the
 	// QR it is meant to scan, because the adv secret exists nowhere else.
 	Login LoginWatcher
@@ -77,10 +73,21 @@ type Server struct {
 	account *keys.KeyPair
 	keys    *clientKeys
 
-	mu       sync.Mutex
-	sessions map[*session]struct{}
-	closed   bool
-	paired   *pairedDevice
+	// world is what the scenario built: contacts, chats and the messages that
+	// are meant to already be there.
+	world *World
+
+	// keysReady closes once the client has uploaded the identity and signed
+	// prekey the mock needs before it can encrypt anything.
+	keysReady chan struct{}
+	keysOnce  sync.Once
+
+	mu          sync.Mutex
+	sessions    map[*session]struct{}
+	peers       map[string]*peer
+	closed      bool
+	paired      *pairedDevice
+	liveSession *session
 }
 
 func New(opts Options) (*Server, error) {
@@ -107,16 +114,23 @@ func New(opts Options) (*Server, error) {
 	if opts.AccountName == "" {
 		opts.AccountName = defaultAccountName
 	}
-	return &Server{
-		opts:     opts,
-		log:      opts.Logger,
-		ident:    ident,
-		tlsID:    tlsID,
-		rng:      rng,
-		account:  account,
-		keys:     &clientKeys{},
-		sessions: make(map[*session]struct{}),
-	}, nil
+	srv := &Server{
+		opts:      opts,
+		log:       opts.Logger,
+		ident:     ident,
+		tlsID:     tlsID,
+		rng:       rng,
+		account:   account,
+		keys:      &clientKeys{},
+		keysReady: make(chan struct{}),
+		sessions:  make(map[*session]struct{}),
+		peers:     make(map[string]*peer),
+	}
+	srv.world = newWorld(srv)
+	if scenario, ok := Lookup(opts.Scenario); ok && scenario.Build != nil {
+		scenario.Build(srv.world)
+	}
+	return srv, nil
 }
 
 // Start binds the listener and redirects the process at it. It must run before
@@ -209,6 +223,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	defer func() {
+		s.clearLive(sess)
 		s.mu.Lock()
 		delete(s.sessions, sess)
 		s.mu.Unlock()

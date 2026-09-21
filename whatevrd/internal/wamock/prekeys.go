@@ -60,6 +60,9 @@ func (s *Server) capturePreKeys(node *waBinary.Node) {
 		}
 	}
 	s.log.Printf("captured %d prekeys, registration %d", len(s.keys.preKeys), s.keys.registrationID)
+	if s.keys.identityKey != nil && s.keys.signedPreKey != nil {
+		s.keysOnce.Do(func() { close(s.keysReady) })
+	}
 }
 
 // takePreKey hands out one uploaded prekey for an X3DH. Real WhatsApp burns a

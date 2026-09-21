@@ -66,6 +66,10 @@ func (s *session) handleIQ(ctx context.Context, node *waBinary.Node) error {
 		return s.handleEncryptIQ(ctx, node)
 	case "passive":
 		return s.sendNode(ctx, iqResult(node))
+	case "w:g2":
+		return s.handleGroupIQ(ctx, node)
+	case "usync":
+		return s.handleUsyncIQ(ctx, node)
 	default:
 		// Answering rather than dropping matters: an unanswered info query
 		// stalls the daemon for the full 60s command timeout. Later stages

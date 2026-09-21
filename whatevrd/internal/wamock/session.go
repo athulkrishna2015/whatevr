@@ -53,15 +53,28 @@ type session struct {
 	// result can be told apart from any other iq it answers.
 	pairRequestID string
 
+	// outbox serialises everything the server originates after login, so
+	// stanzas reach the client in the order the scenario produced them.
+	outbox chan func(context.Context) error
+	// done closes when the connection is gone, so a scenario goroutine parked
+	// on a full outbox is released rather than leaked.
+	done chan struct{}
+
 	closeOnce sync.Once
 }
 
 func newSession(srv *Server, conn *websocket.Conn) *session {
-	return &session{srv: srv, conn: conn}
+	return &session{
+		srv:    srv,
+		conn:   conn,
+		outbox: make(chan func(context.Context) error, outboxDepth),
+		done:   make(chan struct{}),
+	}
 }
 
 func (s *session) close(code websocket.StatusCode, reason string) {
 	s.closeOnce.Do(func() {
+		close(s.done)
 		_ = s.conn.Close(code, reason)
 	})
 }

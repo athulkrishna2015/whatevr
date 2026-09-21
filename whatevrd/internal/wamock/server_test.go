@@ -46,20 +46,21 @@ func (t *testLogin) publish(code string) {
 	}
 }
 
-// TestPairAndLogin drives a real whatsmeow client through the whole of stage 0:
-// the Noise handshake against our fabricated cert chain, QR pairing, the 515
-// restart, and the login that follows. If the wire format drifts, this is what
-// notices.
-func TestPairAndLogin(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
+func discardLogger() *log.Logger { return log.New(io.Discard, "", 0) }
+
+// dialMock brings up a mock server and drives a real whatsmeow client through
+// pairing into a logged-in session. Everything below the daemon runs exactly as
+// it does in production, which is the only reason any of these tests mean
+// anything.
+func dialMock(ctx context.Context, t *testing.T, opts Options) (*Server, *whatsmeow.Client, <-chan *events.Message) {
+	t.Helper()
 
 	login := &testLogin{}
-	srv, err := New(Options{
-		Seed:   7,
-		Logger: log.New(io.Discard, "", 0),
-		Login:  login,
-	})
+	opts.Login = login
+	if opts.Logger == nil {
+		opts.Logger = discardLogger()
+	}
+	srv, err := New(opts)
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
@@ -83,10 +84,17 @@ func TestPairAndLogin(t *testing.T) {
 	t.Cleanup(cli.Disconnect)
 
 	connected := make(chan struct{})
+	messages := make(chan *events.Message, 64)
 	var once sync.Once
 	cli.AddEventHandler(func(raw any) {
-		if _, ok := raw.(*events.Connected); ok {
+		switch evt := raw.(type) {
+		case *events.Connected:
 			once.Do(func() { close(connected) })
+		case *events.Message:
+			select {
+			case messages <- evt:
+			default:
+			}
 		}
 	})
 
@@ -107,12 +115,23 @@ func TestPairAndLogin(t *testing.T) {
 	if err := cli.Connect(); err != nil {
 		t.Fatalf("connect: %v", err)
 	}
-
 	select {
 	case <-connected:
 	case <-ctx.Done():
 		t.Fatal("timed out waiting for the client to authenticate")
 	}
+	return srv, cli, messages
+}
+
+// TestPairAndLogin drives a real whatsmeow client through the whole of stage 0:
+// the Noise handshake against our fabricated cert chain, QR pairing, the 515
+// restart, and the login that follows. If the wire format drifts, this is what
+// notices.
+func TestPairAndLogin(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	srv, cli, _ := dialMock(ctx, t, Options{Seed: 7})
 
 	if !cli.IsLoggedIn() {
 		t.Fatal("client reports it is not logged in after Connected")

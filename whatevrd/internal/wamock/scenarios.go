@@ -8,15 +8,15 @@ import (
 	"sync"
 )
 
-// Scenario builds the world a mock run serves. Stage 0 has nothing to build
-// yet, so the registry exists mainly so --mock validates its argument and
-// --mock-list has something to print.
+// Scenario builds the world a mock run serves: who is in the account and what
+// happens in it. Scenarios are Go, not data, so a scenario is type checked
+// against the world model and can compute what it needs.
 type Scenario struct {
 	Name        string
 	Description string
 
-	// Configure adjusts the server before it binds.
-	Configure func(o *Options)
+	// Build populates the world before the daemon connects.
+	Build func(w *World)
 }
 
 var (
@@ -50,11 +50,4 @@ func List() []Scenario {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
-}
-
-func init() {
-	Register(Scenario{
-		Name:        "empty",
-		Description: "a freshly paired account with no chats",
-	})
 }

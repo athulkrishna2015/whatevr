@@ -93,16 +93,6 @@ func mockPrepare() *mockRun {
 		AccountPhone: *phone,
 		ScanDelay:    *scanDelay,
 	}
-	if found.Configure != nil {
-		found.Configure(&opts)
-	}
-	// An explicit flag beats whatever the scenario wanted.
-	if *phone != "" {
-		opts.AccountPhone = *phone
-	}
-	if *scanDelay != 0 {
-		opts.ScanDelay = *scanDelay
-	}
 	return &mockRun{scenario: found, dir: root, opts: opts}
 }
 

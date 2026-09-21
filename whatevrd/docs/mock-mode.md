@@ -103,9 +103,85 @@ The one-off `WA\x06\x03` header only prefixes the client's very first frame,
 and a WhatsApp frame is not the same thing as a websocket message: frames split
 and coalesce across them freely.
 
+## Scenarios
+
+A scenario is Go, not data. It gets a `*wamock.World` and describes an account:
+
+```go
+func buildVisual(w *wamock.World) {
+    asha := w.Contact("917770000001", "Asha")
+    ravi := w.Contact("917770000002", "Ravi")
+
+    group := w.Group("Visual Test Group", asha, ravi)
+    group.Say(asha, "READY-HARNESS: stable synthetic conversation", wamock.Ago(3*time.Hour))
+    group.SayFromMe("this side is the account itself", wamock.Ago(2*time.Hour))
+
+    w.After(3*time.Second, func() { group.Say(ravi, "live", time.Now()) })
+}
+```
+
+Anything said while the world is being built is backlog: it reaches the daemon
+as an offline sync the moment the frontend logs in, so it is already there when
+the first frame draws. Anything said from an `After` callback goes out live, on
+the wire, while a frontend watches. That second kind is the thing no static
+fixture can produce.
+
+Timestamps are relative (`wamock.Ago`) so day dividers land in the right place
+whatever day the scenario runs on.
+
+Register in `scenarios_builtin.go`; `--mock-list` prints the registry. The
+strings `READY-HARNESS` and `Visual Test Group` in the `visual` scenario are
+load-bearing: `scripts/whattui-screenshot` waits for them on screen, so
+renaming either breaks the harness rather than the scenario.
+
+## How a message is delivered
+
+Every message goes through real Signal encryption, because whatsmeow will not
+accept anything else.
+
+The client uploads its prekey bundle right after login, and `prekeys.go` keeps
+it rather than counting it. Each person in the world is a separate mock device
+with its own identity key and its own `memSignalStore`; the first message from
+one runs an X3DH against that bundle and comes out as a `pkmsg`, and everything
+after it rides the ratchet as a `msg`. `padMessage` is whatsmeow's v2 padding,
+reimplemented because it is unexported there.
+
+Two things about addressing are worth knowing, because both fail silently:
+
+- **The account's own device does not get to pick its identity key.** At pair
+  time whatsmeow writes the account signature key down as the identity of
+  `<account>@lid` device 0. A message from the account's other device has to be
+  signed with that same key or the client reports the account as having been
+  taken over.
+- **whatsmeow decrypts under a LID whenever its store knows one**, and the one
+  it always knows is the account's own. So messages from the account are
+  encrypted to a LID address and messages from everyone else to a phone number.
+
+Contacts stay on phone numbers rather than LIDs on purpose. The mock never
+hands out a LID mapping for them, so the daemon keeps addressing them by
+number, which is what makes a mock account readable.
+
+Group chats are announced with a `w:gp2` create notification before their first
+message. Without it the daemon has nothing to name them: it deliberately skips
+its group info lookup for messages that arrive in an offline sync, and the
+names a real account gets at that point come from a history sync.
+
 ## Scope
 
-Stage 0 covers the handshake, pairing and login. Inbound messages, receipts,
-history sync, app state and media arrive in later stages; until then an
-unhandled info query is answered with an empty result and logged as
-`unanswered iq xmlns=...`, which is the list of what is left to build.
+Stages 0 and 1 are in: handshake, pairing, login, a world model, scenarios,
+inbound messages in direct and group chats, group metadata and contact
+lookups.
+
+Still to come, in the order they are planned: sending and receipts, history
+sync, app state, media. Until then an unhandled info query is answered with an
+empty result and logged as `unanswered iq xmlns=...`, which is the running list
+of what is left to build.
+
+Two gaps follow from that and are visible in the UI today:
+
+- **Direct chats are named by phone number, not by contact name.** The daemon
+  prefers a saved address-book name and falls back to the number; saved names
+  only ever arrive through history sync or app state, so they land in later
+  stages. Push names do work, which is why a group shows `~Asha` as a sender.
+- **Pin, archive, mute and unread state are not scripted yet.** They are app
+  state, so they arrive with it.
