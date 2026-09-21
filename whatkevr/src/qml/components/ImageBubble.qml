@@ -227,12 +227,19 @@ Item {
 
             Button {
                 anchors.horizontalCenter: parent.horizontalCenter
-                visible: !imageBubble.row.hasLocalImage && !imageBubble.row.mediaDownloading
-                icon.name: "folder-download-symbolic"
-                text: Whatevr.I18n.i18nc("@action:button", "Load image")
+                visible: !imageBubble.row.hasLocalImage || imageBubble.row.mediaDownloading
+                icon.name: imageBubble.row.mediaDownloading
+                           ? "process-stop-symbolic"
+                           : "folder-download-symbolic"
+                text: imageBubble.row.mediaDownloading
+                       ? Whatevr.I18n.i18nc("@action:button", "Cancel")
+                       : Whatevr.I18n.i18nc("@action:button", "Load image")
                 enabled: imageBubble.row.messageId.length > 0
                 onClicked: {
-                    Whatevr.ProtocolController.downloadMessageMedia(imageBubble.row.messageId)
+                    if (imageBubble.row.mediaDownloading)
+                        Whatevr.ProtocolController.cancelMessageMediaDownload(imageBubble.row.messageId)
+                    else
+                        Whatevr.ProtocolController.downloadMessageMedia(imageBubble.row.messageId)
                     imageBubble.row.conversationFocusRequested()
                 }
             }

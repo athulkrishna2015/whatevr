@@ -7,6 +7,14 @@ PROTOCOL.md (stable at version 1: additive changes only).
 
 ### Fixed
 
+- Media downloads are cancellable by tapping the download control: every
+  bubble's download button/ring toggles between start and cancel
+  (`media.cancel_download`), and the context menu keeps its Cancel entry.
+- Pending uploads animate (spinner in place of the clock) and cancel the
+  same way: tapping the footer status or the new Cancel Send menu entry
+  marks the queued message failed via new `send.cancel` (already-sent
+  messages are rejected, never rewritten).
+
 - Send size caps now match the official Web client: videos up to 100 MiB and
   any file staged as a document (including photos, videos and audio) up to
   2 GiB; other media stays at 25 MiB. The server remains authoritative;

@@ -46,6 +46,11 @@ Item {
     function activate() {
         if (row.messageId.length === 0)
             return
+        // Tapping a running download cancels it; tapping otherwise starts it.
+        if (row.mediaDownloading) {
+            Whatevr.ProtocolController.cancelMessageMediaDownload(row.messageId)
+            return
+        }
         if (hasFile) {
             if (!Whatevr.ProtocolController.openLocalFile(row.mediaLocalPath))
                 root.row.conversationFocusRequested()

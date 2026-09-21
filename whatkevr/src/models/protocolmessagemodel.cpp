@@ -1291,6 +1291,7 @@ QVariantMap ProtocolMessageModel::nextVoiceMessage(const QString &messageId) con
             {QStringLiteral("avatarPath"), sender(item).value(QStringLiteral("avatar_path"))},
             {QStringLiteral("waveform"), mediaData.value(QStringLiteral("waveform"))},
             {QStringLiteral("isOutgoing"), item.value(QStringLiteral("direction")).toString() == QLatin1String("outgoing")},
+            {QStringLiteral("status"), statusValue(item.value(QStringLiteral("status")).toString())},
         };
     }
     return {};

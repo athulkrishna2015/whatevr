@@ -86,6 +86,7 @@ QtObject {
     }
 
     /// Plays from the local file when it exists, otherwise fetches it first.
+    /// Tapping a running download cancels it instead.
     function activate() {
         if (row.messageId.length === 0)
             return
@@ -96,8 +97,10 @@ QtObject {
                                        nowPlayingContext())
             return
         }
-        if (row.mediaDownloading)
+        if (row.mediaDownloading) {
+            Whatevr.ProtocolController.cancelMessageMediaDownload(row.messageId)
             return
+        }
         Whatevr.ProtocolController.downloadMessageMedia(row.messageId)
     }
 

@@ -287,6 +287,11 @@ Item {
             // fighting the viewer for the clip.
             return
         case "downloading":
+            // Tapping a running download (or stream) cancels it instead of
+            // stacking another request behind it.
+            Whatevr.ProtocolController.cancelMessageMediaDownload(row.messageId)
+            root.requestPending = false
+            root.playAfterDownload = false
             return
         case "needsDownload":
             requestPlayback()

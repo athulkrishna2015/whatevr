@@ -265,13 +265,21 @@ Item {
         }
 
         // The download affordance, in the same shape every other kind uses.
+        // While downloading it becomes the cancel affordance instead.
         MediaOverlayButton {
             anchors.centerIn: parent
-            visible: !root.hasMap && !root.row.mediaDownloading && root.row.mediaDownloadError.length === 0
-            text: Whatevr.I18n.i18nc("@action fetch the map for a shared location", "Load map")
+            visible: (!root.hasMap && !root.row.mediaDownloading && root.row.mediaDownloadError.length === 0)
+                     || root.row.mediaDownloading
+            text: root.row.mediaDownloading
+                   ? Whatevr.I18n.i18nc("@action cancel the map download", "Cancel")
+                   : Whatevr.I18n.i18nc("@action fetch the map for a shared location", "Load map")
             onClicked: {
-                if (root.row.messageId.length > 0)
-                    Whatevr.ProtocolController.downloadMessageMedia(root.row.messageId)
+                if (root.row.messageId.length > 0) {
+                    if (root.row.mediaDownloading)
+                        Whatevr.ProtocolController.cancelMessageMediaDownload(root.row.messageId)
+                    else
+                        Whatevr.ProtocolController.downloadMessageMedia(root.row.messageId)
+                }
             }
         }
 

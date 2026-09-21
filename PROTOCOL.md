@@ -290,6 +290,7 @@ views.
 | `schedule.text` | `chat_id`, `text`, `send_at` (Unix seconds) | `{scheduled_id}`: durable one-shot text send |
 | `send.media` | `chat_id`, `path`, `caption`, `reply_to`, `mentions`, `kind` (`image`\|`video`\|`audio`\|`voice`\|`document`, empty auto-classifies from the file), `view_once` (photo/video/audio only), `filename` (document display-name override) | `{message_id}`: daemon copies the file into its cache immediately; the caller may delete its copy on return |
 | `send.sticker` | `chat_id`, `cache_key`, `reply_to` | `{message_id}` |
+| `send.cancel` | `message_id` | `{}`: marks a still-pending outgoing message failed so the send worker skips it. Fails `rejected` when the message already left the queue |
 | `message.react` | `message_id`, `emoji` ("" removes) | `{}` |
 | `message.edit` | `message_id`, `text` | `{}`: may fail `expired` |
 | `message.revoke` | `message_id` | `{}`: may fail `expired` |

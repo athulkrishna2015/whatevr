@@ -115,6 +115,7 @@ func (fixtureCommands) DownloadMessageMedia(context.Context, string) (appstore.M
 func (fixtureCommands) CancelMessageMediaDownload(context.Context, string) error {
 	return nil
 }
+func (fixtureCommands) CancelPendingSend(context.Context, string) error { return nil }
 func (fixtureCommands) StreamMessageMedia(_ context.Context, messageID string, _ func(app.MediaStreamUpdate)) (app.MediaStream, error) {
 	return app.MediaStream{
 		StreamID:  "fixture-" + messageID,

@@ -2565,6 +2565,8 @@ Item {
         readonly property string ctxMediaFileName: ctxValid ? String(ctx.mediaFileName || "") : ""
         readonly property real ctxTimestampUnix: ctxValid ? Number(ctx.timestampUnix || 0) : 0
         readonly property bool ctxMediaDownloading: ctxValid && Boolean(ctx.mediaDownloading)
+        // An outgoing message still waiting in the send queue (status 1).
+        readonly property bool ctxPendingUpload: ctxValid && Boolean(ctx.isOutgoing) && Number(ctx.status || 0) === 1
         readonly property string ctxMediaDownloadError: ctxValid ? String(ctx.mediaDownloadError || "") : ""
         readonly property int ctxSenderDevice: ctxValid ? Number(ctx.senderDevice || 0) : 0
         // Anything with media that is not on disk and not already coming down.
@@ -2896,6 +2898,13 @@ Item {
             text: Whatevr.I18n.i18nc("@action:inmenu", "Cancel Download")
             visible: messageContextMenu.ctxMediaDownloading
             onTriggered: Whatevr.ProtocolController.cancelMessageMediaDownload(messageContextMenu.ctxMessageId)
+        }
+
+        MenuItem {
+            icon.name: "process-stop-symbolic"
+            text: Whatevr.I18n.i18nc("@action:inmenu", "Cancel Send")
+            visible: messageContextMenu.ctxPendingUpload
+            onTriggered: Whatevr.ProtocolController.cancelPendingSend(messageContextMenu.ctxMessageId)
         }
 
         MenuSeparator {

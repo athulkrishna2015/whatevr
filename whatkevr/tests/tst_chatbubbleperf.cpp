@@ -60,6 +60,11 @@ struct Sample {
     // hover away from every button and field inside a card; the mask cuts the
     // card's rectangle out of it. One object per row buys working hover for
     // every card kind there will ever be, so it is a one-time +1 as well.
+    //
+    // Outgoing rows carry 2 more than the same row incoming: the footer clock
+    // spins while the upload is queued (one RotationAnimator on the existing
+    // icon, not a BusyIndicator with its own animation subtree) and tapping
+    // it cancels the send (one TapHandler). Only the outgoing sample pays it.
     int maxObjects;
 };
 
@@ -341,7 +346,7 @@ void ChatBubblePerf::delegateCost_data()
                     {QStringLiteral("text"), shortBody},
                     {QStringLiteral("layoutText"), shortBody},
                     {QStringLiteral("isOutgoing"), true},
-                    {QStringLiteral("status"), 4}}), 62},
+                    {QStringLiteral("status"), 4}}), 64},
         {"multiline-text",
          withProps(baseProps(),
                    {{QStringLiteral("messageId"), QStringLiteral("m3")},

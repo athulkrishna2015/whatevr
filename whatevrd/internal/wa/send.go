@@ -1545,6 +1545,27 @@ func (c *Client) markPendingMessageSent(ctx context.Context, messageID string) {
 	c.logSendTimeline(messageID, c.finishSendTiming(messageID))
 }
 
+// CancelPendingSend stops an upload that has not left the queue yet: a
+// still-pending outgoing message is marked failed so the send worker skips
+// it. Anything already sent is left alone (the worker claims rows by status,
+// so a send that already started keeps its result and the cancel reports it
+// as no longer pending).
+func (c *Client) CancelPendingSend(ctx context.Context, messageID string) error {
+	messageID = strings.TrimSpace(messageID)
+	if messageID == "" {
+		return app.NewCommandError(app.CommandErrorInvalidArgument, "message_id is required")
+	}
+	message, err := c.store.GetMessage(ctx, messageID)
+	if err != nil {
+		return err
+	}
+	if message.Direction != appstore.DirectionOutgoing || message.Status != appstore.StatusPending {
+		return app.NewCommandError(app.CommandErrorRejected, "message is not a pending outgoing message")
+	}
+	c.markPendingMessageFailed(ctx, messageID, "cancelled by user")
+	return nil
+}
+
 func (c *Client) markPendingMessageFailed(ctx context.Context, messageID string, reason string) {
 	c.finishSendTiming(messageID)
 	message, changed, err := c.store.UpdateMessageStatus(ctx, messageID, appstore.StatusFailed)

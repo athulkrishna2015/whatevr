@@ -675,6 +675,9 @@ public:
     /// Stops an in-flight fetch. What has already landed is kept, so asking for
     /// the media again resumes instead of starting over.
     Q_INVOKABLE void cancelMessageMediaDownload(const QString &messageId);
+    /// Stops an upload still waiting in the send queue by marking it failed.
+    /// Anything already sent is left alone (the daemon rejects the cancel).
+    Q_INVOKABLE void cancelPendingSend(const QString &messageId);
     /// Reports that the user listened to a voice note, which sends a played
     /// receipt. Repeat calls are no-ops daemon-side.
     Q_INVOKABLE void markMessagePlayed(const QString &messageId);

@@ -137,6 +137,7 @@ type fakeCommandActions struct {
 	streamMessage          string
 	streamUpdate           func(app.MediaStreamUpdate)
 	cancelledMessage       string
+	cancelledSend          string
 	playedMessage          string
 	rerequestedMessage     string
 	fetchJID               string
@@ -375,6 +376,12 @@ func (f *fakeCommandActions) CancelMessageMediaDownload(_ context.Context, messa
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.cancelledMessage = messageID
+	return f.err
+}
+func (f *fakeCommandActions) CancelPendingSend(_ context.Context, messageID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cancelledSend = messageID
 	return f.err
 }
 func (f *fakeCommandActions) VotePoll(context.Context, string, []int) error { return nil }
@@ -915,6 +922,23 @@ func TestC2MessageAndMediaCommands(t *testing.T) {
 				t.Fatalf("download call = %q", got)
 			}
 		}},
+		{`{"id":81,"method":"send.cancel","params":{"message_id":"m1"}}`, func(t *testing.T) {
+			if actions.cancelledSend != "m1" {
+				t.Fatalf("send.cancel call = %q", actions.cancelledSend)
+			}
+		}},
+	}
+	for _, tc := range cases {
+		c.sendLine(tc.line)
+		if _, ok := c.recv()["result"].(map[string]any); !ok {
+			t.Fatalf("command failed for %s", tc.line)
+		}
+		tc.want(t)
+	}
+
+	c.sendLine(`{"id":82,"method":"send.cancel","params":{}}`)
+	if msg := c.recv(); msg["error"] == nil {
+		t.Fatalf("send.cancel without a message id must fail, got %v", msg)
 	}
 	for _, tc := range cases {
 		c.sendLine(tc.line)

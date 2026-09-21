@@ -112,6 +112,7 @@ type CommandActions interface {
 	DownloadMessageMedia(context.Context, string) (appstore.Message, error)
 	StreamMessageMedia(context.Context, string, func(app.MediaStreamUpdate)) (app.MediaStream, error)
 	CancelMessageMediaDownload(context.Context, string) error
+	CancelPendingSend(context.Context, string) error
 	MarkMessagePlayed(context.Context, string) error
 	RequestMessageFromPhone(context.Context, string) error
 	VotePoll(context.Context, string, []int) error
@@ -225,6 +226,7 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("media.download", cmd.mediaDownload)
 	s.RegisterCommand("media.stream", cmd.mediaStreamCommand)
 	s.RegisterCommand("media.cancel_download", backgroundNet(cmd.mediaCancelDownload, false))
+	s.RegisterCommand("send.cancel", backgroundNet(cmd.sendCancel, false))
 	s.RegisterCommand("media.fetch_profile_picture", backgroundNet(cmd.mediaFetchProfilePicture, true))
 	s.RegisterCommand("media.save", backgroundNet(cmd.mediaSave, false))
 	s.RegisterCommand("status.mark_viewed", backgroundNet(cmd.statusMarkViewed, false))

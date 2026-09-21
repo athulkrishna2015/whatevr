@@ -88,8 +88,10 @@ Item {
             implicitWidth: Kirigami.Units.gridUnit * 2.1
             implicitHeight: implicitWidth
             hoverEnabled: true
-            enabled: root.row.messageId.length > 0 && !root.row.mediaDownloading
+            enabled: root.row.messageId.length > 0
             text: {
+                if (root.row.mediaDownloading)
+                    return Whatevr.I18n.i18nc("@action:button", "Cancel")
                 if (!transport.hasFile)
                     return Whatevr.I18n.i18nc("@action:button", "Download")
                 return root.isPlaying

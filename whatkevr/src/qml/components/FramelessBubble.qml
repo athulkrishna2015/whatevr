@@ -297,17 +297,25 @@ Item {
                 Button {
                     objectName: "sticker.retryButton"
                     anchors.horizontalCenter: parent.horizontalCenter
-                    visible: !framelessRoot.row.hasLocalSticker && !framelessRoot.row.mediaDownloading
+                    visible: (!framelessRoot.row.hasLocalSticker && !framelessRoot.row.mediaDownloading)
+                             || framelessRoot.row.mediaDownloading
                     flat: true
-                    icon.name: framelessRoot.row.mediaDownloadError.length > 0
-                        ? "view-refresh-symbolic"
-                        : "folder-download-symbolic"
-                    text: framelessRoot.row.mediaDownloadError.length > 0
-                        ? Whatevr.I18n.i18nc("@action:button", "Try again")
-                        : Whatevr.I18n.i18nc("@action:button", "Load sticker")
+                    icon.name: framelessRoot.row.mediaDownloading
+                        ? "process-stop-symbolic"
+                        : (framelessRoot.row.mediaDownloadError.length > 0
+                            ? "view-refresh-symbolic"
+                            : "folder-download-symbolic")
+                    text: framelessRoot.row.mediaDownloading
+                        ? Whatevr.I18n.i18nc("@action:button", "Cancel")
+                        : (framelessRoot.row.mediaDownloadError.length > 0
+                            ? Whatevr.I18n.i18nc("@action:button", "Try again")
+                            : Whatevr.I18n.i18nc("@action:button", "Load sticker"))
                     enabled: framelessRoot.row.messageId.length > 0
                     onClicked: {
-                        Whatevr.ProtocolController.downloadMessageMedia(framelessRoot.row.messageId)
+                        if (framelessRoot.row.mediaDownloading)
+                            Whatevr.ProtocolController.cancelMessageMediaDownload(framelessRoot.row.messageId)
+                        else
+                            Whatevr.ProtocolController.downloadMessageMedia(framelessRoot.row.messageId)
                         framelessRoot.row.conversationFocusRequested()
                     }
                 }

@@ -2506,6 +2506,18 @@ void ProtocolController::cancelMessageMediaDownload(const QString &messageId)
                       [](const QJsonObject &, const ProtocolError &) {});
 }
 
+void ProtocolController::cancelPendingSend(const QString &messageId)
+{
+    if (messageId.isEmpty()) {
+        return;
+    }
+    // Fire and forget: the messages view reports the row flipping to failed,
+    // and a rejection just means the send had already left the queue.
+    m_client->request(QStringLiteral("send.cancel"),
+                      {{QStringLiteral("message_id"), messageId}},
+                      [](const QJsonObject &, const ProtocolError &) {});
+}
+
 void ProtocolController::streamMessageMedia(const QString &messageId)
 {
     if (messageId.isEmpty()) {

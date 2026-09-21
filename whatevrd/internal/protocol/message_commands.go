@@ -86,6 +86,22 @@ func (h commandHandlers) scheduleCancel(_ *conn, req request) (any, *Error) {
 	return nil, mapCommandError(h.actions.CancelScheduledMessage(context.Background(), p.ID))
 }
 
+// sendCancel stops an upload still waiting in the send queue by marking it
+// failed. Anything already sent is rejected, not rewritten.
+func (h commandHandlers) sendCancel(ctx context.Context, _ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p messageIDParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if err := p.valid(); err != nil {
+		return nil, err
+	}
+	return nil, mapCommandError(h.actions.CancelPendingSend(ctx, strings.TrimSpace(p.MessageID)))
+}
+
 type sendTextParams struct {
 	ChatID   string   `json:"chat_id"`
 	Text     string   `json:"text"`

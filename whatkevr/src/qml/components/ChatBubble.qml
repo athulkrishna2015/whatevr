@@ -624,6 +624,9 @@ Item {
     // 0=UNSPECIFIED, 1=PENDING, 2=SENT, 3=DELIVERED, 4=READ, 5=FAILED
     readonly property bool statusIsFailed: status === 5
     readonly property bool statusIsRead: status === 4
+    // An outgoing message still waiting in the send queue: its footer clock
+    // spins, and tapping it cancels the send.
+    readonly property bool isPendingUpload: root.isOutgoing && root.status === 1
     readonly property bool statusIsDoubleTick: status === 3 || status === 4  // delivered or read
     readonly property string statusSingleIcon: {
         switch (status) {
@@ -1614,9 +1617,32 @@ Item {
                     sourceComponent: Item {
                         anchors.fill: parent
 
+                        // A pending upload spins its clock instead of showing
+                        // it static, and tapping it cancels the send while it
+                        // is still queued daemon-side. One animator, not a
+                        // BusyIndicator: the Controls spinner drags its own
+                        // animation subtree onto every outgoing row (DN9).
+                        RotationAnimator {
+                            target: pendingIcon
+                            running: root.isPendingUpload
+                            from: 0
+                            to: 360
+                            duration: 1200
+                            loops: Animation.Infinite
+                            onRunningChanged: if (!running) pendingIcon.rotation = 0
+                        }
+
+                        TapHandler {
+                            enabled: root.isPendingUpload && !root.selectionModeActive
+                            acceptedButtons: Qt.LeftButton
+                            cursorShape: Qt.PointingHandCursor
+                            onTapped: Whatevr.ProtocolController.cancelPendingSend(root.messageId)
+                        }
+
                         // Doubles as the single icon (clock / tick / error) and
                         // as the first of the two delivered/read ticks.
                         Kirigami.Icon {
+                            id: pendingIcon
                             x: root.statusIsDoubleTick
                                ? 0
                                : Math.round((parent.width - width) / 2)
