@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 
 QT_BEGIN_NAMESPACE
 class QLocalSocket;
@@ -39,7 +40,21 @@ struct ProtocolError {
 class ViewSink
 {
 public:
+    ViewSink() = default;
     virtual ~ViewSink() = default;
+    ViewSink(const ViewSink &) = delete;
+    ViewSink &operator=(const ViewSink &) = delete;
+
+    // A token that dies with this sink.
+    //
+    // The client holds sinks across a whole socket drain to bracket the run of
+    // events as one transaction, and a sink can be destroyed part way through
+    // one: a handler reacting to an event evicts the warm window it belongs to,
+    // and the batch list is then holding a pointer to freed memory that it will
+    // call at the end of the drain. A raw pointer cannot answer "is this still
+    // there", so anything keeping one past the call it arrived in keeps this
+    // beside it and checks.
+    [[nodiscard]] std::weak_ptr<const void> lifetime() const { return m_alive; }
 
     // Insert or replace the item with this `item["id"]`, positioned by `sort`.
     virtual void onUpsert(const QString &sort, const QJsonObject &item) = 0;
@@ -59,6 +74,9 @@ public:
     // no-op for sinks that always apply eagerly.
     virtual void onBatchBegin() {}
     virtual void onBatchEnd() {}
+
+private:
+    std::shared_ptr<const void> m_alive = std::make_shared<char>();
 };
 
 class ProtocolClient;
@@ -190,6 +208,7 @@ private:
     int sendRequest(const QString &method, const QJsonObject &params, ResponseCallback callback);
     void flushPending();
     void scheduleReconnect();
+    void failLater(ResponseCallback callback, const QString &code, const QString &message);
     void failAllPending(const QString &code, const QString &message);
 
     // Subscription plumbing (called by Subscription).
@@ -209,6 +228,8 @@ private:
     QString m_clientName;
     QLocalSocket *m_socket;
     QTimer *m_reconnectTimer;
+    // Bounds how long the daemon may leave `hello` unanswered.
+    QTimer *m_handshakeTimer = nullptr;
     State m_state = State::Idle;
     bool m_running = false;
     int m_nextId = 1;
@@ -219,8 +240,14 @@ private:
     QList<QueuedRequest> m_preHelloQueue; // requests made before Ready
     QHash<int, Subscription *> m_subsBySubId; // by daemon-assigned sub id
     QList<Subscription *> m_subscriptions; // all live subscriptions
+    // A sink with an open batch, plus the token that says whether it is still
+    // alive when the drain ends.
+    struct BatchedSink {
+        ViewSink *sink = nullptr;
+        std::weak_ptr<const void> alive;
+    };
     // Sinks with an open batch, closed at the end of the current socket drain.
-    QList<ViewSink *> m_batchedSinks;
+    QList<BatchedSink> m_batchedSinks;
 };
 
 } // namespace whatevr::proto

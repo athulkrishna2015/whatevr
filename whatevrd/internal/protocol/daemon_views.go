@@ -29,6 +29,7 @@ type DaemonStore interface {
 	StatusLister
 	StatusSenderLister
 	ChannelLister
+	LiveLocationLister
 	SenderDisplayer
 }
 
@@ -81,12 +82,12 @@ func RegisterDaemonViews(s *Server, daemon *app.Daemon, store DaemonStore, actio
 	s.RegisterView("chat_links", chatLinksView{daemon: daemon, lister: store})
 	s.RegisterView("channels", channelsView{daemon: daemon, lister: store})
 	s.RegisterView("channel_messages", channelMessagesView{daemon: daemon, actions: channelActionsFrom(actions)})
-	s.RegisterView("chat_links", chatLinksView{daemon: daemon, lister: store})
 	s.RegisterView("status", statusView{daemon: daemon, lister: store, resolver: store})
 	s.RegisterView("status.kept", statusKeptView{daemon: daemon, lister: store})
 	s.RegisterView("status.muted", statusMutedView{daemon: daemon, lister: store})
 	s.RegisterView("calls", callsView{daemon: daemon, resolver: store})
 	s.RegisterView("daemon.logs", logsView{tailer: actions})
+	s.RegisterView("live_locations", liveLocationsView{daemon: daemon, lister: store})
 	s.RegisterView("stickers", stickersView{daemon: daemon, store: stickerStore})
 	s.RegisterView("sticker_packs", stickerPacksView{daemon: daemon, store: stickerStore, actions: actions})
 	s.RegisterView("sticker_pack", stickerPackView{daemon: daemon, store: stickerStore, actions: actions})

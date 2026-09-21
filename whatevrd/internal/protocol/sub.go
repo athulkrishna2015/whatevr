@@ -209,6 +209,16 @@ func (s *subscription) run() {
 	s.mu.Unlock()
 }
 
+// fetchItems reads the window, letting a session that can fail say so. A plain
+// ViewSession has no way to report one, so its empty answer is taken at face
+// value exactly as before.
+func (s *subscription) fetchItems(max int) ([]Item, error) {
+	if f, ok := s.sess.(FallibleSession); ok {
+		return f.ItemsErr(max)
+	}
+	return s.sess.Items(max), nil
+}
+
 // recompute pulls the current window from the session and emits the
 // difference against what the client holds. Fetching one item beyond the
 // window tells us whether there is anything left to extend into.
@@ -216,17 +226,26 @@ func (s *subscription) recompute(window int) (exhausted, reset bool) {
 	start := time.Now()
 	var items []Item
 	defer func() { logRecompute(s.id, len(items), start) }()
+	// A session that owns its window answers Items(0) with the whole of it.
+	fetch := 0
+	if s.dir == nil && window > 0 {
+		fetch = window + 1
+	}
+	items, err := s.fetchItems(fetch)
+	if err != nil {
+		// The window could not be read, so nothing is known about it. Running the
+		// diff here would compare the client's rows against an empty answer and
+		// remove every one of them, which is how one store error blanked an open
+		// chat. Leave s.sent alone: what was delivered stays on screen, and the
+		// next invalidation recomputes against a store that may answer.
+		log.Printf("protocol: sub %d keeping %d delivered items after a failed read: %v",
+			s.id, len(s.sent), err)
+		return exhausted, false
+	}
 	if s.dir != nil {
-		// The session owns its window: Items(0) is the whole current window and
-		// exhaustion is per the frontier last extended. No prefix trim.
-		items = s.sess.Items(0)
+		// Exhaustion is per the frontier last extended. No prefix trim.
 		exhausted = s.dir.Exhausted()
 	} else {
-		fetch := 0
-		if window > 0 {
-			fetch = window + 1
-		}
-		items = s.sess.Items(fetch)
 		exhausted = true
 		if window > 0 && len(items) > window {
 			items = items[:window]

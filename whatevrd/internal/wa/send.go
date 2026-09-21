@@ -1472,7 +1472,11 @@ func quotedMessageFromStored(message appstore.Message) *waE2E.Message {
 		if message.Text != "" {
 			return &waE2E.Message{Conversation: proto.String(message.Text)}
 		}
-		return &waE2E.Message{Conversation: proto.String(replyMediaSummary(message.MediaKind, message.MediaMimeType))}
+		return &waE2E.Message{Conversation: proto.String(replyMediaSummary(appstore.MessageReply{
+			Text:          message.Text,
+			MediaKind:     message.MediaKind,
+			MediaMimeType: message.MediaMimeType,
+		}))}
 	}
 }
 
@@ -1534,44 +1538,18 @@ func quotedMessageForReply(reply appstore.MessageReply) *waE2E.Message {
 	if reply.Text != "" {
 		return &waE2E.Message{Conversation: proto.String(reply.Text)}
 	}
-	return &waE2E.Message{Conversation: proto.String(replyMediaSummary(reply.MediaKind, reply.MediaMimeType))}
+	return &waE2E.Message{Conversation: proto.String(replyMediaSummary(reply))}
 }
 
-func replyMediaSummary(mediaKind, mediaMimeType string) string {
-	switch mediaKind {
-	case appstore.MediaKindSticker:
-		return "[Sticker]"
-	case appstore.MediaKindVideo:
-		return "[Video]"
-	case appstore.MediaKindGIF:
-		return "[GIF]"
-	case appstore.MediaKindVideoNote:
-		return "[Video message]"
-	case appstore.MediaKindVoice:
-		return "[Voice message]"
-	case appstore.MediaKindAudio:
-		return "[Audio]"
-	case appstore.MediaKindDocument:
-		return "[Document]"
-	case appstore.MediaKindPoll:
-		return "[Poll]"
-	case appstore.MediaKindContact:
-		return "[Contact]"
-	case appstore.MediaKindLocation:
-		return "[Location]"
+// replyMediaSummary is the stand-in body we put in a quote we could not rebuild
+// from the original media. It reads the same as everything else the daemon
+// renders on one line, and the peer's client shows it verbatim inside the
+// quote strip.
+func replyMediaSummary(reply appstore.MessageReply) string {
+	if line := appstore.ReplyPreviewLine(reply); line != "" {
+		return line
 	}
-	switch {
-	case mediaKind == appstore.MediaKindImage || strings.HasPrefix(mediaMimeType, "image/"):
-		return "[Image]"
-	case strings.HasPrefix(mediaMimeType, "video/"):
-		return "[Video]"
-	case strings.HasPrefix(mediaMimeType, "audio/"):
-		return "[Audio]"
-	case mediaKind != "" || mediaMimeType != "":
-		return "[Media]"
-	default:
-		return "[Message]"
-	}
+	return "Message"
 }
 
 func (c *Client) markPendingMessageSent(ctx context.Context, messageID string) {
@@ -1608,7 +1586,7 @@ func (c *Client) handleReceipt(evt *events.Receipt, offlineSync bool) {
 		return
 	}
 
-	ctx := context.Background()
+	ctx := c.backgroundContext()
 	normalizedChat := c.normalizeJIDForChat(ctx, evt.Chat)
 	chatID := normalizedChat.String()
 	if chatID == "" {
@@ -1649,18 +1627,15 @@ func (c *Client) handleReceipt(evt *events.Receipt, offlineSync bool) {
 		}
 	}
 
-	if !clearUnread {
+	if !clearUnread && isParticipantReceipt {
+		var participants []string
+		participantsKnown := false
+		if isGroup {
+			participants, participantsKnown = c.groupReceiptParticipants(ctx, normalizedChat)
+		}
 		for _, messageID := range evt.MessageIDs {
 			internalID := internalMessageIDForChat(chatID, messageID)
-
-			var message appstore.Message
-			var changed bool
-			var err error
-			if isParticipantReceipt {
-				message, changed, err = c.applyParticipantReceipt(ctx, normalizedChat, internalID, participant, kind, evt.Timestamp, status, isGroup, offlineSync)
-			} else {
-				message, changed, err = c.store.UpdateMessageStatus(ctx, internalID, status)
-			}
+			message, changed, err := c.applyParticipantReceipt(ctx, internalID, participant, kind, evt.Timestamp, status, participants, participantsKnown, offlineSync)
 			if err != nil {
 				if errors.Is(err, sql.ErrNoRows) {
 					continue
@@ -1668,11 +1643,25 @@ func (c *Client) handleReceipt(evt *events.Receipt, offlineSync bool) {
 				c.log.Errorf("Failed to update message status for %s: %v", internalID, err)
 				continue
 			}
-			if !changed {
-				continue
+			if changed && !offlineSync {
+				c.publishMessageStatusUpdated(ctx, message)
 			}
-
-			if !offlineSync {
+		}
+	} else if !clearUnread {
+		// One transaction for the whole receipt. This runs on whatsmeow's
+		// serialized queue holding the single write connection, and a receipt
+		// naming two hundred messages used to mean two hundred commits.
+		internalIDs := make([]string, 0, len(evt.MessageIDs))
+		for _, messageID := range evt.MessageIDs {
+			internalIDs = append(internalIDs, internalMessageIDForChat(chatID, messageID))
+		}
+		messages, err := c.store.UpdateMessagesStatus(ctx, internalIDs, status)
+		if err != nil {
+			c.log.Errorf("Failed to update message status in %s: %v", chatID, err)
+			return
+		}
+		if !offlineSync {
+			for _, message := range messages {
 				c.publishMessageStatusUpdated(ctx, message)
 			}
 		}
@@ -1714,7 +1703,10 @@ func receiptClearsLocalUnread(evt *events.Receipt) bool {
 // message's aggregate status. 1:1 chats keep the direct mapping (the peer is
 // the only recipient); group messages advance to delivered/read only once
 // every member has the receipt, mirroring WhatsApp's tick semantics.
-func (c *Client) applyParticipantReceipt(ctx context.Context, chatJID types.JID, internalID, participant, kind string, ts time.Time, status string, isGroup, offlineSync bool) (appstore.Message, bool, error) {
+// The group membership is passed in rather than looked up: it is the same for
+// every id in a receipt, and resolving it per id meant a participant list read
+// (and a possible refresh) for each of the hundreds a catch-up receipt names.
+func (c *Client) applyParticipantReceipt(ctx context.Context, internalID, participant, kind string, ts time.Time, status string, participants []string, participantsKnown, offlineSync bool) (appstore.Message, bool, error) {
 	message, err := c.store.GetMessage(ctx, internalID)
 	if err != nil {
 		return appstore.Message{}, false, err
@@ -1734,14 +1726,9 @@ func (c *Client) applyParticipantReceipt(ctx context.Context, chatJID types.JID,
 		c.daemon.PublishMessageReceipt(message.ChatID, internalID)
 	}
 
-	if !isGroup {
-		return c.store.UpdateMessageStatus(ctx, internalID, status)
-	}
-
-	participants, known := c.groupReceiptParticipants(ctx, chatJID)
-	if !known {
-		// Membership unknown: keep the any-member behavior rather than
-		// freezing the ticks at "sent" forever.
+	// Membership unknown (or not a group): keep the any-member behavior rather
+	// than freezing the ticks at "sent" forever.
+	if !participantsKnown {
 		return c.store.UpdateMessageStatus(ctx, internalID, status)
 	}
 
@@ -1869,7 +1856,8 @@ func (c *Client) MarkChatReadUpTo(ctx context.Context, chatID, upToMessageID str
 	bounded := readCandidates[:0]
 	internalIDs := make([]string, 0, len(readCandidates))
 	for _, candidate := range readCandidates {
-		if candidate.TimestampUnix < target.TimestampUnix || (candidate.TimestampUnix == target.TimestampUnix && candidate.SortSeq <= target.SortSeq) {
+		// Same ordering the transcript uses: the stored sort key, then the id.
+		if candidate.SortMS < target.SortMS || (candidate.SortMS == target.SortMS && candidate.InternalID <= target.ID) {
 			bounded = append(bounded, candidate)
 			internalIDs = append(internalIDs, candidate.InternalID)
 		}

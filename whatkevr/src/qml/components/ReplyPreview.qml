@@ -53,6 +53,20 @@ Control {
             return Whatevr.I18n.i18nc("@label quoted message preview", "Audio")
         case "document":
             return Whatevr.I18n.i18nc("@label quoted message preview", "Document")
+        case "group_invite":
+            return Whatevr.I18n.i18nc("@label quoted message preview", "Group invite")
+        case "interactive":
+            return Whatevr.I18n.i18nc("@label quoted message preview", "Message")
+        case "product":
+            return Whatevr.I18n.i18nc("@label quoted message preview", "Product")
+        case "order":
+            return Whatevr.I18n.i18nc("@label quoted message preview", "Order")
+        case "payment":
+            return Whatevr.I18n.i18nc("@label quoted message preview", "Payment")
+        case "sticker_pack":
+            return Whatevr.I18n.i18nc("@label quoted message preview", "Sticker pack")
+        case "call_log":
+            return Whatevr.I18n.i18nc("@label quoted message preview", "Call")
         }
         if (mediaMimeType.startsWith("image/")) {
             return Whatevr.I18n.i18nc("@label quoted message preview", "Photo")
@@ -82,6 +96,20 @@ Control {
             return "audio-x-generic-symbolic"
         case "document":
             return "text-x-generic-symbolic"
+        case "group_invite":
+            return "group-symbolic"
+        case "interactive":
+            return "view-conversation-balloon-symbolic"
+        case "product":
+            return "package-symbolic"
+        case "order":
+            return "view-list-text-symbolic"
+        case "payment":
+            return "wallet-open-symbolic"
+        case "sticker_pack":
+            return "smiley-symbolic"
+        case "call_log":
+            return "call-start-symbolic"
         }
         return ""
     }

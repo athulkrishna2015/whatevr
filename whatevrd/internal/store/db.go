@@ -6,12 +6,13 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/mattn/go-sqlite3"
 )
 
-const schemaVersion = 10
+const schemaVersion = 7
 const SQLiteDriverName = "whatevrd-sqlite"
 
 // SQLiteReadDriverName backs the read-only connection pool. Its ConnectHook
@@ -34,6 +35,10 @@ type DB struct {
 	// operations that exceed slowOpThreshold (pool wait + exec time), so
 	// writer-connection contention is visible in the daemon log.
 	slowOp func(op string, d time.Duration)
+	// selfJID caches the account's own jid so a poll tally can mark our own
+	// vote without a daemon_config read on every page of messages. It changes
+	// once per login.
+	selfJID atomic.Pointer[string]
 }
 
 const slowOpThreshold = 100 * time.Millisecond
@@ -138,6 +143,7 @@ func Open(ctx context.Context, path string) (*DB, error) {
 		return nil, err
 	}
 	db.readConn = readConn
+	db.loadSelfJID(ctx)
 
 	return db, nil
 }
@@ -220,17 +226,13 @@ func (db *DB) migrate(ctx context.Context) error {
 			mute_end_timestamp INTEGER NOT NULL DEFAULT 0,
 			history_exhausted INTEGER NOT NULL DEFAULT 0
 		)`,
-		`CREATE TABLE IF NOT EXISTS chat_folders (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			name TEXT NOT NULL UNIQUE,
-			created_at INTEGER NOT NULL DEFAULT (unixepoch())
-		)`,
 		`CREATE TABLE IF NOT EXISTS messages (
 			id TEXT PRIMARY KEY,
 			chat_id TEXT NOT NULL,
 			sender_id TEXT NOT NULL DEFAULT '',
 			text TEXT NOT NULL DEFAULT '',
 			timestamp INTEGER NOT NULL,
+			sort_ms INTEGER NOT NULL DEFAULT 0,
 			direction TEXT NOT NULL,
 			is_read INTEGER NOT NULL DEFAULT 1,
 			status TEXT NOT NULL,
@@ -244,6 +246,15 @@ func (db *DB) migrate(ctx context.Context) error {
 			FOREIGN KEY(chat_id) REFERENCES chats(id) ON DELETE CASCADE
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_chat_timestamp ON messages(chat_id, timestamp DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_messages_chat_sort ON messages(chat_id, sort_ms DESC, id DESC)`,
+		// Deleting a message for me removes the row, and a later backfill chunk
+		// would put it straight back. The id outlives the row so the message
+		// stays deleted.
+		`CREATE TABLE IF NOT EXISTS deleted_messages (
+			id TEXT PRIMARY KEY,
+			chat_id TEXT NOT NULL DEFAULT '',
+			deleted_at INTEGER NOT NULL DEFAULT 0
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_chat_timestamp_id ON messages(chat_id, timestamp DESC, id DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_chat_read_candidates ON messages(chat_id, direction, is_read, timestamp ASC, id ASC)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_sender_chat ON messages(sender_id, chat_id)`,
@@ -324,26 +335,10 @@ func (db *DB) migrate(ctx context.Context) error {
 			viewed_at INTEGER NOT NULL,
 			PRIMARY KEY (status_id, viewer_jid)
 		)`,
-		`CREATE TABLE IF NOT EXISTS poll_votes (
-			message_id TEXT NOT NULL,
-			voter_jid TEXT NOT NULL,
-			option_name TEXT NOT NULL,
-			PRIMARY KEY (message_id, voter_jid, option_name)
-		)`,
-		`CREATE TABLE IF NOT EXISTS channels (
-			id TEXT PRIMARY KEY,
-			name TEXT NOT NULL DEFAULT '',
-			description TEXT NOT NULL DEFAULT '',
-			followers INTEGER NOT NULL DEFAULT 0,
-			verified INTEGER NOT NULL DEFAULT 0,
-			muted INTEGER NOT NULL DEFAULT 0,
-			updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-		)`,
 		// Previous bodies of edited messages, oldest first. The live row
-		// always holds the current version; this table is the edit history
-		// (anti-delete's counterpart for edits: nothing is ever lost). The
-		// generated id orders versions: two edits in the same millisecond
-		// must both survive.
+		// always holds the current version; this table is the edit history.
+		// The generated id orders versions: two edits in the same
+		// millisecond must both survive.
 		`CREATE TABLE IF NOT EXISTS message_edits (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			message_id TEXT NOT NULL,
@@ -359,9 +354,7 @@ func (db *DB) migrate(ctx context.Context) error {
 			kept_at INTEGER NOT NULL DEFAULT (unixepoch())
 		)`,
 		// Contacts whose statuses are hidden from the main Status tab into a
-		// collapsed Muted section. Mirrors the phone's muted-status list,
-		// synced from appstate (see wa status mute handling); local mutes
-		// are stored the same way but never pushed back.
+		// collapsed Muted section. Mirrors the phone's muted-status list.
 		`CREATE TABLE IF NOT EXISTS status_muted_senders (
 			sender_id TEXT PRIMARY KEY,
 			muted_at INTEGER NOT NULL DEFAULT (unixepoch())
@@ -374,6 +367,23 @@ func (db *DB) migrate(ctx context.Context) error {
 			created_at INTEGER NOT NULL DEFAULT (unixepoch())
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_scheduled_messages_send_at ON scheduled_messages(send_at, id)`,
+		// Named chat folders with per-chat assignment (chats.folder_id).
+		`CREATE TABLE IF NOT EXISTS chat_folders (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL UNIQUE,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch())
+		)`,
+		// Followed channels (newsletters): directory rows; message content
+		// stays server-side behind the channels view.
+		`CREATE TABLE IF NOT EXISTS channels (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL DEFAULT '',
+			description TEXT NOT NULL DEFAULT '',
+			followers INTEGER NOT NULL DEFAULT 0,
+			verified INTEGER NOT NULL DEFAULT 0,
+			muted INTEGER NOT NULL DEFAULT 0,
+			updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+		)`,
 	}
 
 	for _, statement := range statements {
@@ -431,11 +441,19 @@ func (db *DB) migrate(ctx context.Context) error {
 		return err
 	}
 
+	if err := db.ensurePayloadColumns(ctx); err != nil {
+		return err
+	}
+	if err := db.ensureRichMessageTables(ctx); err != nil {
+		return err
+	}
 	if err := db.ensureSenderDeviceColumn(ctx); err != nil {
 		return err
 	}
-
 	if err := db.ensureMessageEditsTable(ctx); err != nil {
+		return err
+	}
+	if err := db.ensureChatFolderColumns(ctx); err != nil {
 		return err
 	}
 
@@ -447,10 +465,6 @@ func (db *DB) migrate(ctx context.Context) error {
 	}
 
 	if err := db.ensureHistorySyncColumns(ctx); err != nil {
-		return err
-	}
-
-	if err := db.ensureStatusTextColumns(ctx); err != nil {
 		return err
 	}
 
@@ -468,9 +482,6 @@ func (db *DB) migrate(ctx context.Context) error {
 	}
 
 	if err := db.ensureMessageRevokedColumn(ctx); err != nil {
-		return err
-	}
-	if err := db.ensureLinkPreviewColumns(ctx); err != nil {
 		return err
 	}
 	if err := db.ensureMessageReceiptsTable(ctx); err != nil {
@@ -494,26 +505,6 @@ func (db *DB) migrate(ctx context.Context) error {
 		}
 	}
 
-	if version < 8 {
-		// v8: status thumbnail/width/height columns so status media carries
-		// the same rendering facts as chat media (image dimensions, derived
-		// thumbnail path). Idempotent: fresh schemas already have them.
-		if err := db.ensureStatusMediaColumns(ctx); err != nil {
-			return err
-		}
-	}
-	if err := db.ensureChatFolderColumns(ctx); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (db *DB) ensureChatFolderColumns(ctx context.Context) error {
-	_, err := db.conn.ExecContext(ctx, `ALTER TABLE chats ADD COLUMN folder_id INTEGER REFERENCES chat_folders(id) ON DELETE SET NULL`)
-	if err != nil && !strings.Contains(err.Error(), "duplicate column name") {
-		return fmt.Errorf("add chats.folder_id: %w", err)
-	}
 	return nil
 }
 
@@ -646,6 +637,7 @@ func (db *DB) ensureMessageRevokedColumn(ctx context.Context) error {
 		// Newline-joined full JIDs of @-mentioned participants (see
 		// encodeMentionedJIDs). Empty for the vast majority of messages.
 		{"mentioned_jids", `ALTER TABLE messages ADD COLUMN mentioned_jids TEXT NOT NULL DEFAULT ''`},
+		{"sort_ms", `ALTER TABLE messages ADD COLUMN sort_ms INTEGER NOT NULL DEFAULT 0`},
 	}
 	for _, a := range alterations {
 		if existing[a.col] {
@@ -654,6 +646,13 @@ func (db *DB) ensureMessageRevokedColumn(ctx context.Context) error {
 		if _, err := db.conn.ExecContext(ctx, a.def); err != nil {
 			return fmt.Errorf("add messages.%s: %w", a.col, err)
 		}
+	}
+
+	// Rows written before sort_ms existed carry a zero, which would sort them
+	// all above everything. Seconds are the best precision those rows ever had,
+	// and the message id still breaks their ties deterministically.
+	if _, err := db.conn.ExecContext(ctx, `UPDATE messages SET sort_ms = timestamp * 1000 WHERE sort_ms = 0`); err != nil {
+		return fmt.Errorf("backfill messages.sort_ms: %w", err)
 	}
 
 	// These indexes reference is_starred / pinned_until, so they must be created
@@ -664,48 +663,6 @@ func (db *DB) ensureMessageRevokedColumn(ctx context.Context) error {
 	} {
 		if _, err := db.conn.ExecContext(ctx, statement); err != nil {
 			return err
-		}
-	}
-	return nil
-}
-
-func (db *DB) ensureLinkPreviewColumns(ctx context.Context) error {
-	rows, err := db.conn.QueryContext(ctx, `PRAGMA table_info(messages)`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	existing := make(map[string]bool)
-	for rows.Next() {
-		var cid int
-		var name, columnType string
-		var notNull, pk int
-		var defaultValue sql.NullString
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
-			return err
-		}
-		existing[name] = true
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	alterations := []struct {
-		col string
-		def string
-	}{
-		{"link_preview_url", `ALTER TABLE messages ADD COLUMN link_preview_url TEXT NOT NULL DEFAULT ''`},
-		{"link_preview_title", `ALTER TABLE messages ADD COLUMN link_preview_title TEXT NOT NULL DEFAULT ''`},
-		{"link_preview_description", `ALTER TABLE messages ADD COLUMN link_preview_description TEXT NOT NULL DEFAULT ''`},
-		{"link_preview_thumbnail_path", `ALTER TABLE messages ADD COLUMN link_preview_thumbnail_path TEXT NOT NULL DEFAULT ''`},
-	}
-	for _, a := range alterations {
-		if existing[a.col] {
-			continue
-		}
-		if _, err := db.conn.ExecContext(ctx, a.def); err != nil {
-			return fmt.Errorf("add messages.%s: %w", a.col, err)
 		}
 	}
 	return nil
@@ -899,92 +856,6 @@ func (db *DB) ensureChatPinColumns(ctx context.Context) error {
 		}
 		if _, err := db.conn.ExecContext(ctx, a.def); err != nil {
 			return fmt.Errorf("add chats.%s: %w", a.col, err)
-		}
-	}
-	return nil
-}
-
-// ensureStatusTextColumns adds text_bg/text_font to status_updates for
-// databases created before text-status styling landed.
-func (db *DB) ensureStatusTextColumns(ctx context.Context) error {
-	rows, err := db.conn.QueryContext(ctx, `PRAGMA table_info(status_updates)`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	existing := make(map[string]bool)
-	for rows.Next() {
-		var cid int
-		var name, columnType string
-		var notNull, pk int
-		var defaultValue sql.NullString
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
-			return err
-		}
-		existing[name] = true
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	alterations := []struct {
-		col string
-		def string
-	}{
-		{"text_bg", `ALTER TABLE status_updates ADD COLUMN text_bg INTEGER NOT NULL DEFAULT 0`},
-		{"text_font", `ALTER TABLE status_updates ADD COLUMN text_font INTEGER NOT NULL DEFAULT 0`},
-	}
-	for _, a := range alterations {
-		if existing[a.col] {
-			continue
-		}
-		if _, err := db.conn.ExecContext(ctx, a.def); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// ensureStatusMediaColumns adds thumbnail/dimension columns to status_updates
-// for databases created before status media carried chat-like rendering facts.
-// Idempotent: skips columns that already exist (fresh schemas have them).
-func (db *DB) ensureStatusMediaColumns(ctx context.Context) error {
-	rows, err := db.conn.QueryContext(ctx, `PRAGMA table_info(status_updates)`)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-
-	existing := make(map[string]bool)
-	for rows.Next() {
-		var cid int
-		var name, columnType string
-		var notNull, pk int
-		var defaultValue sql.NullString
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
-			return err
-		}
-		existing[name] = true
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-
-	alterations := []struct {
-		col string
-		def string
-	}{
-		{"media_thumbnail_local_path", `ALTER TABLE status_updates ADD COLUMN media_thumbnail_local_path TEXT NOT NULL DEFAULT ''`},
-		{"media_width", `ALTER TABLE status_updates ADD COLUMN media_width INTEGER NOT NULL DEFAULT 0`},
-		{"media_height", `ALTER TABLE status_updates ADD COLUMN media_height INTEGER NOT NULL DEFAULT 0`},
-	}
-	for _, a := range alterations {
-		if existing[a.col] {
-			continue
-		}
-		if _, err := db.conn.ExecContext(ctx, a.def); err != nil {
-			return err
 		}
 	}
 	return nil
@@ -1257,11 +1128,6 @@ func (db *DB) ensureMediaColumns(ctx context.Context) error {
 		{"media_page_count", `ALTER TABLE messages ADD COLUMN media_page_count INTEGER NOT NULL DEFAULT 0`},
 		{"media_waveform", `ALTER TABLE messages ADD COLUMN media_waveform BLOB NOT NULL DEFAULT x''`},
 		{"media_played", `ALTER TABLE messages ADD COLUMN media_played INTEGER NOT NULL DEFAULT 0`},
-		{"is_view_once", `ALTER TABLE messages ADD COLUMN is_view_once INTEGER NOT NULL DEFAULT 0`},
-		{"poll_data", `ALTER TABLE messages ADD COLUMN poll_data TEXT NOT NULL DEFAULT ''`},
-		{"poll_tally", `ALTER TABLE messages ADD COLUMN poll_tally TEXT NOT NULL DEFAULT ''`},
-		{"geo_lat", `ALTER TABLE messages ADD COLUMN geo_lat REAL NOT NULL DEFAULT 0`},
-		{"geo_long", `ALTER TABLE messages ADD COLUMN geo_long REAL NOT NULL DEFAULT 0`},
 	}
 	for _, a := range alterations {
 		if existing[a.col] {
@@ -1274,90 +1140,176 @@ func (db *DB) ensureMediaColumns(ctx context.Context) error {
 	return nil
 }
 
-// ensureMessageEditsTable rebuilds message_edits with an autoincrement id
-// when it still has the first-run schema keyed by (message_id, edited_at),
-// under which two edits in the same millisecond collided and lost one.
-// Fresh databases already get the new schema from the CREATE TABLE above.
-func (db *DB) ensureMessageEditsTable(ctx context.Context) error {
-	rows, err := db.conn.QueryContext(ctx, `PRAGMA table_info(message_edits)`)
+// existingColumns reads the column names of one table. Every ensure*Columns
+// step needs this before it can decide what to ALTER.
+func (db *DB) existingColumns(ctx context.Context, table string) (map[string]bool, error) {
+	rows, err := db.conn.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_info(%s)`, table))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer rows.Close()
 
-	exists, hasID := false, false
+	existing := make(map[string]bool)
 	for rows.Next() {
 		var cid int
 		var name, columnType string
 		var notNull, pk int
 		var defaultValue sql.NullString
 		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
-			return err
+			return nil, err
 		}
-		exists = true
-		if name == "id" {
-			hasID = true
-		}
+		existing[name] = true
 	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	if !exists || hasID {
-		return nil
-	}
-
-	tx, err := db.conn.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	for _, statement := range []string{
-		`CREATE TABLE message_edits_new (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
-			message_id TEXT NOT NULL,
-			edited_at_millis INTEGER NOT NULL,
-			text TEXT NOT NULL DEFAULT ''
-		)`,
-		`INSERT INTO message_edits_new (message_id, edited_at_millis, text)
-			SELECT message_id, edited_at, text FROM message_edits`,
-		`DROP TABLE message_edits`,
-		`ALTER TABLE message_edits_new RENAME TO message_edits`,
-		`CREATE INDEX IF NOT EXISTS idx_message_edits_message ON message_edits(message_id, id)`,
-	} {
-		if _, err := tx.ExecContext(ctx, statement); err != nil {
-			return fmt.Errorf("rebuild message_edits: %w", err)
-		}
-	}
-	return tx.Commit()
+	return existing, rows.Err()
 }
 
-// ensureSenderDeviceColumn adds messages.sender_device (0 = primary phone
-// app, >0 = linked device) for databases created before the sender-client
-// indicator existed.
-func (db *DB) ensureSenderDeviceColumn(ctx context.Context) error {
-	rows, err := db.conn.QueryContext(ctx, `PRAGMA table_info(messages)`)
+// addColumns applies the ALTER statements whose column is not there yet. The
+// statements are written in full rather than generated so a reader of this file
+// sees exactly the DDL that runs.
+func (db *DB) addColumns(ctx context.Context, table string, alterations [][2]string) error {
+	existing, err := db.existingColumns(ctx, table)
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var cid int
-		var name, columnType string
-		var notNull, pk int
-		var defaultValue sql.NullString
-		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
-			return err
+	for _, alteration := range alterations {
+		col, statement := alteration[0], alteration[1]
+		if existing[col] {
+			continue
 		}
-		if name == "sender_device" {
-			return nil
+		if _, err := db.conn.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("add %s.%s: %w", table, col, err)
 		}
 	}
-	if err := rows.Err(); err != nil {
+	return nil
+}
+
+// ensurePayloadColumns adds the per-kind payload columns that let a message
+// carry something structured without growing a column per kind. payload_summary
+// is separate from payload_json so the chat-list preview and the wire fallback
+// never parse JSON to render one line.
+func (db *DB) ensurePayloadColumns(ctx context.Context) error {
+	if err := db.addColumns(ctx, "messages", [][2]string{
+		{"payload_json", `ALTER TABLE messages ADD COLUMN payload_json TEXT NOT NULL DEFAULT ''`},
+		{"payload_summary", `ALTER TABLE messages ADD COLUMN payload_summary TEXT NOT NULL DEFAULT ''`},
+		{"album_parent_id", `ALTER TABLE messages ADD COLUMN album_parent_id TEXT NOT NULL DEFAULT ''`},
+		{"album_index", `ALTER TABLE messages ADD COLUMN album_index INTEGER NOT NULL DEFAULT 0`},
+		{"is_kept", `ALTER TABLE messages ADD COLUMN is_kept INTEGER NOT NULL DEFAULT 0`},
+		// is_view_once marks our own view-once sends (inbound view-once is a
+		// phone-only tombstone, never media rows).
+		{"is_view_once", `ALTER TABLE messages ADD COLUMN is_view_once INTEGER NOT NULL DEFAULT 0`},
+	}); err != nil {
 		return err
 	}
-	if _, err := db.conn.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN sender_device INTEGER NOT NULL DEFAULT 0`); err != nil {
-		return fmt.Errorf("add messages.sender_device: %w", err)
+	// Album children are excluded from every transcript query by a correlated
+	// lookup on this column, so it needs to be cheap to ask "is this row in an
+	// album" and "give me this album's children in order".
+	_, err := db.conn.ExecContext(ctx, `
+		CREATE INDEX IF NOT EXISTS idx_messages_album_parent
+		ON messages(album_parent_id, album_index)
+		WHERE album_parent_id != ''
+	`)
+	return err
+}
+
+// ensureRichMessageTables creates the side tables for the kinds whose state is
+// mutated after the message lands (poll tallies, live-location trails, event
+// RSVPs). Everything static enough to be written once lives in payload_json
+// instead.
+func (db *DB) ensureRichMessageTables(ctx context.Context) error {
+	statements := []string{
+		// A poll's options, in wire order. sha256 is what a decrypted vote
+		// names, so votes are matched back to options by hash, never by text.
+		`CREATE TABLE IF NOT EXISTS poll_options (
+			message_id TEXT NOT NULL,
+			idx INTEGER NOT NULL,
+			name TEXT NOT NULL,
+			sha256 BLOB NOT NULL,
+			PRIMARY KEY (message_id, idx),
+			FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_poll_options_hash ON poll_options(message_id, sha256)`,
+		// One row per (poll, voter, chosen option). A vote message carries a
+		// voter's entire current selection rather than a delta, so applying one
+		// deletes that voter's rows and re-inserts them.
+		`CREATE TABLE IF NOT EXISTS poll_votes (
+			message_id TEXT NOT NULL,
+			voter_jid TEXT NOT NULL,
+			option_sha BLOB NOT NULL,
+			voted_at INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (message_id, voter_jid, option_sha),
+			FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+		)`,
+		// When each voter last answered, kept whether or not they currently
+		// have a selection. The vote rows alone cannot carry this: withdrawing
+		// a vote deletes them, and then a redelivered older vote has nothing to
+		// look stale against and resurrects an answer the voter took back.
+		// WhatsApp redelivers on every reconnect, so this is routine.
+		`CREATE TABLE IF NOT EXISTS poll_voters (
+			message_id TEXT NOT NULL,
+			voter_jid TEXT NOT NULL,
+			voted_at INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (message_id, voter_jid),
+			FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+		)`,
+		// Votes that arrived before the poll they vote on: history sync does not
+		// promise ordering, and a resend can outrun its original. No foreign key
+		// here precisely because the poll row does not exist yet.
+		`CREATE TABLE IF NOT EXISTS poll_votes_pending (
+			id TEXT PRIMARY KEY,
+			chat_id TEXT NOT NULL,
+			poll_message_id TEXT NOT NULL,
+			voter_jid TEXT NOT NULL,
+			enc_payload BLOB NOT NULL,
+			enc_iv BLOB NOT NULL,
+			sender_ts INTEGER NOT NULL DEFAULT 0,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch())
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_poll_votes_pending_poll ON poll_votes_pending(poll_message_id)`,
+		// One open live-location share. whatsmeow has no concept of these, so
+		// the correlation between an opening LocationMessage and the
+		// LiveLocationMessage updates that follow is entirely ours.
+		`CREATE TABLE IF NOT EXISTS live_location_shares (
+			message_id TEXT PRIMARY KEY,
+			chat_id TEXT NOT NULL,
+			sender_id TEXT NOT NULL,
+			started_at INTEGER NOT NULL,
+			expires_at INTEGER NOT NULL DEFAULT 0,
+			last_seq INTEGER NOT NULL DEFAULT 0,
+			last_update_at INTEGER NOT NULL DEFAULT 0,
+			ended INTEGER NOT NULL DEFAULT 0,
+			FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_live_shares_open ON live_location_shares(chat_id, ended, expires_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_live_shares_sender ON live_location_shares(chat_id, sender_id, ended)`,
+		// The trail. Ordered and deduped by the sender's sequence number, so a
+		// late or replayed update never drags the pin backwards.
+		`CREATE TABLE IF NOT EXISTS live_location_points (
+			message_id TEXT NOT NULL,
+			seq INTEGER NOT NULL,
+			ts INTEGER NOT NULL,
+			lat REAL NOT NULL,
+			lng REAL NOT NULL,
+			accuracy_m INTEGER NOT NULL DEFAULT 0,
+			speed_mps REAL NOT NULL DEFAULT 0,
+			heading_deg INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (message_id, seq),
+			FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+		)`,
+		// One RSVP per responder, replaced when they change their mind.
+		`CREATE TABLE IF NOT EXISTS event_responses (
+			message_id TEXT NOT NULL,
+			responder_jid TEXT NOT NULL,
+			response TEXT NOT NULL,
+			extra_guests INTEGER NOT NULL DEFAULT 0,
+			ts INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (message_id, responder_jid),
+			FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE
+		)`,
+	}
+	for _, statement := range statements {
+		if _, err := db.conn.ExecContext(ctx, statement); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1482,5 +1434,103 @@ func (db *DB) ensureMessageReadColumn(ctx context.Context) error {
 		return fmt.Errorf("add messages.is_read column: %w", err)
 	}
 
+	return nil
+}
+
+// ensureMessageEditsTable rebuilds message_edits with an autoincrement id
+// when it still has the first-run schema keyed by (message_id, edited_at),
+// under which two edits in the same millisecond collided and lost one.
+// Fresh databases already get the new schema from the CREATE TABLE above.
+func (db *DB) ensureMessageEditsTable(ctx context.Context) error {
+	rows, err := db.conn.QueryContext(ctx, `PRAGMA table_info(message_edits)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	exists, hasID := false, false
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, pk int
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		exists = true
+		if name == "id" {
+			hasID = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if !exists || hasID {
+		return nil
+	}
+
+	tx, err := db.conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, statement := range []string{
+		`CREATE TABLE message_edits_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			message_id TEXT NOT NULL,
+			edited_at_millis INTEGER NOT NULL,
+			text TEXT NOT NULL DEFAULT ''
+		)`,
+		`INSERT INTO message_edits_new (message_id, edited_at_millis, text)
+			SELECT message_id, edited_at, text FROM message_edits`,
+		`DROP TABLE message_edits`,
+		`ALTER TABLE message_edits_new RENAME TO message_edits`,
+		`CREATE INDEX IF NOT EXISTS idx_message_edits_message ON message_edits(message_id, id)`,
+	} {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("rebuild message_edits: %w", err)
+		}
+	}
+	return tx.Commit()
+}
+
+// ensureSenderDeviceColumn adds messages.sender_device (0 = primary phone
+// app, >0 = linked device) for databases created before the sender-client
+// indicator existed.
+func (db *DB) ensureSenderDeviceColumn(ctx context.Context) error {
+	rows, err := db.conn.QueryContext(ctx, `PRAGMA table_info(messages)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, pk int
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if name == "sender_device" {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if _, err := db.conn.ExecContext(ctx, `ALTER TABLE messages ADD COLUMN sender_device INTEGER NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("add messages.sender_device: %w", err)
+	}
+	return nil
+}
+
+// ensureChatFolderColumns adds chats.folder_id for databases created before
+// custom chat folders existed.
+func (db *DB) ensureChatFolderColumns(ctx context.Context) error {
+	_, err := db.conn.ExecContext(ctx, `ALTER TABLE chats ADD COLUMN folder_id INTEGER REFERENCES chat_folders(id) ON DELETE SET NULL`)
+	if err != nil && !strings.Contains(err.Error(), "duplicate column name") {
+		return fmt.Errorf("add chats.folder_id: %w", err)
+	}
 	return nil
 }

@@ -73,8 +73,6 @@ type fakeCommandActions struct {
 	sentPollQuestion       string
 	sentPollOptions        []string
 	sentPollMulti          bool
-	votedMessage           string
-	votedOptions           []string
 	sentContactChat        string
 	sentContactName        string
 	sentContactPhone       string
@@ -140,7 +138,13 @@ type fakeCommandActions struct {
 	streamUpdate           func(app.MediaStreamUpdate)
 	cancelledMessage       string
 	playedMessage          string
+	rerequestedMessage     string
 	fetchJID               string
+
+	joinedInviteMessage string
+	rsvpMessage         string
+	rsvpResponse        string
+	rsvpGuests          int
 
 	privacyCategory    string
 	privacyAudience    string
@@ -373,10 +377,35 @@ func (f *fakeCommandActions) CancelMessageMediaDownload(_ context.Context, messa
 	f.cancelledMessage = messageID
 	return f.err
 }
+func (f *fakeCommandActions) VotePoll(context.Context, string, []int) error { return nil }
+
+func (f *fakeCommandActions) RespondToEvent(_ context.Context, messageID, response string, guests int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rsvpMessage = messageID
+	f.rsvpResponse = response
+	f.rsvpGuests = guests
+	return f.err
+}
+
+func (f *fakeCommandActions) JoinGroupInvite(_ context.Context, messageID string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.joinedInviteMessage = messageID
+	return "120363000000000000@g.us", f.err
+}
+
 func (f *fakeCommandActions) MarkMessagePlayed(_ context.Context, messageID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.playedMessage = messageID
+	return f.err
+}
+
+func (f *fakeCommandActions) RequestMessageFromPhone(_ context.Context, messageID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rerequestedMessage = messageID
 	return f.err
 }
 
@@ -482,12 +511,6 @@ func (f *fakeCommandActions) SendPoll(_ context.Context, chatID, question string
 	defer f.mu.Unlock()
 	f.sentPollChat, f.sentPollQuestion, f.sentPollOptions, f.sentPollMulti = chatID, question, append([]string(nil), options...), multi
 	return appstore.SavedTextMessage{Message: appstore.Message{ID: "poll:1", ChatID: chatID}}, f.err
-}
-func (f *fakeCommandActions) VotePoll(_ context.Context, messageID string, options []string) (appstore.Message, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.votedMessage, f.votedOptions = messageID, append([]string(nil), options...)
-	return appstore.Message{ID: messageID}, f.err
 }
 func (f *fakeCommandActions) SendContact(_ context.Context, chatID, name, phone string) (appstore.SavedTextMessage, error) {
 	f.mu.Lock()
@@ -714,8 +737,8 @@ func (f *fakeCommandActions) SearchMessages(_ context.Context, query, chatID str
 	defer f.mu.Unlock()
 	f.searchMsgQuery, f.searchMsgChat, f.searchMsgLimit, f.searchMsgBefore = query, chatID, limit, beforeMessageID
 	return []appstore.MessageSearchResult{
-		{Message: appstore.Message{ID: "m2", ChatID: "chat@s.whatsapp.net", Text: "hello again", TimestampUnix: 20, SortSeq: 2, Direction: appstore.DirectionIncoming, Status: appstore.StatusDelivered}, ChatName: "Alice"},
-		{Message: appstore.Message{ID: "m1", ChatID: "chat@s.whatsapp.net", Text: "hello", TimestampUnix: 10, SortSeq: 1, Direction: appstore.DirectionIncoming, Status: appstore.StatusDelivered}, ChatName: "Alice"},
+		{Message: appstore.Message{ID: "m2", ChatID: "chat@s.whatsapp.net", Text: "hello again", TimestampUnix: 20, SortMS: 20000, Direction: appstore.DirectionIncoming, Status: appstore.StatusDelivered}, ChatName: "Alice"},
+		{Message: appstore.Message{ID: "m1", ChatID: "chat@s.whatsapp.net", Text: "hello", TimestampUnix: 10, SortMS: 10000, Direction: appstore.DirectionIncoming, Status: appstore.StatusDelivered}, ChatName: "Alice"},
 	}, f.err
 }
 func (f *fakeCommandActions) SearchStickers(_ context.Context, query string, limit int) ([]appstore.Sticker, error) {
@@ -990,11 +1013,6 @@ func TestC2MessageAndMediaCommands(t *testing.T) {
 		t.Fatal("send.poll with one option must fail")
 	}
 
-	c.sendLine(`{"id":145,"method":"message.vote","params":{"message_id":"poll:1","options":["yes"]}}`)
-	if _, ok := c.recv()["result"].(map[string]any); !ok || actions.votedMessage != "poll:1" {
-		t.Fatalf("message.vote action = %+v", actions)
-	}
-
 	c.sendLine(`{"id":146,"method":"send.contact","params":{"chat_id":"c@s.whatsapp.net","name":"Ada","phone":"+123"}}`)
 	result = c.recv()["result"].(map[string]any)
 	if result["message_id"] != "contact:1" || actions.sentContactPhone != "+123" {
@@ -1084,6 +1102,14 @@ func TestC2MessageAndMediaCommands(t *testing.T) {
 	c.sendLine(`{"id":27,"method":"channel.mute","params":{"channel_id":"chan@newsletter","muted":true}}`)
 	if _, ok := c.recv()["result"].(map[string]any); !ok || !actions.mutedValue {
 		t.Fatalf("channel.mute action = %+v", actions)
+	}
+	// Joining an invite answers with the chat to open. The frontend has no
+	// other way to get there: the group's jid lives inside the message payload,
+	// and a card that joined a group and could not open it is half a feature.
+	c.sendLine(`{"id":11,"method":"group.join_invite","params":{"message_id":" chat@s.whatsapp.net:m1 "}}`)
+	result = c.recv()["result"].(map[string]any)
+	if result["chat_id"] != "120363000000000000@g.us" || actions.joinedInviteMessage != "chat@s.whatsapp.net:m1" {
+		t.Fatalf("join invite result/action = %v/%q", result, actions.joinedInviteMessage)
 	}
 }
 

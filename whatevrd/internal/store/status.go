@@ -318,3 +318,46 @@ func (db *DB) PruneOldStatusUpdates(ctx context.Context, maxAge time.Duration) (
 	}
 	return result.RowsAffected()
 }
+
+// RecordStatusViewer records that viewerJID viewed a status (from its viewed
+// receipt). Repeat views refresh the timestamp.
+func (db *DB) RecordStatusViewer(ctx context.Context, statusID, viewerJID string, viewedAt time.Time) error {
+	defer db.timeOp("RecordStatusViewer", time.Now())
+	if statusID == "" || viewerJID == "" {
+		return nil
+	}
+	_, err := db.conn.ExecContext(ctx, `
+		INSERT INTO status_viewers (status_id, viewer_jid, viewed_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT(status_id, viewer_jid) DO UPDATE SET viewed_at = excluded.viewed_at
+	`, statusID, viewerJID, viewedAt.Unix())
+	return err
+}
+
+// StatusViewer is one recorded view of our status.
+type StatusViewer struct {
+	ViewerJID string
+	ViewedAt  int64
+}
+
+// ListStatusViewers returns who viewed a status, most recent first.
+func (db *DB) ListStatusViewers(ctx context.Context, statusID string) ([]StatusViewer, error) {
+	defer db.timeOp("ListStatusViewers", time.Now())
+	rows, err := db.reader().QueryContext(ctx, `SELECT viewer_jid, viewed_at FROM status_viewers WHERE status_id = ? ORDER BY viewed_at DESC`, statusID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	viewers := []StatusViewer{}
+	for rows.Next() {
+		var viewer StatusViewer
+		if err := rows.Scan(&viewer.ViewerJID, &viewer.ViewedAt); err != nil {
+			return nil, err
+		}
+		viewers = append(viewers, viewer)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return viewers, nil
+}

@@ -125,21 +125,22 @@ func FormatMessage(caps Capabilities, message app.Message, chat app.Chat, opts O
 	return content
 }
 
+// previewText is the notification body. It rides the one-line rendering the
+// store already computed, so a voice note reads "🎤 Voice message (0:12)" here
+// exactly as it does in the chat list, rather than falling through to the
+// mime-sniffing this used to do (which had never heard of voice notes or
+// documents and announced both as "New message").
 func previewText(message app.Message) string {
-	text := textutil.ExpandMentions(strings.TrimSpace(message.Text), toTextutilMentions(message.Mentions))
+	line := strings.TrimSpace(message.Preview)
+	if line == "" {
+		// Every message the daemon publishes carries a Preview. Falling back to
+		// the raw text costs nothing and keeps a caller that built a Message by
+		// hand from announcing "New message" for something with words in it.
+		line = strings.TrimSpace(message.Text)
+	}
+	text := textutil.ExpandMentions(line, toTextutilMentions(message.Mentions))
 	if text == "" {
-		switch {
-		case strings.HasPrefix(message.MediaMimeType, "image/"):
-			text = "Image"
-		case strings.HasPrefix(message.MediaMimeType, "video/"):
-			text = "Video"
-		case strings.HasPrefix(message.MediaMimeType, "audio/"):
-			text = "Audio"
-		case message.MediaMimeType != "" || message.MediaLocalPath != "":
-			text = "Media"
-		default:
-			text = "New message"
-		}
+		text = "New message"
 	}
 	text = strings.Join(strings.Fields(text), " ")
 	return truncate(text, previewLimit)

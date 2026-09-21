@@ -64,12 +64,95 @@ QString collapsedMessageText(const QString &text)
     return preview + QStringLiteral("...");
 }
 
-std::pair<qreal, qreal> measureLineWidths(const QString &text, const QFontMetricsF &metrics)
+// The body font at the size the rich-text path draws inline emoji.
+QFont scaledEmojiFont(const QFont &body)
+{
+    QFont scaled = body;
+    const double factor = whatevr::util::inlineEmojiScale();
+    if (scaled.pointSizeF() > 0) {
+        scaled.setPointSizeF(scaled.pointSizeF() * factor);
+    } else if (scaled.pixelSize() > 0) {
+        scaled.setPixelSize(std::max(1, qRound(scaled.pixelSize() * factor)));
+    }
+    return scaled;
+}
+
+// Whether a line contains anything the renderer would enlarge. Cheap enough to
+// run on every line so the common case never pays for the grapheme walk below.
+bool mayContainEmoji(QStringView line)
+{
+    for (QChar ch : line) {
+        if (ch.isHighSurrogate() || ch.unicode() >= 0x2000) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Advance of one line, with emoji measured at the size they are drawn.
+//
+// The rich-text path enlarges emoji, and this used to measure the whole line in
+// the body font. The width it reported was therefore short by the difference on
+// every message carrying one, and that width is what the bubble is built from:
+// the plate came out narrower than its own last line, so the time and ticks no
+// longer fitted beside the words and dropped onto a line of their own. Two
+// messages of the same length would disagree about where their timestamp went
+// purely because one of them ended in an emoji.
+qreal measureLine(QStringView line, const QFontMetricsF &metrics, const QFontMetricsF &emojiMetrics)
+{
+    if (!mayContainEmoji(line)) {
+        return metrics.horizontalAdvance(line.toString());
+    }
+
+    const QString text = line.toString();
+    QTextBoundaryFinder finder(QTextBoundaryFinder::Grapheme, text);
+    qreal advance = 0;
+    int clusterStart = 0;
+    // Runs of like-measured clusters are batched: shaping a whole run at once is
+    // both faster and truer than summing per-cluster advances, which throws away
+    // kerning between neighbouring letters.
+    int runStart = 0;
+    bool runIsEmoji = false;
+    bool runOpen = false;
+    const auto flushRun = [&](int runEnd) {
+        if (!runOpen || runEnd <= runStart) {
+            return;
+        }
+        const QString run = text.mid(runStart, runEnd - runStart);
+        advance += runIsEmoji ? emojiMetrics.horizontalAdvance(run)
+                              : metrics.horizontalAdvance(run);
+    };
+
+    finder.toStart();
+    while (true) {
+        const int clusterEnd = finder.toNextBoundary();
+        if (clusterEnd < 0) {
+            break;
+        }
+        const QString cluster = text.mid(clusterStart, clusterEnd - clusterStart);
+        const bool isEmoji = whatevr::util::isEmojiGraphemeCluster(cluster);
+        if (!runOpen) {
+            runOpen = true;
+            runIsEmoji = isEmoji;
+            runStart = clusterStart;
+        } else if (isEmoji != runIsEmoji) {
+            flushRun(clusterStart);
+            runIsEmoji = isEmoji;
+            runStart = clusterStart;
+        }
+        clusterStart = clusterEnd;
+    }
+    flushRun(text.size());
+    return advance;
+}
+
+std::pair<qreal, qreal> measureLineWidths(const QString &text, const QFontMetricsF &metrics,
+                                          const QFontMetricsF &emojiMetrics)
 {
     qreal widest = 0;
     qreal last = 0;
     for (const auto line : QStringView(text).split(QLatin1Char('\n'))) {
-        last = metrics.horizontalAdvance(line.toString());
+        last = measureLine(line, metrics, emojiMetrics);
         widest = std::max(widest, last);
     }
     return {std::ceil(widest) + 1, std::ceil(last) + 1};
@@ -81,6 +164,7 @@ ProtocolMessageModel::ProtocolMessageModel(whatevr::proto::CollectionViewModel *
     , m_source(source)
     , m_bodyFont(QGuiApplication::font())
     , m_bodyMetrics(m_bodyFont)
+    , m_emojiMetrics(scaledEmojiFont(m_bodyFont))
 {
     Q_ASSERT(m_source);
 
@@ -90,7 +174,11 @@ ProtocolMessageModel::ProtocolMessageModel(whatevr::proto::CollectionViewModel *
         beginResetModel();
     });
     connect(m_source, &QAbstractItemModel::modelReset, this, [this] {
-        m_textById.clear();
+        // m_textById deliberately survives this. It is keyed by message id and
+        // verifies its own contents on read (see ensureTextPresentation), so a
+        // chat switch no longer throws away the shaping for a conversation the
+        // reader is very likely to come back to. Only the row cache goes, and
+        // that one has to: it is keyed by row index.
         invalidateRowCache();
         endResetModel();
     });
@@ -276,6 +364,15 @@ const QVariantMap &ProtocolMessageModel::cachedReply(const RowCache &cache) cons
     return m_rowCache.reply;
 }
 
+const QVariantMap &ProtocolMessageModel::cachedLocation(const RowCache &cache) const
+{
+    if (!cache.locationLoaded) {
+        m_rowCache.location = cache.item.value(QStringLiteral("location")).toMap();
+        m_rowCache.locationLoaded = true;
+    }
+    return m_rowCache.location;
+}
+
 QVariant ProtocolMessageModel::data(const QModelIndex &index, int role) const
 {
     if (!index.isValid() || index.row() < 0 || index.row() >= rowCount()) {
@@ -325,6 +422,8 @@ QVariant ProtocolMessageModel::data(const QModelIndex &index, int role) const
         return initialsForName(senderDisplayName(item));
     case SenderDeviceRole:
         return senderData().value(QStringLiteral("device")).toInt();
+    case IsForwardedRole:
+        return item.value(QStringLiteral("forwarded")).toBool();
     case TextRole:
         return displayText(item);
     case LayoutTextRole: {
@@ -395,10 +494,38 @@ QVariant ProtocolMessageModel::data(const QModelIndex &index, int role) const
         return mediaData().value(QStringLiteral("waveform")).toList();
     case MediaPlayedRole:
         return mediaData().value(QStringLiteral("played")).toBool();
-    case IsForwardedRole:
-        // Daemon `messages` item `forwarded` (tdesktop renders a "Forwarded"
-        // header; we dropped the flag entirely until now).
-        return item.value(QStringLiteral("forwarded")).toBool();
+    case HasMediaRole:
+        return !mediaData().isEmpty();
+    case IsKeptRole:
+        return item.value(QStringLiteral("kept")).toBool();
+    case LocationRole:
+        return cachedLocation(cache);
+    case LiveShareRole:
+        return item.value(QStringLiteral("live")).toMap();
+    case ContactsRole:
+        return item.value(QStringLiteral("contacts")).toMap();
+    case PollRole:
+        return item.value(QStringLiteral("poll")).toMap();
+    case GroupInviteRole:
+        return item.value(QStringLiteral("invite")).toMap();
+    case EventRole:
+        return item.value(QStringLiteral("event")).toMap();
+    case AlbumRole:
+        return item.value(QStringLiteral("album")).toMap();
+    case LinkPreviewRole:
+        return item.value(QStringLiteral("link_preview")).toMap();
+    case InteractiveRole:
+        return item.value(QStringLiteral("interactive")).toMap();
+    case CommerceRole:
+        return item.value(QStringLiteral("commerce")).toMap();
+    case StickerPackRole:
+        return item.value(QStringLiteral("sticker_pack")).toMap();
+    case CallLogRole:
+        return item.value(QStringLiteral("call_log")).toMap();
+    case SystemRole:
+        return item.value(QStringLiteral("system")).toMap();
+    case WaitingRole:
+        return item.value(QStringLiteral("waiting")).toMap();
     case ShowSenderHeaderRole:
         return groupChat && !outgoing && startsSenderGroup(index.row());
     case ShowSenderAvatarRole:
@@ -458,56 +585,11 @@ QVariant ProtocolMessageModel::data(const QModelIndex &index, int role) const
         return item.value(QStringLiteral("pinned_until")).toLongLong();
     case ReactionsRole:
         return reactions(item);
-    case MediaDownloadProgressRole: {
+    case MediaDownloadProgressRole:
         // -1 means "downloading, size unknown" to the bubble (it shows an
         // indeterminate spinner instead of the progress ring), which is also
         // what a message with no active transfer reports.
-        const QVariantMap active = transfer(item);
-        const qulonglong total = active.value(QStringLiteral("total_bytes")).toULongLong();
-        if (active.isEmpty() || total == 0) {
-            return -1.0;
-        }
-        const qulonglong received = active.value(QStringLiteral("received_bytes")).toULongLong();
-        return std::min(1.0, static_cast<double>(received) / static_cast<double>(total));
-    }
-    case PollQuestionRole:
-        return poll(item).value(QStringLiteral("question")).toString();
-    case PollOptionsRole: {
-        // The wire carries options as plain strings plus a votes map; the
-        // bubble wants per-option {text, count, voted} entries.
-        const QVariantMap pollData = poll(item);
-        const QVariantList options = pollData.value(QStringLiteral("options")).toList();
-        const QVariantMap votes = pollData.value(QStringLiteral("votes")).toMap();
-        QVariantList result;
-        result.reserve(options.size());
-        for (const QVariant &option : options) {
-            const QString text = option.toString();
-            result.append(QVariantMap{
-                {QStringLiteral("text"), text},
-                {QStringLiteral("count"), votes.value(text).toInt()},
-                {QStringLiteral("voted"), false},
-            });
-        }
-        return result;
-    }
-    case PollMultiSelectRole:
-        return poll(item).value(QStringLiteral("selectable")).toInt() > 1;
-    case ContactNameRole:
-        return contact(item).value(QStringLiteral("name")).toString();
-    case ContactPhoneRole:
-        return contact(item).value(QStringLiteral("phone")).toString();
-    case LocationLatRole:
-        return location(item).value(QStringLiteral("lat")).toDouble();
-    case LocationLngRole:
-        return location(item).value(QStringLiteral("long")).toDouble();
-    case LocationNameRole:
-        return location(item).value(QStringLiteral("name")).toString();
-    case LocationAddressRole:
-        return QString();
-    case LinkPreviewRole:
-        return linkPreview(item);
-    case HasLinkPreviewRole:
-        return !linkPreview(item).isEmpty();
+        return downloadProgress(item);
     default:
         return {};
     }
@@ -522,7 +604,6 @@ QHash<int, QByteArray> ProtocolMessageModel::roleNames() const
         {SenderNameRole, "senderName"},
         {SenderAvatarLocalPathRole, "senderAvatarLocalPath"},
         {SenderInitialsRole, "senderInitials"},
-        {SenderDeviceRole, "senderDevice"},
         {TextRole, "text"},
         {LayoutTextRole, "layoutText"},
         {EmojiOnlyCountRole, "emojiOnlyCount"},
@@ -578,17 +659,23 @@ QHash<int, QByteArray> ProtocolMessageModel::roleNames() const
         {PinnedUntilUnixRole, "pinnedUntilUnix"},
         {ReactionsRole, "reactions"},
         {MediaDownloadProgressRole, "mediaDownloadProgress"},
-        {PollQuestionRole, "pollQuestion"},
-        {PollOptionsRole, "pollOptions"},
-        {PollMultiSelectRole, "pollMultiSelect"},
-        {ContactNameRole, "contactName"},
-        {ContactPhoneRole, "contactPhone"},
-        {LocationLatRole, "locationLat"},
-        {LocationLngRole, "locationLng"},
-        {LocationNameRole, "locationName"},
-        {LocationAddressRole, "locationAddress"},
+        {HasMediaRole, "hasMedia"},
+        {IsKeptRole, "isKept"},
+        {LocationRole, "location"},
+        {LiveShareRole, "liveShare"},
+        {ContactsRole, "contacts"},
+        {PollRole, "poll"},
+        {GroupInviteRole, "invite"},
+        {EventRole, "eventInfo"},
+        {AlbumRole, "album"},
         {LinkPreviewRole, "linkPreview"},
-        {HasLinkPreviewRole, "hasLinkPreview"},
+        {InteractiveRole, "interactive"},
+        {CommerceRole, "commerce"},
+        {StickerPackRole, "stickerPack"},
+        {CallLogRole, "callLog"},
+        {SystemRole, "system"},
+        {WaitingRole, "waiting"},
+        {SenderDeviceRole, "senderDevice"},
         {IsForwardedRole, "isForwarded"},
     };
 }
@@ -600,15 +687,45 @@ QString ProtocolMessageModel::displayText(const QVariantMap &item)
     if (item.value(QStringLiteral("revoked")).toBool()) {
         return item.value(QStringLiteral("fallback")).toString();
     }
-    // The daemon's fallback ("🎥 Video (0:11)") is a one-line summary for the
-    // chat list, reply previews and notifications. A bubble that renders the
-    // media itself must not also print it as a caption, so anything with a
-    // media object shows only the real caption, which is usually empty.
-    if (kind == QLatin1String("text") || !media(item).isEmpty()) {
+    // The daemon's fallback ("🎥 Video (0:11)", "👤 Contact: Aditi Rao") is a
+    // one-line summary for the chat list, reply previews and notifications. It
+    // is also what PROTOCOL.md rule 5 hands a frontend for a kind it cannot
+    // draw. A bubble that draws the kind itself must therefore not also print
+    // it, or every contact card grows a caption repeating its own name.
+    if (kind == QLatin1String("text") || rendersItsOwnPayload(item)) {
         return text;
     }
-    // No media to draw: unsupported kinds still need their tombstone label.
     return item.value(QStringLiteral("fallback")).toString();
+}
+
+// rendersItsOwnPayload reports whether this build has a bubble for the item's
+// content. It asks by looking for the payload objects whatkevr knows how to
+// draw rather than by listing kinds, so a kind arriving from a newer daemon
+// with a payload this build has never heard of correctly falls back to the
+// daemon's one-line rendering (rule 5) instead of drawing nothing.
+bool ProtocolMessageModel::rendersItsOwnPayload(const QVariantMap &item)
+{
+    static const QStringList known{
+        QStringLiteral("media"),
+        QStringLiteral("location"),
+        QStringLiteral("contacts"),
+        QStringLiteral("poll"),
+        QStringLiteral("invite"),
+        QStringLiteral("event"),
+        QStringLiteral("album"),
+        QStringLiteral("interactive"),
+        QStringLiteral("commerce"),
+        QStringLiteral("sticker_pack"),
+        QStringLiteral("call_log"),
+        QStringLiteral("system"),
+        QStringLiteral("waiting"),
+    };
+    for (const QString &key : known) {
+        if (!item.value(key).toMap().isEmpty()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 QVariantMap ProtocolMessageModel::sender(const QVariantMap &item)
@@ -624,26 +741,6 @@ QVariantMap ProtocolMessageModel::media(const QVariantMap &item)
 QVariantMap ProtocolMessageModel::reply(const QVariantMap &item)
 {
     return item.value(QStringLiteral("reply_to")).toMap();
-}
-
-QVariantMap ProtocolMessageModel::poll(const QVariantMap &item)
-{
-    return item.value(QStringLiteral("poll")).toMap();
-}
-
-QVariantMap ProtocolMessageModel::contact(const QVariantMap &item)
-{
-    return item.value(QStringLiteral("contact")).toMap();
-}
-
-QVariantMap ProtocolMessageModel::location(const QVariantMap &item)
-{
-    return item.value(QStringLiteral("location")).toMap();
-}
-
-QVariantMap ProtocolMessageModel::linkPreview(const QVariantMap &item)
-{
-    return item.value(QStringLiteral("link_preview")).toMap();
 }
 
 QString ProtocolMessageModel::senderDisplayName(const QVariantMap &item)
@@ -784,13 +881,74 @@ QString ProtocolMessageModel::cachedRelativeDate(const QVariantMap &item) const
     return text;
 }
 
+// A row nobody said: a call that happened, something the chat did to itself.
+// It has a sender on the wire (the person who made the change) but it is not
+// that person talking, so it belongs to no run of their messages: it neither
+// starts one nor continues one, and it breaks the run it lands in.
+bool ProtocolMessageModel::isAuthorless(const QVariantMap &item)
+{
+    const QString kind = item.value(QStringLiteral("kind")).toString();
+    return kind == QLatin1String("system") || kind == QLatin1String("call_log");
+}
+
+bool ProtocolMessageModel::newestFirst() const
+{
+    return m_source && m_source->reverseOrder();
+}
+
+int ProtocolMessageModel::olderRow(int row) const
+{
+    if (row < 0 || row >= rowCount()) {
+        return -1;
+    }
+    const int neighbour = newestFirst() ? row + 1 : row - 1;
+    return (neighbour < 0 || neighbour >= rowCount()) ? -1 : neighbour;
+}
+
+int ProtocolMessageModel::newerRow(int row) const
+{
+    if (row < 0 || row >= rowCount()) {
+        return -1;
+    }
+    const int neighbour = newestFirst() ? row - 1 : row + 1;
+    return (neighbour < 0 || neighbour >= rowCount()) ? -1 : neighbour;
+}
+
+int ProtocolMessageModel::chronologicalRow(int nth) const
+{
+    if (nth < 0 || nth >= rowCount()) {
+        return -1;
+    }
+    return newestFirst() ? rowCount() - 1 - nth : nth;
+}
+
+QString ProtocolMessageModel::oldestMessageId() const
+{
+    return messageIdAt(chronologicalRow(0));
+}
+
+QString ProtocolMessageModel::newestMessageId() const
+{
+    return messageIdAt(chronologicalRow(rowCount() - 1));
+}
+
 bool ProtocolMessageModel::startsSenderGroup(int row) const
 {
-    if (row <= 0 || row >= rowCount()) {
+    if (row < 0 || row >= rowCount()) {
         return true;
     }
     const QVariantMap message = wireItem(row);
-    const QVariantMap previous = wireItem(row - 1);
+    if (isAuthorless(message)) {
+        return false;
+    }
+    const int before = olderRow(row);
+    if (before < 0) {
+        return true;
+    }
+    const QVariantMap previous = wireItem(before);
+    if (isAuthorless(previous)) {
+        return true;
+    }
     if (directionValue(message.value(QStringLiteral("direction")).toString())
             != directionValue(previous.value(QStringLiteral("direction")).toString())
         || sender(message).value(QStringLiteral("id")) != sender(previous).value(QStringLiteral("id"))) {
@@ -802,11 +960,21 @@ bool ProtocolMessageModel::startsSenderGroup(int row) const
 
 bool ProtocolMessageModel::endsSenderGroup(int row) const
 {
-    if (row < 0 || row >= rowCount() - 1) {
+    if (row < 0 || row >= rowCount()) {
         return true;
     }
     const QVariantMap message = wireItem(row);
-    const QVariantMap next = wireItem(row + 1);
+    if (isAuthorless(message)) {
+        return false;
+    }
+    const int after = newerRow(row);
+    if (after < 0) {
+        return true;
+    }
+    const QVariantMap next = wireItem(after);
+    if (isAuthorless(next)) {
+        return true;
+    }
     if (directionValue(message.value(QStringLiteral("direction")).toString())
             != directionValue(next.value(QStringLiteral("direction")).toString())
         || sender(message).value(QStringLiteral("id")) != sender(next).value(QStringLiteral("id"))) {
@@ -818,19 +986,46 @@ bool ProtocolMessageModel::endsSenderGroup(int row) const
 
 bool ProtocolMessageModel::startsDayGroup(int row) const
 {
-    return row <= 0 || dayNumber(wireItem(row)) != dayNumber(wireItem(row - 1));
+    const int before = olderRow(row);
+    return before < 0 || dayNumber(wireItem(row)) != dayNumber(wireItem(before));
 }
 
+// What a message's body costs to prepare: the WhatsApp markup parse, a walk of
+// the link extractor's TLD table, and a font-metric measurement of every line.
+// All three are pure functions of the body text and the body font, so the
+// answer keeps until one of those changes.
+//
+// This cache used to be emptied whenever the source model reset, which is to
+// say on every chat switch, so returning to a chat re-shaped every line of it
+// from scratch. Message ids are unique across chats, so there was never
+// anything unsafe about keeping them; what the clear was really guarding
+// against is a message coming back under the same id with different words,
+// which a resync can do. That is now checked directly, by comparing the text
+// the row actually carries against the text the entry was built from. One
+// string compare against re-parsing and re-shaping a paragraph is not a close
+// call, and unlike the clear it is also correct for an edit that arrives while
+// the chat is closed.
 ProtocolMessageModel::TextPresentation &ProtocolMessageModel::ensureTextPresentation(const QVariantMap &item) const
 {
     const QString id = item.value(QStringLiteral("id")).toString();
+    const QString source = displayText(item);
     auto existing = m_textById.find(id);
-    if (existing != m_textById.end()) {
+    if (existing != m_textById.end() && existing->sourceText == source) {
         return existing.value();
     }
 
+    // Bounded so a long session cannot grow it without limit. Dropping the lot
+    // is crude next to evicting the coldest entries, but it happens roughly
+    // never (the cap is many screens' worth of conversation), and paying for
+    // recency bookkeeping on every row read to avoid it would cost more than it
+    // saves.
+    constexpr int kMaxCachedPresentations = 4000;
+    if (m_textById.size() >= kMaxCachedPresentations) {
+        m_textById.clear();
+    }
+
     TextPresentation presentation;
-    presentation.sourceText = displayText(item);
+    presentation.sourceText = source;
     presentation.previewText = collapsedMessageText(presentation.sourceText);
     presentation.truncated = presentation.previewText != presentation.sourceText;
     presentation.previewMarkup = whatevr::util::parseWhatsAppMessageMarkup(
@@ -859,11 +1054,13 @@ void ProtocolMessageModel::remeasure(TextPresentation &presentation) const
 {
     const QString previewLayout = presentation.previewMarkup.layoutText.isEmpty()
         ? presentation.previewText : presentation.previewMarkup.layoutText;
-    std::tie(presentation.previewWidest, presentation.previewLast) = measureLineWidths(previewLayout, m_bodyMetrics);
+    std::tie(presentation.previewWidest, presentation.previewLast) =
+        measureLineWidths(previewLayout, m_bodyMetrics, m_emojiMetrics);
     if (presentation.fullParsed) {
         const QString fullLayout = presentation.fullMarkup.layoutText.isEmpty()
             ? presentation.sourceText : presentation.fullMarkup.layoutText;
-        std::tie(presentation.fullWidest, presentation.fullLast) = measureLineWidths(fullLayout, m_bodyMetrics);
+        std::tie(presentation.fullWidest, presentation.fullLast) =
+            measureLineWidths(fullLayout, m_bodyMetrics, m_emojiMetrics);
     }
 }
 
@@ -894,6 +1091,7 @@ void ProtocolMessageModel::setBodyMetricsFont(const QFont &font)
     }
     m_bodyFont = font;
     m_bodyMetrics = QFontMetricsF(m_bodyFont);
+    m_emojiMetrics = QFontMetricsF(scaledEmojiFont(m_bodyFont));
     for (auto it = m_textById.begin(); it != m_textById.end(); ++it) {
         remeasure(it.value());
     }
@@ -924,8 +1122,10 @@ QString ProtocolMessageModel::copyTextForMessages(const QStringList &messageIds)
 {
     const QSet<QString> selected(messageIds.cbegin(), messageIds.cend());
     QList<QVariantMap> messages;
-    for (int row = 0; row < rowCount(); ++row) {
-        const QVariantMap item = wireItem(row);
+    // Gathered oldest first, not row first: what comes out of here is a
+    // conversation somebody is about to paste somewhere.
+    for (int nth = 0; nth < rowCount(); ++nth) {
+        const QVariantMap item = wireItem(chronologicalRow(nth));
         if (selected.contains(item.value(QStringLiteral("id")).toString())) {
             messages.append(item);
         }
@@ -958,10 +1158,32 @@ QString ProtocolMessageModel::copyTextForMessages(const QStringList &messageIds)
 QVariantMap ProtocolMessageModel::messageSnapshot(const QString &messageId) const
 {
     const int row = indexOf(messageId);
-    if (row < 0) {
-        return {};
+    if (row >= 0) {
+        return snapshotOfItem(wireItem(row), messageId);
     }
-    const QVariantMap item = wireItem(row);
+    // A picture inside an album is a real message with a real id, and it is
+    // the only kind of message that is not a row: the album is the row. Every
+    // path that takes a message id (the full-screen viewer, Save As, Forward,
+    // the context menu) still has to be able to find it, so the miss falls
+    // through to the albums in the window rather than returning nothing.
+    for (int i = 0; i < rowCount(); ++i) {
+        const QVariantList tiles = wireItem(i)
+                                       .value(QStringLiteral("album"))
+                                       .toMap()
+                                       .value(QStringLiteral("items"))
+                                       .toList();
+        for (const QVariant &tile : tiles) {
+            const QVariantMap map = tile.toMap();
+            if (map.value(QStringLiteral("id")).toString() == messageId) {
+                return snapshotOfItem(map, messageId);
+            }
+        }
+    }
+    return {};
+}
+
+QVariantMap ProtocolMessageModel::snapshotOfItem(const QVariantMap &item, const QString &messageId) const
+{
     TextPresentation &presentation = ensureTextPresentation(item);
     ensureFullTextPresentation(presentation, item);
     const QVariantMap mediaData = media(item);
@@ -974,7 +1196,6 @@ QVariantMap ProtocolMessageModel::messageSnapshot(const QString &messageId) cons
         {QStringLiteral("richText"), presentation.fullMarkup.richText},
         {QStringLiteral("links"), presentation.links},
         {QStringLiteral("senderName"), senderDisplayName(item)},
-        {QStringLiteral("senderDevice"), data(index(row, 0), SenderDeviceRole)},
         {QStringLiteral("isOutgoing"), item.value(QStringLiteral("direction")).toString() == QLatin1String("outgoing")},
         {QStringLiteral("timestampUnix"), item.value(QStringLiteral("timestamp"))},
         {QStringLiteral("mediaKind"), mediaKind(item)},
@@ -983,11 +1204,17 @@ QVariantMap ProtocolMessageModel::messageSnapshot(const QString &messageId) cons
         {QStringLiteral("mediaFileName"), mediaData.value(QStringLiteral("filename"))},
         {QStringLiteral("mediaSizeBytes"), mediaData.value(QStringLiteral("size_bytes"))},
         {QStringLiteral("mediaDurationSecs"), mediaData.value(QStringLiteral("duration_secs"))},
+        // The clip's own pixel size, which is what lets the full-screen viewer
+        // tell the picture apart from the letterbox around it.
+        {QStringLiteral("mediaWidth"), mediaData.value(QStringLiteral("width"))},
+        {QStringLiteral("mediaHeight"), mediaData.value(QStringLiteral("height"))},
         {QStringLiteral("mediaCacheKey"), QString()},
         // Download state, so the context menu can offer Download, Cancel and
         // Retry rather than being blind to anything that is not on disk yet.
-        {QStringLiteral("mediaDownloading"), data(index(row, 0), MediaDownloadingRole)},
-        {QStringLiteral("mediaDownloadProgress"), data(index(row, 0), MediaDownloadProgressRole)},
+        // Both are derived from the item rather than from the row, because an
+        // album's pictures have no row and still download like anything else.
+        {QStringLiteral("mediaDownloading"), mediaData.value(QStringLiteral("downloading")).toBool()},
+        {QStringLiteral("mediaDownloadProgress"), downloadProgress(item)},
         {QStringLiteral("mediaDownloadError"), mediaData.value(QStringLiteral("download_error"))},
         {QStringLiteral("mediaPageCount"), mediaData.value(QStringLiteral("page_count"))},
         {QStringLiteral("mediaPlayed"), mediaData.value(QStringLiteral("played"))},
@@ -997,15 +1224,36 @@ QVariantMap ProtocolMessageModel::messageSnapshot(const QString &messageId) cons
         {QStringLiteral("isStarred"), item.value(QStringLiteral("starred"))},
         {QStringLiteral("isPinned"), pinnedUntil > QDateTime::currentSecsSinceEpoch()},
         {QStringLiteral("reactions"), reactions(item)},
+        // An album's pictures, so opening one can open the set it belongs to
+        // rather than a lone photo with no way back to its siblings.
+        {QStringLiteral("album"), item.value(QStringLiteral("album"))},
     };
 }
 
+// downloadProgress is the transfer's completion 0..1, or -1 for "no active
+// transfer, or one whose total size is unknown", which is the same thing to a
+// spinner. It reads the item rather than a row so an album's pictures, which
+// have no row of their own, still report their own progress.
+double ProtocolMessageModel::downloadProgress(const QVariantMap &item) const
+{
+    const QVariantMap active = transfer(item);
+    const qulonglong total = active.value(QStringLiteral("total_bytes")).toULongLong();
+    if (active.isEmpty() || total == 0) {
+        return -1.0;
+    }
+    const qulonglong received = active.value(QStringLiteral("received_bytes")).toULongLong();
+    return std::min(1.0, static_cast<double>(received) / static_cast<double>(total));
+}
+
+// Oldest to newest, whichever way the rows happen to be held. Everything that
+// consumes this reads it as a transcript (select all, then copy it), and a
+// transcript that ran backwards would be a strange thing to put on a clipboard.
 QStringList ProtocolMessageModel::allMessageIds() const
 {
     QStringList ids;
     ids.reserve(rowCount());
-    for (int row = 0; row < rowCount(); ++row) {
-        const QString id = wireItem(row).value(QStringLiteral("id")).toString();
+    for (int nth = 0; nth < rowCount(); ++nth) {
+        const QString id = wireItem(chronologicalRow(nth)).value(QStringLiteral("id")).toString();
         if (!id.isEmpty()) {
             ids.append(id);
         }
@@ -1022,7 +1270,7 @@ QVariantMap ProtocolMessageModel::nextVoiceMessage(const QString &messageId) con
     if (from < 0) {
         return {};
     }
-    for (int row = from + 1; row < rowCount(); ++row) {
+    for (int row = newerRow(from); row >= 0; row = newerRow(row)) {
         const QVariantMap item = wireItem(row);
         if (mediaKind(item) != QLatin1String("voice")) {
             continue;
@@ -1032,10 +1280,17 @@ QVariantMap ProtocolMessageModel::nextVoiceMessage(const QString &messageId) con
         if (path.isEmpty()) {
             return {};
         }
+        // The sender fields ride along so the handoff can refresh the player's
+        // now-playing snapshot; a chained note is nobody's bubble's doing.
         return {
             {QStringLiteral("messageId"), item.value(QStringLiteral("id")).toString()},
             {QStringLiteral("localPath"), path},
             {QStringLiteral("durationSecs"), mediaData.value(QStringLiteral("duration_secs"))},
+        {QStringLiteral("senderName"), senderDisplayName(item)},
+        {QStringLiteral("senderDevice"), sender(item).value(QStringLiteral("device")).toInt()},
+            {QStringLiteral("avatarPath"), sender(item).value(QStringLiteral("avatar_path"))},
+            {QStringLiteral("waveform"), mediaData.value(QStringLiteral("waveform"))},
+            {QStringLiteral("isOutgoing"), item.value(QStringLiteral("direction")).toString() == QLatin1String("outgoing")},
         };
     }
     return {};
@@ -1049,8 +1304,8 @@ QStringList ProtocolMessageModel::messageIdsForDay(const QString &messageId) con
     }
     const int selectedDay = dayNumber(wireItem(row));
     QStringList ids;
-    for (int candidate = 0; candidate < rowCount(); ++candidate) {
-        const QVariantMap item = wireItem(candidate);
+    for (int nth = 0; nth < rowCount(); ++nth) {
+        const QVariantMap item = wireItem(chronologicalRow(nth));
         if (dayNumber(item) == selectedDay) {
             ids.append(item.value(QStringLiteral("id")).toString());
         }

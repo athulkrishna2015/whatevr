@@ -2,6 +2,7 @@ package wa
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -141,7 +142,7 @@ func repairWebPAlphaFlagFile(path string) (bool, error) {
 // per-file cost is one 21-byte read for everything that is already correct, so
 // running it on every start is cheaper than tracking state, and it also catches
 // files restored from a backup or written by an older build.
-func (c *Client) repairCachedWebPAlphaFlags() {
+func (c *Client) repairCachedWebPAlphaFlags(ctx context.Context) {
 	dir := filepath.Join(c.paths.MediaCacheDir, "stickers")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -153,6 +154,10 @@ func (c *Client) repairCachedWebPAlphaFlags() {
 
 	repaired := 0
 	for _, entry := range entries {
+		// A logout should not have to wait out a full sticker cache scan.
+		if ctx.Err() != nil {
+			return
+		}
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".webp" {
 			continue
 		}

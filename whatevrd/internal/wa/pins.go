@@ -20,8 +20,8 @@ import (
 // seconds of connecting — long before history sync finishes. LID chats whose
 // PN mapping hasn't landed yet are parked (see reconcilePendingAppState)
 // instead of being created as orphan @lid rows.
-func (c *Client) startAppStateReconcile(ctx context.Context) {
-	c.startPinnedChatRecovery(ctx, "reconcile", c.reconcileRegularAppState)
+func (c *Client) startAppStateReconcile() {
+	c.startPinnedChatRecovery("reconcile", c.reconcileRegularAppState)
 }
 
 // reconcileAfterHistorySync runs once the initial history sync has settled,
@@ -167,21 +167,34 @@ func (c *Client) applyPendingAppState(ctx context.Context, chatJID types.JID, en
 	}
 }
 
-func (c *Client) startPinnedChatRecovery(ctx context.Context, reason string, fn func(context.Context) error) {
+// The pass runs on the account session, not on the caller's context: it
+// outlives the event that asked for it and must stop with the account.
+func (c *Client) startPinnedChatRecovery(reason string, fn func(context.Context) error) {
 	if !c.pinBackfill.CompareAndSwap(false, true) {
+		// One pass at a time, but never drop a request: the pass in flight
+		// started from a snapshot taken before this caller saw a reason to ask,
+		// and on a fresh login the connect-time reconcile and the one that
+		// follows app state actually arriving collide here every time.
+		c.pinBackfillAgain.Store(true)
 		return
 	}
 
-	go func() {
+	c.spawn(func(ctx context.Context) {
 		defer c.pinBackfill.Store(false)
-		if err := fn(ctx); err != nil {
-			c.log.Warnf("Failed to %s pinned chats from WhatsApp app state: %v", reason, err)
+		for {
+			c.pinBackfillAgain.Store(false)
+			if err := fn(ctx); err != nil {
+				c.log.Warnf("Failed to %s pinned chats from WhatsApp app state: %v", reason, err)
+			}
+			if ctx.Err() != nil || !c.pinBackfillAgain.CompareAndSwap(true, false) {
+				return
+			}
 		}
-	}()
+	})
 }
 
-func (c *Client) startPinnedChatRecoveryFromAppState(ctx context.Context) {
-	c.startPinnedChatRecovery(ctx, "recover", c.recoverPinnedChatsFromAppState)
+func (c *Client) startPinnedChatRecoveryFromAppState() {
+	c.startPinnedChatRecovery("recover", c.recoverPinnedChatsFromAppState)
 }
 
 func (c *Client) reconcileRegularAppState(ctx context.Context) error {

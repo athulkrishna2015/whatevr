@@ -17,6 +17,14 @@ layout(std140, binding = 0) uniform buf {
     vec2 resolution;   // item size in pixels
     vec4 radii;        // x=topLeft, y=topRight, z=bottomRight, w=bottomLeft
     float aa;          // antialiasing band width in pixels
+    // Which part of the texture to draw, in normalised coordinates:
+    // xy = top-left, zw = size. (0,0,1,1) is the whole thing, which is what
+    // every caller that has sized its item to the picture's own aspect ratio
+    // wants. Anything else crops, so an item whose shape does not match the
+    // picture's can fill itself without stretching what is in it: an Image is
+    // a texture provider of the whole decoded picture, and fillMode never
+    // reaches this shader.
+    vec4 sourceRect;
 };
 
 void main() {
@@ -34,6 +42,11 @@ void main() {
     // Coverage: 1 inside, fading to 0 across an ~aa-wide band at the edge.
     float coverage = clamp(0.5 - d / max(aa, 0.0001), 0.0, 1.0);
 
+    // The rounding is a property of the item, so the distance field above stays
+    // in item space; only the sample is remapped into the visible part of the
+    // texture.
+    vec2 uv = sourceRect.xy + qt_TexCoord0 * sourceRect.zw;
+
     // Source texture is premultiplied alpha; scaling the whole vec4 keeps it so.
-    fragColor = texture(source, qt_TexCoord0) * coverage * qt_Opacity;
+    fragColor = texture(source, uv) * coverage * qt_Opacity;
 }

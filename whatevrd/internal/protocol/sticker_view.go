@@ -116,6 +116,11 @@ func (s *stickersSession) eventAffects(evt app.DaemonEvent) bool {
 }
 
 func (s *stickersSession) Items(max int) []Item {
+	items, _ := s.ItemsErr(max)
+	return items
+}
+
+func (s *stickersSession) ItemsErr(max int) ([]Item, error) {
 	limit := max
 	if limit <= 0 {
 		limit = -1 // SQLite LIMIT -1: an omitted view limit means the full collection.
@@ -134,7 +139,7 @@ func (s *stickersSession) Items(max int) []Item {
 	}
 	if err != nil {
 		log.Printf("protocol: list stickers for view: %v", err)
-		return nil
+		return nil, err
 	}
 	items := make([]Item, 0, len(stickers))
 	for i, sticker := range stickers {
@@ -144,7 +149,7 @@ func (s *stickersSession) Items(max int) []Item {
 			Data: stickerItemFromStore(sticker),
 		})
 	}
-	return items
+	return items, nil
 }
 
 func (s *stickersSession) Close() {

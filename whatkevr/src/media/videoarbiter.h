@@ -140,9 +140,11 @@ public:
     [[nodiscard]] QImage frameImage(const QString &messageId) const;
 
     /// Testing hooks. The live limit is the user's setting; the tests set it
-    /// directly so they do not depend on a QSettings store.
+    /// directly so they do not depend on a QSettings store. The grace is a
+    /// constant the tests shorten rather than wait out.
     void setAnimatedLimit(int limit);
     int animatedLimit() const;
+    void setParkGrace(int milliseconds);
     bool holds(const QObject *claimant) const;
     int animatedHolderCount() const;
 
@@ -189,7 +191,14 @@ private:
     /// How long a released session keeps its decoder before parking, so the
     /// viewer closing back into a bubble (a release and a re-acquire one tick
     /// apart) resumes the same engine instead of opening the file again.
-    static constexpr int parkGraceMs = 2000;
+    ///
+    /// Long enough to cover a scroll excursion as well: two seconds is less
+    /// than it takes to read the message above and come back, and a clip that
+    /// had parked reopened its file and seeked, which is a spinner and a jump
+    /// where the user expected the frame they left. It costs one open file per
+    /// pooled session, and obtainParkedSession() still takes a session out of
+    /// its grace early when another message needs one.
+    static constexpr int parkGraceMs = 10000;
 
     QPointer<QObject> m_exclusive;
     /// QPointer throughout: a bubble is destroyed by the list recycling it at
@@ -214,4 +223,6 @@ private:
 
     /// -1 means "read the user's setting". Tests override it.
     int m_animatedLimitOverride = -1;
+    /// -1 means parkGraceMs. Tests override it.
+    int m_parkGraceOverride = -1;
 };

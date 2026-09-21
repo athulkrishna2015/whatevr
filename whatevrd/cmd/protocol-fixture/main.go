@@ -16,13 +16,13 @@ import (
 	appstore "whatevrd/internal/store"
 )
 
-type conformanceView struct{}
+type conformanceView struct{ faults *faultSet }
 
-func (conformanceView) Open(_ json.RawMessage, _ func()) (protocol.ViewSession, map[string]any, *protocol.Error) {
-	return conformanceSession{}, map[string]any{"fixture": "conformance"}, nil
+func (v conformanceView) Open(_ json.RawMessage, _ func()) (protocol.ViewSession, map[string]any, *protocol.Error) {
+	return conformanceSession{faults: v.faults}, map[string]any{"fixture": "conformance"}, nil
 }
 
-type conformanceSession struct{}
+type conformanceSession struct{ faults *faultSet }
 
 type fixtureCommands struct{}
 
@@ -123,7 +123,13 @@ func (fixtureCommands) StreamMessageMedia(_ context.Context, messageID string, _
 		SizeBytes: 1 << 20,
 	}, nil
 }
-func (fixtureCommands) MarkMessagePlayed(context.Context, string) error { return nil }
+func (fixtureCommands) MarkMessagePlayed(context.Context, string) error       { return nil }
+func (fixtureCommands) RequestMessageFromPhone(context.Context, string) error { return nil }
+func (fixtureCommands) VotePoll(context.Context, string, []int) error         { return nil }
+func (fixtureCommands) JoinGroupInvite(context.Context, string) (string, error) {
+	return "120363000000000000@g.us", nil
+}
+func (fixtureCommands) RespondToEvent(context.Context, string, string, int) error { return nil }
 func (fixtureCommands) FetchProfilePicture(_ context.Context, jid string) (string, error) {
 	return "/cache/avatars/" + jid + ".jpg", nil
 }
@@ -158,9 +164,6 @@ func (fixtureCommands) SetStatusMutedSender(context.Context, string, bool) error
 func (fixtureCommands) ListMutedStatusSenders(context.Context) ([]string, error) { return nil, nil }
 func (fixtureCommands) SendPoll(_ context.Context, chatID, question string, options []string, multi bool) (appstore.SavedTextMessage, error) {
 	return appstore.SavedTextMessage{Message: appstore.Message{ID: chatID + ":poll", ChatID: chatID, Text: question}}, nil
-}
-func (fixtureCommands) VotePoll(_ context.Context, messageID string, options []string) (appstore.Message, error) {
-	return appstore.Message{ID: messageID}, nil
 }
 func (fixtureCommands) SendContact(_ context.Context, chatID, name, phone string) (appstore.SavedTextMessage, error) {
 	return appstore.SavedTextMessage{Message: appstore.Message{ID: chatID + ":contact", ChatID: chatID, Text: name}}, nil
@@ -250,7 +253,8 @@ func (fixtureCommands) CheckPhoneOnWhatsApp(_ context.Context, phone string) (ap
 	return app.PhoneCheck{Phone: phone}, nil
 }
 
-func (conformanceSession) Items(max int) []protocol.Item {
+func (s conformanceSession) Items(max int) []protocol.Item {
+	s.faults.sleepIfArmed()
 	items := []protocol.Item{
 		{ID: "alpha", Sort: "0001", Data: map[string]any{"id": "alpha", "title": "Alpha"}},
 		{ID: "bravo", Sort: "0002", Data: map[string]any{"id": "bravo", "title": "Bravo"}},
@@ -267,12 +271,21 @@ func (conformanceSession) Close() {}
 func main() {
 	var socketPath string
 	var readyFile string
+	var scriptPath string
+	var faultSpec string
 	flag.StringVar(&socketPath, "socket", "", "unix socket path to serve")
 	flag.StringVar(&readyFile, "ready-file", "", "write this file after the fixture is listening")
+	flag.StringVar(&scriptPath, "script", "", "replay a stream recorded by scripts/record-stream")
+	flag.StringVar(&faultSpec, "fault", "", "faults to arm: name[:one-in-N], comma separated, or all")
 	flag.Parse()
 
 	if socketPath == "" {
 		log.Fatal("--socket is required")
+	}
+
+	faults, err := parseFaults(faultSpec)
+	if err != nil {
+		log.Fatalf("--fault: %v", err)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -291,7 +304,25 @@ func main() {
 	}
 	protocol.RegisterDaemonViews(server, daemon, nil, nil)
 	protocol.RegisterDaemonCommands(server, fixtureCommands{})
-	server.RegisterView("conformance", conformanceView{})
+	server.RegisterView("conformance", conformanceView{faults: faults})
+
+	// A recorded stream replaces the daemon views it covers, so a replay goes
+	// through the real engine (windows, sort ordering, ready) over real frames
+	// rather than over three synthetic rows.
+	if scriptPath != "" {
+		recorded, loadErr := loadScript(scriptPath)
+		if loadErr != nil {
+			log.Fatalf("--script: %v", loadErr)
+		}
+		view := scriptedView{script: recorded, faults: faults}
+		for _, name := range recorded.views {
+			server.RegisterView(name, view)
+		}
+		log.Printf("replaying %d view(s) from %s", len(recorded.views), scriptPath)
+	}
+	if faultSpec != "" {
+		log.Printf("faults armed: %s", faultSpec)
+	}
 	// Accept only after registration; the ready file (which the conformance
 	// harness waits on before dialing) is written below, after Serve.
 	server.Serve(ctx)

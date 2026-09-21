@@ -5,6 +5,8 @@
 #include <QObject>
 #include <QQmlEngine>
 #include <QUrl>
+#include <QVariantList>
+#include <QVariantMap>
 
 class MpvCore;
 
@@ -36,6 +38,19 @@ class AudioPlayer : public QObject
     /// The last playback error, cleared when a new message loads.
     Q_PROPERTY(QString error READ error NOTIFY errorChanged)
 
+    // Who and what is playing. The bubble that started a note may be gone (its
+    // chat closed, its subscription dropped) while the note is still running,
+    // so the player carries its own snapshot of the message rather than
+    // expecting anything to be able to look it up.
+    Q_PROPERTY(QString chatId READ chatId NOTIFY contextChanged)
+    Q_PROPERTY(QString chatName READ chatName NOTIFY contextChanged)
+    Q_PROPERTY(QString senderName READ senderName NOTIFY contextChanged)
+    Q_PROPERTY(QString avatarPath READ avatarPath NOTIFY contextChanged)
+    Q_PROPERTY(QString fileName READ fileName NOTIFY contextChanged)
+    Q_PROPERTY(bool isVoice READ isVoice NOTIFY contextChanged)
+    Q_PROPERTY(bool isOutgoing READ isOutgoing NOTIFY contextChanged)
+    Q_PROPERTY(QVariantList waveform READ waveform NOTIFY contextChanged)
+
 public:
     // Not defaulted for the same reason as VideoPlaybackArbiter: a
     // default-constructible QML_SINGLETON is built by the engine itself rather
@@ -62,16 +77,32 @@ public:
         return m_error;
     }
 
+    QString chatId() const;
+    QString chatName() const;
+    QString senderName() const;
+    QString avatarPath() const;
+    QString fileName() const;
+    bool isVoice() const;
+    bool isOutgoing() const;
+    QVariantList waveform() const;
+
     /**
      * Plays a message, remembering where the last one left off.
      *
      * durationHint comes from the message row so the bubble can render a real
      * scrub bar before mpv has opened the file.
+     *
+     * context is the now-playing snapshot (chat_id, chat_name, sender_name,
+     * avatar_path, file_name, is_voice, is_outgoing, waveform); see the
+     * properties above for why the player holds it rather than looking it up.
      */
-    Q_INVOKABLE void play(const QString &messageId, const QUrl &source, double durationHint = 0.0);
+    Q_INVOKABLE void play(const QString &messageId, const QUrl &source, double durationHint = 0.0, const QVariantMap &context = {});
     /// Plays messageId if it is not playing, pauses it if it is, and switches
     /// to it if something else is playing.
-    Q_INVOKABLE void toggle(const QString &messageId, const QUrl &source, double durationHint = 0.0);
+    Q_INVOKABLE void toggle(const QString &messageId, const QUrl &source, double durationHint = 0.0, const QVariantMap &context = {});
+    /// Pauses or resumes whatever is loaded. The now-playing bar has no source
+    /// url of its own, only the player's word for what is in it.
+    Q_INVOKABLE void togglePlayPause();
     Q_INVOKABLE void pause();
     Q_INVOKABLE void stop();
     Q_INVOKABLE void seek(double seconds);
@@ -89,6 +120,7 @@ Q_SIGNALS:
     void durationChanged();
     void speedChanged();
     void errorChanged();
+    void contextChanged();
     /// Emitted when a message finishes on its own, so the conversation can
     /// advance to the next voice note the way WhatsApp does.
     void finished(const QString &messageId);
@@ -107,6 +139,7 @@ private:
     MpvCore *m_core = nullptr;
     QString m_messageId;
     QString m_error;
+    QVariantMap m_context;
     double m_durationHint = 0.0;
     bool m_startedReported = false;
 

@@ -52,6 +52,8 @@ add_test(NAME tst_protocolmessagemodel COMMAND tst_protocolmessagemodel)
 # the user-facing strings). Runs headless (QTEST_GUILESS_MAIN).
 qt_add_executable(tst_protocolcontroller
     tst_protocolcontroller.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/conversationsession.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/conversationsession.h
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/protocolcontroller.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/protocolcontroller.h
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/app/protocolstickercontroller.cpp

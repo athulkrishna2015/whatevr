@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QAbstractItemModel>
+#include <QElapsedTimer>
 #include <QJsonObject>
 #include <QObject>
 #include <QHash>
@@ -9,6 +10,8 @@
 #include <QUrl>
 #include <QVariantMap>
 #include <qqmlintegration.h>
+
+#include "conversationsession.h"
 
 #include <cstdint>
 
@@ -111,7 +114,19 @@ class ProtocolController final : public QObject
     Q_PROPERTY(QString historySyncDetail READ historySyncDetail NOTIFY historySyncChanged FINAL)
 
     // Conversation selection + protocol `messages` timeline (D3b).
-    Q_PROPERTY(QAbstractItemModel *messageListModel READ messageListModel CONSTANT FINAL)
+    Q_PROPERTY(QAbstractItemModel *messageListModel READ messageListModel NOTIFY warmWindowsChanged FINAL)
+    // How many transcript panes the conversation keeps parked. Constant, so the
+    // Repeater that builds them never rebuilds a pane; what changes is which
+    // chat each slot holds, and only for a slot that was actually reused.
+    Q_PROPERTY(int warmWindowCount READ warmWindowCount CONSTANT FINAL)
+    // One entry per slot: `chatId` and the `model` that slot's pane renders.
+    //
+    // A property rather than only the invokable below, because a pane has to
+    // *re-read* this when a slot changes hands, and only a property with a
+    // NOTIFY can be depended on. A binding that names the signal instead reads
+    // as a constant and never fires again, which leaves every pane holding the
+    // empty slot it was built with.
+    Q_PROPERTY(QVariantList warmWindows READ warmWindows NOTIFY warmWindowsChanged FINAL)
     Q_PROPERTY(QString selectedChatId READ selectedChatId NOTIFY selectionChanged FINAL)
     Q_PROPERTY(QString selectedChatName READ selectedChatName NOTIFY selectionChanged FINAL)
     Q_PROPERTY(QString selectedChatAvatarLocalPath READ selectedChatAvatarLocalPath NOTIFY selectionChanged FINAL)
@@ -169,6 +184,10 @@ class ProtocolController final : public QObject
     // initial fill so the conversation can reserve the banner's height.
     Q_PROPERTY(bool pinnedMessagesReady READ pinnedMessagesReady NOTIFY pinnedMessagesChanged FINAL)
     Q_PROPERTY(int pinnedMessagesCount READ pinnedMessagesCount NOTIFY pinnedMessagesChanged FINAL)
+    /// Live-location shares still running in the open chat. Its own view
+    /// because a position that moves every few seconds has no business
+    /// re-rendering the transcript (PROTOCOL.md, Granularity).
+    Q_PROPERTY(int liveLocationsCount READ liveLocationsCount NOTIFY liveLocationsChanged FINAL)
 
     // Forward picker (D4b): a `chats` subscription that lives exactly as long as
     // the picker dialog is open. The dialog's search box filters the rows it
@@ -265,6 +284,14 @@ class ProtocolController final : public QObject
     // Subscribed alongside the messages window, like `presence` and `pinned`.
     Q_PROPERTY(int chatMembersRevision READ chatMembersRevision NOTIFY chatMembersChanged FINAL)
 
+    // message id -> the selection a tap asked for, for every vote still in
+    // flight. A poll row indexes this by its own id, so its in-flight state is
+    // a plain binding rather than imperative state a recycled delegate loses.
+    Q_PROPERTY(QVariantMap pendingPollVotes READ pendingPollVotes NOTIFY pollVotesChanged FINAL)
+    /// The RSVPs a tap asked for while their commands are still in flight,
+    /// keyed by message id. Same shape and same reason as pendingPollVotes.
+    Q_PROPERTY(QVariantMap pendingEventRSVPs READ pendingEventRSVPs NOTIFY eventRSVPsChanged FINAL)
+
     // Settings/profile (D6). The object properties expose daemon rows verbatim;
     // commands are ack-only and their effects return through these views.
     Q_PROPERTY(QVariantMap privacySettings READ privacySettings NOTIFY privacySettingsChanged FINAL)
@@ -352,6 +379,11 @@ public:
     [[nodiscard]] QString historySyncDetail() const { return m_historySyncDetail; }
 
     [[nodiscard]] QAbstractItemModel *messageListModel() const;
+    [[nodiscard]] static int warmWindowCount() { return kWarmChatWindows; }
+    [[nodiscard]] QVariantList warmWindows() const;
+    /// What slot `index` currently holds: `chatId` and the `model` its pane
+    /// should render. Both empty for a slot nothing has been parked in yet.
+    [[nodiscard]] Q_INVOKABLE QVariantMap warmWindowAt(int index) const;
     [[nodiscard]] QString selectedChatId() const { return m_selectedChatId; }
     [[nodiscard]] QString selectedChatName() const;
     [[nodiscard]] QString selectedChatAvatarLocalPath() const;
@@ -363,21 +395,21 @@ public:
     [[nodiscard]] QVariantMap knownChatRow(const QString &chatId) const;
     [[nodiscard]] bool selectedChatHistoryExhausted() const;
     [[nodiscard]] bool messagesLoading() const;
-    [[nodiscard]] bool olderMessagesLoading() const { return m_olderMessagesLoading; }
-    [[nodiscard]] bool newerMessagesLoading() const { return m_newerMessagesLoading; }
-    [[nodiscard]] bool canLoadOlderMessages() const { return m_canLoadOlderMessages && !m_olderMessagesFailed; }
-    [[nodiscard]] bool canLoadNewerMessages() const { return m_canLoadNewerMessages && !m_newerMessagesFailed; }
-    [[nodiscard]] bool olderMessagesFailed() const { return m_olderMessagesFailed; }
-    [[nodiscard]] bool newerMessagesFailed() const { return m_newerMessagesFailed; }
-    [[nodiscard]] bool messagesAtLiveEdge() const { return m_messagesAtLiveEdge; }
-    [[nodiscard]] bool phoneHistoryRequesting() const { return m_phoneHistoryRequesting; }
+    [[nodiscard]] bool olderMessagesLoading() const { return m_session->olderLoading; }
+    [[nodiscard]] bool newerMessagesLoading() const { return m_session->newerLoading; }
+    [[nodiscard]] bool canLoadOlderMessages() const { return m_session->canLoadOlder && !m_session->olderFailed; }
+    [[nodiscard]] bool canLoadNewerMessages() const { return m_session->canLoadNewer && !m_session->newerFailed; }
+    [[nodiscard]] bool olderMessagesFailed() const { return m_session->olderFailed; }
+    [[nodiscard]] bool newerMessagesFailed() const { return m_session->newerFailed; }
+    [[nodiscard]] bool messagesAtLiveEdge() const { return m_session->atLiveEdge; }
+    [[nodiscard]] bool phoneHistoryRequesting() const { return m_session->phoneHistoryRequesting; }
     [[nodiscard]] bool messagesEmpty() const;
-    [[nodiscard]] bool messagesReloading() const { return m_messagesReloading; }
-    [[nodiscard]] QString displayedMessagesChatId() const { return m_displayedMessagesChatId; }
-    [[nodiscard]] QString messageErrorText() const { return m_messageErrorText; }
-    [[nodiscard]] QString unreadAnchorMessageId() const { return m_unreadAnchorMessageId; }
-    [[nodiscard]] int unreadAnchorCount() const { return m_unreadAnchorCount; }
-    [[nodiscard]] bool unreadAnchorResolving() const { return m_unreadAnchorResolving; }
+    [[nodiscard]] bool messagesReloading() const { return m_session->reloading; }
+    [[nodiscard]] QString displayedMessagesChatId() const { return m_session->displayedChatId; }
+    [[nodiscard]] QString messageErrorText() const { return m_session->errorText; }
+    [[nodiscard]] QString unreadAnchorMessageId() const { return m_session->unreadAnchorMessageId; }
+    [[nodiscard]] int unreadAnchorCount() const { return m_session->unreadAnchorCount; }
+    [[nodiscard]] bool unreadAnchorResolving() const { return m_session->unreadAnchorResolving; }
 
     [[nodiscard]] QString selectedChatPresenceText() const;
 
@@ -403,6 +435,8 @@ public:
     // Display fields of one pinned row (`messageId`, `senderName`, `preview`),
     // or an empty map when the index is out of range.
     [[nodiscard]] Q_INVOKABLE QVariantMap pinnedMessageAt(int index) const;
+    [[nodiscard]] int liveLocationsCount() const;
+    [[nodiscard]] Q_INVOKABLE QVariantMap liveLocationAt(int index) const;
 
     [[nodiscard]] int forwardTargetsRevision() const { return m_forwardTargetsRevision; }
     // Every candidate forward target whose name matches `query` (empty matches
@@ -542,6 +576,8 @@ public:
     // presentation-side filtering over rows the frontend already has.
     [[nodiscard]] Q_INVOKABLE QVariantList groupMembers(const QString &query) const;
     [[nodiscard]] int chatMembersRevision() const { return m_chatMembersRevision; }
+    [[nodiscard]] QVariantMap pendingPollVotes() const { return m_pendingPollVotes; }
+    [[nodiscard]] QVariantMap pendingEventRSVPs() const { return m_pendingEventRSVPs; }
     // The same filtering over the conversation's roster, for the mention picker.
     [[nodiscard]] Q_INVOKABLE QVariantList chatMembers(const QString &query) const;
     // Subscribes the conversation's roster if it is not already live. The
@@ -642,6 +678,40 @@ public:
     /// Reports that the user listened to a voice note, which sends a played
     /// receipt. Repeat calls are no-ops daemon-side.
     Q_INVOKABLE void markMessagePlayed(const QString &messageId);
+    /// Ask our own phone for a copy of a message this device could not decrypt.
+    /// The daemon already asked once by itself; this is the button for when
+    /// that came and went.
+    Q_INVOKABLE void requestMessageFromPhone(const QString &messageId);
+    /// Casts a vote. The selection is whole rather than incremental, because
+    /// that is what a vote means on the wire: passing an empty list is how a
+    /// voter takes their answer back.
+    Q_INVOKABLE void votePoll(const QString &messageId, const QVariantList &optionIndexes);
+    /// Accepts a group invitation and goes to the chat. It is also the "open"
+    /// path for a group already joined: the daemon joins nothing there and
+    /// simply answers with where to go, so the card has one action either way.
+    Q_INVOKABLE void joinGroupInvite(const QString &messageId);
+    /// Answers a scheduled event. The answer is whole rather than incremental:
+    /// answering again replaces what you said before, which is what the wire
+    /// format means. extraGuests is ignored for an event that did not allow it.
+    Q_INVOKABLE void respondToEvent(const QString &messageId, const QString &response, int extraGuests);
+    /// Writes an event out as an .ics file and hands it to the desktop, which
+    /// is the thing a phone cannot do: the event lands in whatever calendar the
+    /// user actually keeps rather than staying trapped in a chat.
+    Q_INVOKABLE bool saveEventToCalendar(const QString &messageId, const QVariantMap &event);
+    /// The .ics text for one event, split out from writing it so the escaping
+    /// and line folding are testable without spawning a calendar application.
+    /// Empty for an event with no start time, which is not an event.
+    [[nodiscard]] static QString eventCalendarEntry(const QString &messageId, const QVariantMap &event);
+    /// One entry of pendingPollVotes: the selection a tap asked for while its
+    /// command is still in flight, or an invalid variant when nothing is
+    /// pending. A poll row prefers this over the daemon's tally so it answers
+    /// the tap on the same frame; the daemon's own echo replaces it
+    /// milliseconds later.
+    ///
+    /// This is presentation state about an unfinished command, not a cache of
+    /// daemon state: nothing is merged, nothing outlives the round trip, and
+    /// the tally itself still comes from the daemon and only the daemon.
+    [[nodiscard]] Q_INVOKABLE QVariant pendingPollSelection(const QString &messageId) const;
     /// Hands a downloaded file to the system's default application.
     Q_INVOKABLE bool openLocalFile(const QString &localPath);
     // Opens the daemon's log directory in the file manager.
@@ -649,6 +719,11 @@ public:
     /// A local path as a properly encoded file URL. QML used to concatenate
     /// "file://" + path, which breaks on any path containing '#', '?' or '%'.
     Q_INVOKABLE QUrl localFileUrl(const QString &localPath) const;
+    /// Hands a shared position to the desktop as a `geo:` URI, which is what
+    /// GNOME Maps, Marble and KDE's own handler register for. Falls back to
+    /// OpenStreetMap in the browser when nothing claims the scheme, so this
+    /// always goes somewhere.
+    Q_INVOKABLE bool openLocation(double latitude, double longitude, const QString &label);
 
     Q_INVOKABLE void sendReaction(const QString &messageId, const QString &emoji);
     Q_INVOKABLE void editMessage(const QString &messageId, const QString &newText);
@@ -663,8 +738,6 @@ public:
     // One call per source message; a multi-select forward loops over them and
     // the "forwarded" report fires once for the whole batch.
     Q_INVOKABLE void forwardMessage(const QString &messageId, const QStringList &chatIds);
-    // Maps to `message.vote`; a re-vote replaces the user's previous ballot.
-    Q_INVOKABLE void votePoll(const QString &messageId, const QStringList &selectedOptions);
     // Whether a message sent at this time is still inside WhatsApp's edit
     // window, so the context menu can hide the entry. The daemon is
     // authoritative and answers `expired` regardless.
@@ -725,6 +798,10 @@ public:
     /// manager or another application.
     Q_INVOKABLE void copyFileToClipboard(const QString &localPath);
     Q_INVOKABLE bool saveMediaAs(const QString &localPath, const QUrl &destUrl);
+    /// Writes a shared contact's vCard out and hands it to the desktop, which
+    /// opens it in whatever manages contacts. That is "add this person" on a
+    /// Linux desktop; a Save As dialog would only put a .vcf somewhere.
+    Q_INVOKABLE bool saveContactCard(const QString &displayName, const QString &vcard);
     // WhatsApp markup -> CommonMark, for "Copy as Markdown".
     [[nodiscard]] Q_INVOKABLE QString toCommonMark(const QString &text) const;
     // Start of the grapheme cluster before the cursor, so Backspace deletes a
@@ -732,6 +809,15 @@ public:
     [[nodiscard]] Q_INVOKABLE int previousGraphemeBoundary(const QString &text, int cursorPosition) const;
 
     [[nodiscard]] static bool perfLogging();
+
+    // Chat-open stopwatch (WHATKEVR_PERF=1). The open path crosses C++ and QML
+    // several times — subscribe, the daemon's reply, the first row, the last
+    // row, the frame that finally shows them — and until now only its two ends
+    // were visible, which made "opening is slow" impossible to attribute. Every
+    // phase is stamped against one clock started in subscribeMessages(), so the
+    // log reads as a breakdown rather than a set of unrelated timestamps.
+    // QML calls this for the phases only it can see (`painted`).
+    Q_INVOKABLE void markChatOpenPhase(const QString &phase);
 
     // Single-instance entry point: the launch arguments of this process, or
     // those forwarded by a second launch through KDBusService. A
@@ -756,11 +842,15 @@ public:
     void historySyncChanged();
     void selectionChanged();
     void messagesChanged();
+    /// A warm slot started holding a different chat, or the chat on screen
+    /// changed which slot it is. Panes re-read warmWindowAt() from this.
+    void warmWindowsChanged();
     void unreadAnchorChanged();
     void presenceChanged();
     void messageReceiptsChanged();
     void composerChanged();
     void pinnedMessagesChanged();
+    void liveLocationsChanged();
     void forwardTargetsChanged();
     void searchChanged();
     void chatSearchChanged();
@@ -788,6 +878,8 @@ public:
     void infoCardChanged();
     void groupMembersChanged();
     void chatMembersChanged();
+    void pollVotesChanged();
+    void eventRSVPsChanged();
     void privacySettingsChanged();
     void appPreferencesChanged();
     void blocklistChanged();
@@ -871,13 +963,45 @@ private:
     void selectedChatLookupFailed(const QString &chatId, const QString &code, const QString &message);
     void setSelectedChat(const QString &chatId, const QString &anchor, const QString &jumpMessageId);
     void subscribeMessages(const QString &anchor, const QString &jumpMessageId = {});
+
+    // --- warm transcript pool ---------------------------------------------
+    //
+    // The session for a chat opened at this anchor, or nullptr when there is
+    // none. The anchor is part of the identity: a window pinned at the unread
+    // divider and one at the live edge put the reader in different places, so
+    // they are different windows even over the same chat.
+    [[nodiscard]] ConversationSession *warmWindowFor(const QString &chatId, const QString &anchor) const;
+    // The session on screen.
+    [[nodiscard]] ConversationSession *activeMessageWindow() const { return m_session; }
+    // Where this chat should be opened: the anchor it is already parked at if
+    // it is warm, otherwise the one the caller worked out.
+    [[nodiscard]] QString anchorForOpening(const QString &chatId, const QString &requested) const;
+    // Build an entry, its two models and its subscription, and make it the head
+    // of the pool, evicting the coldest if that takes it over the cap.
+    ConversationSession *openMessageWindow(const QString &chatId, const QString &anchor);
+    // Put this session on screen.
+    void activateMessageWindow(ConversationSession *window);
+    // Tear an entry down: unsubscribe, delete its models, drop it from the pool.
+    void closeMessageWindow(ConversationSession *window);
+    void closeAllMessageWindows();
+    // No chat on screen, every warm chat still warm.
+    void detachVisibleMessageWindow();
+    // Wire one session's model signals. Each handler writes only that session,
+    // so a warm chat keeps its transcript correct off screen without touching
+    // the one the reader is looking at.
+    void connectMessageWindow(ConversationSession *window);
     // Records that the window now reaches the newest message, which is not the
     // same thing as the anchor it was opened on.
-    void noteReachedLiveEdge();
-    void onMessagesSubscribed(const QVariantMap &meta);
-    void onMessagesReady(bool exhausted);
-    void onMessagesFailed(const QString &code, const QString &message);
-    void onMessagesReset();
+    void noteReachedLiveEdge(ConversationSession *session);
+    void retryJumpAtFallbackAnchor(ConversationSession *session);
+    // Tell this session's bindings it changed, and the controller's mirrors of
+    // it too while it is the one on screen.
+    void publishSession(ConversationSession *session);
+    void publishUnreadAnchor(ConversationSession *session);
+    void onMessagesSubscribed(ConversationSession *session, const QVariantMap &meta);
+    void onMessagesReady(ConversationSession *session, bool exhausted);
+    void onMessagesFailed(ConversationSession *session, const QString &code, const QString &message);
+    void onMessagesReset(ConversationSession *session);
     void extendMessages(const QString &direction, bool force = false);
     void sendSessionUpdate();
 
@@ -892,6 +1016,7 @@ private:
     // Same, for the `pinned` banner view: it follows what the conversation is
     // showing, so a hidden conversation holds no pinned subscription.
     void updatePinnedSubscription();
+    void updateLiveLocationsSubscription();
 
     // Same again, for the composer's mention roster: a `group_members`
     // subscription on the displayed conversation, and only when it is a group
@@ -930,6 +1055,9 @@ private:
     whatevr::proto::CollectionViewModel *m_presenceModel = nullptr;
     whatevr::proto::CollectionViewModel *m_receiptsModel = nullptr;
     whatevr::proto::CollectionViewModel *m_pinnedModel = nullptr;
+    whatevr::proto::CollectionViewModel *m_liveLocationsModel = nullptr;
+    whatevr::proto::Subscription *m_liveLocationsSub = nullptr;
+    QString m_liveLocationsChatId;
     whatevr::proto::CollectionViewModel *m_forwardTargetsModel = nullptr;
     whatevr::proto::CollectionViewModel *m_transfersModel = nullptr;
     whatevr::proto::CollectionViewModel *m_starredModel = nullptr;
@@ -1001,39 +1129,58 @@ private:
     // Active stream request ids, used to reject stale or misdirected updates.
     QHash<QString, QString> m_mediaStreamMessages;
 
+    // A chat's transcript, kept alive after you leave it.
+    //
+    // Opening a chat costs what it costs to build its rows, and nothing else
+    // came close once the daemon was measured: the query is 3ms and the whole
+    // window crosses the socket in one drain. So the only way for a re-open to
+    // be instant is for the rows not to be rebuilt, and the only way for them
+    // not to be rebuilt is for the view that holds them to still exist. Handing
+    // one ListView a different model does not work; it destroys every delegate
+    // it has. A hidden view keeps them (tst_chatbubbleperf pins this down), so
+    // the frontend parks a whole pane per recent chat and shows one of them.
+    //
+    // Each entry keeps its own copy of the two models and its own live
+    // subscription, which is why coming back costs no round trip either: the
+    // daemon has been keeping it correct the whole time it was off screen.
+
+    // How many transcripts stay warm. Each one costs a live subscription and a
+    // window of rows; four covers the back-and-forth people actually do without
+    // holding a meaningful amount of memory.
+    static constexpr int kWarmChatWindows = 4;
+
+    // Fixed slots, not a most-recently-used list, and the difference matters to
+    // the frontend rather than to this file. The panes are a Repeater over a
+    // constant count, so slot i is the same pane for as long as the chat in it
+    // lives there; reordering the pool would move chats between panes and hand
+    // each of them a different model, which is precisely the delegate rebuild
+    // this exists to avoid. A chat keeps its slot until it is evicted.
+    // Empty slots are nullptr.
+    QList<ConversationSession *> m_messageWindows;
+    // Slot indices, coldest last. Only consulted to choose what to evict.
+    QList<int> m_messageWindowUse;
+
+    // The session on screen. Never null: with no chat open it is the empty
+    // stand-in below, so every reader is entitled to find one there.
+    ConversationSession *m_session = nullptr;
+    ConversationSession *m_idleSession = nullptr;
+    whatevr::proto::CollectionViewModel *m_idleMessagesModel = nullptr;
+    ProtocolMessageModel *m_idleMessagePresentation = nullptr;
+
     QString m_selectedChatId;
-    QString m_displayedMessagesChatId;
-    QString m_requestedAnchor;
-    QString m_effectiveAnchor;
-    QString m_pendingJumpMessageId;
-    QString m_jumpFallbackAnchor;
-    QString m_pendingExtendDirection;
-    QString m_messageErrorText;
-    QString m_unreadAnchorMessageId;
-    QString m_pendingReadWatermark;
-    QString m_phoneHistoryOldestId;
-    QString m_lastReadWatermark;
-    int m_unreadAnchorCount = 0;
-    bool m_unreadAnchorResolving = false;
-    bool m_waitingInitialMessages = false;
-    bool m_messagesReloading = false;
-    bool m_refillingAfterReset = false;
     bool m_waitingForSelectedChatItem = false;
     // One chat-list `extend` in flight at a time; cleared by the view's `ready`
     // (or by a rejected extend) so scrolling cannot pile requests up.
     bool m_chatsExtendPending = false;
     bool m_archivedExtendPending = false;
-    bool m_olderMessagesLoading = false;
-    bool m_newerMessagesLoading = false;
-    bool m_canLoadOlderMessages = false;
-    bool m_canLoadNewerMessages = false;
-    bool m_olderMessagesFailed = false;
-    bool m_newerMessagesFailed = false;
-    bool m_messagesAtLiveEdge = false;
-    bool m_phoneHistoryRequesting = false;
     bool m_conversationVisible = false;
-    int m_messagesGeneration = 0;
-    int m_phoneHistoryGeneration = 0;
+
+    // Chat-open stopwatch (WHATKEVR_PERF=1 only). Started in subscribeMessages
+    // and read by markChatOpenPhase; m_openPhaseRows records how many rows had
+    // landed when a phase was stamped, because "ready after 40ms" means
+    // something different for eight rows than for eighty.
+    QElapsedTimer m_openClock;
+    int m_openPhaseRows = 0;
 
     // The chat the `presence` subscription currently covers (empty when none).
     QString m_presenceChatId;
@@ -1111,6 +1258,11 @@ private:
     bool m_channelMessagesLoading = false;
     QString m_selectedChannelJid;
     QString m_selectedChannelName;
+
+    // message id -> the selection a tap asked for, held only until `poll.vote`
+    // answers. Never persisted, never merged with the daemon's tally.
+    QVariantMap m_pendingPollVotes;
+    QVariantMap m_pendingEventRSVPs;
 
     QTimer *m_startupGraceTimer = nullptr;
     QTimer *m_qrTimer = nullptr;

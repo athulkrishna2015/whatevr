@@ -439,3 +439,127 @@ func TestUpdateMessageStatusStaysMonotonicWithAggregate(t *testing.T) {
 		t.Fatalf("status regressed: changed=%v status=%q", changed, message.Status)
 	}
 }
+
+// A 1:1 receipt naming several messages moves every one of them and publishes
+// an update for each, the same as when each id had its own transaction.
+func TestOneToOneReceiptAppliesToEveryMessageItNames(t *testing.T) {
+	ctx := context.Background()
+	client, db := newReceiptTestClient(t)
+
+	const chatID = "peer@s.whatsapp.net"
+	ids := []types.MessageID{"msg-1", "msg-2", "msg-3"}
+	for i, id := range ids {
+		if _, err := db.SaveTextMessage(ctx, appstore.TextMessageInput{
+			ID:        internalMessageIDForChat(chatID, id),
+			ChatID:    chatID,
+			SenderID:  "me",
+			Text:      "hello",
+			Timestamp: time.Unix(int64(100+i), 0),
+			Direction: appstore.DirectionOutgoing,
+			Status:    appstore.StatusSent,
+		}); err != nil {
+			t.Fatalf("seed message %s: %v", id, err)
+		}
+	}
+
+	daemonEvents, unsubscribe := client.daemon.SubscribeDaemonEvents()
+	defer unsubscribe()
+
+	client.handleReceipt(&events.Receipt{
+		MessageSource: types.MessageSource{Chat: types.JID{User: "peer", Server: types.DefaultUserServer}},
+		MessageIDs:    []types.MessageID{"msg-1", "msg-2", "msg-3", "msg-gone"},
+		Type:          types.ReceiptTypeDelivered,
+		Timestamp:     time.Unix(200, 0),
+	}, false)
+
+	for _, id := range ids {
+		message, err := db.GetMessage(ctx, internalMessageIDForChat(chatID, id))
+		if err != nil {
+			t.Fatalf("read %s: %v", id, err)
+		}
+		if message.Status != appstore.StatusDelivered {
+			t.Fatalf("message %s is %q, want %q", id, message.Status, appstore.StatusDelivered)
+		}
+	}
+
+	published := 0
+	for {
+		select {
+		case <-daemonEvents:
+			published++
+			continue
+		default:
+		}
+		break
+	}
+	if published == 0 {
+		t.Fatal("a delivered receipt published nothing")
+	}
+}
+
+// A group receipt naming several messages resolves the membership once and then
+// aggregates each message on its own. The aggregate is what the ticks show, so
+// it has to survive the hoist unchanged.
+func TestGroupReceiptAggregatesEveryMessageItNames(t *testing.T) {
+	ctx := context.Background()
+	client, db := newReceiptTestClient(t)
+
+	const chatID = "group@g.us"
+	members := []string{"a@s.whatsapp.net", "b@s.whatsapp.net"}
+	if err := db.ReplaceGroupParticipants(ctx, chatID, members); err != nil {
+		t.Fatalf("seed participants: %v", err)
+	}
+
+	ids := []types.MessageID{"msg-1", "msg-2"}
+	for i, id := range ids {
+		if _, err := db.SaveTextMessage(ctx, appstore.TextMessageInput{
+			ID:        internalMessageIDForChat(chatID, id),
+			ChatID:    chatID,
+			SenderID:  "me",
+			Text:      "hello",
+			Timestamp: time.Unix(int64(100+i), 0),
+			Direction: appstore.DirectionOutgoing,
+			Status:    appstore.StatusSent,
+		}); err != nil {
+			t.Fatalf("seed message %s: %v", id, err)
+		}
+	}
+
+	deliver := func(sender string) {
+		t.Helper()
+		client.handleReceipt(&events.Receipt{
+			MessageSource: types.MessageSource{
+				Chat:     types.JID{User: "group", Server: types.GroupServer},
+				Sender:   types.JID{User: sender, Server: types.DefaultUserServer},
+				IsGroup:  true,
+				IsFromMe: false,
+			},
+			MessageIDs: ids,
+			Type:       types.ReceiptTypeDelivered,
+			Timestamp:  time.Unix(200, 0),
+		}, false)
+	}
+
+	// One member is not everyone: the ticks stay where they are.
+	deliver("a")
+	for _, id := range ids {
+		message, err := db.GetMessage(ctx, internalMessageIDForChat(chatID, id))
+		if err != nil {
+			t.Fatalf("read %s: %v", id, err)
+		}
+		if message.Status != appstore.StatusSent {
+			t.Fatalf("message %s moved to %q on one member's receipt", id, message.Status)
+		}
+	}
+
+	deliver("b")
+	for _, id := range ids {
+		message, err := db.GetMessage(ctx, internalMessageIDForChat(chatID, id))
+		if err != nil {
+			t.Fatalf("read %s: %v", id, err)
+		}
+		if message.Status != appstore.StatusDelivered {
+			t.Fatalf("message %s is %q after every member received it", id, message.Status)
+		}
+	}
+}

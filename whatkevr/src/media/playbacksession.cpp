@@ -30,12 +30,29 @@ PlaybackSession::PlaybackSession(QObject *parent)
         Q_EMIT positionChanged();
     });
     connect(m_core, &MpvCore::durationChanged, this, &PlaybackSession::durationChanged);
-    connect(m_core, &MpvCore::videoSizeChanged, this, &PlaybackSession::hasVideoChanged);
+    connect(m_core, &MpvCore::videoSizeChanged, this, [this]() {
+        // Cover geometry is derived from the decoded size, so it can only be
+        // right once mpv has reported one.
+        syncItemGeometry();
+        Q_EMIT hasVideoChanged();
+    });
     connect(m_core, &MpvCore::progressStateChanged, this, &PlaybackSession::handleProgressState);
     connect(m_core, &MpvCore::endOfFile, this, [this]() {
         if (!m_loop) {
             Q_EMIT endOfMedia();
         }
+    });
+    // The still comes back on its own, an event turn or two after it was asked
+    // for. It belongs to whatever this session was showing at the time, which
+    // is not necessarily what it is showing now: a clip released mid-scroll can
+    // be handed a different message before mpv answers.
+    connect(m_core, &MpvCore::stillReady, this, [this](const QImage &image) {
+        const QString owner = m_pendingStillId;
+        m_pendingStillId.clear();
+        if (owner.isEmpty() || image.isNull()) {
+            return;
+        }
+        Q_EMIT stillGrabbed(owner, image);
     });
     connect(m_core, &MpvCore::errorOccurred, this, [this](const QString &message) {
         m_failed = true;
@@ -326,12 +343,36 @@ QQuickItem *PlaybackSession::parkingHolder() const
     return m_window ? m_window->contentItem() : nullptr;
 }
 
+void PlaybackSession::setCoverContainer(bool cover)
+{
+    if (m_coverContainer == cover) {
+        return;
+    }
+    m_coverContainer = cover;
+    syncItemGeometry();
+}
+
 void PlaybackSession::syncItemGeometry()
 {
     if (!m_item || !m_container) {
         return;
     }
-    m_item->setSize(QSizeF(m_container->width(), m_container->height()));
+    const QSizeF box(m_container->width(), m_container->height());
+    const QSize video = m_core->videoSize();
+    // Fit is mpv's own behaviour, so the item is simply the container and the
+    // engine letterboxes inside it. Cover needs the item to carry the clip's
+    // aspect and overhang the box, which cannot be worked out before the first
+    // frame reports a size; until then the fit geometry is the better guess.
+    if (!m_coverContainer || box.isEmpty() || video.isEmpty()) {
+        m_item->setPosition(QPointF(0, 0));
+        m_item->setSize(box);
+        return;
+    }
+    const qreal scale = std::max(box.width() / video.width(), box.height() / video.height());
+    const QSizeF scaled(video.width() * scale, video.height() * scale);
+    m_item->setPosition(QPointF((box.width() - scaled.width()) / 2,
+                                (box.height() - scaled.height()) / 2));
+    m_item->setSize(scaled);
 }
 
 void PlaybackSession::applyStateToCore()
@@ -401,11 +442,9 @@ void PlaybackSession::captureStill()
     if (m_messageId.isEmpty()) {
         return;
     }
-    const QImage image = m_core->grabStill();
-    if (image.isNull()) {
-        return;
+    if (m_core->requestStill()) {
+        m_pendingStillId = m_messageId;
     }
-    Q_EMIT stillGrabbed(m_messageId, image);
 }
 
 void PlaybackSession::handlePosition()

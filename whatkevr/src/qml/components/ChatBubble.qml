@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 
 import QtQuick
 import QtQuick.Controls
-import QtQuick.Controls as QQC2
 import org.kde.kirigami as Kirigami
 import Whatevr as Whatevr
 
@@ -51,10 +50,35 @@ Item {
     required property int mediaPageCount
     required property var mediaWaveform
     required property bool mediaPlayed
+    // Whether the daemon attached a media object at all. A kind alone does not
+    // imply something to fetch: a poll and a contact card have kinds and no
+    // bytes behind them.
+    required property bool hasMedia
+    required property bool isKept
+    // Kind-specific payloads, empty maps on rows of another kind. One `var` per
+    // family rather than a role per field: the bubble that renders a kind is the
+    // only thing that reads its payload.
+    required property var location
+    required property var liveShare
+    required property var contacts
+    required property var poll
+    required property var invite
+    required property var eventInfo
+    required property var album
+    // The card for a link in the text. The only payload that arrives on a row
+    // of another kind: this row is a text row, and the card sits above the
+    // words rather than replacing them.
+    required property var linkPreview
+    required property var interactive
+    required property var commerce
+    required property var stickerPack
+    required property var callLog
+    required property var system
+    required property var waiting
     required property bool isRevoked
     required property bool isEdited
-    // WhatsApp forward marker (daemon `forwarded`). tdesktop renders a
-    // "Forwarded" header above the content; we do the same (framed bubbles).
+    // WhatsApp forward marker (daemon `forwarded`), rendered as a header
+    // above the bubble content in framed bubbles.
     required property bool isForwarded
     // Sender device id: 0 is the primary phone app, anything else a linked
     // device (Web/Desktop or another companion). Drives the footer mark.
@@ -79,22 +103,6 @@ Item {
     // Reactions on this message: list of {emoji, senderId, senderName, fromMe}
     // maps (ProtocolMessageModel ReactionsRole).
     required property var reactions
-
-    // Poll, contact, location roles from the daemon message item.
-    required property string pollQuestion
-    required property var pollOptions
-    required property bool pollMultiSelect
-    required property string contactName
-    required property string contactPhone
-    required property double locationLat
-    required property double locationLng
-    required property string locationName
-    required property string locationAddress
-    // Sender-provided link preview (daemon `link_preview` object as a var map:
-    // {url, title, description, thumbnail_path}). Empty when the message
-    // carries none.
-    required property var linkPreview
-    required property bool hasLinkPreview
 
     // Raw text roles. A long message is delivered twice — the full text and a
     // truncated preview — and which one is shown depends on `textExpanded`,
@@ -169,6 +177,12 @@ Item {
     signal reactionToggleRequested(string emoji)
     // Open the reactor list dialog for this message's reactions.
     signal reactionDetailsRequested()
+    // Open the poll's result breakdown. optionIndex focuses one answer; -1 opens
+    // on the whole poll.
+    signal pollVotersRequested(int optionIndex)
+    // Open an event's full list of answers. `response` narrows it to one of
+    // them; empty opens on all three.
+    signal eventResponsesRequested(string response)
     signal replyPreviewActivated(string messageId)
     signal readMoreRequested(string messageId)
     // A downloaded message photo was clicked: open it full screen.
@@ -178,6 +192,11 @@ Item {
     // the second the inline copy had reached, so opening full screen continues
     // a clip instead of restarting it.
     signal videoActivated(string messageId, string localPath, string streamUrl, string streamId, string kind, int durationSecs, real startAt)
+    // A tile in an album was clicked. It carries the album rather than the
+    // picture, because opening one picture out of a set that was sent together
+    // and giving no way to reach the rest is the wrong thing: the viewer takes
+    // the whole album and starts at this index.
+    signal albumItemActivated(string albumMessageId, int index)
     // An @-mention link was clicked: open contact info for the JID, or the
     // group info dialog for an @all / @everyone mention.
     signal mentionClicked(string jid)
@@ -205,14 +224,15 @@ Item {
     property real listWidth: 0
     readonly property bool showDateSeparator: dateSeparatorText.length > 0
     readonly property bool hasReplyPreview: replyToMessageId.length > 0
-    // Forwarded header (tdesktop pattern): framed bubbles only; frameless
-    // rows (stickers/jumbo/video notes) draw no plate to hang it on.
+    // Forwarded header: framed bubbles only; frameless rows (stickers/jumbo/
+    // video notes) draw no plate to hang it on.
     readonly property bool showForwardedHeader: isForwarded && !frameless
     readonly property real forwardedHeaderHeight: showForwardedHeader
         ? forwardedLoader.height
         : 0
     readonly property bool canReply: messageId.length > 0
                                      && !isRevoked
+                                     && !centeredPill
                                      && (body.length > 0
                                          || mediaKind.length > 0
                                          || mediaMimeType.length > 0
@@ -232,13 +252,27 @@ Item {
         : (Whatevr.Settings.density === 2 ? 1.3 : 1.0)
     readonly property real innerPadding: Math.round(Kirigami.Units.largeSpacing * densityScale)
     readonly property real senderAvatarSize: Kirigami.Units.gridUnit * 1.65
-    readonly property real senderGutterWidth: showSenderGutter ? senderAvatarSize + Kirigami.Units.smallSpacing : 0
-    readonly property real senderHeaderHeight: showSenderHeader
+    // A pill claims no side of the transcript, so it needs neither the avatar
+    // gutter nor the sender name above it: both would be labelling a message
+    // that nobody sent.
+    readonly property real senderGutterWidth: showSenderGutter && !centeredPill ? senderAvatarSize + Kirigami.Units.smallSpacing : 0
+    readonly property real senderHeaderHeight: showSenderHeader && !centeredPill
         ? Math.max(senderAvatarSize, senderHeaderLoader.item ? senderHeaderLoader.item.labelImplicitHeight : 0)
         : 0
+    /// How much of the column a bubble may take at its widest.
+    ///
+    /// A share as well as a ceiling. The ceiling alone is what a wide window
+    /// needs, but it does not bind at all once the pane is narrower than it,
+    /// and then a bubble that asks for everything gets everything: a hero card
+    /// always asks for the full content width, so it ran edge to edge with a
+    /// few pixels of margin and no side left to tell an incoming message from
+    /// an outgoing one. The gap opposite a bubble is what says which way it
+    /// went, so it has to survive the window being dragged narrow.
+    readonly property real maxBubbleWidthShare: 0.84
+    readonly property real availableBubbleWidth: Math.max(0, listWidth - outerMargin * 2 - senderGutterWidth)
     readonly property real maxBubbleWidth: Math.max(Kirigami.Units.gridUnit * 4,
-                                                    Math.min(Math.max(0, listWidth - outerMargin * 2 - senderGutterWidth),
-                                                              Kirigami.Units.gridUnit * 28))
+                                                    Math.min(availableBubbleWidth * maxBubbleWidthShare,
+                                                             Kirigami.Units.gridUnit * 28))
     readonly property real maxContentWidth: Math.max(Kirigami.Units.gridUnit * 4, maxBubbleWidth - innerPadding * 2)
     // Honour the appearance setting (point size; 0 = follow the system font).
     readonly property real bodyPointSize: Whatevr.Settings.messageFontSize > 0
@@ -265,17 +299,59 @@ Item {
     // still say image/gif, and deriving this from mime alone built the image
     // stack and the video stack on top of each other, two download buttons
     // included.
-    readonly property bool isImage: !isPlayableVideo && !isSticker && mediaMimeType.startsWith("image/")
+    // Card kinds are excluded for the same reason GIFs are: a location's media
+    // is a PNG map, so mime alone built the photo stack underneath the card,
+    // download button and all.
+    readonly property bool isImage: !isPlayableVideo && !isSticker && !isCardBlock
+                                    && mediaMimeType.startsWith("image/")
     // Kinds that render as a fixed-height row inside the padded content, more
     // like a line of text than a picture.
     readonly property bool isVoice: mediaKind === "voice"
     readonly property bool isAudioFile: mediaKind === "audio"
     readonly property bool isDocument: mediaKind === "document"
-    readonly property bool isAttachmentBlock: isVoice || isAudioFile || isDocument
-    readonly property bool isPoll: pollQuestion.length > 0
-    readonly property bool isContact: mediaKind === "contact" && contactName.length > 0
-    readonly property bool isLocation: mediaKind === "location" && (locationLat !== 0 || locationLng !== 0)
-    readonly property bool hasStructuredContent: isPoll || isContact || isLocation
+    // Kinds that render as a card: a block of their own inside the bubble whose
+    // height its own content decides, rather than the fixed row a voice note or
+    // a document gets. Width flows down from the bubble, height flows up from
+    // the card, which is the same contract FramelessBubble already uses.
+    readonly property bool isLocation: mediaKind === "location"
+    readonly property bool isLiveLocation: mediaKind === "live_location"
+    readonly property bool isContactCard: mediaKind === "contact" || mediaKind === "contacts"
+    readonly property bool isPoll: mediaKind === "poll"
+    readonly property bool isGroupInvite: mediaKind === "group_invite"
+    readonly property bool isEvent: mediaKind === "event"
+    // An album is a card by the same contract as the rest: the row hands it a
+    // width and reads back a height. It is not an image block, because the row
+    // has no picture of its own to be sized by; its pictures are its children.
+    readonly property bool isAlbum: mediaKind === "album"
+    // A link preview is a card by the same contract as the rest, and the only
+    // one that shares its bubble with body text. It is keyed on the payload
+    // rather than on the kind because the kind is `text`: the words are still
+    // the message, so nothing about the row changes except that a card now
+    // sits above them.
+    readonly property bool isLinkPreview: mediaKind.length === 0
+                                          && !isRevoked
+                                          && linkPreview !== undefined
+                                          && linkPreview !== null
+                                          && String(linkPreview.url ?? "").length > 0
+    // A business message. Four wire shapes arrive as one kind, because the
+    // daemon flattened them: this build never learns which one it was.
+    readonly property bool isInteractive: mediaKind === "interactive"
+    // A product, an order or a payment. One card: they differ by a line on it.
+    readonly property bool isCommerce: mediaKind === "product" || mediaKind === "order" || mediaKind === "payment"
+    readonly property bool isStickerPack: mediaKind === "sticker_pack"
+    // A message that arrived and would not decrypt. A card rather than a
+    // tombstone because it is not over: something is still being asked for, and
+    // the row has a button.
+    readonly property bool isWaiting: mediaKind === "waiting"
+    readonly property bool isCardBlock: isLocation || isLiveLocation || isContactCard || isPoll || isGroupInvite || isEvent || isAlbum || isLinkPreview
+                                        || isInteractive || isCommerce || isStickerPack || isWaiting
+    readonly property bool isAttachmentBlock: isVoice || isAudioFile || isDocument || isCardBlock
+    // A call that happened. Not a message anybody wrote, and the one row here
+    // that draws no plate and picks no side: see the centered-pill mode below.
+    readonly property bool isCallLog: mediaKind === "call_log"
+    // Something the chat did to itself: a membership change, a setting, a
+    // security code. A pill for the same reason a call log is one.
+    readonly property bool isSystemEvent: mediaKind === "system"
     // Real message whose payload the app can't render yet (document, voice
     // note, poll, ...). The daemon puts a short label in the body text; the
     // row renders like a revoked tombstone and never offers a download.
@@ -287,17 +363,29 @@ Item {
     // time/ticks pill under it. A video note is one of these, the same way
     // WhatsApp draws a round instant video: a circle on the wallpaper, no box.
     readonly property bool frameless: isSticker || isJumboEmoji || isVideoNote
+    // Rows that are not somebody talking. A call happened; nobody said it, so
+    // there is no side of the transcript it belongs on and no plate to put it
+    // in. It draws as a pill in the middle, the way the day separator does,
+    // with no avatar, no sender name and no reply affordance. A system event is
+    // the same shape of thing: the chat changed, and nobody is claiming to have
+    // said so.
+    //
+    // A sibling of `frameless` rather than a variant of it: a frameless row is
+    // still a message from somebody, drawn without its box.
+    readonly property bool centeredPill: isCallLog || isSystemEvent
     readonly property real jumboEmojiPixelSize: Kirigami.Units.gridUnit
         * (displayEmojiOnlyCount === 1 ? 2.8 : displayEmojiOnlyCount === 2 ? 2.2 : 1.8)
     readonly property bool isAnimatedSticker: isSticker && (mediaAnimated || mediaMimeType === "image/gif")
     readonly property bool isLottieSticker: isSticker && mediaMimeType === "application/was"
-    // NB: isImage explicitly excludes stickers, so sticker renderability
-    // must not depend on it (that made every static/animated sticker
-    // invisible while Lottie ones rendered fine).
+    // Every sticker that is not a Lottie animation draws through Image or
+    // AnimatedImage. Deliberately not `&& isImage`: that flag excludes stickers
+    // by construction, so requiring it made this false for every sticker there
+    // has ever been, and the renderers it gates never drew anything.
     readonly property bool isRenderableStickerImage: isSticker && !isLottieSticker
-    readonly property bool hasStickerThumbnail: isSticker && mediaThumbnailLocalPath.length > 0
     readonly property bool hasLocalImage: isImage && mediaLocalPath.length > 0
-    readonly property bool hasThumbnailImage: isImage && mediaThumbnailLocalPath.length > 0
+    // Stickers included, for the same reason: their placeholder is the one thing
+    // on screen until the sticker itself decodes.
+    readonly property bool hasThumbnailImage: (isImage || isSticker) && mediaThumbnailLocalPath.length > 0
     readonly property bool hasLocalSticker: isSticker
                                                && mediaLocalPath.length > 0
                                                && (!isLottieSticker || mediaLocalPath.endsWith(".json"))
@@ -311,8 +399,13 @@ Item {
     // the per-kind "auto-download" preferences; with the toggle off the user
     // downloads manually via the in-bubble button.
     readonly property bool mediaIsLocal: isSticker ? hasLocalSticker : mediaLocalPath.length > 0
-    readonly property bool hasDownloadableMedia: !mediaIsLocal && !isUnsupported
-        && (mediaMimeType.length > 0 || mediaCacheKey.length > 0 || mediaKind.length > 0)
+    // `hasMedia` is the daemon's own answer to "is there anything to fetch",
+    // and it is the only one worth trusting: a kind is not a promise of bytes.
+    // Deriving this from `mediaKind.length > 0` meant every structured kind
+    // (poll, contact card, system event) looked downloadable and fired a
+    // media.download on every scroll-in, falling through to the documents
+    // auto-download preference on the way.
+    readonly property bool hasDownloadableMedia: hasMedia && !mediaIsLocal && !isUnsupported
     // The user's ceiling, defaulting to 16 MiB: big enough for a voice note, a
     // photo or a short clip, small enough that a scroll past a long video does
     // not commit the connection. 0 means no limit.
@@ -328,6 +421,12 @@ Item {
         // decision, not a scroll's.
         if (autoDownloadSizeCeiling > 0 && mediaSizeBytes > autoDownloadSizeCeiling)
             return false;
+        // A map is drawn by the daemon from cached tiles, not pulled from
+        // WhatsApp, so it answers to its own preference rather than the photo
+        // one, and it defaults on: a location bubble without a map is a pair of
+        // numbers.
+        if (isCardBlock)
+            return isLocation || isLiveLocation ? (prefs.auto_fetch_maps ?? true) : false;
         if (isSticker)
             return prefs.auto_download_stickers ?? false;
         if (isImage)
@@ -440,17 +539,38 @@ Item {
     readonly property real videoNoteDiameter: Math.min(maxBubbleWidth, Kirigami.Units.gridUnit * 11)
     // Voice notes, audio files and documents are rows, not pictures: a fixed
     // height and a comfortable width that does not depend on decode.
-    readonly property real attachmentBlockWidth: Math.min(maxContentWidth, Kirigami.Units.gridUnit * 17)
+    // A card wants the whole content width: it is showing a picture of
+    // somewhere, not a line of metadata.
+    // A card that shows a picture of somewhere wants the whole content width. A
+    // card that shows a few lines and a button does not, and stretching it to
+    // the ceiling leaves a bubble mostly full of nothing with its action
+    // stranded at the far left. So a card may publish a width it would rather
+    // have, the same way it already publishes a height; cards that publish none
+    // keep filling, which is what a map and a mosaic want.
+    readonly property real attachmentBlockWidth: isCardBlock
+        ? (cardBlockWidth > 0 ? Math.min(maxContentWidth, cardBlockWidth) : maxContentWidth)
+        : Math.min(maxContentWidth, Kirigami.Units.gridUnit * 17)
+    property real cardBlockWidth: 0
+    // A card publishes its own height, so the row asks it rather than guessing.
+    // The fallback is what the slot reserves before the card has laid out, and
+    // it is deliberately close to the real thing so nothing jumps.
+    property real cardBlockHeight: Kirigami.Units.gridUnit * 12
     // Documents with a first-page thumbnail (sender-provided, or derived
     // locally via pdftoppm) show a preview strip above the filename row.
     readonly property bool hasDocumentThumbnail: isDocument && mediaThumbnailLocalPath.length > 0
     readonly property real documentThumbnailHeight: hasDocumentThumbnail ? Kirigami.Units.gridUnit * 7 : 0
-    // Two lines: the waveform (or the filename) and the line under it that now
-    // carries the timestamp too, so the block no longer reserves a third.
-    readonly property real attachmentBlockHeight: isDocument
-        ? Kirigami.Units.gridUnit * 2.9 + documentThumbnailHeight
-            + (hasDocumentThumbnail ? Kirigami.Units.smallSpacing : 0)
-        : Kirigami.Units.gridUnit * 2.6
+    // Two lines for a voice note: the waveform and the line under it that now
+    // carries the timestamp too, so the block no longer reserves a third. An
+    // audio file needs three, since its name will not share a line with its
+    // seek track the way a nameless recording's waveform does.
+    readonly property real attachmentBlockHeight: isCardBlock
+        ? cardBlockHeight
+        : isAudioFile
+            ? Kirigami.Units.gridUnit * 3.4
+            : isDocument
+                ? Kirigami.Units.gridUnit * 2.9 + documentThumbnailHeight
+                    + (hasDocumentThumbnail ? Kirigami.Units.smallSpacing : 0)
+                : Kirigami.Units.gridUnit * 2.6
 
     readonly property int imageDecodeWidth: decodeWidthForAspect(imageDecodeWidthCap, imageDecodeHeightCap, reservedImageAspectRatio)
     readonly property int imageDecodeHeight: decodeHeightForAspect(imageDecodeWidthCap, imageDecodeHeightCap, reservedImageAspectRatio)
@@ -561,19 +681,26 @@ Item {
     readonly property bool showPinMark: isPinned && !isRevoked
     readonly property real pinMarkSize: Math.max(1, Math.round(footerMetrics.height * 0.92))
     readonly property real pinMarkReserve: showPinMark ? pinMarkSize + tntSpacing : 0
+    // A bookmark, leftmost of the marks, when somebody asked for a disappearing
+    // message to stay. A revoked row keeps nothing, so it shows nothing.
+    readonly property bool showKeepMark: isKept && !isRevoked
+    readonly property real keepMarkSize: Math.max(1, Math.round(footerMetrics.height * 0.92))
+    readonly property real keepMarkReserve: showKeepMark ? keepMarkSize + tntSpacing : 0
     readonly property real tntWidth: Math.ceil(footerMetrics.advanceWidth
                                                + editMarkReserve
                                                + deletedMarkReserve
                                                + linkedMarkReserve
                                                + starMarkReserve
                                                + pinMarkReserve
+                                               + keepMarkReserve
                                                + (showStatusIcon ? statusAreaWidth + tntSpacing : 0))
     readonly property real tntHeight: Math.ceil(Math.max(footerMetrics.height, showStatusIcon ? statusIconSize : 0,
                                                          showEditMark ? editMarkSize : 0,
                                                          showDeletedMark ? deletedMarkSize : 0,
                                                          showLinkedMark ? linkedMarkSize : 0,
                                                          showStarMark ? starMarkSize : 0,
-                                                         showPinMark ? pinMarkSize : 0))
+                                                         showPinMark ? pinMarkSize : 0,
+                                                         showKeepMark ? keepMarkSize : 0))
     readonly property bool hasBody: body.length > 0
     readonly property bool showReadMore: textTruncated && !textExpanded && hasBody
     readonly property string readMoreLabelText: Whatevr.I18n.i18nc("@action:button expand long message", "Read more")
@@ -609,7 +736,13 @@ Item {
     // On the bottom line a voice note, audio file or document already draws
     // (elapsed time, file size, page count). The block keeps tntReserveWidth
     // clear at its right end for exactly this.
+    // A business card, a commerce card and a shared sticker pack all end on a
+    // line that spans the card: a button as wide as the plate, or a sentence
+    // that wraps across it. There is no corner left to tuck the time into, so
+    // it takes a line of its own under the card rather than sitting on top of
+    // the last one.
     readonly property bool tntFitsInAttachment: isAttachmentBlock && !hasBody
+                                                && !isInteractive && !isCommerce && !isStickerPack && !isWaiting
     // Space an attachment block leaves at the end of its bottom line so the
     // footer has somewhere to sit without overlapping the block's own text.
     readonly property real tntReserveWidth: tntFitsInAttachment ? tntWidth + inlineTntGap : 0
@@ -625,7 +758,10 @@ Item {
         if (!root.canReply) {
             return
         }
-        root.triggerReplyGlow()
+        // Deliberately no reply glow. The glow's job is to point out a row you
+        // did not choose: MessageView plays it when a jump lands. Flashing the
+        // row the pointer is already on, because it was just double-clicked,
+        // tells the reader nothing and reads as the screen glitching.
         root.messageSelectionClaimed(root.messageId)
         root.replyRequested(root.messageId, root.currentSenderNameForReply(), root.replyPreviewBody.length > 0 ? root.replyPreviewBody : root.body, root.mediaKind, root.mediaMimeType, root.isOutgoing)
         root.conversationFocusRequested()
@@ -652,19 +788,8 @@ Item {
 
     function contentOffsetBeforeBody() {
         const top = root.innerPadding + root.forwardedHeaderHeight
-        if (root.hasStructuredContent) {
-            const loader = root.isPoll ? pollLoader : (root.isContact ? contactLoader : locationLoader)
-            if (loader.item)
-                return loader.y + loader.height + Kirigami.Units.smallSpacing
-            return top
-        }
         if (mediaSlot.visible) {
             return mediaSlot.y + mediaSlot.height + Kirigami.Units.smallSpacing
-        }
-        if (root.hasLinkPreview) {
-            if (linkPreviewLoader.item)
-                return linkPreviewLoader.y + linkPreviewLoader.height + Kirigami.Units.smallSpacing
-            return top
         }
         if (root.hasReplyPreview) {
             return top + replyPreviewLoader.height + Kirigami.Units.smallSpacing - root.bodyTopInsetCorrection
@@ -678,15 +803,6 @@ Item {
         }
         if (root.hasBody) {
             return bodyTextLoader.y + bodyTextLoader.height
-        }
-        if (root.hasLinkPreview && linkPreviewLoader.item) {
-            return linkPreviewLoader.y + linkPreviewLoader.height
-        }
-        if (root.hasStructuredContent) {
-            const loader = root.isPoll ? pollLoader : (root.isContact ? contactLoader : locationLoader)
-            if (loader.item)
-                return loader.y + loader.height
-            return root.innerPadding
         }
         if (mediaSlot.visible) {
             return mediaSlot.y + mediaSlot.height
@@ -726,9 +842,6 @@ Item {
         if (isAttachmentBlock) {
             w = Math.max(w, attachmentBlockWidth)
         }
-        if (hasStructuredContent) {
-            w = Math.max(w, maxContentWidth)
-        }
         w = Math.max(w, Math.min(maxContentWidth, tntWidth))
         return Math.max(w, hasBody ? Kirigami.Units.gridUnit * 2 : Kirigami.Units.gridUnit * 4)
     }
@@ -748,15 +861,49 @@ Item {
                                                        imageDisplayWidth - innerPadding * 2)
     readonly property real textRegionWidth: hasInlineMedia ? innerContentWidth : contentBlockWidth
 
+    // Whether the media slot has real artwork on screen rather than an empty
+    // plate. Bound from inside whichever media stack is loaded (see the Binding
+    // in the image component below, and the one in VideoBubble); a plain value
+    // rather than a binding here, so a text row or a recycled delegate with no
+    // stack at all reads false.
+    property bool mediaArtworkShown: false
+    // The footer is only sitting on a picture once there is a picture. An
+    // undownloaded photo is an empty plate with a "Load image" button on it, and
+    // white-on-nothing under a scrim is neither readable nor honest about what
+    // is there.
+    readonly property bool footerOverArtwork: footerOverPicture && mediaArtworkShown
+
+    /// Where the footer's scrim starts, as a fraction of its own height: the
+    /// footer's top edge, so nothing above the line of text is darkened at all.
+    /// The strip is tntHeight tall sitting footerInset off the bottom, inside a
+    /// rectangle of tntHeight + footerInset * 2, which puts that edge exactly
+    /// one inset down from its top.
+    readonly property real footerScrimOnset: footerInset / Math.max(1, tntHeight + footerInset * 2)
+    /// How dark it gets at the very bottom. Enough to carry white on a bright
+    /// photograph and no more: this sits on someone's picture.
+    readonly property real footerScrimPeak: 0.42
+
+    // Rows whose time and ticks land on a picture rather than on a plate. An
+    // album is one of them without being `imageOnly`: that flag means media
+    // that drives the bubble's width and runs edge to edge, which a mosaic
+    // does not, but the footer still sits on artwork and still needs the scrim
+    // under it and the light tones on it. One vignette across the bottom of the
+    // whole mosaic, not one per tile: the tiles are one picture cut up.
+    readonly property bool footerOverPicture: imageOnly || isAlbum
     // Footer (time + ticks) colours. Over the image-only vignette they switch to
     // light tones for contrast; otherwise the muted theme colours are used.
-    readonly property color footerTextColor: imageOnly ? "white" : Kirigami.Theme.disabledTextColor
+    //
+    // Switched rather than cross-faded: a Behavior here is three more objects on
+    // every row in the chat, text rows included, to smooth one frame on the two
+    // kinds that can ever make the change. The vignette under them fades, which
+    // is the part the eye follows.
+    readonly property color footerTextColor: footerOverArtwork ? "white" : Kirigami.Theme.disabledTextColor
     readonly property color statusTickColor: statusIsRead
-        ? (imageOnly ? Qt.lighter(Whatevr.Palette.highlight, 1.4) : Whatevr.Palette.highlight)
-        : (imageOnly ? "white" : Kirigami.Theme.disabledTextColor)
+        ? (footerOverArtwork ? Qt.lighter(Whatevr.Palette.highlight, 1.4) : Whatevr.Palette.highlight)
+        : (footerOverArtwork ? "white" : Kirigami.Theme.disabledTextColor)
     readonly property color statusSingleColor: statusIsFailed
         ? Kirigami.Theme.negativeTextColor
-        : (imageOnly ? "white" : Kirigami.Theme.disabledTextColor)
+        : (footerOverArtwork ? "white" : Kirigami.Theme.disabledTextColor)
 
     // Per-corner radii for the edge-to-edge media. Top corners follow the
     // bubble's top corners; bottom corners are only rounded for image-only
@@ -775,18 +922,18 @@ Item {
     // the reaction band. On frameless rows these come from the frameless
     // subtree (which only exists for those rows — see framelessLoader); every
     // other row is just the bubble.
-    readonly property real replyGlowLeft: framelessBubble ? framelessBubble.contentLeft : bubble.x
-    readonly property real replyGlowTop: framelessBubble ? framelessBubble.contentTop : bubble.y
-    readonly property real replyGlowRight: framelessBubble ? framelessBubble.contentRight : bubble.x + bubble.width
-    readonly property real replyGlowBottom: framelessBubble ? framelessBubble.contentBottom : bubble.y + bubble.height
+    readonly property real replyGlowLeft: centeredPill ? pillLoader.x : (framelessBubble ? framelessBubble.contentLeft : bubble.x)
+    readonly property real replyGlowTop: centeredPill ? pillLoader.y : (framelessBubble ? framelessBubble.contentTop : bubble.y)
+    readonly property real replyGlowRight: centeredPill ? pillLoader.x + pillLoader.width : (framelessBubble ? framelessBubble.contentRight : bubble.x + bubble.width)
+    readonly property real replyGlowBottom: centeredPill ? pillLoader.y + pillLoader.height : (framelessBubble ? framelessBubble.contentBottom : bubble.y + bubble.height)
 
     // Bounds of the row's visual body — the bubble, or the sticker slot on
     // frameless rows. Shared by the selection check circle and the hover reply
     // button, which both sit in the free space beside it.
-    readonly property real visualX: framelessBubble ? framelessBubble.slotX : bubble.x
-    readonly property real visualY: framelessBubble ? framelessBubble.slotY : bubble.y
-    readonly property real visualWidth: framelessBubble ? framelessBubble.slotWidth : bubble.width
-    readonly property real visualHeight: framelessBubble ? framelessBubble.slotHeight : bubble.height
+    readonly property real visualX: centeredPill ? pillLoader.x : (framelessBubble ? framelessBubble.slotX : bubble.x)
+    readonly property real visualY: centeredPill ? pillLoader.y : (framelessBubble ? framelessBubble.slotY : bubble.y)
+    readonly property real visualWidth: centeredPill ? pillLoader.width : (framelessBubble ? framelessBubble.slotWidth : bubble.width)
+    readonly property real visualHeight: centeredPill ? pillLoader.height : (framelessBubble ? framelessBubble.slotHeight : bubble.height)
 
     readonly property bool hasReactions: reactions !== undefined && reactions !== null && reactions.length > 0
     // The reaction chip row sits in its own band below the bubble; reserve its
@@ -796,9 +943,11 @@ Item {
         : 0
 
     width: listWidth
-    height: (framelessBubble
-        ? framelessBubble.bottomEdge
-        : bubble.y + bubble.height) + reactionRowReserve + (groupEnd ? Kirigami.Units.smallSpacing : Kirigami.Units.smallSpacing / 4)
+    height: (centeredPill
+        ? pillLoader.y + pillLoader.height
+        : framelessBubble
+            ? framelessBubble.bottomEdge
+            : bubble.y + bubble.height) + reactionRowReserve + (groupEnd ? Kirigami.Units.smallSpacing : Kirigami.Units.smallSpacing / 4)
 
     HoverHandler {
         id: rowHoverHandler
@@ -851,8 +1000,29 @@ Item {
     // Right-click context menu. A MouseArea (not a TapHandler) so the press is
     // consumed before the text-selection TextEdits see it.
     MouseArea {
+        id: rowPointerArea
+
         anchors.fill: parent
         acceptedButtons: Qt.RightButton
+        // Covering the row with a hover-enabled MouseArea takes hover away from
+        // everything under it, handlers included, which is exactly why the
+        // cursor is resolved here rather than by the things being pointed at.
+        // A card is different: it holds real buttons and fields that have to
+        // light up under the pointer, so the mask cuts a hole for it. CardBubble
+        // hands the row's context menu back for right-clicks in that hole.
+        // The parameter and return types are declared because Qt looks the mask
+        // up by the exact signature `contains(QPointF)`; an untyped QML function
+        // is registered as taking a QVariant and is silently ignored.
+        containmentMask: QtObject {
+            function contains(point: point): bool {
+                const card = cardLoader.item
+                if (!card) {
+                    return true
+                }
+                const p = rowPointerArea.mapToItem(card, point.x, point.y)
+                return p.x < 0 || p.y < 0 || p.x > card.width || p.y > card.height
+            }
+        }
         // This area sits on top of the whole row (z:9) so it consumes the
         // right-press before the body TextEdits — but a MouseArea also owns the
         // item cursor for everything beneath it. So it has to resolve the cursor
@@ -901,79 +1071,23 @@ Item {
         }
     }
 
-    // Everything multi-select mode needs — the covering click surface, the row
-    // tint and the check circle — is built only while that mode is on. It used
-    // to be three permanently instantiated (and normally invisible) subtrees on
-    // every row, worth roughly seven objects each time (DN9).
+    // Everything that sits on top of the row: the multi-select chrome, the
+    // jump-to-reply glow, the hover reply button. One Loader for all three
+    // rather than one each, for the reason the media slot has one: an inactive
+    // Loader holding an inline component is two objects on every delegate in
+    // the chat, and none of these three is showing on almost any row at any
+    // moment. See RowOverlays.qml.
     Loader {
-        id: selectionChromeLoader
+        id: rowOverlaysLoader
 
         anchors.fill: parent
+        z: 7
         active: root.selectionModeActive
+                || root.replyGlowOpacity > 0
+                || (root.hoverLatched && root.canReply && !root.pooled)
 
-        sourceComponent: Item {
-            anchors.fill: parent
-
-            // Selection-mode click surface: every left click toggles this
-            // message and nothing underneath (links, reply button, image
-            // buttons) reacts.
-            MouseArea {
-                anchors.fill: parent
-                acceptedButtons: Qt.LeftButton
-                z: 10
-                cursorShape: Qt.PointingHandCursor
-                onClicked: root.selectionToggleRequested()
-            }
-
-            // Selection tint over the message row, excluding the date-pill
-            // region at the top so the day separator is never highlighted.
-            Rectangle {
-                anchors.fill: parent
-                anchors.topMargin: root.dateSeparatorHeight
-                z: 6
-                visible: root.selected
-                color: Qt.alpha(Kirigami.Theme.highlightColor, 0.14)
-                radius: Kirigami.Units.cornerRadius
-            }
-
-            // Selection check circle in the free space opposite the bubble
-            // (mirrors the hover reply button's placement), so nothing shifts.
-            Rectangle {
-                id: selectionCheck
-
-                readonly property real desiredX: root.isOutgoing
-                                                 ? root.visualX - width - Kirigami.Units.smallSpacing
-                                                 : root.visualX + root.visualWidth + Kirigami.Units.smallSpacing
-
-                z: 11
-                x: Math.round(Math.max(root.outerMargin,
-                                       Math.min(root.width - root.outerMargin - width, desiredX)))
-                y: Math.round(root.visualY + Math.max(0, root.visualHeight - height) / 2)
-                width: Kirigami.Units.iconSizes.smallMedium + Kirigami.Units.smallSpacing
-                height: width
-                radius: width / 2
-                color: root.selected ? Kirigami.Theme.highlightColor : Qt.alpha(Kirigami.Theme.backgroundColor, 0.92)
-                border.color: root.selected ? Kirigami.Theme.highlightColor : Qt.alpha(Kirigami.Theme.textColor, 0.38)
-                border.width: 1
-
-                Behavior on color {
-                    ColorAnimation {
-                        duration: Kirigami.Units.shortDuration
-                        easing.type: Easing.OutCubic
-                    }
-                }
-
-                Kirigami.Icon {
-                    anchors.centerIn: parent
-                    visible: root.selected
-                    source: root.tickSource
-                    width: Math.round(parent.width * 0.62)
-                    height: width
-                    color: Kirigami.Theme.highlightedTextColor
-                    isMask: true
-                }
-            }
-        }
+        readonly property url overlaySource: active ? Qt.resolvedUrl("RowOverlays.qml") : ""
+        onOverlaySourceChanged: setSource(overlaySource, { row: root })
     }
 
     TextMetrics {
@@ -990,10 +1104,11 @@ Item {
         id: bubble
 
         // Frameless rows draw nothing here and build their content in
-        // FramelessBubble instead. This is a plain `visible`, so it takes the
-        // whole content column with it: nothing that a frameless row still
-        // needs may live inside this rectangle.
-        visible: !root.frameless
+        // FramelessBubble instead; pill rows build theirs in pillLoader. This
+        // is a plain `visible`, so it takes the whole content column with it:
+        // nothing that either of those rows still needs may live inside this
+        // rectangle.
+        visible: !root.frameless && !root.centeredPill
 
         readonly property real bubbleRadius: Kirigami.Units.cornerRadius
 
@@ -1060,7 +1175,7 @@ Item {
 
                 sourceComponent: Label {
                     width: parent.width
-                    text: Whatevr.I18n.i18nc("@label forwarded message header (telegram pattern)", "Forwarded")
+                    text: Whatevr.I18n.i18nc("@label forwarded message header", "Forwarded")
                     font.italic: true
                     font.pointSize: Kirigami.Theme.smallFont.pointSize
                     color: Kirigami.Theme.highlightColor
@@ -1090,608 +1205,144 @@ Item {
                 }
             }
 
-            // Sender-provided link preview card: title/description/thumbnail
-            // the sender's client fetched when composing. Sits between the
-            // reply quote and the body; tapping opens the URL externally.
-            Loader {
-                id: linkPreviewLoader
-
-                active: root.hasLinkPreview && !root.hasStructuredContent && !root.hasInlineMedia
-                x: root.innerPadding
-                y: root.innerPadding + root.forwardedHeaderHeight
-                    + (root.hasReplyPreview
-                       ? replyPreviewLoader.height + Kirigami.Units.smallSpacing
-                       : 0)
-                width: root.textRegionWidth
-
-                sourceComponent: Rectangle {
-                    width: parent.width
-                    // Height follows the content row; the loader itself is
-                    // sized by this implicit height.
-                    implicitHeight: previewRow.implicitHeight + Kirigami.Units.smallSpacing * 2
-                    radius: Kirigami.Units.cornerRadius
-                    color: Qt.alpha(Kirigami.Theme.textColor, root.isOutgoing ? 0.06 : 0.045)
-                    border.color: Qt.alpha(Kirigami.Theme.textColor, 0.07)
-
-                    Row {
-                        id: previewRow
-
-                        anchors.top: parent.top
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.margins: Kirigami.Units.smallSpacing
-                        spacing: Kirigami.Units.smallSpacing
-                        // Implicit height is the row's natural height; the
-                        // loader sizes to it.
-                        height: implicitHeight
-
-                        Image {
-                            id: previewThumb
-
-                            width: Kirigami.Units.gridUnit * 2.5
-                            height: Kirigami.Units.gridUnit * 2.5
-                            visible: String(root.linkPreview.thumbnail_path || "").length > 0
-                            source: visible ? Whatevr.ProtocolController.localFileUrl(root.linkPreview.thumbnail_path) : ""
-                            fillMode: Image.PreserveAspectCrop
-                            asynchronous: true
-                            cache: true
-                            smooth: true
-                        }
-
-                        Column {
-                            id: previewColumn
-
-                            width: parent.width - (previewThumb.visible ? previewThumb.width + parent.spacing : 0)
-                            spacing: 1
-
-                            Label {
-                                text: String(root.linkPreview.title || root.linkPreview.url || "")
-                                font.weight: Font.DemiBold
-                                font.pointSize: Kirigami.Theme.smallFont.pointSize
-                                elide: Text.ElideRight
-                                maximumLineCount: 2
-                                wrapMode: Text.Wrap
-                                width: parent.width
-                                visible: text.length > 0
-                            }
-                            Label {
-                                text: String(root.linkPreview.description || "")
-                                font.pointSize: Kirigami.Theme.smallFont.pointSize
-                                color: Kirigami.Theme.disabledTextColor
-                                elide: Text.ElideRight
-                                maximumLineCount: 2
-                                wrapMode: Text.Wrap
-                                width: parent.width
-                                visible: text.length > 0
-                            }
-                            Label {
-                                text: String(root.linkPreview.url || "")
-                                font.pointSize: Kirigami.Theme.smallFont.pointSize
-                                color: Kirigami.Theme.linkColor
-                                elide: Text.ElideMiddle
-                                maximumLineCount: 1
-                                width: parent.width
-                                visible: text.length > 0 && String(root.linkPreview.title || "").length > 0
-                            }
-                        }
-                    }
-
-                    TapHandler {
-                        onTapped: {
-                            const url = String(root.linkPreview.url || "")
-                            if (url.length > 0)
-                                Qt.openUrlExternally(url)
-                        }
-                    }
-                    HoverHandler {
-                        cursorShape: Qt.PointingHandCursor
-                    }
-                }
-            }
-
             Item {
                 id: mediaSlot
 
                 visible: (root.hasInlineMedia || root.isAttachmentBlock) && !root.isSticker
                 x: root.isAttachmentBlock ? root.innerPadding : 0
                 y: root.contentOffsetBeforeMedia() + (root.isAttachmentBlock ? root.innerPadding : 0)
-                width: root.isAttachmentBlock ? root.attachmentBlockWidth : root.imageDisplayWidth
+                // A link preview is the one card that shares its bubble with
+                // body text, and a card narrower than the paragraph under it
+                // reads as a mistake. It takes the bubble's content width,
+                // which is what the text got. Every other card has its bubble
+                // to itself, where the two are the same number anyway.
+                width: root.isLinkPreview
+                    ? root.contentBlockWidth
+                    : (root.isAttachmentBlock ? root.attachmentBlockWidth : root.imageDisplayWidth)
                 height: visible ? (root.isAttachmentBlock ? root.attachmentBlockHeight : root.imageDisplayHeight) : 0
                 clip: !root.isAttachmentBlock
 
-                // Lazily instantiate the image stack (shader-effect images,
-                // backdrop, loading overlay) only for image messages. Text and
-                // sticker delegates skip it entirely — this is the bulk of the
-                // per-delegate node cost behind scroll-time instantiation spikes.
-                // One loader per media family, each gated on its own kind, so a
-                // voice note never instantiates the image stack and a photo
-                // never instantiates a player.
+                // One Loader for every media kind that fills the slot, not one
+                // per kind. An inactive Loader with an inline sourceComponent is
+                // two objects (the Loader, and the component it will probably
+                // never build) on every delegate in the chat, so a Loader each
+                // for pictures, players, audio rows and documents taxed every
+                // plain text message four times over for kinds it is not. The
+                // kinds are mutually exclusive by construction, so one Loader
+                // choosing a URL does the same job for a quarter of the cost.
+                //
+                // Sourced by URL rather than by component precisely because a
+                // URL costs nothing when unused; `row` is the one initial
+                // property each of them needs, since everything else they render
+                // they bind through that back-reference.
                 Loader {
                     anchors.fill: parent
-                    active: mediaSlot.visible && root.isImage
-                    sourceComponent: Component {
-                      Item {
-                        anchors.fill: parent
+                    active: mediaSlot.visible && mediaSource != ""
 
-                Kirigami.ShadowedRectangle {
-                    id: mediaBackground
+                    readonly property url mediaSource: root.isImage
+                        ? Qt.resolvedUrl("ImageBubble.qml")
+                        : root.isPlayableVideo ? Qt.resolvedUrl("VideoBubble.qml")
+                        : root.isVoice ? Qt.resolvedUrl("VoiceBubble.qml")
+                        : root.isAudioFile ? Qt.resolvedUrl("AudioFileBubble.qml")
+                        : root.isDocument ? Qt.resolvedUrl("DocumentBubble.qml")
+                        : ""
 
-                    anchors.fill: parent
-                    corners.topLeftRadius: root.mediaTopLeftRadius
-                    corners.topRightRadius: root.mediaTopRightRadius
-                    corners.bottomLeftRadius: root.mediaBottomLeftRadius
-                    corners.bottomRightRadius: root.mediaBottomRightRadius
-                    color: Qt.alpha(Kirigami.Theme.textColor, 0.06)
-                    border.color: Qt.alpha(Kirigami.Theme.textColor, 0.12)
-                    border.width: 1
+                    // Only the change handler, with no Component.onCompleted
+                    // beside it. The binding above is evaluated during
+                    // completion, so a row that has media reaches this once on
+                    // the way up and once per kind change afterwards, and a row
+                    // that has none never reaches it at all. Loading from both
+                    // places instead built the bubble twice: the second
+                    // setSource orphans the first rather than unwinding it in
+                    // the same turn, and for a moment the row held two players.
+                    onMediaSourceChanged: setSource(mediaSource, { row: root })
                 }
 
-                // Low-resolution placeholder, drawn with rounded corners in a
-                // single shader pass. The tiny decode cap upscales into the
-                // blur-up look without a blur shader.
-                RoundedImage {
-                    id: roundedThumb
-
+                // Dark scrim behind the time and ticks overlaid on media that
+                // fills its bubble, video as much as photo: the same reading
+                // aid in the same place, rather than a gradient on one kind and
+                // a black pill on the other. Declared after the media loaders
+                // so it sits over whichever of them built something, and a
+                // uniform radius is fine because the top corners are in the
+                // transparent part of the gradient.
+                Loader {
                     anchors.fill: parent
-                    // Stay up as the blur-up placeholder until the full image has
-                    // decoded, so a fast fling (which holds off the full-res
-                    // decode) always has the cheap thumbnail to show.
-                    //
-                    // Held until the full image is *fully* opaque, not until it
-                    // reports Ready: the image below fades in over
-                    // shortDuration, so cutting on Ready left the bubble showing
-                    // its empty plate for the whole of that fade. That is the
-                    // blink a completed download used to end with.
-                    //
-                    // Latched from the fade's end rather than bound to the
-                    // opacity, which re-evaluated this per animation frame and
-                    // dropped the thumbnail for good; reset on delegate reuse so
-                    // the next decode has its blur-up again.
-                    property bool fullImageShown: false
-                    visible: root.hasThumbnailImage && (!root.hasLocalImage || !fullImageShown)
-                    opacity: thumb.status === Image.Ready ? 0.78 : 0
-                    source: thumb
-                    topLeftRadius: root.mediaTopLeftRadius
-                    topRightRadius: root.mediaTopRightRadius
-                    bottomRightRadius: root.mediaBottomRightRadius
-                    bottomLeftRadius: root.mediaBottomLeftRadius
+                    active: mediaSlot.visible && root.footerOverPicture
 
-                    Image {
-                        id: thumb
+                    sourceComponent: Rectangle {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        // Tall enough to seat the time and ticks and no taller:
+                        // the footer sits footerInset off the bottom and is
+                        // tntHeight tall, so this is that line plus the same
+                        // margin again above it. A fixed 2.4 gridUnits ran a
+                        // visible grey a third of the way up the picture, where
+                        // there is nothing to make legible.
+                        height: Math.min(parent.height, root.tntHeight + root.footerInset * 2)
+                        // A mosaic keeps its own corners: the bubble's media
+                        // radii are the edge-to-edge ones and are zero for a
+                        // card, which would square off the bottom of an album.
+                        radius: root.isAlbum
+                            ? root.bubbleCornerRadius
+                            : Math.max(root.mediaBottomLeftRadius, root.mediaBottomRightRadius)
+                        // Faded rather than unloaded: `active` above stays keyed
+                        // on the kind, so a decode (or a re-decode after a fling
+                        // settles) never tears this down and builds it again.
+                        opacity: root.footerOverArtwork ? 1 : 0
 
-                        anchors.fill: parent
-                        visible: false
-                        source: root.mediaSourceActive && mediaSlot.visible && root.hasThumbnailImage && !roundedThumb.fullImageShown
-                                ? Whatevr.ProtocolController.localFileUrl(root.mediaThumbnailLocalPath) : ""
-                        asynchronous: true
-                        cache: true
-                        sourceSize.width: root.thumbnailDecodeWidth
-                        sourceSize.height: root.thumbnailDecodeHeight
-                    }
-
-                    Behavior on opacity {
-                        NumberAnimation {
-                            duration: Kirigami.Units.shortDuration
-                            easing.type: Easing.OutCubic
-                        }
-                    }
-                }
-
-                // Full-resolution image. Sampled straight from the (hidden) Image
-                // texture provider, so there is no layer/mask/FBO to allocate or
-                // tear down as the delegate scrolls through the viewport.
-                RoundedImage {
-                    id: roundedImg
-
-                    anchors.fill: parent
-                    visible: root.hasLocalImage
-                    opacity: img.status === Image.Ready ? 1 : 0
-                    onOpacityChanged: {
-                        if (opacity >= 1 && img.status === Image.Ready) {
-                            roundedThumb.fullImageShown = true
-                        }
-                    }
-                    source: img
-                    topLeftRadius: root.mediaTopLeftRadius
-                    topRightRadius: root.mediaTopRightRadius
-                    bottomRightRadius: root.mediaBottomRightRadius
-                    bottomLeftRadius: root.mediaBottomLeftRadius
-
-                    Image {
-                        id: img
-
-                        // Latched readiness, set from onStatusChanged rather than
-                        // read off `status` inside the source binding (which would
-                        // make source depend on its own load state and loop). Reset
-                        // when the underlying file changes on delegate reuse.
-                        property bool everDecoded: false
-                        readonly property string targetPath: root.mediaLocalPath
-                        onTargetPathChanged: {
-                            everDecoded = false
-                            roundedThumb.fullImageShown = false
-                        }
-                        onStatusChanged: if (status === Image.Ready) everDecoded = true
-
-                        anchors.fill: parent
-                        visible: false
-                        // Hold the full-res decode while flinging (unless it is
-                        // already decoded), letting the thumbnail carry the scroll.
-                        source: root.mediaSourceActive && mediaSlot.visible && root.hasLocalImage
-                                && (!root.fastFlicking || img.everDecoded)
-                                ? Whatevr.ProtocolController.localFileUrl(root.mediaLocalPath) : ""
-                        asynchronous: true
-                        cache: true
-                        sourceSize.width: root.imageDecodeWidth
-                        sourceSize.height: root.imageDecodeHeight
-                    }
-
-                    Behavior on opacity {
-                        NumberAnimation {
-                            duration: Kirigami.Units.shortDuration
-                            easing.type: Easing.OutCubic
-                        }
-                    }
-
-                    // Click-to-open lightbox. SingleTap is made exclusive with
-                    // DoubleTap so double-tap-to-reply on the photo still wins.
-                    TapHandler {
-                        acceptedButtons: Qt.LeftButton
-                        enabled: root.hasLocalImage && !root.isSticker && !root.selectionModeActive
-                        exclusiveSignals: TapHandler.SingleTap | TapHandler.DoubleTap
-                        onSingleTapped: root.imageActivated(root.messageId, root.mediaLocalPath)
-                    }
-
-                    HoverHandler {
-                        enabled: root.hasLocalImage && !root.selectionModeActive
-                        cursorShape: Qt.PointingHandCursor
-                    }
-                }
-
-                // Dark scrim behind the time+ticks overlaid on image-only
-                // messages. A uniform radius is fine here: the top corners sit in
-                // the transparent part of the gradient, so only the rounded
-                // bottom corners are visible and they line up with the image.
-                Rectangle {
-                    id: mediaScrim
-
-                    visible: root.imageOnly
-                    anchors.left: parent.left
-                    anchors.right: parent.right
-                    anchors.bottom: parent.bottom
-                    height: Math.min(parent.height, Kirigami.Units.gridUnit * 2.4)
-                    radius: Math.max(root.mediaBottomLeftRadius, root.mediaBottomRightRadius)
-                    gradient: Gradient {
-                        GradientStop { position: 0.0; color: "transparent" }
-                        GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.5) }
-                    }
-                }
-
-                Item {
-                    id: imageOverlay
-                    anchors.fill: parent
-
-                    // A decode in progress is not, by itself, a reason to cover
-                    // the bubble: the thumbnail below is already showing the
-                    // picture. Only a row with nothing to look at, an active
-                    // download, or a failure gets chrome, so an ordinary decode
-                    // (including a re-decode after a fling settles) no longer
-                    // darkens and un-darkens the image.
-                    readonly property bool hasPicture: root.hasThumbnailImage && thumb.status === Image.Ready
-                    visible: !root.hasLocalImage
-                             || root.mediaDownloading
-                             || thumb.status === Image.Loading
-                             || (img.status === Image.Loading && !hasPicture)
-                             || img.status === Image.Error
-                             || root.mediaDownloadError.length > 0
-
-                    Kirigami.ShadowedRectangle {
-                        anchors.fill: parent
-                        corners.topLeftRadius: root.mediaTopLeftRadius
-                        corners.topRightRadius: root.mediaTopRightRadius
-                        corners.bottomLeftRadius: root.mediaBottomLeftRadius
-                        corners.bottomRightRadius: root.mediaBottomRightRadius
-                        color: Qt.alpha(Kirigami.Theme.backgroundColor, root.hasLocalImage || root.hasThumbnailImage ? 0.34 : 0.0)
-                    }
-
-                    Column {
-                        anchors.centerIn: parent
-                        width: Math.max(0, parent.width - Kirigami.Units.largeSpacing * 2)
-                        spacing: Kirigami.Units.smallSpacing
-
-                        BusyIndicator {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            visible: (root.mediaDownloading && root.mediaDownloadProgress < 0)
-                                     || (!root.mediaDownloading && !root.hasLocalImage && root.hasThumbnailImage && thumb.status === Image.Loading)
-                                     || (root.hasLocalImage && img.status === Image.Loading)
-                            running: visible
-                            implicitWidth: Kirigami.Units.gridUnit * 2
-                            implicitHeight: Kirigami.Units.gridUnit * 2
-                        }
-
-                        ProgressCircle {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            visible: root.mediaDownloading && root.mediaDownloadProgress >= 0
-                            progress: Math.max(0, root.mediaDownloadProgress)
-                            width: Kirigami.Units.gridUnit * 2
-                            height: width
-                        }
-
-                        Button {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            visible: !root.hasLocalImage && !root.mediaDownloading
-                            icon.name: "folder-download-symbolic"
-                            text: Whatevr.I18n.i18nc("@action:button", "Load image")
-                            enabled: root.messageId.length > 0
-                            onClicked: {
-                                Whatevr.ProtocolController.downloadMessageMedia(root.messageId)
-                                root.conversationFocusRequested()
+                        Behavior on opacity {
+                            NumberAnimation {
+                                duration: Kirigami.Units.shortDuration
+                                easing.type: Easing.OutCubic
                             }
                         }
-
-                        Label {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            width: parent.width
-                            visible: img.status === Image.Error && root.hasLocalImage
-                            text: Whatevr.I18n.i18nc("@info", "Image could not be displayed")
-                            color: Kirigami.Theme.negativeTextColor
-                            font.pointSize: Kirigami.Theme.smallFont.pointSize
-                            wrapMode: Text.Wrap
-                            horizontalAlignment: Text.AlignHCenter
-                        }
-
-                        Label {
-                            anchors.horizontalCenter: parent.horizontalCenter
-                            width: parent.width
-                            visible: !root.mediaDownloading && root.mediaDownloadError.length > 0
-                            text: root.mediaDownloadError
-                            color: Kirigami.Theme.negativeTextColor
-                            font.pointSize: Kirigami.Theme.smallFont.pointSize
-                            wrapMode: Text.Wrap
-                            horizontalAlignment: Text.AlignHCenter
+                        // Shaped rather than a straight ramp, and that is the
+                        // difference between a reading aid and a smudge. A
+                        // linear fade to the peak starts darkening at the very
+                        // top of the strip, so a grey wash sits on the picture
+                        // above the line it is meant to serve. Holding it at
+                        // nothing until the footer's own top edge, then bending
+                        // the ramp so most of the darkening lands in the last
+                        // third, keeps it under the text and off the photograph.
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: "transparent" }
+                            GradientStop { position: root.footerScrimOnset; color: "transparent" }
+                            GradientStop {
+                                position: root.footerScrimOnset + (1 - root.footerScrimOnset) * 0.55
+                                color: Qt.rgba(0, 0, 0, root.footerScrimPeak * 0.28)
+                            }
+                            GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, root.footerScrimPeak) }
                         }
                     }
                 }
-                      }
-                    }
-                }
 
-                Loader {
-                    anchors.fill: parent
-                    active: mediaSlot.visible && root.isPlayableVideo
-                    sourceComponent: VideoBubble {
-                        row: root
-                        topLeftRadius: root.mediaTopLeftRadius
-                        topRightRadius: root.mediaTopRightRadius
-                        bottomLeftRadius: root.mediaBottomLeftRadius
-                        bottomRightRadius: root.mediaBottomRightRadius
-                    }
-                }
 
+                // One Loader for the whole card family, not one per kind: an
+                // inactive Loader costs two objects on every row in the
+                // timeline, so a Loader per kind would tax every plain text
+                // message for kinds it is not. CardBubble picks which card.
                 Loader {
-                    anchors.fill: parent
-                    active: mediaSlot.visible && (root.isVoice || root.isAudioFile)
-                    sourceComponent: VoiceBubble {
+                    id: cardLoader
+
+                    // A card is sized by its own content, so it is given a width
+                    // and asked for a height rather than filled. Anchoring it
+                    // would make its implicitHeight depend on the height the row
+                    // derived from it, which is a binding loop.
+                    width: mediaSlot.width
+                    active: mediaSlot.visible && root.isCardBlock
+                    sourceComponent: CardBubble {
                         row: root
                     }
-                }
 
-                Loader {
-                    anchors.fill: parent
-                    active: mediaSlot.visible && root.isDocument
-                    sourceComponent: DocumentBubble {
-                        row: root
-                    }
-                }
-            }
-
-            // ---- Poll bubble ----
-            Loader {
-                id: pollLoader
-                active: root.isPoll
-                x: root.innerPadding
-                y: root.contentOffsetBeforeMedia() + root.innerPadding
-                width: root.maxContentWidth
-
-                sourceComponent: Column {
-                    spacing: Kirigami.Units.smallSpacing
-                    width: parent.width
-
-                    property var selectedOptions: []
-
-                    Label {
-                        text: root.pollQuestion
-                        font.weight: Font.Bold
-                        wrapMode: Text.Wrap
-                        width: parent.width
-                    }
-
-                    Repeater {
-                        model: root.pollOptions ?? []
-
-                        delegate: Row {
-                            required property var modelData
-                            width: parent.width
-                            spacing: Kirigami.Units.smallSpacing
-
-                            Kirigami.Icon {
-                                source: root.pollMultiSelect ? "checkbox-symbolic" : "radiobutton-symbolic"
-                                width: Kirigami.Units.iconSizes.small
-                                height: width
-                                anchors.verticalCenter: parent.verticalCenter
-                                opacity: modelData.voted ? 1 : 0.5
-                                color: modelData.voted ? Kirigami.Theme.highlightColor : ""
-                            }
-
-                            Column {
-                                width: parent.width - Kirigami.Units.iconSizes.small - Kirigami.Units.smallSpacing
-                                Label {
-                                    text: modelData.text ?? ""
-                                    wrapMode: Text.Wrap
-                                    width: parent.width
-                                }
-                                Rectangle {
-                                    width: Math.max(2, parent.width * Math.min(1, (modelData.count ?? 0) / Math.max(1, totalVotes)))
-                                    height: 3
-                                    radius: 1.5
-                                    color: Kirigami.Theme.highlightColor
-                                    visible: (modelData.count ?? 0) > 0
-
-                                    property int totalVotes: {
-                                        let sum = 0
-                                        const opts = root.pollOptions ?? []
-                                        for (let i = 0; i < opts.length; ++i)
-                                            sum += (opts[i].count ?? 0)
-                                        return sum
-                                    }
-                                }
-                                Label {
-                                    visible: (modelData.count ?? 0) > 0
-                                    text: Whatevr.I18n.i18ncp("@info poll vote count", "%1 vote", "%1 votes", modelData.count ?? 0)
-                                    font.pointSize: Kirigami.Theme.smallFont.pointSize
-                                    color: Kirigami.Theme.disabledTextColor
-                                }
-                            }
-
-                            TapHandler {
-                                onTapped: {
-                                    const opt = (modelData.text ?? "").trim()
-                                    if (opt.length === 0)
-                                        return
-                                    if (root.pollMultiSelect) {
-                                        const all = (pollLoader.selectedOptions || [])
-                                        const idx = all.indexOf(opt)
-                                        if (idx >= 0)
-                                            all.splice(idx, 1)
-                                        else
-                                            all.push(opt)
-                                        pollLoader.selectedOptions = all
-                                    } else {
-                                        pollLoader.selectedOptions = [opt]
-                                    }
-                                    Whatevr.ProtocolController.votePoll(root.messageId, pollLoader.selectedOptions)
-                                }
-                            }
-                        }
-                     }
-
-                    Label {
-                        text: root.pollMultiSelect
-                            ? Whatevr.I18n.i18nc("@info poll vote hint", "Tap options to vote")
-                            : Whatevr.I18n.i18nc("@info poll vote hint", "Tap an option to vote")
-                        font.pointSize: Kirigami.Theme.smallFont.pointSize
-                        color: Kirigami.Theme.disabledTextColor
-                        visible: root.pollOptions.length > 0
-                    }
-                }
-            }
-
-            // ---- Contact card bubble ----
-            Loader {
-                id: contactLoader
-                active: root.isContact
-                x: root.innerPadding
-                y: root.contentOffsetBeforeMedia() + root.innerPadding
-                width: root.maxContentWidth
-
-                sourceComponent: Row {
-                    spacing: Kirigami.Units.smallSpacing
-                    width: parent.width
-
-                    Kirigami.Icon {
-                        source: "im-user-symbolic"
-                        width: Kirigami.Units.iconSizes.medium
-                        height: width
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-
-                    Column {
-                        width: parent.width - Kirigami.Units.iconSizes.medium - Kirigami.Units.smallSpacing
-                        Label {
-                            text: root.contactName
-                            font.weight: Font.Bold
-                            elide: Text.ElideRight
-                            width: parent.width
-                        }
-                        Label {
-                            text: root.contactPhone
-                            visible: root.contactPhone.length > 0
-                            font.pointSize: Kirigami.Theme.smallFont.pointSize
-                            color: Kirigami.Theme.disabledTextColor
-                            width: parent.width
-                        }
-                        QQC2.Button {
-                            text: Whatevr.I18n.i18nc("@action:button", "Message")
-                            visible: root.contactPhone.length > 0
-                            onClicked: {
-                                const phone = root.contactPhone.replace(/\D/g, "")
-                                if (phone.length > 0) {
-                                    Whatevr.ProtocolController.startDirectChat(phone + "@s.whatsapp.net")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ---- Location bubble ----
-            Loader {
-                id: locationLoader
-                active: root.isLocation
-                x: root.innerPadding
-                y: root.contentOffsetBeforeMedia() + root.innerPadding
-                width: root.maxContentWidth
-
-                sourceComponent: Column {
-                    spacing: Kirigami.Units.smallSpacing
-                    width: parent.width
-
-                    Rectangle {
-                        width: parent.width
-                        height: Kirigami.Units.gridUnit * 6
-                        color: Qt.alpha(Kirigami.Theme.textColor, 0.06)
-                        radius: Kirigami.Units.cornerRadius
-
-                        Kirigami.Icon {
-                            anchors.centerIn: parent
-                            source: "mark-location-symbolic"
-                            width: Kirigami.Units.iconSizes.large
-                            height: width
-                            color: Kirigami.Theme.disabledTextColor
-                        }
-                    }
-
-                    Label {
-                        text: root.locationName
-                        visible: root.locationName.length > 0
-                        font.weight: Font.Bold
-                        wrapMode: Text.Wrap
-                        width: parent.width
-                    }
-
-                    Label {
-                        text: root.locationAddress
-                        visible: root.locationAddress.length > 0
-                        wrapMode: Text.Wrap
-                        width: parent.width
-                        font.pointSize: Kirigami.Theme.smallFont.pointSize
-                        color: Kirigami.Theme.disabledTextColor
-                    }
-
-                    Label {
-                        text: Whatevr.I18n.i18nc("@action:button", "Open in Maps")
-                        color: Kirigami.Theme.linkColor
-                        font.pointSize: Kirigami.Theme.smallFont.pointSize
-
-                        TapHandler {
-                            onTapped: Qt.openUrlExternally(
-                                "https://www.openstreetmap.org/?mlat=" + root.locationLat
-                                + "&mlon=" + root.locationLng
-                                + "#map=15/" + root.locationLat + "/" + root.locationLng)
-                        }
-
-                        HoverHandler {
-                            cursorShape: Qt.PointingHandCursor
-                        }
+                    onItemChanged: {
+                        root.cardBlockHeight = Qt.binding(() =>
+                            cardLoader.item ? cardLoader.item.implicitHeight : Kirigami.Units.gridUnit * 12)
+                        // The width a card would rather have. Read from the
+                        // dispatcher rather than the card so the row does not
+                        // have to know which kinds publish one; 0 means fill.
+                        root.cardBlockWidth = Qt.binding(() =>
+                            cardLoader.item ? cardLoader.item.preferredWidth : 0)
                     }
                 }
             }
@@ -1921,7 +1572,7 @@ Item {
                 // vignette). Otherwise sit at the right inner edge, inline with
                 // the last text line or on its own row.
                 x: {
-                    if (root.imageOnly) {
+                    if (root.footerOverPicture) {
                         return mediaSlot.x + mediaSlot.width - width - root.footerInset
                     }
                     // Flush with the block's own right edge rather than the
@@ -1932,7 +1583,7 @@ Item {
                     return Math.max(0, parent.width - root.footerInset - width)
                 }
                 y: {
-                    if (root.imageOnly) {
+                    if (root.footerOverPicture) {
                         return mediaSlot.y + mediaSlot.height - height - root.footerInset
                     }
                     if (root.tntFitsInAttachment) {
@@ -1952,15 +1603,6 @@ Item {
                 }
                 width: root.tntWidth
                 height: root.tntHeight
-
-                Rectangle {
-                    anchors.fill: parent
-                    anchors.margins: -root.tntSpacing
-                    visible: root.imageOnly && root.isPlayableVideo
-                    z: -1
-                    radius: height / 2
-                    color: Qt.alpha("black", 0.55)
-                }
 
                 // Delivery status, built only for rows that show one — i.e.
                 // never for incoming messages. The single/double forms share
@@ -2016,18 +1658,28 @@ Item {
                     font.pointSize: root.footerTimePointSize
                 }
 
-                // Pin / star / edit marks. Most messages carry none, so the
-                // three icons (and the anchor chain that used to thread them
-                // together) are built only when at least one applies; the Row
-                // drops the ones that do not, so ordering stays automatic.
+                // Keep / pin / star / edit / deleted / linked marks. Most messages
+                // carry none, so the icons (and the anchor chain that used to
+                // thread them together) are built only when at least one
+                // applies; the Row drops the ones that do not, so ordering
+                // stays automatic.
                 Loader {
-                    active: root.showPinMark || root.showStarMark || root.showEditMark || root.showDeletedMark || root.showLinkedMark
+                    active: root.showKeepMark || root.showPinMark || root.showStarMark || root.showEditMark || root.showDeletedMark || root.showLinkedMark
                     anchors.right: timeLabel.left
                     anchors.rightMargin: root.tntSpacing
                     anchors.verticalCenter: parent.verticalCenter
 
                     sourceComponent: Row {
                         spacing: root.tntSpacing
+
+                        Kirigami.Icon {
+                            visible: root.showKeepMark
+                            source: "bookmarks-bookmarked-symbolic"
+                            width: root.keepMarkSize
+                            height: root.keepMarkSize
+                            color: root.footerTextColor
+                            isMask: true
+                        }
 
                         Kirigami.Icon {
                             visible: root.showPinMark
@@ -2098,109 +1750,32 @@ Item {
         }
     }
 
-    // Instantiated only while the jump-to-reply glow animation is running.
+    // The centered pill: a row that is not somebody talking. It sizes itself
+    // (no width is set here), so it is exactly as wide as what it says, and it
+    // is centered on the whole row rather than on the bubble column because it
+    // belongs to neither side.
     Loader {
-        active: root.replyGlowOpacity > 0
-        x: Math.round(root.replyGlowLeft - root.replyGlowPadding)
-        y: Math.round(root.replyGlowTop - root.replyGlowPadding)
-        z: 7
-        width: Math.max(0, Math.round(root.replyGlowRight - root.replyGlowLeft + root.replyGlowPadding * 2))
-        height: Math.max(0, Math.round(root.replyGlowBottom - root.replyGlowTop + root.replyGlowPadding * 2))
+        id: pillLoader
 
-        sourceComponent: Item {
-            id: replyGlowOverlay
+        active: root.centeredPill
+        x: Math.round((root.width - width) / 2)
+        y: root.messageBaseY
 
-            readonly property real innerMargin: Math.max(1, Math.round(Kirigami.Units.smallSpacing / 2))
+        // Which pill this is comes from a URL rather than from a pair of
+        // inline Components. A Component is an object on every delegate that
+        // declares it, instantiated or not, so a second one would charge every
+        // plain text row for a pill it will never draw (MIGRATION.md, DN9).
+        // setSource carries `row` as an initial property, which is what a
+        // required property needs, and re-runs on reuse when the kind changes.
+        readonly property url pillSource: root.isSystemEvent
+            ? Qt.resolvedUrl("SystemPill.qml")
+            : Qt.resolvedUrl("CallLogPill.qml")
 
-            anchors.fill: parent
-            opacity: root.replyGlowOpacity
-
-            Rectangle {
-                id: replyGlowOuter
-
-                anchors.fill: parent
-                radius: Kirigami.Units.cornerRadius + root.replyGlowPadding
-                color: Qt.alpha(Kirigami.Theme.highlightColor, 0.06)
-                border.color: Qt.alpha(Kirigami.Theme.highlightColor, 0.72)
-                border.width: Math.max(2, Math.round(Kirigami.Units.smallSpacing / 2))
-            }
-
-            Rectangle {
-                anchors.fill: parent
-                anchors.margins: replyGlowOverlay.innerMargin
-                radius: Math.max(0, replyGlowOuter.radius - replyGlowOverlay.innerMargin)
-                color: "transparent"
-                border.color: Qt.alpha(Kirigami.Theme.highlightColor, 0.28)
-                border.width: 1
-            }
-        }
+        onPillSourceChanged: setSource(pillSource, { row: root })
+        Component.onCompleted: setSource(pillSource, { row: root })
     }
 
-    // Built lazily on first hover of the row (hoverLatched): scrolling never
-    // pays for the button, only the rows the pointer actually visits do. Off
-    // the frame's critical path too, for the same reason as the selection
-    // surface above: rows crossing an idle cursor must not each cost a stall.
-    Loader {
-        anchors.fill: parent
-        asynchronous: true
-        active: root.hoverLatched && root.canReply && !root.pooled
-        z: 8
 
-        sourceComponent: Item {
-            ToolButton {
-                id: replyButton
-
-                readonly property real desiredX: root.isOutgoing
-                                                 ? root.visualX - width - Kirigami.Units.smallSpacing
-                                                 : root.visualX + root.visualWidth + Kirigami.Units.smallSpacing
-
-                enabled: opacity > 0.01
-                opacity: (rowHoverHandler.hovered || hovered || pressed) ? 1 : 0
-                x: Math.round(Math.max(root.outerMargin,
-                                       Math.min(root.width - root.outerMargin - width, desiredX)))
-                y: Math.round(root.visualY + Math.max(0, root.visualHeight - height) / 2)
-                width: Math.round(Math.max(Kirigami.Units.iconSizes.smallMedium + Kirigami.Units.smallSpacing,
-                                           Math.min(Kirigami.Units.gridUnit * 1.45,
-                                                    root.visualHeight - Kirigami.Units.smallSpacing)))
-                height: width
-                icon.name: "smiley-add-symbolic"
-                // Set both dimensions to the constant directly; binding icon.height to
-                // icon.width loops through the control's implicit-size machinery.
-                icon.width: Kirigami.Units.iconSizes.smallMedium
-                icon.height: Kirigami.Units.iconSizes.smallMedium
-                text: Whatevr.I18n.i18nc("@action:button", "React")
-                display: AbstractButton.IconOnly
-                focusPolicy: Qt.NoFocus
-                hoverEnabled: true
-                onClicked: root.reactionPickerRequested(x + width / 2, y)
-
-                contentItem: Item {
-                    Kirigami.Icon {
-                        anchors.centerIn: parent
-                        source: replyButton.icon.name
-                        width: replyButton.icon.width
-                        height: replyButton.icon.height
-                        color: Kirigami.Theme.textColor
-                        isMask: true
-                    }
-                }
-
-                background: Rectangle {
-                    radius: width / 2
-                    color: Qt.alpha(Kirigami.Theme.backgroundColor, replyButton.hovered || replyButton.pressed ? 0.98 : 0.9)
-                    border.color: Qt.alpha(Kirigami.Theme.textColor, replyButton.hovered || replyButton.pressed ? 0.24 : 0.14)
-                    border.width: 1
-                }
-
-                Behavior on opacity {
-                    NumberAnimation {
-                        duration: Kirigami.Units.shortDuration
-                        easing.type: Easing.OutCubic
-                    }
-                }
-            }
-        }
-    }
 
     // Reaction chips in their own band below the bubble, aligned with the
     // bubble's edge (left for incoming, right for outgoing via the row's
@@ -2245,7 +1820,10 @@ Item {
         id: senderHeaderLoader
 
         anchors.fill: parent
-        active: root.showSenderHeader
+        // The `!centeredPill` half matches senderHeaderHeight above: a pill
+        // reserves no room for a header, so drawing one would put a name and an
+        // avatar on top of the row rather than above it.
+        active: root.showSenderHeader && !root.centeredPill
 
         sourceComponent: Item {
             readonly property real labelImplicitHeight: senderHeader.implicitHeight
@@ -2256,9 +1834,14 @@ Item {
                 id: senderHeader
 
                 visible: root.senderName.length > 0
-                x: bubble.x + root.innerPadding / 2
+                // The bubble's own content edge, the same one the body, the
+                // cards and the reply quote all start at. Half the padding put
+                // the name a few pixels left of every glyph under it, and the
+                // width ran to the row's edge rather than the bubble's, so a
+                // long name overhung the plate instead of eliding inside it.
+                x: bubble.x + root.innerPadding
                 y: root.dateSeparatorHeight + root.unreadSeparatorHeight + Math.max(0, (root.senderHeaderHeight - height) / 2)
-                width: Math.max(0, root.width - x - root.outerMargin)
+                width: Math.max(0, bubble.x + bubble.width - root.innerPadding - x)
                 text: root.senderName
                 elide: Text.ElideRight
                 maximumLineCount: 1

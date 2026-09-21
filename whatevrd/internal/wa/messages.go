@@ -12,6 +12,7 @@ import (
 
 	"github.com/nyaruka/phonenumbers"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	waHistorySync "go.mau.fi/whatsmeow/proto/waHistorySync"
@@ -53,24 +54,24 @@ type ingestOptions struct {
 	timestampOverride time.Time
 }
 
-func (c *Client) handleHistorySync(eventGen uint64, evt *events.HistorySync) {
-	if !c.isCurrentEventGeneration(eventGen) {
+func (c *Client) handleHistorySync(sess *accountSession, evt *events.HistorySync) {
+	if !sess.alive() {
 		return
 	}
-	ctx := c.backgroundContext()
+	ctx := sess.detached()
 	if ctx.Err() != nil {
 		return
 	}
 	c.processHistorySyncData(ctx, evt.Data)
 }
 
-func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync.HistorySync) {
+func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync.HistorySync) bool {
 	client := c.currentClient()
 	if client == nil || data == nil {
-		return
+		return false
 	}
 	if ctx.Err() != nil {
-		return
+		return false
 	}
 	c.updateChatNamesFromHistorySync(ctx, &events.HistorySync{Data: data})
 	c.ingestRecentStickers(ctx, data.GetRecentStickers())
@@ -125,9 +126,20 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		onDemandCounts = make(map[string]int, len(conversations))
 	}
 
+	// Chats the phone gave a straight answer about, so the guess in
+	// resolveBackfillRequests does not get to overrule it.
+	answered := make(map[string]bool, len(conversations))
+
+	// A conversation that failed to store must not let its chunk be marked
+	// processed: the chunk is pruned after that, and the server was acked
+	// before ingestion even started, so the backfill would be gone for good.
+	// Only storage failures count; an unparseable JID will not store on a
+	// retry either, so it does not burn the attempt budget.
+	stored := true
+
 	for _, conv := range conversations {
 		if ctx.Err() != nil {
-			return
+			return false
 		}
 		rawChatJID, err := types.ParseJID(conv.GetID())
 		if err != nil {
@@ -149,9 +161,10 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		}
 		if _, err := c.store.EnsureChatWithNameSource(ctx, chatID, chatNameOverride, chatNameSource, chatJID.Server == types.GroupServer); err != nil {
 			if ctx.Err() != nil {
-				return
+				return false
 			}
 			c.log.Warnf("Failed to ensure history-sync chat %s: %v", chatID, err)
+			stored = false
 			continue
 		}
 		convUnread := effectiveHistorySyncUnread(conv)
@@ -168,15 +181,33 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 			historyStatus string
 			isMedia       bool
 			reactions     []*waWeb.Reaction
+			// the parsed proto and its timestamp are what the post-save
+			// registrations need, so they have to survive phase 1
+			waMsg     *waE2E.Message
+			timestamp time.Time
+			// keptKnown separates "this message says nothing about keeping" from
+			// "this message says it is not kept", because only the second should
+			// clear a flag a live keep already set.
+			keptKnown bool
+			kept      bool
 		}
 		pending := make([]historySaveItem, 0, len(conv.GetMessages()))
 		for _, msg := range conv.GetMessages() {
 			if ctx.Err() != nil {
-				return
+				return false
 			}
 			processedMessages++
 			webMsg := msg.GetMessage()
 			if webMsg == nil {
+				publishProcessingProgress(false)
+				continue
+			}
+			// A stub carries no message at all, so it parses into nothing and
+			// matches no builder. Routed here it becomes the same pill the live
+			// path writes, which is the only record a backfilled group has of
+			// who joined and who left.
+			if payload, ts, ok := c.historyStubSystemPayload(ctx, webMsg); ok {
+				c.recordSystemEvent(ctx, chatJID, payload, ts, false)
 				publishProcessingProgress(false)
 				continue
 			}
@@ -186,6 +217,15 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 				publishProcessingProgress(false)
 				continue
 			}
+			// ParseWebMessage bypasses whatsmeow's own storeMessageSecret, which
+			// only runs on the live path. Without the secret a poll that arrived
+			// through backfill can never have its votes decrypted, so capture it
+			// here where the parsed message is in hand.
+			c.storeBackfilledMessageSecret(ctx, parsedEvt)
+			// After the secret, which rides on the outermost wrapper.
+			if parsedEvt.Message != nil {
+				parsedEvt.Message = unwrapNestedMessage(parsedEvt.Message)
+			}
 			opts := ingestOptions{
 				source:           sourceHistorySync,
 				chatNameOverride: chatNameOverride,
@@ -193,6 +233,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 				historyStatus:    mapWebMessageStatus(webMsg),
 				forceRead:        forceRead,
 			}
+			kept, keptKnown := historyKeepState(webMsg)
 			if textInput, ok := c.textMessageInput(ctx, parsedEvt, opts); ok {
 				input := textInput
 				input.SenderDevice = parsedEvt.Info.Sender.Device
@@ -201,6 +242,8 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 					id:            input.ID,
 					historyStatus: opts.historyStatus,
 					reactions:     webMsg.GetReactions(),
+					keptKnown:     keptKnown,
+					kept:          kept,
 				})
 			} else if mediaInput, ok := c.mediaMessageInput(ctx, parsedEvt, opts); ok {
 				input := mediaInput
@@ -211,6 +254,10 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 					historyStatus: opts.historyStatus,
 					isMedia:       true,
 					reactions:     webMsg.GetReactions(),
+					keptKnown:     keptKnown,
+					kept:          kept,
+					waMsg:         parsedEvt.Message,
+					timestamp:     parsedEvt.Info.Timestamp,
 				})
 			}
 			publishProcessingProgress(false)
@@ -226,9 +273,10 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		savedBatch, err := c.store.SaveMessages(ctx, items)
 		if err != nil {
 			if ctx.Err() != nil {
-				return
+				return false
 			}
 			c.log.Errorf("Failed to store history sync conversation %s: %v", chatID, err)
+			stored = false
 			continue
 		}
 
@@ -237,11 +285,17 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		// their own store writes).
 		for i, saved := range savedBatch {
 			if ctx.Err() != nil {
-				return
+				return false
 			}
 			entry := pending[i]
 			if len(entry.reactions) > 0 {
 				c.saveHistoryReactions(ctx, entry.id, chatID, chatJID.Server == types.GroupServer, entry.reactions)
+			}
+			// Backfill is the authority on keeps, so this runs before the
+			// already-here shortcut below: a message we synced yesterday and the
+			// phone kept today arrives as an unchanged row carrying a new flag.
+			if entry.keptKnown {
+				c.applyKeepInChat(ctx, entry.id, entry.kept, false)
 			}
 			if !saved.Inserted {
 				if entry.historyStatus != "" {
@@ -255,6 +309,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 				} else if ok {
 					saved.Message = updated
 				}
+				c.registerSavedMessage(ctx, saved.Message, entry.waMsg, entry.timestamp, false)
 			}
 			c.log.Debugf("Stored history message %s from %s", saved.Message.ID, saved.Message.SenderID)
 			messagesAdded++
@@ -267,13 +322,23 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		// per-message rows we just inserted didn't bump it (CountUnread
 		// is intentionally false during history-sync ingestion).
 		if ctx.Err() != nil {
-			return
+			return false
 		}
 		updatedChat, unreadChanged, err := c.store.OverwriteChatUnreadCount(ctx, chatID, convUnread)
 		if err != nil {
 			c.log.Warnf("Failed to overwrite unread count for %s: %v", chatID, err)
 		} else if updatedChat.ID != "" {
 			lastSavedChat = updatedChat
+		}
+		historyExhaustedChanged := false
+		if exhausted, known := historyExhaustedFromConversation(conv); known {
+			answered[chatID] = true
+			if chat, changed, err := c.store.UpdateChatHistoryExhausted(ctx, chatID, exhausted); err != nil {
+				c.log.Warnf("Failed to record history exhaustion for %s: %v", chatID, err)
+			} else if changed {
+				lastSavedChat = chat
+				historyExhaustedChanged = true
+			}
 		}
 		pinChanged := false
 		if convHasPinned {
@@ -285,7 +350,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 			}
 		}
 
-		if messagesAdded > 0 || pinChanged || unreadChanged {
+		if messagesAdded > 0 || pinChanged || unreadChanged || historyExhaustedChanged {
 			if lastSavedChat.ID != "" {
 				c.daemon.PublishChatUpdated(toDaemonChat(lastSavedChat))
 			}
@@ -294,11 +359,11 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 	}
 
 	if ctx.Err() != nil {
-		return
+		return false
 	}
 
 	if onDemandCounts != nil {
-		c.resolveBackfillRequests(ctx, onDemandCounts)
+		c.resolveBackfillRequests(ctx, onDemandCounts, answered)
 	}
 
 	complete := historySyncIsComplete(syncType, progressPercent)
@@ -323,11 +388,36 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		// The initial sync has settled: merge LID-duplicated chats, apply any
 		// app-state entries that were parked awaiting LID→PN mappings, and
 		// let the background refresher start filling in chat avatars.
-		go func() {
+		c.spawn(func(ctx context.Context) {
 			c.reconcileAfterHistorySync(ctx)
 			c.kickAvatarBackgroundRefresh()
-		}()
+		})
 	}
+
+	return stored
+}
+
+// historyExhaustedFromConversation reads the phone's own answer about whether
+// more history remains. WhatsApp states it outright, so nothing here has to be
+// inferred from how many messages happened to arrive. known=false means the
+// field was absent and the flag must be left exactly as it was.
+func historyExhaustedFromConversation(conv *waHistorySync.Conversation) (bool, bool) {
+	if conv == nil || conv.EndOfHistoryTransferType == nil {
+		return false, false
+	}
+	switch conv.GetEndOfHistoryTransferType() {
+	case waHistorySync.Conversation_COMPLETE_AND_NO_MORE_MESSAGE_REMAIN_ON_PRIMARY:
+		return true, true
+	case waHistorySync.Conversation_COMPLETE_ON_DEMAND_SYNC_WITH_MORE_MSG_ON_PRIMARY_BUT_NO_ACCESS:
+		// More exist, but the phone will not hand them over. Offering to load
+		// older messages that can never arrive is worse than saying there are
+		// none.
+		return true, true
+	case waHistorySync.Conversation_COMPLETE_BUT_MORE_MESSAGES_REMAIN_ON_PRIMARY,
+		waHistorySync.Conversation_COMPLETE_ON_DEMAND_SYNC_BUT_MORE_MSG_REMAIN_ON_PRIMARY:
+		return false, true
+	}
+	return false, false
 }
 
 func effectiveHistorySyncUnread(conv *waHistorySync.Conversation) uint32 {
@@ -351,14 +441,17 @@ func historySyncConversationPinState(conv *waHistorySync.Conversation) (present 
 	return true, order > 0, order
 }
 
-func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offlineSync bool) {
+func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offlineSync bool) bool {
+	if evt != nil && evt.Message != nil {
+		evt.Message = unwrapNestedMessage(evt.Message)
+	}
 	// Contact statuses ride the same event as chat messages but live outside
 	// chats; route them before any handler that would file them as one.
 	if isStatusBroadcast(evt) {
 		if !offlineSync {
 			c.ingestStatusUpdate(ctx, evt)
 		}
-		return
+		return true
 	}
 	// Channel posts ride the same event too but belong to the Channels tab;
 	// filing them as chats would put every followed channel's feed in the
@@ -376,29 +469,50 @@ func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offline
 				c.daemon.PublishChatDeleted(evt.Info.Chat.String())
 			}
 		}
-		return
+		return true
 	}
-	// Poll ballots are updates to their poll, never messages.
-	if evt.Message != nil && evt.Message.GetPollUpdateMessage() != nil {
-		if !offlineSync {
-			c.handlePollVote(ctx, evt)
-		}
-		return
-	}
-	if c.handleManualHistorySyncNotification(ctx, evt) {
-		return
+	if handled, stored := c.handleManualHistorySyncNotification(ctx, evt); handled {
+		return stored
 	}
 	if c.handleRevokeMessage(ctx, evt, offlineSync) {
-		return
+		return true
 	}
 	if c.handleEditMessage(ctx, evt, offlineSync) {
-		return
+		return true
 	}
 	if c.handleReaction(ctx, evt, offlineSync) {
-		return
+		return true
 	}
 	if c.handlePinInChat(ctx, evt, offlineSync) {
-		return
+		return true
+	}
+	// Keeping a disappearing message marks the message it names, the same way a
+	// pin does, so it never becomes a row either.
+	if c.handleKeepInChat(ctx, evt, offlineSync) {
+		return true
+	}
+	// Changing the disappearing timer in a one-to-one chat is something the chat
+	// did, not something anybody said, so it becomes a pill rather than a
+	// bubble.
+	if c.handleEphemeralSetting(ctx, evt) {
+		return true
+	}
+	// A live-location update moves an existing share rather than becoming a row
+	// of its own, so it never reaches the ingest below.
+	if c.handleLiveLocationUpdate(ctx, evt) {
+		return true
+	}
+	// A vote changes a poll rather than adding to the conversation, so it never
+	// becomes a row of its own.
+	if c.handlePollUpdate(ctx, evt) {
+		return true
+	}
+	if c.handlePollAddOption(ctx, evt) {
+		return true
+	}
+	// An RSVP changes an event the same way, and for the same reason.
+	if c.handleEventResponse(ctx, evt) {
+		return true
 	}
 	source := sourceLive
 	if offlineSync {
@@ -408,7 +522,7 @@ func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offline
 	if timestamp, ok := c.originalRetryTimestamp(ctx, evt); ok {
 		opts.timestampOverride = timestamp
 	}
-	saved, inserted := c.ingestMessage(ctx, evt, opts)
+	saved, inserted, stored := c.ingestMessage(ctx, evt, opts)
 	// Sending from another device implies everything before it was read there;
 	// clear the badge up to that message's timestamp.
 	if inserted && evt.Info.IsFromMe && saved.Chat.UnreadCount > 0 {
@@ -422,10 +536,11 @@ func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offline
 	}
 	if offlineSync {
 		c.recordOfflineSyncMessage(saved.Chat.ID, inserted)
-		return
+		return stored
 	}
 	c.refreshRawGroupNameForChat(ctx, saved.Chat)
 	c.refreshLiveMessageAvatars(ctx, evt)
+	return stored
 }
 
 // handleRevokeMessage intercepts "delete for everyone" protocol messages and
@@ -575,6 +690,10 @@ func (c *Client) handleUndecryptableMessage(ctx context.Context, evt *events.Und
 		c.daemon.PublishMessageUpdated(toDaemonMessage(correction.Message))
 		c.daemon.PublishChatUpdated(toDaemonChat(correction.Chat))
 	}
+	// The table above is retry bookkeeping and always was: it exists so a
+	// resend lands at the message's original time. The transcript needs a row
+	// of its own, or the hole is indistinguishable from silence.
+	c.writeWaitingRow(ctx, evt)
 }
 
 func (c *Client) originalRetryTimestamp(ctx context.Context, evt *events.Message) (time.Time, bool) {
@@ -613,6 +732,37 @@ func (c *Client) refreshLiveMessageAvatars(ctx context.Context, evt *events.Mess
 	}
 }
 
+// registerSavedMessage runs the post-save registrations that a message's later
+// events depend on. Every ingest path has to call it, not just the live one:
+// these build the state that arrives-later events are matched against, so a
+// backfilled row that skips it is permanently inert.
+//
+// A live share has to be registered the moment its opening message lands,
+// because the position updates that follow are matched to it by sender and
+// there is nothing else tying them together. A poll's options carry the hashes
+// its votes will name, so they have to be recorded before any vote can be
+// matched to a choice; doing it here also drains the votes that arrived before
+// the poll. An invite's card is worth more than the sender's snapshot of it, so
+// the code is resolved in the background as soon as the row exists.
+func (c *Client) registerSavedMessage(ctx context.Context, message appstore.Message, waMsg *waE2E.Message, timestamp time.Time, live bool) {
+	switch message.MediaKind {
+	case appstore.MediaKindPoll:
+		if poll := pollCreationFromMessage(waMsg); poll != nil {
+			c.savePollOptions(ctx, message.ID, poll)
+		}
+	case appstore.MediaKindGroupInvite:
+		c.maybeResolveGroupInvite(ctx, message)
+	case appstore.MediaKindLiveLocation:
+		c.registerLiveShare(ctx, message, timestamp, 0)
+		if live {
+			c.daemon.PublishLiveLocationsChanged(message.ChatID)
+		}
+	}
+	// Not in the switch: a link preview rides alongside a message whose kind
+	// stays `text`, so there is no media kind to match on.
+	c.maybeFetchLinkPreviewThumbnail(ctx, message, waMsg, live)
+}
+
 // ingestMessage stores a parsed whatsmeow message in the local store and,
 // for live messages, publishes the daemon NewMessage event and triggers a
 // desktop notification when appropriate.
@@ -620,13 +770,16 @@ func (c *Client) refreshLiveMessageAvatars(ctx context.Context, evt *events.Mess
 // History-sync messages are saved silently: no NewMessage broadcast, no
 // notification. The caller is responsible for emitting per-chat backfill
 // events once the conversation has been processed.
-func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts ingestOptions) (appstore.SavedTextMessage, bool) {
+// The third result reports whether the store is in the state it should be.
+// It is false only when a write failed, never for a duplicate or for a payload
+// nothing handles, because neither of those gets better on redelivery.
+func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts ingestOptions) (appstore.SavedTextMessage, bool, bool) {
 	if textInput, ok := c.textMessageInput(ctx, evt, opts); ok {
 		textInput.SenderDevice = evt.Info.Sender.Device
 		saved, err := c.store.SaveTextMessage(ctx, textInput)
 		if err != nil {
 			c.log.Errorf("Failed to store text message %s: %v", textInput.ID, err)
-			return appstore.SavedTextMessage{}, false
+			return appstore.SavedTextMessage{}, false, false
 		}
 		if !saved.Inserted {
 			if opts.source == sourceHistorySync && opts.historyStatus != "" {
@@ -635,7 +788,7 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 			if opts.chatNameOverride != "" && opts.source == sourceLive {
 				c.daemon.PublishChatUpdated(toDaemonChat(saved.Chat))
 			}
-			return saved, false
+			return saved, false, true
 		}
 		if opts.source == sourceLive {
 			c.log.Infof("Stored text message %s from %s", saved.Message.ID, saved.Message.SenderID)
@@ -655,7 +808,7 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 				}
 			}
 		}
-		return saved, true
+		return saved, true, true
 	}
 
 	if mediaInput, ok := c.mediaMessageInput(ctx, evt, opts); ok {
@@ -663,7 +816,7 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 		saved, err := c.store.SaveMediaMessage(ctx, mediaInput)
 		if err != nil {
 			c.log.Errorf("Failed to store media message %s: %v", mediaInput.ID, err)
-			return appstore.SavedTextMessage{}, false
+			return appstore.SavedTextMessage{}, false, false
 		}
 		if !saved.Inserted {
 			if opts.source == sourceHistorySync && opts.historyStatus != "" {
@@ -672,7 +825,7 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 			if opts.chatNameOverride != "" && opts.source == sourceLive {
 				c.daemon.PublishChatUpdated(toDaemonChat(saved.Chat))
 			}
-			return saved, false
+			return saved, false, true
 		}
 		if updated, ok, err := c.resolveCachedStickerMedia(ctx, saved.Message); err != nil {
 			c.log.Warnf("Failed to resolve cached sticker media for %s: %v", saved.Message.ID, err)
@@ -680,6 +833,7 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 			saved.Message = updated
 		}
 		c.recordInboundStickerRecency(ctx, mediaInput)
+		c.registerSavedMessage(ctx, saved.Message, evt.Message, evt.Info.Timestamp, opts.source == sourceLive)
 		if opts.source == sourceLive {
 			c.log.Infof("Stored media message %s from %s", saved.Message.ID, saved.Message.SenderID)
 		} else if opts.source == sourceOfflineSync {
@@ -690,21 +844,28 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 		if opts.source == sourceLive {
 			message := toDaemonMessage(saved.Message)
 			chat := toDaemonChat(saved.Chat)
-			c.daemon.PublishNewMessage(message, chat)
-			c.clearComposingAfterLiveIncomingMessage(message)
-			if c.notifier != nil && c.shouldNotifyLiveMessage(message, chat, mediaInput.CountUnread) {
-				if opts, enabled := c.notificationOptions(); enabled {
-					c.notifyWithAvatar(ctx, message, chat, opts)
+			// A picture that landed inside an album is not a new message on
+			// screen: the album is, and it grew. Announcing the child would
+			// name a row no window holds, and notifying for it would ring five
+			// times for one thing somebody sent. A child whose header never
+			// arrived is not grouped by anything and takes the ordinary path.
+			if !c.publishAlbumChild(ctx, saved.Message) {
+				c.daemon.PublishNewMessage(message, chat)
+				c.clearComposingAfterLiveIncomingMessage(message)
+				if c.notifier != nil && c.shouldNotifyLiveMessage(message, chat, mediaInput.CountUnread) {
+					if opts, enabled := c.notificationOptions(); enabled {
+						c.notifyWithAvatar(ctx, message, chat, opts)
+					}
 				}
 			}
 			// Media is no longer downloaded eagerly on receipt. The frontend
 			// requests downloads lazily, when a message scrolls into view and
 			// the user's auto-download policy covers its kind (see ChatBubble).
 		}
-		return saved, true
+		return saved, true, true
 	}
 
-	return appstore.SavedTextMessage{}, false
+	return appstore.SavedTextMessage{}, false, true
 }
 
 // recordInboundStickerRecency files a received sticker in the local Recents
@@ -762,7 +923,20 @@ func notificationTimestampFresh(timestampUnix int64, now time.Time) bool {
 	return now.Sub(time.Unix(timestampUnix, 0)) <= liveNotificationMaxAge
 }
 
+// mediaMessageInput picks the row shape for whatever this message turns out to
+// be, then tags it with the album that owns it. History sync calls this
+// directly, so anything that belongs to every media kind belongs here rather
+// than in the ingest path above it.
 func (c *Client) mediaMessageInput(ctx context.Context, evt *events.Message, opts ingestOptions) (appstore.MediaMessageInput, bool) {
+	input, ok := c.mediaMessageInputForKind(ctx, evt, opts)
+	if !ok {
+		return input, false
+	}
+	applyAlbumAssociation(&input, evt.Message)
+	return input, true
+}
+
+func (c *Client) mediaMessageInputForKind(ctx context.Context, evt *events.Message, opts ingestOptions) (appstore.MediaMessageInput, bool) {
 	if input, ok := c.imageMessageInput(ctx, evt, opts); ok {
 		return input, true
 	}
@@ -778,13 +952,34 @@ func (c *Client) mediaMessageInput(ctx context.Context, evt *events.Message, opt
 	if input, ok := c.documentMessageInput(ctx, evt, opts); ok {
 		return input, true
 	}
-	if input, ok := c.pollCreationInput(ctx, evt, opts); ok {
+	if input, ok := c.locationMessageInput(ctx, evt, opts); ok {
 		return input, true
 	}
-	if input, ok := c.contactInput(ctx, evt, opts); ok {
+	if input, ok := c.contactMessageInput(ctx, evt, opts); ok {
 		return input, true
 	}
-	if input, ok := c.locationInput(ctx, evt, opts); ok {
+	if input, ok := c.pollMessageInput(ctx, evt, opts); ok {
+		return input, true
+	}
+	if input, ok := c.groupInviteMessageInput(ctx, evt, opts); ok {
+		return input, true
+	}
+	if input, ok := c.eventMessageInput(ctx, evt, opts); ok {
+		return input, true
+	}
+	if input, ok := c.albumMessageInput(ctx, evt, opts); ok {
+		return input, true
+	}
+	if input, ok := c.interactiveMessageInput(ctx, evt, opts); ok {
+		return input, true
+	}
+	if input, ok := c.commerceMessageInput(ctx, evt, opts); ok {
+		return input, true
+	}
+	if input, ok := c.stickerPackMessageInput(ctx, evt, opts); ok {
+		return input, true
+	}
+	if input, ok := c.callLogMessageInput(ctx, evt, opts); ok {
 		return input, true
 	}
 	return c.unsupportedMessageInput(ctx, evt, opts)
@@ -811,12 +1006,16 @@ func (c *Client) mediaInputBase(ctx context.Context, evt *events.Message, opts i
 		SenderID:       senderID(info),
 		SenderName:     c.senderName(ctx, senderJID(info)),
 		Text:           text,
-		Timestamp:      messageTimestamp(info, opts, evt.SourceWebMsg),
+		Timestamp:      c.messageTimestamp(info, opts, evt.SourceWebMsg),
 		Direction:      direction,
 		Status:         status,
 		IsGroup:        info.IsGroup,
 		CountUnread:    shouldCountUnread(evt, opts),
 		ReplyTo:        c.replyFromContextInfo(ctx, chatID, contextInfo),
+		// Mentions come from the context info the caller already picked out for
+		// this kind, not from re-deriving it: a captioned photo or video can
+		// @-mention people, and until now the media path dropped every one.
+		Mentions: c.resolveMentions(ctx, mentionedJIDsFromContextInfo(contextInfo)),
 	}, chatID, true
 }
 
@@ -1043,7 +1242,7 @@ func (c *Client) imageMessageInput(ctx context.Context, evt *events.Message, opt
 			SenderID:       senderID(info),
 			SenderName:     c.senderName(ctx, senderJID(info)),
 			Text:           caption,
-			Timestamp:      messageTimestamp(info, opts, evt.SourceWebMsg),
+			Timestamp:      c.messageTimestamp(info, opts, evt.SourceWebMsg),
 			Direction:      direction,
 			Status:         status,
 			IsGroup:        info.IsGroup,
@@ -1096,7 +1295,7 @@ func (c *Client) stickerMessageInput(ctx context.Context, evt *events.Message, o
 			ChatNameSource: c.chatNameSource(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
 			SenderID:       senderID(info),
 			SenderName:     c.senderName(ctx, senderJID(info)),
-			Timestamp:      messageTimestamp(info, opts, evt.SourceWebMsg),
+			Timestamp:      c.messageTimestamp(info, opts, evt.SourceWebMsg),
 			Direction:      direction,
 			Status:         status,
 			IsGroup:        info.IsGroup,
@@ -1115,44 +1314,42 @@ func (c *Client) stickerMessageInput(ctx context.Context, evt *events.Message, o
 }
 
 // unsupportedMessageInput stores an honest tombstone for real messages whose
-// payload whatevr cannot render yet (view-once media, event messages, ...).
-// The human-readable label rides in the text column so bubbles, chat previews
-// and notifications all pick it up for free. Protocol noise (app-state keys,
-// ...) is not on the label whitelist and stays invisible, exactly as before.
+// payload whatevr cannot render yet (documents, voice notes, video, polls,
+// view-once media, ...). The human-readable label rides in the text column so
+// bubbles, chat previews and notifications all pick it up for free. Protocol
+// noise (poll votes, app-state keys, ...) carries no row and stays invisible.
+//
+// A kind this build has never heard of gets a generic tombstone rather than
+// nothing: WhatsApp ships new message types faster than whatevr learns them,
+// and a grey bubble is a hole somebody can see and report. The payload is kept
+// so the row can be upgraded once the kind is understood.
 func (c *Client) unsupportedMessageInput(ctx context.Context, evt *events.Message, opts ingestOptions) (appstore.MediaMessageInput, bool) {
 	if evt == nil || evt.Message == nil {
 		return appstore.MediaMessageInput{}, false
 	}
 	label, ok := unsupportedMessageLabel(evt)
 	if !ok {
+		field, unknown := unrecognizedPayloadField(evt.Message)
+		if !unknown {
+			return appstore.MediaMessageInput{}, false
+		}
+		c.log.Warnf("Storing a tombstone for message %s: nothing handles payload %q", evt.Info.ID, field)
+		label = "Unsupported message"
+	}
+
+	base, _, ok := c.mediaInputBase(ctx, evt, opts, label, unsupportedContextInfo(evt.Message))
+	if !ok {
 		return appstore.MediaMessageInput{}, false
 	}
 
-	info := evt.Info
-	chatJID := c.normalizeJIDForChat(ctx, info.Chat)
-	chatID := chatJID.String()
-	if chatID == "" || info.ID == "" {
-		return appstore.MediaMessageInput{}, false
-	}
-
-	direction, status := messageDirectionAndStatus(info, opts)
 	input := appstore.MediaMessageInput{
-		TextMessageInput: appstore.TextMessageInput{
-			ID:             internalMessageIDForChat(chatID, info.ID),
-			ChatID:         chatID,
-			ChatName:       c.chatName(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
-			ChatNameSource: c.chatNameSource(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
-			SenderID:       senderID(info),
-			SenderName:     c.senderName(ctx, senderJID(info)),
-			Text:           label,
-			Timestamp:      messageTimestamp(info, opts, evt.SourceWebMsg),
-			Direction:      direction,
-			Status:         status,
-			IsGroup:        info.IsGroup,
-			CountUnread:    shouldCountUnread(evt, opts),
-			ReplyTo:        c.replyFromContextInfo(ctx, chatID, unsupportedContextInfo(evt.Message)),
-		},
-		MediaKind: appstore.MediaKindUnsupported,
+		TextMessageInput: base,
+		MediaKind:        appstore.MediaKindUnsupported,
+		// Keep the marshalled payload even though nothing reads it today. A
+		// tombstone that stored nothing could never be upgraded when a later
+		// build learned its kind, which is why every location and poll ingested
+		// before this change stays grey forever. This one will not.
+		MediaPayload: marshalMessagePayload(evt.Message),
 	}
 	// Inbound view-once media keeps its keys on the row (real kind + payload)
 	// so an explicit `media.save` can fetch it later. It still renders as a
@@ -1206,9 +1403,153 @@ func viewOnceTombstoneAttrs(evt *events.Message) (kind string, mime string, payl
 	return "", "", nil, false
 }
 
+// storeBackfilledMessageSecret persists the message secret of a history-synced
+// message into whatsmeow's own secret store. Polls, events, reactions and
+// comments are all encrypted against that secret, and whatsmeow only records it
+// for messages that arrived live, so without this a poll pulled out of backfill
+// decrypts to ErrOriginalMessageSecretNotFound forever.
+func (c *Client) storeBackfilledMessageSecret(ctx context.Context, evt *events.Message) {
+	if evt == nil || evt.Message == nil {
+		return
+	}
+	secret := evt.Message.GetMessageContextInfo().GetMessageSecret()
+	if len(secret) == 0 {
+		return
+	}
+	client := c.currentClient()
+	if client == nil || client.Store == nil || client.Store.MsgSecrets == nil {
+		return
+	}
+	if err := client.Store.MsgSecrets.PutMessageSecret(ctx, evt.Info.Chat, evt.Info.Sender, evt.Info.ID, secret); err != nil {
+		c.log.Warnf("Failed to store backfilled message secret for %s: %v", evt.Info.ID, err)
+	}
+}
+
+// marshalMessagePayload serializes a whole waE2E message for later re-parsing.
+// A failure is not worth losing the row over: the tombstone still has its label.
+func marshalMessagePayload(message *waE2E.Message) []byte {
+	if message == nil {
+		return nil
+	}
+	payload, err := proto.Marshal(message)
+	if err != nil {
+		return nil
+	}
+	return payload
+}
+
+// maxMessageUnwrapDepth caps the peel below. Nothing legitimate nests this
+// deep, and an unbounded loop on attacker-shaped input is not worth the risk.
+const maxMessageUnwrapDepth = 8
+
+// unwrapNestedMessage peels the wrappers whatsmeow's own UnwrapRaw leaves
+// alone. Every one of these holds an ordinary message, so leaving it wrapped
+// means the payload matches no builder, writes no row, and logs nothing: the
+// message simply is not there. Wrappers that are not ordinary messages (status,
+// newsletter, bot and settings families) are deliberately left for the
+// tombstone, which at least makes them visible.
+//
+// associatedChildMessage is deliberately not among them. It is not a message
+// that arrived wrapped, it is a companion of one that arrived separately: an
+// HD photo crosses as the ordinary image and then again, as its own stanza,
+// carrying the full-size copy in this wrapper. Peeling it made the companion a
+// message of its own, so every HD photo drew twice, at two resolutions, seconds
+// apart. See silentMessageFields.
+func unwrapNestedMessage(msg *waE2E.Message) *waE2E.Message {
+	for range maxMessageUnwrapDepth {
+		var inner *waE2E.Message
+		switch {
+		case msg.GetGroupMentionedMessage().GetMessage() != nil:
+			inner = msg.GetGroupMentionedMessage().GetMessage()
+		case msg.GetSpoilerMessage().GetMessage() != nil:
+			inner = msg.GetSpoilerMessage().GetMessage()
+		case msg.GetPollCreationMessageV4().GetMessage() != nil:
+			inner = msg.GetPollCreationMessageV4().GetMessage()
+		case msg.GetPollCreationOptionImageMessage().GetMessage() != nil:
+			inner = msg.GetPollCreationOptionImageMessage().GetMessage()
+		case msg.GetAudioStickerMessage().GetMessage() != nil:
+			inner = msg.GetAudioStickerMessage().GetMessage()
+		case msg.GetBotForwardedMessage().GetMessage() != nil:
+			inner = msg.GetBotForwardedMessage().GetMessage()
+		}
+		if inner == nil {
+			return msg
+		}
+		// The secret and the reply context ride on the wrapper, and whatsmeow
+		// carries them inward the same way for the wrappers it peels.
+		if inner.MessageContextInfo == nil && msg.MessageContextInfo != nil {
+			inner.MessageContextInfo = msg.MessageContextInfo
+		}
+		msg = inner
+	}
+	return msg
+}
+
 // unsupportedMessageLabel maps not-yet-rendered payload types to a short
 // description. ok=false means the message carries nothing user-visible and
 // must stay invisible (protocol messages, poll votes, reactions, ...).
+//
+// This runs last, after every real builder, so anything named here is a kind
+// whatevr cannot draw yet. A label is the difference between an honest grey row
+// and a hole in the transcript, and the payload is kept with it so a later
+// build can upgrade the row in place.
+// silentMessageFields are the payload fields that never become a transcript row:
+// session plumbing, and the events that modify an existing message rather than
+// being one. Anything else set on a message is something a person sent.
+//
+// It is a denylist on purpose. The allowlist below it can only ever describe
+// the kinds this build already knows, and WhatsApp adds them faster than that;
+// listing what is definitely not a message is the only version that stays
+// correct as the protocol grows.
+var silentMessageFields = map[string]bool{
+	"senderKeyDistributionMessage":               true,
+	"fastRatchetKeySenderKeyDistributionMessage": true,
+	"protocolMessage":                            true,
+	"messageContextInfo":                         true,
+	"stickerSyncRmrMessage":                      true,
+	"placeholderMessage":                         true,
+	"groupRootKeyShare":                          true,
+	"rootSecretDistributeMessage":                true,
+	"botPlatformRegistrationSuccessMessage":      true,
+	"acp2SettingMessage":                         true,
+	// A companion of a message that arrived on its own stanza, not a message.
+	// The HD half of a photo is the one that matters here: dropping it shows
+	// the standard-quality image once, which is what every other client shows
+	// before you ask for HD, instead of the same photo twice.
+	"associatedChildMessage": true,
+	// Edits to something that already has a row.
+	"reactionMessage":                true,
+	"encReactionMessage":             true,
+	"pollUpdateMessage":              true,
+	"pollAddOptionMessage":           true,
+	"pollCreationOptionImageMessage": true,
+	"encEventResponseMessage":        true,
+	"keepInChatMessage":              true,
+	"pinInChatMessage":               true,
+	"eventCoverImage":                true,
+	"statusLinkPreviewMetadata":      true,
+	// Status and newsletter housekeeping, none of which is a chat message.
+	"statusAddYours":                      true,
+	"statusNotificationMessage":           true,
+	"newsletterAdminProfileMessage":       true,
+	"newsletterAdminProfileStatusMessage": true,
+}
+
+// unrecognizedPayloadField names a set field that is neither plumbing nor
+// anything the builders above claimed, which is how a message type nobody has
+// written code for is told apart from an empty envelope.
+func unrecognizedPayloadField(msg *waE2E.Message) (string, bool) {
+	found := ""
+	msg.ProtoReflect().Range(func(fd protoreflect.FieldDescriptor, _ protoreflect.Value) bool {
+		if silentMessageFields[string(fd.Name())] {
+			return true
+		}
+		found = string(fd.Name())
+		return false
+	})
+	return found, found != ""
+}
+
 func unsupportedMessageLabel(evt *events.Message) (string, bool) {
 	msg := evt.Message
 	if evt.IsViewOnce {
@@ -1221,34 +1562,53 @@ func unsupportedMessageLabel(evt *events.Message) (string, bool) {
 			return "View once voice message", true
 		}
 	}
-	labelWithDetail := func(label, detail string) string {
-		if detail = strings.TrimSpace(detail); detail != "" {
-			return label + ": " + detail
-		}
-		return label
-	}
 	switch {
-	case msg.GetLocationMessage() != nil:
-		return labelWithDetail("Location", msg.GetLocationMessage().GetName()), true
-	case msg.GetLiveLocationMessage() != nil:
-		return "Live location", true
-	case msg.GetContactMessage() != nil:
-		return labelWithDetail("Contact", msg.GetContactMessage().GetDisplayName()), true
+	// The business family used to land here as a bare "Message". It now has its
+	// own card, and the only member still on this path is the non-hydrated
+	// TemplateMessage, whose contents are a template name to be looked up in a
+	// catalogue a linked device is never sent.
+	case msg.GetTemplateMessage() != nil:
+		return "Message", true
+	case msg.GetHighlyStructuredMessage() != nil:
+		return "Message", true
+	case msg.GetConditionalRevealMessage() != nil:
+		return "Message", true
+	case msg.GetScheduledCallCreationMessage() != nil:
+		return "Scheduled call", true
+	case msg.GetScheduledCallEditMessage() != nil:
+		return "Scheduled call updated", true
+	case msg.GetEventInviteMessage() != nil:
+		return "Event invite", true
+	case msg.GetCommentMessage() != nil:
+		return "Comment", true
+	case msg.GetMusicMessage() != nil:
+		return "Music", true
+	case msg.GetRichResponseMessage() != nil:
+		return "Meta AI response", true
 	case msg.GetContactsArrayMessage() != nil:
 		return "Contacts", true
-	case msg.GetPollCreationMessage() != nil:
-		return labelWithDetail("Poll", msg.GetPollCreationMessage().GetName()), true
-	case msg.GetPollCreationMessageV2() != nil:
-		return labelWithDetail("Poll", msg.GetPollCreationMessageV2().GetName()), true
-	case msg.GetPollCreationMessageV3() != nil:
-		return labelWithDetail("Poll", msg.GetPollCreationMessageV3().GetName()), true
-	case msg.GetEventMessage() != nil:
-		return labelWithDetail("Event", msg.GetEventMessage().GetName()), true
-	case msg.GetGroupInviteMessage() != nil:
-		return labelWithDetail("Group invite", msg.GetGroupInviteMessage().GetGroupName()), true
-	case msg.GetListMessage() != nil, msg.GetButtonsMessage() != nil,
-		msg.GetTemplateMessage() != nil, msg.GetInteractiveMessage() != nil:
-		return "Message", true
+	case msg.GetRequestPhoneNumberMessage() != nil:
+		return "Phone number request", true
+	case msg.GetNewsletterAdminInviteMessage() != nil:
+		return "Channel admin invite", true
+	case msg.GetNewsletterFollowerInviteMessageV2() != nil:
+		return "Channel invite", true
+	case msg.GetMessageHistoryBundle() != nil:
+		return "Chat history", true
+	case msg.GetPollResultSnapshotMessage() != nil, msg.GetPollResultSnapshotMessageV3() != nil:
+		return "Poll results", true
+	case msg.GetInvoiceMessage() != nil:
+		return "Invoice", true
+	case msg.GetDeclinePaymentRequestMessage() != nil:
+		return "Payment request declined", true
+	case msg.GetCancelPaymentRequestMessage() != nil:
+		return "Payment request cancelled", true
+	case msg.GetPaymentReminderMessage() != nil:
+		return "Payment reminder", true
+	case msg.GetSplitPaymentMessage() != nil:
+		return "Split payment", true
+	case msg.GetSplitPaymentUpdateMessage() != nil:
+		return "Split payment update", true
 	}
 	return "", false
 }
@@ -1256,14 +1616,7 @@ func unsupportedMessageLabel(evt *events.Message) (string, bool) {
 // unsupportedContextInfo pulls reply context out of the payload types the
 // tombstone path covers, so quoted replies still show their preview.
 func unsupportedContextInfo(msg *waE2E.Message) *waE2E.ContextInfo {
-	switch {
-	case msg.GetLocationMessage() != nil:
-		return msg.GetLocationMessage().GetContextInfo()
-	case msg.GetContactMessage() != nil:
-		return msg.GetContactMessage().GetContextInfo()
-	default:
-		return contextInfoFromMessage(msg)
-	}
+	return contextInfoFromMessage(msg)
 }
 
 func stickerMediaCacheKey(sticker *waE2E.StickerMessage) string {
@@ -1348,7 +1701,7 @@ func (c *Client) textMessageInput(ctx context.Context, evt *events.Message, opts
 		SenderID:       senderID(info),
 		SenderName:     c.senderName(ctx, senderJID(info)),
 		Text:           text,
-		Timestamp:      messageTimestamp(info, opts, evt.SourceWebMsg),
+		Timestamp:      c.messageTimestamp(info, opts, evt.SourceWebMsg),
 		Direction:      direction,
 		Status:         status,
 		IsGroup:        info.IsGroup,
@@ -1356,48 +1709,19 @@ func (c *Client) textMessageInput(ctx context.Context, evt *events.Message, opts
 		ReplyTo:        c.replyFromContextInfo(ctx, chatID, contextInfoFromMessage(evt.Message)),
 		Mentions:       c.mentionsFromMessage(ctx, evt.Message),
 	}
-	if preview := c.linkPreviewFromMessage(ctx, chatID, info.ID, evt.Message); preview != nil {
-		input.LinkPreviewURL = preview.URL
-		input.LinkPreviewTitle = preview.Title
-		input.LinkPreviewDescription = preview.Description
-		input.LinkPreviewThumbnailPath = preview.ThumbnailPath
+
+	// A link preview attaches to the row rather than replacing it: the message
+	// is still its text, and only the card beside it is new.
+	if preview := c.linkPreviewFromMessage(chatID, input.ID, evt.Message); preview != nil {
+		encoded, err := appstore.EncodePayload(appstore.MessagePayload{LinkPreview: preview})
+		if err != nil {
+			c.log.Warnf("Failed to encode link preview for %s: %v", input.ID, err)
+		} else {
+			input.PayloadJSON = encoded
+		}
 	}
+
 	return input, true
-}
-
-// linkPreview holds the sender-provided preview facts from an
-// ExtendedTextMessage: the matched URL plus the title/description/thumbnail
-// the sender's client fetched when composing.
-type linkPreview struct {
-	URL           string
-	Title         string
-	Description   string
-	ThumbnailPath string
-}
-
-// linkPreviewFromMessage extracts the sender-provided link preview from a
-// message, or nil when it carries none. The thumbnail bytes are cached to a
-// local file like any other thumbnail; the wire JPEG is small (a preview
-// thumbnail) so no fetch is needed.
-func (c *Client) linkPreviewFromMessage(ctx context.Context, chatID, externalID string, message *waE2E.Message) *linkPreview {
-	_ = ctx
-	extended := message.GetExtendedTextMessage()
-	if extended == nil {
-		return nil
-	}
-	matched := strings.TrimSpace(extended.GetMatchedText())
-	if matched == "" {
-		return nil
-	}
-	preview := &linkPreview{
-		URL:         matched,
-		Title:       strings.TrimSpace(extended.GetTitle()),
-		Description: strings.TrimSpace(extended.GetDescription()),
-	}
-	if len(extended.GetJPEGThumbnail()) > 0 {
-		preview.ThumbnailPath = c.saveMessageThumbnailWithExtension(chatID, internalMessageIDForChat(chatID, externalID)+"-linkpreview", extended.GetJPEGThumbnail(), ".thumb.jpg")
-	}
-	return preview
 }
 
 // mentionedJIDsFromMessage pulls the @-mention JID list out of a message's
@@ -1405,7 +1729,12 @@ func (c *Client) linkPreviewFromMessage(ctx context.Context, chatID, externalID 
 // `@<userpart>` tokens already live in the message text; the renderer pairs
 // them up. Returns nil when there are no mentions.
 func mentionedJIDsFromMessage(message *waE2E.Message) []string {
-	contextInfo := contextInfoFromMessage(message)
+	return mentionedJIDsFromContextInfo(contextInfoFromMessage(message))
+}
+
+// mentionedJIDsFromContextInfo is the same thing for a caller that already
+// holds the right context info for its kind.
+func mentionedJIDsFromContextInfo(contextInfo *waE2E.ContextInfo) []string {
 	if contextInfo == nil {
 		return nil
 	}
@@ -1473,6 +1802,33 @@ func contextInfoFromMessage(message *waE2E.Message) *waE2E.ContextInfo {
 	}
 	if document := message.GetDocumentMessage(); document != nil {
 		return document.GetContextInfo()
+	}
+	if location := message.GetLocationMessage(); location != nil {
+		return location.GetContextInfo()
+	}
+	if live := message.GetLiveLocationMessage(); live != nil {
+		return live.GetContextInfo()
+	}
+	if contact := message.GetContactMessage(); contact != nil {
+		return contact.GetContextInfo()
+	}
+	if contacts := message.GetContactsArrayMessage(); contacts != nil {
+		return contacts.GetContextInfo()
+	}
+	if poll := pollCreationFromMessage(message); poll != nil {
+		return poll.GetContextInfo()
+	}
+	if invite := message.GetGroupInviteMessage(); invite != nil {
+		return invite.GetContextInfo()
+	}
+	if event := message.GetEventMessage(); event != nil {
+		return event.GetContextInfo()
+	}
+	if album := message.GetAlbumMessage(); album != nil {
+		return album.GetContextInfo()
+	}
+	if contextInfo := businessContextInfo(message); contextInfo != nil {
+		return contextInfo
 	}
 	return nil
 }
@@ -1585,6 +1941,61 @@ func quotedReplyPreview(message *waE2E.Message) (string, string, string) {
 		}
 		return text, appstore.MediaKindDocument, defaultMime(document.GetMimetype(), "application/octet-stream")
 	}
+	if location := message.GetLocationMessage(); location != nil {
+		payload := locationPayloadFromMessage(location)
+		kind := appstore.MediaKindLocation
+		if payload.Live {
+			kind = appstore.MediaKindLiveLocation
+		}
+		// A quoted location shows where it is, not the word "Location": that is
+		// the whole content of the message.
+		return locationSummary(payload), kind, "image/png"
+	}
+	if live := message.GetLiveLocationMessage(); live != nil {
+		return formatCoordinates(live.GetDegreesLatitude(), live.GetDegreesLongitude()),
+			appstore.MediaKindLiveLocation, "image/png"
+	}
+	if contact := message.GetContactMessage(); contact != nil {
+		return cardFromContactMessage(contact).DisplayName, appstore.MediaKindContact, ""
+	}
+	if contacts := message.GetContactsArrayMessage(); contacts != nil {
+		return strings.TrimSpace(contacts.GetDisplayName()), appstore.MediaKindContacts, ""
+	}
+	if poll := pollCreationFromMessage(message); poll != nil {
+		return strings.TrimSpace(poll.GetName()), appstore.MediaKindPoll, ""
+	}
+	if invite := message.GetGroupInviteMessage(); invite != nil {
+		return groupInviteSummary(invite), appstore.MediaKindGroupInvite, ""
+	}
+	if event := message.GetEventMessage(); event != nil {
+		return eventSummary(event), appstore.MediaKindEvent, ""
+	}
+	if album := message.GetAlbumMessage(); album != nil {
+		return albumSummary(&appstore.AlbumPayload{
+			ExpectedImages: int(album.GetExpectedImageCount()),
+			ExpectedVideos: int(album.GetExpectedVideoCount()),
+		}), appstore.MediaKindAlbum, ""
+	}
+	if payload, _, ok := interactivePayloadFromMessage(message); ok && payload.HasContent() {
+		return interactiveSummary(payload), appstore.MediaKindInteractive, ""
+	}
+	if payload, _, _, ok := commercePayloadFromMessage(message); ok {
+		return commerceSummary(payload), commerceMediaKind(payload.Kind), ""
+	}
+	if pack := message.GetStickerPackMessage(); pack != nil {
+		return strings.TrimSpace(pack.GetName()), appstore.MediaKindStickerPack, ""
+	}
+	if log := message.GetCallLogMesssage(); log != nil {
+		// A quote of a call log cannot know which side it was on, so it takes
+		// the incoming reading: "Missed voice call" is the one somebody would
+		// be quoting.
+		return callLogSummary(&appstore.CallLogPayload{
+			Video:        log.GetIsVideo(),
+			Outcome:      callOutcomeName(log.GetCallOutcome()),
+			DurationSecs: log.GetDurationSecs(),
+			Participants: len(log.GetParticipants()),
+		}, false), appstore.MediaKindCallLog, ""
+	}
 	return "", "", ""
 }
 
@@ -1621,7 +2032,18 @@ func messageDirectionAndStatus(info types.MessageInfo, opts ingestOptions) (stri
 	return appstore.DirectionIncoming, appstore.StatusDelivered
 }
 
-func messageTimestamp(info types.MessageInfo, opts ingestOptions, webMsg *waWeb.WebMessageInfo) time.Time {
+// futureTimestampSlack is how far ahead a message may legitimately claim to be.
+// Clocks disagree by seconds, not days. Anything beyond this is a broken sender
+// clock, and left alone it pins the message to the top of the chat forever,
+// because nothing that arrives later can ever sort above it.
+const futureTimestampSlack = 12 * time.Hour
+
+func (c *Client) messageTimestamp(info types.MessageInfo, opts ingestOptions, webMsg *waWeb.WebMessageInfo) time.Time {
+	stated := clampFutureTimestamp(rawMessageTimestamp(info, opts, webMsg), time.Now())
+	return c.liveOrderedTimestamp(info, opts, stated)
+}
+
+func rawMessageTimestamp(info types.MessageInfo, opts ingestOptions, webMsg *waWeb.WebMessageInfo) time.Time {
 	if !opts.timestampOverride.IsZero() {
 		return opts.timestampOverride
 	}
@@ -1631,6 +2053,13 @@ func messageTimestamp(info types.MessageInfo, opts ingestOptions, webMsg *waWeb.
 		}
 	}
 	return info.Timestamp
+}
+
+func clampFutureTimestamp(timestamp, now time.Time) time.Time {
+	if timestamp.IsZero() || !timestamp.After(now.Add(futureTimestampSlack)) {
+		return timestamp
+	}
+	return now
 }
 
 func whatsAppUnixTimestamp(value uint64) (time.Time, bool) {
@@ -1678,6 +2107,13 @@ func textFromMessage(message *waE2E.Message) string {
 		return text
 	}
 	if text := message.GetExtendedTextMessage().GetText(); text != "" {
+		return text
+	}
+	// Pressing a button on a business message sends back a message whose whole
+	// content is the words that were on the button, which is exactly what
+	// WhatsApp shows for one. So it is text, and every path that handles text
+	// (search, quoting, copying, the chat-list preview) handles it for free.
+	if text := interactiveResponseText(message); text != "" {
 		return text
 	}
 	return ""
@@ -1984,7 +2420,7 @@ func toDaemonMessage(message appstore.Message) app.Message {
 		SenderAvatarLocalPath:   message.SenderAvatarLocalPath,
 		Text:                    message.Text,
 		TimestampUnix:           message.TimestampUnix,
-		SortSeq:                 message.SortSeq,
+		SortMS:                  message.SortMS,
 		Direction:               message.Direction,
 		Status:                  message.Status,
 		MediaKind:               message.MediaKind,
@@ -1995,6 +2431,7 @@ func toDaemonMessage(message appstore.Message) app.Message {
 		MediaHeight:             message.MediaHeight,
 		MediaAnimated:           message.MediaAnimated,
 		MediaCacheKey:           message.MediaCacheKey,
+		Preview:                 appstore.MessagePreviewLine(message),
 		IsRevoked:               message.IsRevoked,
 		IsEdited:                message.IsEdited,
 		IsStarred:               message.IsStarred,

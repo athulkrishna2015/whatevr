@@ -97,7 +97,6 @@ type CommandActions interface {
 	SendMediaWithMentions(context.Context, string, string, string, string, []string) (appstore.SavedTextMessage, error)
 	SendMediaWithOptions(context.Context, string, string, string, string, []string, app.MediaSendOptions) (appstore.SavedTextMessage, error)
 	SendPoll(context.Context, string, string, []string, bool) (appstore.SavedTextMessage, error)
-	VotePoll(context.Context, string, []string) (appstore.Message, error)
 	SendContact(context.Context, string, string, string) (appstore.SavedTextMessage, error)
 	SendLocation(context.Context, string, float64, float64, string, string) (appstore.SavedTextMessage, error)
 	SendMediaBatch(context.Context, string, []app.MediaBatchFile, string, app.MediaSendOptions) ([]appstore.SavedTextMessage, []app.MediaBatchError)
@@ -114,6 +113,10 @@ type CommandActions interface {
 	StreamMessageMedia(context.Context, string, func(app.MediaStreamUpdate)) (app.MediaStream, error)
 	CancelMessageMediaDownload(context.Context, string) error
 	MarkMessagePlayed(context.Context, string) error
+	RequestMessageFromPhone(context.Context, string) error
+	VotePoll(context.Context, string, []int) error
+	JoinGroupInvite(context.Context, string) (string, error)
+	RespondToEvent(context.Context, string, string, int) error
 	FetchProfilePicture(context.Context, string) (string, error)
 	SaveMediaToPath(context.Context, string, string, string, string) (string, error)
 	MarkStatusViewed(context.Context, string) (appstore.StatusUpdate, error)
@@ -206,7 +209,6 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("send.poll", backgroundNet(cmd.sendPoll, false))
 	s.RegisterCommand("send.contact", backgroundNet(cmd.sendContact, false))
 	s.RegisterCommand("send.location", backgroundNet(cmd.sendLocation, false))
-	s.RegisterCommand("message.vote", backgroundNet(cmd.messageVote, false))
 	s.RegisterCommand("message.react", backgroundNet(cmd.messageReact, false))
 	s.RegisterCommand("message.edit", backgroundNet(cmd.messageEdit, false))
 	s.RegisterCommand("message.edit_history", cmd.messageEditHistory)
@@ -216,6 +218,10 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("message.pin", backgroundNet(cmd.messagePin, false))
 	s.RegisterCommand("message.forward", cmd.messageForward)
 	s.RegisterCommand("message.mark_played", backgroundNet(cmd.messageMarkPlayed, false))
+	s.RegisterCommand("message.request_from_phone", backgroundNet(cmd.messageRequestFromPhone, false))
+	s.RegisterCommand("poll.vote", backgroundNet(cmd.pollVote, false))
+	s.RegisterCommand("group.join_invite", backgroundNet(cmd.groupJoinInvite, false))
+	s.RegisterCommand("event.rsvp", backgroundNet(cmd.eventRSVP, false))
 	s.RegisterCommand("media.download", cmd.mediaDownload)
 	s.RegisterCommand("media.stream", cmd.mediaStreamCommand)
 	s.RegisterCommand("media.cancel_download", backgroundNet(cmd.mediaCancelDownload, false))

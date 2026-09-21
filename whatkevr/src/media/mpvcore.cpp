@@ -20,16 +20,6 @@ void wakeup(void *ctx)
     QMetaObject::invokeMethod(core, &MpvCore::handleEventsFromMpv, Qt::QueuedConnection);
 }
 
-/// Frees an mpv_node's contents however the reader below leaves the function.
-struct node_cleanup {
-    mpv_node *node;
-
-    ~node_cleanup()
-    {
-        mpv_free_node_contents(node);
-    }
-};
-
 void setOption(mpv_handle *mpv, const char *name, const char *value)
 {
     if (const int status = mpv_set_option_string(mpv, name, value); status < 0) {
@@ -358,20 +348,34 @@ void MpvCore::reopenVideoTrack()
     setProperty(QStringLiteral("vid"), QStringLiteral("auto"));
 }
 
-QImage MpvCore::grabStill() const
+bool MpvCore::requestStill()
 {
     if (!m_mpv || m_mode != Mode::Video || !m_videoSize.isValid() || m_videoSize.isEmpty()) {
-        return {};
+        return false;
+    }
+    if (m_stillPending) {
+        // The frame the outstanding request will answer with is the one this
+        // one would ask for.
+        return true;
     }
 
     // "video" rather than "subtitles" or "window": the decoded frame with
     // nothing painted over it and no scaling to the item's size.
-    mpv_node result;
     const char *args[] = {"screenshot-raw", "video", nullptr};
-    if (mpv_command_ret(m_mpv, args, &result) < 0) {
-        return {};
+    if (mpv_command_async(m_mpv, stillRequestId, args) < 0) {
+        return false;
     }
-    node_cleanup cleanup{&result};
+    m_stillPending = true;
+    return true;
+}
+
+namespace
+{
+
+/// Reads a screenshot-raw reply into an image, or a null one when the reply is
+/// not the buffer this asked for.
+QImage imageFromScreenshot(const mpv_node &result)
+{
     if (result.format != MPV_FORMAT_NODE_MAP) {
         return {};
     }
@@ -417,8 +421,10 @@ QImage MpvCore::grabStill() const
                       int(height),
                       int(stride),
                       QImage::Format_RGB32);
-    // copy(): the node, and the buffer behind it, is freed on the way out.
+    // copy(): the node, and the buffer behind it, is freed by the caller.
     return view.copy();
+}
+
 }
 
 void MpvCore::handleEventsFromMpv()
@@ -499,6 +505,25 @@ void MpvCore::handleEventsFromMpv()
             } else if (end->reason == MPV_END_FILE_REASON_ERROR) {
                 m_errorText = QString::fromUtf8(mpv_error_string(end->error));
                 Q_EMIT errorOccurred(m_errorText);
+            }
+            break;
+        }
+        case MPV_EVENT_COMMAND_REPLY: {
+            if (event->reply_userdata != stillRequestId) {
+                break;
+            }
+            m_stillPending = false;
+            if (event->error < 0) {
+                break;
+            }
+            auto *reply = static_cast<mpv_event_command *>(event->data);
+            if (!reply) {
+                break;
+            }
+            // The event's node is owned by mpv and freed when the event is
+            // released, which is why the image is copied out of it here.
+            if (const QImage image = imageFromScreenshot(reply->result); !image.isNull()) {
+                Q_EMIT stillReady(image);
             }
             break;
         }

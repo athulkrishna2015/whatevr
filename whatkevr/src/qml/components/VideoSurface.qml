@@ -32,6 +32,8 @@ Item {
     property bool loop: false
     property real speed: 1.0
     property real volume: 100
+    /// Fills the slot rather than fitting inside it; see VideoSurfaceBackend.
+    property bool cover: false
     /// Where to open the file. Applied at load, so set it before playing.
     property real startPosition: 0
     /// Which arbitration lane this surface plays in: Exclusive for video and
@@ -94,21 +96,14 @@ Item {
         }
     }
 
-    /// Writes down the picture this clip is showing, from the one place that
-    /// has it. Paired with rememberPosition(): between them they are everything
-    /// the next surface to open this message needs to carry on without a visible
-    /// break.
-    function rememberStill() {
-        if (messageId.length === 0 || !backend || !hasFrame) {
-            return
-        }
-        backend.captureStill()
-    }
-
-    /// Both halves of letting go, in the order that works: the caller may be
-    /// about to drop the grant, and neither can be read afterwards.
+    /// What letting go has to write down while the decoder is still attached.
+    ///
+    /// The picture is not part of it. Every release reaches the arbiter, which
+    /// takes the still itself from the one place that always has one, so a
+    /// capture here only asked mpv for the same frame a second time. On a
+    /// revocation it would have been worse than redundant: the session is being
+    /// transferred, so the frame is not going anywhere.
     function rememberPlaybackState() {
-        rememberStill()
         rememberPosition()
     }
 
@@ -279,6 +274,7 @@ Item {
             loop: root.loop
             speed: root.speed
             volume: root.volume
+            cover: root.cover
         }
     }
 }

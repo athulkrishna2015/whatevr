@@ -165,6 +165,8 @@ Item {
         Image {
             id: staticSticker
 
+            objectName: "sticker.static"
+
             // Latched readiness, set from onStatusChanged rather than read off
             // `status` inside the source binding (which would make source depend
             // on its own load state and loop). Reset when the underlying file
@@ -191,6 +193,8 @@ Item {
 
         AnimatedImage {
             id: animatedSticker
+
+            objectName: "sticker.animated"
 
             // Same latch as staticSticker: keeps `status` out of the source
             // binding so it cannot loop on its own load state.
@@ -428,43 +432,52 @@ Item {
                 font.pointSize: framelessRoot.row.footerTimePointSize
             }
 
-            Kirigami.Icon {
-                id: stickerEditMark
-                visible: framelessRoot.row.showEditMark
-                source: "document-edit-symbolic"
+            // Keep / pin / star / edit marks, laid out by a Row rather than by a
+            // chain of anchors each naming the mark to its right: a fourth mark
+            // makes that chain a three-deep conditional per icon, and the Row
+            // simply drops the ones that do not apply. Same order and same
+            // predicates as the plated footer in ChatBubble.
+            Row {
                 anchors.right: stickerTimeLabel.left
                 anchors.rightMargin: framelessRoot.row.tntSpacing
                 anchors.verticalCenter: parent.verticalCenter
-                width: framelessRoot.row.editMarkSize
-                height: framelessRoot.row.editMarkSize
-                color: framelessRoot.row.footerTextColor
-                isMask: true
-            }
+                spacing: framelessRoot.row.tntSpacing
 
-            Kirigami.Icon {
-                id: stickerStarMark
-                visible: framelessRoot.row.showStarMark
-                source: "starred-symbolic"
-                anchors.right: stickerEditMark.visible ? stickerEditMark.left : stickerTimeLabel.left
-                anchors.rightMargin: framelessRoot.row.tntSpacing
-                anchors.verticalCenter: parent.verticalCenter
-                width: framelessRoot.row.starMarkSize
-                height: framelessRoot.row.starMarkSize
-                color: framelessRoot.row.footerTextColor
-                isMask: true
-            }
+                Kirigami.Icon {
+                    visible: framelessRoot.row.showKeepMark
+                    source: "bookmarks-bookmarked-symbolic"
+                    width: framelessRoot.row.keepMarkSize
+                    height: framelessRoot.row.keepMarkSize
+                    color: framelessRoot.row.footerTextColor
+                    isMask: true
+                }
 
-            Kirigami.Icon {
-                visible: framelessRoot.row.showPinMark
-                source: "pin-symbolic"
-                anchors.right: stickerStarMark.visible ? stickerStarMark.left
-                                                       : (stickerEditMark.visible ? stickerEditMark.left : stickerTimeLabel.left)
-                anchors.rightMargin: framelessRoot.row.tntSpacing
-                anchors.verticalCenter: parent.verticalCenter
-                width: framelessRoot.row.pinMarkSize
-                height: framelessRoot.row.pinMarkSize
-                color: framelessRoot.row.footerTextColor
-                isMask: true
+                Kirigami.Icon {
+                    visible: framelessRoot.row.showPinMark
+                    source: "pin-symbolic"
+                    width: framelessRoot.row.pinMarkSize
+                    height: framelessRoot.row.pinMarkSize
+                    color: framelessRoot.row.footerTextColor
+                    isMask: true
+                }
+
+                Kirigami.Icon {
+                    visible: framelessRoot.row.showStarMark
+                    source: "starred-symbolic"
+                    width: framelessRoot.row.starMarkSize
+                    height: framelessRoot.row.starMarkSize
+                    color: framelessRoot.row.footerTextColor
+                    isMask: true
+                }
+
+                Kirigami.Icon {
+                    visible: framelessRoot.row.showEditMark
+                    source: "document-edit-symbolic"
+                    width: framelessRoot.row.editMarkSize
+                    height: framelessRoot.row.editMarkSize
+                    color: framelessRoot.row.footerTextColor
+                    isMask: true
+                }
             }
         }
     }}

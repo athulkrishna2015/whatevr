@@ -113,8 +113,13 @@ func (s *starredSession) eventAffects(evt app.DaemonEvent) bool {
 // so generic clients render the starred page in the same order. `extend older`
 // grows the window back into older stars.
 func (s *starredSession) Items(max int) []Item {
+	items, _ := s.ItemsErr(max)
+	return items
+}
+
+func (s *starredSession) ItemsErr(max int) ([]Item, error) {
 	if s.lister == nil {
-		return nil
+		return nil, nil
 	}
 	limit := max
 	if limit <= 0 {
@@ -123,7 +128,7 @@ func (s *starredSession) Items(max int) []Item {
 	rows, err := s.lister.ListStarredMessages(s.ctx, s.chatID, limit, "")
 	if err != nil {
 		log.Printf("protocol: list starred messages for view: %v", err)
-		return nil
+		return nil, err
 	}
 	items := make([]Item, 0, len(rows))
 	for _, sm := range rows {
@@ -133,7 +138,7 @@ func (s *starredSession) Items(max int) []Item {
 			Data: starredItem{messageItem: messageItemFromStore(sm.Message), ChatName: sm.ChatName},
 		})
 	}
-	return items
+	return items, nil
 }
 
 const newestFirstSortMax = int64(1) << 62
@@ -149,7 +154,7 @@ const newestFirstSortMax = int64(1) << 62
 // extended. Recording a star time would need a schema migration; ordering by
 // message timestamp is the documented behavior (see PROTOCOL.md `starred`).
 func newestFirstSort(m store.Message) string {
-	return fmt.Sprintf("%020d-%020d-%s", invNewestFirst(m.TimestampUnix), invNewestFirst(m.SortSeq), m.ID)
+	return fmt.Sprintf("%020d-%s", invNewestFirst(m.SortMS), m.ID)
 }
 
 func invNewestFirst(v int64) int64 {
@@ -272,10 +277,10 @@ func (s *pinnedSession) Items(int) []Item {
 	return items
 }
 
-// pinnedSort orders rows by pin time then rowid, matching the store's
-// oldest-pin-first banner order.
+// pinnedSort orders rows by pin time then the message's own key, matching the
+// store's oldest-pin-first banner order.
 func pinnedSort(m store.Message) string {
-	return fmt.Sprintf("%020d-%020d", pinnedAtOrZero(m.PinnedAt), pinnedSeqOrZero(m.SortSeq))
+	return fmt.Sprintf("%020d-%020d-%s", pinnedAtOrZero(m.PinnedAt), pinnedSeqOrZero(m.SortMS), m.ID)
 }
 
 func pinnedAtOrZero(v int64) int64 {

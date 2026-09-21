@@ -272,31 +272,6 @@ func (h commandHandlers) sendPoll(ctx context.Context, _ *conn, req request) (an
 	return map[string]any{"message_id": saved.Message.ID}, nil
 }
 
-type messageVoteParams struct {
-	MessageID string   `json:"message_id"`
-	Options   []string `json:"options"`
-}
-
-// message.vote votes option names on a poll; a re-vote replaces the ballot.
-func (h commandHandlers) messageVote(ctx context.Context, _ *conn, req request) (any, *Error) {
-	if err := h.requireActions(); err != nil {
-		return nil, err
-	}
-	var p messageVoteParams
-	if err := decodeParams(req.Params, &p); err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(p.MessageID) == "" {
-		return nil, errorf(CodeInvalidParams, "message_id is required")
-	}
-	options := trimStringSlice(p.Options)
-	if len(options) == 0 {
-		return nil, errorf(CodeInvalidParams, "at least one option is required")
-	}
-	_, err := h.actions.VotePoll(ctx, strings.TrimSpace(p.MessageID), options)
-	return nil, mapCommandError(err)
-}
-
 type sendContactParams struct {
 	ChatID string `json:"chat_id"`
 	Name   string `json:"name"`
@@ -599,4 +574,98 @@ func (h commandHandlers) messageMarkPlayed(ctx context.Context, _ *conn, req req
 		return nil, err
 	}
 	return nil, mapCommandError(h.actions.MarkMessagePlayed(ctx, strings.TrimSpace(p.MessageID)))
+}
+
+// messageRequestFromPhone asks our own phone for a copy of a message this
+// device could not decrypt. The visible effect is the waiting row updating with
+// the request in flight; if the phone answers, the row turns into the message.
+func (h commandHandlers) messageRequestFromPhone(ctx context.Context, _ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p messageIDParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if err := p.valid(); err != nil {
+		return nil, err
+	}
+	return nil, mapCommandError(h.actions.RequestMessageFromPhone(ctx, strings.TrimSpace(p.MessageID)))
+}
+
+// pollVoteParams is a whole selection, not a delta: a voter takes a choice back
+// by sending the selection without it, which is what the wire format means.
+type pollVoteParams struct {
+	MessageID string `json:"message_id"`
+	OptionIDs []int  `json:"option_ids"`
+}
+
+// pollVote casts our own vote. The visible effect is the poll row upserting
+// with the new tally; the command itself acks with nothing, as every command
+// does.
+func (h commandHandlers) pollVote(ctx context.Context, _ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p pollVoteParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(p.MessageID) == "" {
+		return nil, errorf(CodeInvalidParams, "message_id is required")
+	}
+	return nil, mapCommandError(h.actions.VotePoll(ctx, strings.TrimSpace(p.MessageID), p.OptionIDs))
+}
+
+// groupJoinInvite accepts an invitation. It answers with the chat to open,
+// which is also the answer for a group we were already in: there the command
+// joins nothing and simply says where to go.
+func (h commandHandlers) groupJoinInvite(ctx context.Context, _ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p messageIDParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if err := p.valid(); err != nil {
+		return nil, err
+	}
+	chatID, err := h.actions.JoinGroupInvite(ctx, strings.TrimSpace(p.MessageID))
+	if perr := mapCommandError(err); perr != nil {
+		return nil, perr
+	}
+	return map[string]any{"chat_id": chatID}, nil
+}
+
+// eventRSVPParams is a whole answer, not a delta: answering again replaces what
+// you said before, which is what the wire format means.
+type eventRSVPParams struct {
+	MessageID string `json:"message_id"`
+	// Response is "going", "not_going" or "maybe".
+	Response string `json:"response"`
+	// ExtraGuests is how many people you are bringing, for an event whose
+	// author allowed it. Ignored for one that did not.
+	ExtraGuests int `json:"extra_guests"`
+}
+
+// eventRSVP answers a scheduled event. The visible effect is the event row
+// upserting with the new attendee list; the command acks with nothing, as
+// every command does.
+func (h commandHandlers) eventRSVP(ctx context.Context, _ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p eventRSVPParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(p.MessageID) == "" {
+		return nil, errorf(CodeInvalidParams, "message_id is required")
+	}
+	if strings.TrimSpace(p.Response) == "" {
+		return nil, errorf(CodeInvalidParams, "response is required")
+	}
+	return nil, mapCommandError(h.actions.RespondToEvent(ctx,
+		strings.TrimSpace(p.MessageID), strings.TrimSpace(p.Response), p.ExtraGuests))
 }

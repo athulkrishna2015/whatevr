@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"image/png"
 	"io"
@@ -27,6 +28,37 @@ func TestStaleMediaDownloadErrorIncludesForbidden(t *testing.T) {
 	}
 	if staleMediaDownloadError(context.Canceled) {
 		t.Fatal("context cancellation should not request media retry")
+	}
+}
+
+// A hash mismatch is the CDN serving a blob that is not the one the message
+// describes, which is what an old message's rotated media looks like. It has
+// to reach the media retry, or the card sits on "could not be downloaded" with
+// a Try again button that can only ever fail the same way.
+//
+// Found on real messages from a month earlier: every sticker and image in the
+// chat carried "failed to download media from last host: hash of media
+// ciphertext doesn't match", and none of them had ever asked the sender for a
+// fresh path.
+func TestStaleMediaDownloadErrorIncludesAHashMismatch(t *testing.T) {
+	for _, err := range []error{
+		whatsmeow.ErrInvalidMediaEncSHA256,
+		whatsmeow.ErrFileLengthMismatch,
+	} {
+		if !staleMediaDownloadError(err) {
+			t.Fatalf("%v should request a media retry", err)
+		}
+		// whatsmeow reports it wrapped, having tried every host first.
+		wrapped := fmt.Errorf("failed to download media from last host: %w", err)
+		if !staleMediaDownloadError(wrapped) {
+			t.Fatalf("%v should still be recognised once wrapped", err)
+		}
+	}
+
+	// A plaintext-hash mismatch is the content itself disagreeing after a
+	// successful decrypt, so a fresh path fetches the same bytes again.
+	if staleMediaDownloadError(whatsmeow.ErrInvalidMediaSHA256) {
+		t.Fatal("a plaintext hash mismatch should not spend a media retry")
 	}
 }
 

@@ -537,7 +537,7 @@ func (c *Client) ingestStatusUpdate(ctx context.Context, evt *events.Message) {
 	input := appstore.StatusUpdateInput{
 		ID:        "status:" + string(evt.Info.ID),
 		SenderID:  sender,
-		Timestamp: messageTimestamp(evt.Info, ingestOptions{}, evt.SourceWebMsg),
+		Timestamp: c.messageTimestamp(evt.Info, ingestOptions{}, evt.SourceWebMsg),
 	}
 	if input.Timestamp.IsZero() {
 		input.Timestamp = evt.Info.Timestamp

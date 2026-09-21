@@ -209,6 +209,45 @@ func TestHistorySyncMarkedUnreadPublishesChatUpdated(t *testing.T) {
 	}
 }
 
+func TestHistorySyncExhaustionPublishesChatUpdated(t *testing.T) {
+	ctx := context.Background()
+	db, err := appstore.Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	daemon := app.NewDaemon(app.Paths{})
+	events, unsubscribe := daemon.SubscribeDaemonEvents()
+	t.Cleanup(unsubscribe)
+
+	client := &Client{
+		store:  db,
+		daemon: daemon,
+		log:    waLog.Noop,
+		client: &whatsmeow.Client{Store: &waStore.Device{}},
+	}
+	syncType := waHistorySync.HistorySync_RECENT
+	chatID := types.NewJID("12345", types.DefaultUserServer).String()
+	client.processHistorySyncData(ctx, &waHistorySync.HistorySync{
+		SyncType: &syncType,
+		Conversations: []*waHistorySync.Conversation{{
+			ID:                       proto.String(chatID),
+			EndOfHistoryTransferType: waHistorySync.Conversation_COMPLETE_AND_NO_MORE_MESSAGE_REMAIN_ON_PRIMARY.Enum(),
+		}},
+	})
+
+	for deadline := time.After(time.Second); ; {
+		select {
+		case evt := <-events:
+			if evt.Kind == app.DaemonEventChatUpdated && evt.Chat.ID == chatID && evt.Chat.HistoryExhausted {
+				return
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for history-exhausted ChatUpdated")
+		}
+	}
+}
+
 func TestHistorySyncPreservesPinWhenPinnedFieldAbsent(t *testing.T) {
 	ctx := context.Background()
 	db, err := appstore.Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))
@@ -296,7 +335,7 @@ func TestMessageTimestampPrefersOutgoingHistoryC2STimestamp(t *testing.T) {
 	}
 	webMsg := &waWeb.WebMessageInfo{MessageC2STimestamp: &c2s}
 
-	got := messageTimestamp(info, ingestOptions{source: sourceHistorySync}, webMsg)
+	got := (&Client{}).messageTimestamp(info, ingestOptions{source: sourceHistorySync}, webMsg)
 	if want := time.Unix(1_700_000_100, 0); !got.Equal(want) {
 		t.Fatalf("messageTimestamp() = %v, want %v", got, want)
 	}
@@ -310,7 +349,7 @@ func TestMessageTimestampParsesMillisecondC2STimestamp(t *testing.T) {
 	}
 	webMsg := &waWeb.WebMessageInfo{MessageC2STimestamp: &c2s}
 
-	got := messageTimestamp(info, ingestOptions{source: sourceHistorySync}, webMsg)
+	got := (&Client{}).messageTimestamp(info, ingestOptions{source: sourceHistorySync}, webMsg)
 	if want := time.UnixMilli(1_700_000_100_123); !got.Equal(want) {
 		t.Fatalf("messageTimestamp() = %v, want %v", got, want)
 	}
@@ -349,7 +388,7 @@ func TestMessageTimestampFallsBackForIncomingLiveAndInvalidC2S(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := messageTimestamp(tc.info, tc.opts, tc.webMsg); !got.Equal(fallback) {
+			if got := (&Client{}).messageTimestamp(tc.info, tc.opts, tc.webMsg); !got.Equal(fallback) {
 				t.Fatalf("messageTimestamp() = %v, want fallback %v", got, fallback)
 			}
 		})
@@ -366,7 +405,7 @@ func TestMessageTimestampPrefersRetryTimestampOverride(t *testing.T) {
 	}
 	webMsg := &waWeb.WebMessageInfo{MessageC2STimestamp: &c2s}
 
-	got := messageTimestamp(info, ingestOptions{source: sourceHistorySync, timestampOverride: override}, webMsg)
+	got := (&Client{}).messageTimestamp(info, ingestOptions{source: sourceHistorySync, timestampOverride: override}, webMsg)
 	if !got.Equal(override) {
 		t.Fatalf("messageTimestamp() = %v, want override %v", got, override)
 	}
@@ -620,8 +659,10 @@ func TestUnsupportedMessageLabel(t *testing.T) {
 			evt: &events.Message{Message: &waE2E.Message{
 				PollCreationMessageV3: &waE2E.PollCreationMessage{Name: proto.String("Lunch?")},
 			}},
-			want:   "Poll: Lunch?",
-			wantOK: true,
+			// Polls render for real now, so they must fall off the
+			// tombstone whitelist.
+			want:   "",
+			wantOK: false,
 		},
 		{
 			name: "view once photo",
@@ -635,12 +676,26 @@ func TestUnsupportedMessageLabel(t *testing.T) {
 			wantOK: true,
 		},
 		{
-			name: "location with name",
+			// A location renders for real now, so it must fall off the
+			// tombstone whitelist: a kind on both lists would ingest as a
+			// location and be labelled as unsupported at the same time.
+			name: "location is no longer a tombstone",
 			evt: &events.Message{Message: &waE2E.Message{
 				LocationMessage: &waE2E.LocationMessage{Name: proto.String("Cafe")},
 			}},
-			want:   "Location: Cafe",
-			wantOK: true,
+			want:   "",
+			wantOK: false,
+		},
+		{
+			// Same reason as the location above: a group invite has a card of
+			// its own now, and a kind on both lists ingests as an invite while
+			// being labelled unsupported.
+			name: "group invite is no longer a tombstone",
+			evt: &events.Message{Message: &waE2E.Message{
+				GroupInviteMessage: &waE2E.GroupInviteMessage{GroupName: proto.String("Wow3")},
+			}},
+			want:   "",
+			wantOK: false,
 		},
 		{
 			name: "poll update stays invisible",
@@ -908,7 +963,7 @@ func TestLinkPreviewFromMessageExtractsSenderPreview(t *testing.T) {
 			JPEGThumbnail: []byte{0xff, 0xd8, 0xff},
 		},
 	}
-	preview := c.linkPreviewFromMessage(context.Background(), chatID, "ext-1", msg)
+	preview := c.linkPreviewFromMessage(chatID, "ext-1", msg)
 	if preview == nil {
 		t.Fatal("expected link preview, got nil")
 	}
@@ -930,7 +985,7 @@ func TestLinkPreviewFromMessageNilWithoutMatchedText(t *testing.T) {
 		"nil": nil,
 	}
 	for name, msg := range cases {
-		if got := c.linkPreviewFromMessage(context.Background(), "chat@s.whatsapp.net", "ext-1", msg); got != nil {
+		if got := c.linkPreviewFromMessage("chat@s.whatsapp.net", "ext-1", msg); got != nil {
 			t.Fatalf("%s: expected nil preview, got %+v", name, got)
 		}
 	}

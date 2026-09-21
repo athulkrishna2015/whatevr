@@ -60,6 +60,21 @@ public:
     // buffer is always empty, so the check costs nothing.
     [[nodiscard]] int count() const;
 
+    // Hold the rows in the mirror of the daemon's order, newest first, so a
+    // view whose live edge is the *bottom* of the screen can put that edge at
+    // row 0 and let a BottomToTop ListView draw it there.
+    //
+    // This is a presentation choice about which end of the list is the fixed
+    // one, not a reinterpretation of `sort`: the key is still opaque and still
+    // compared bytewise (rule 3), the comparison simply runs the other way. The
+    // transcript is the only view that wants it, because it is the only view
+    // that is read from its newest end and grows away from it.
+    //
+    // Must be set before the first item arrives; reordering a populated view
+    // would mean reissuing every row's position for no reason.
+    void setReverseOrder(bool reverse);
+    [[nodiscard]] bool reverseOrder() const { return m_reverseOrder; }
+
     // ViewSink
     void onUpsert(const QString &sort, const QJsonObject &item) override;
     void onRemove(const QString &id) override;
@@ -84,7 +99,10 @@ private:
     };
 
     // Strict-weak ordering: bytewise on the sort key, id as a stable tiebreak.
-    static bool sortsBefore(const Item &lhs, const Item &rhs);
+    // `ascends` is the protocol's own direction; `sortsBefore` is that or its
+    // mirror, depending on setReverseOrder().
+    static bool ascends(const Item &lhs, const Item &rhs);
+    [[nodiscard]] bool sortsBefore(const Item &lhs, const Item &rhs) const;
     [[nodiscard]] int lowerBound(const Item &item) const;
     void rebuildIndex(int fromRow);
 
@@ -114,6 +132,7 @@ private:
     QHash<QString, PendingOp> m_pending;
     QList<QString> m_pendingOrder;
     bool m_batching = false;
+    bool m_reverseOrder = false;
 };
 
 } // namespace whatevr::proto

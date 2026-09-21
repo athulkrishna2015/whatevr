@@ -1113,6 +1113,16 @@ QString whatsAppToCommonMark(const QString &text)
     return out;
 }
 
+double inlineEmojiScale()
+{
+    return kInlineEmojiScale;
+}
+
+bool isEmojiGraphemeCluster(const QString &cluster)
+{
+    return isEmojiCluster(cluster);
+}
+
 MessageMarkup parseWhatsAppMessageMarkup(const QString &text, const QList<MessageMention> &mentions, bool isGroup)
 {
     MessageMarkup result;

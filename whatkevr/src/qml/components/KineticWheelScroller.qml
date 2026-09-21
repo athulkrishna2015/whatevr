@@ -262,6 +262,18 @@ Item {
         return actual
     }
 
+    // The viewport's coordinates moved without the view being scrolled: a row
+    // above the reader settled its height and the transcript was corrected by
+    // the same amount to hold them still. A fling in flight is integrating
+    // against contentY and watches it for exactly the kind of jump the list
+    // makes when it repositions the viewport, so tell it the correction was
+    // ours or it reads its own anchoring as a yank and stops dead.
+    function noteViewportShift(delta) {
+        if (hasAppliedContentY) {
+            lastAppliedContentY += delta
+        }
+    }
+
     function stopKinetic() {
         kineticActive = false
         velocity = 0

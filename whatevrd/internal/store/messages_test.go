@@ -550,7 +550,7 @@ func TestRecordUndecryptableMessageTimestampCorrectsExistingMessageAndChatSummar
 	if err != nil {
 		t.Fatalf("get chat before correction: %v", err)
 	}
-	if chat.LastMessage != "[Image]" || chat.LastMessageTime != 400 {
+	if chat.LastMessage != "📷 Photo" || chat.LastMessageTime != 400 {
 		t.Fatalf("chat before correction = %+v, want image at 400", chat)
 	}
 
@@ -2183,7 +2183,7 @@ func TestSaveMessagesBatchMatchesSingleSaveSemantics(t *testing.T) {
 	if saved[1].Chat.UnreadCount != 2 {
 		t.Fatalf("expected unread=2 after batch, got %+v", saved[1].Chat)
 	}
-	if saved[1].Chat.LastMessage != "[Image]" || saved[1].Chat.LastMessageTime != 200 {
+	if saved[1].Chat.LastMessage != "📷 Photo" || saved[1].Chat.LastMessageTime != 200 {
 		t.Fatalf("unexpected chat summary after batch: %+v", saved[1].Chat)
 	}
 
@@ -2209,6 +2209,14 @@ func TestSaveMessagesBatchMatchesSingleSaveSemantics(t *testing.T) {
 }
 
 func TestSaveTextMessagePersistsLinkPreview(t *testing.T) {
+	payload, err := EncodePayload(MessagePayload{LinkPreview: &LinkPreviewPayload{
+		URL:         "https://example.com/a",
+		Title:       "Example",
+		Description: "An example page",
+	}})
+	if err != nil {
+		t.Fatalf("encode payload: %v", err)
+	}
 	ctx := context.Background()
 	db, err := Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))
 	if err != nil {
@@ -2217,22 +2225,20 @@ func TestSaveTextMessagePersistsLinkPreview(t *testing.T) {
 	defer db.Close()
 
 	saved, err := db.SaveTextMessage(ctx, TextMessageInput{
-		ID:                       "chat-1:msg-1",
-		ChatID:                   "chat-1",
-		SenderID:                 "sender-1",
-		Text:                     "check https://example.com/a",
-		Timestamp:                time.Unix(100, 0),
-		Direction:                DirectionIncoming,
-		Status:                   StatusDelivered,
-		LinkPreviewURL:           "https://example.com/a",
-		LinkPreviewTitle:         "Example",
-		LinkPreviewDescription:   "An example page",
-		LinkPreviewThumbnailPath: "/cache/linkpreview.jpg",
+		ID:          "chat-1:msg-1",
+		ChatID:      "chat-1",
+		SenderID:    "sender-1",
+		Text:        "check https://example.com/a",
+		Timestamp:   time.Unix(100, 0),
+		Direction:   DirectionIncoming,
+		Status:      StatusDelivered,
+		PayloadJSON: payload,
 	})
 	if err != nil {
 		t.Fatalf("save message: %v", err)
 	}
-	if saved.Message.LinkPreviewURL != "https://example.com/a" || saved.Message.LinkPreviewTitle != "Example" || saved.Message.LinkPreviewDescription != "An example page" || saved.Message.LinkPreviewThumbnailPath != "/cache/linkpreview.jpg" {
+	decoded := DecodePayload(saved.Message.PayloadJSON)
+	if decoded.LinkPreview == nil || decoded.LinkPreview.URL != "https://example.com/a" || decoded.LinkPreview.Title != "Example" {
 		t.Fatalf("saved link preview = %+v", saved.Message)
 	}
 
@@ -2243,9 +2249,9 @@ func TestSaveTextMessagePersistsLinkPreview(t *testing.T) {
 	if len(messages) != 1 {
 		t.Fatalf("expected 1 message, got %d", len(messages))
 	}
-	got := messages[0]
-	if got.LinkPreviewURL != "https://example.com/a" || got.LinkPreviewTitle != "Example" || got.LinkPreviewDescription != "An example page" || got.LinkPreviewThumbnailPath != "/cache/linkpreview.jpg" {
-		t.Fatalf("listed link preview = %+v", got)
+	gotPreview := DecodePayload(messages[0].PayloadJSON)
+	if gotPreview.LinkPreview == nil || gotPreview.LinkPreview.Description != "An example page" {
+		t.Fatalf("listed link preview = %+v", messages[0])
 	}
 
 	plain, err := db.SaveTextMessage(ctx, TextMessageInput{
@@ -2260,7 +2266,122 @@ func TestSaveTextMessagePersistsLinkPreview(t *testing.T) {
 	if err != nil {
 		t.Fatalf("save plain message: %v", err)
 	}
-	if plain.Message.LinkPreviewURL != "" {
+	if plain.Message.PayloadJSON != "" {
 		t.Fatalf("plain message has link preview: %+v", plain.Message)
+	}
+}
+
+func TestListMessagesBatchesExtrasPastSQLiteVariableLimit(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	const (
+		chatID = "large-chat"
+		count  = 32767
+	)
+	if _, err := db.conn.ExecContext(ctx, `INSERT INTO chats (id, name) VALUES (?, ?)`, chatID, "Large Chat"); err != nil {
+		t.Fatalf("insert chat: %v", err)
+	}
+	tx, err := db.conn.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin message batch: %v", err)
+	}
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO messages (id, chat_id, text, timestamp, sort_ms, direction, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
+	`)
+	if err != nil {
+		t.Fatalf("prepare message insert: %v", err)
+	}
+	for i := 0; i < count; i++ {
+		id := fmt.Sprintf("m-%05d", i)
+		if _, err := stmt.ExecContext(ctx, id, chatID, id, i, i*1000, DirectionIncoming, StatusDelivered); err != nil {
+			stmt.Close()
+			tx.Rollback()
+			t.Fatalf("insert message %d: %v", i, err)
+		}
+	}
+	if err := stmt.Close(); err != nil {
+		t.Fatalf("close message insert: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit message batch: %v", err)
+	}
+
+	messages, err := db.ListMessages(ctx, chatID, count, "")
+	if err != nil {
+		t.Fatalf("list large message window: %v", err)
+	}
+	if len(messages) != count {
+		t.Fatalf("message count = %d, want %d", len(messages), count)
+	}
+	if messages[0].ID != "m-00000" || messages[len(messages)-1].ID != "m-32766" {
+		t.Fatalf("unexpected message bounds: %q .. %q", messages[0].ID, messages[len(messages)-1].ID)
+	}
+}
+
+// One receipt names many messages and the batch has to behave exactly like the
+// loop it replaced: an id with no row is skipped, a status that does not advance
+// is skipped, and only the rows that moved come back.
+func TestUpdateMessagesStatusAppliesOneReceiptAtOnce(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	for i, status := range []string{StatusSent, StatusSent, StatusRead} {
+		if _, err := db.SaveTextMessage(ctx, TextMessageInput{
+			ID:        fmt.Sprintf("chat-1:sent-%d", i),
+			ChatID:    "chat-1",
+			ChatName:  "Test Chat",
+			SenderID:  "me",
+			Text:      "hello",
+			Timestamp: time.Unix(int64(100+i), 0),
+			Direction: DirectionOutgoing,
+			Status:    status,
+		}); err != nil {
+			t.Fatalf("save message %d: %v", i, err)
+		}
+	}
+
+	changed, err := db.UpdateMessagesStatus(ctx, []string{
+		"chat-1:sent-0",
+		"chat-1:sent-1",
+		"chat-1:sent-2", // already read, a delivered receipt must not move it
+		"chat-1:missing",
+	}, StatusDelivered)
+	if err != nil {
+		t.Fatalf("batch delivered: %v", err)
+	}
+	if len(changed) != 2 {
+		t.Fatalf("expected the two sent messages to move, got %d: %+v", len(changed), changed)
+	}
+	for _, message := range changed {
+		if message.Status != StatusDelivered {
+			t.Fatalf("returned message carries the wrong status: %+v", message)
+		}
+	}
+
+	stored, err := db.GetMessage(ctx, "chat-1:sent-2")
+	if err != nil {
+		t.Fatalf("read the already-read message: %v", err)
+	}
+	if stored.Status != StatusRead {
+		t.Fatalf("a delivered receipt downgraded a read message: %+v", stored)
+	}
+
+	// The chat's summary follows the message that is actually last.
+	chat, err := db.GetChat(ctx, "chat-1")
+	if err != nil {
+		t.Fatalf("read chat: %v", err)
+	}
+	if chat.LastMessageStatus != StatusRead {
+		t.Fatalf("chat summary status is %q, want %q", chat.LastMessageStatus, StatusRead)
 	}
 }

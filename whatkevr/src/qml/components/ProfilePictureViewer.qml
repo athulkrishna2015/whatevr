@@ -46,8 +46,20 @@ QQC2.Popup {
     }
 
     contentItem: Item {
-        TapHandler {
-            onTapped: root.close()
+        // A MouseArea, not a TapHandler: a handler watches presses without
+        // consuming them, and a press inside a full-screen popup is not
+        // outside anything, so modality does not stop it either. The clicks
+        // went through to whatever was behind the lightbox.
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.AllButtons
+
+            onClicked: mouse => {
+                if (mouse.button === Qt.LeftButton) {
+                    root.close()
+                }
+            }
+            onWheel: wheel => wheel.accepted = true
         }
 
         Image {

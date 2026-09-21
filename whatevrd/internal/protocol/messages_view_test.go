@@ -235,6 +235,238 @@ func TestMessagesViewImageItemShape(t *testing.T) {
 	c.expectReady(sub, true)
 }
 
+// A group invite crosses as its own nested object carrying both readings of
+// the group: what the sender's client claimed and what the daemon resolved.
+// The card renders from whichever it has, so both have to survive the wire, and
+// `fallback` has to name the group for a frontend that renders neither.
+func TestMessagesViewGroupInviteItemShape(t *testing.T) {
+	socketPath, _, db := startChatsTestServer(t)
+	chat := "c@s.whatsapp.net"
+	id := "inv-1"
+	payload, err := store.EncodePayload(store.MessagePayload{GroupInvite: &store.GroupInvitePayload{
+		GroupJID:    "120363000000000001@g.us",
+		Code:        "CODE123",
+		ExpiresAt:   1_700_100_000,
+		Name:        "sender's copy",
+		Subject:     "Wow3",
+		MemberCount: 12,
+		ResolvedAt:  1_700_000_100,
+		PhotoPath:   "/cache/invite.jpg",
+	}})
+	if err != nil {
+		t.Fatalf("encode invite: %v", err)
+	}
+	if _, err := db.SaveMediaMessage(context.Background(), store.MediaMessageInput{
+		TextMessageInput: store.TextMessageInput{
+			ID:          id,
+			ChatID:      chat,
+			Timestamp:   time.Unix(1_700_000_000, 0),
+			Direction:   store.DirectionIncoming,
+			PayloadJSON: payload,
+		},
+		MediaKind:      store.MediaKindGroupInvite,
+		PayloadSummary: "Wow3",
+	}); err != nil {
+		t.Fatalf("seed invite: %v", err)
+	}
+
+	c := dialTest(t, socketPath)
+	c.hello()
+	sub := c.subscribe(2, fmt.Sprintf(`{"view":"messages","chat_id":%q}`, chat))
+	item := c.expectUpsert(sub, id)["item"].(map[string]any)
+	if item["kind"] != "group_invite" {
+		t.Fatalf("kind = %v, want group_invite", item["kind"])
+	}
+	if item["fallback"] != "👥 Group invite: Wow3" {
+		t.Fatalf("fallback = %v", item["fallback"])
+	}
+	// An invite has nothing to fetch. A `media` object here would make every
+	// part of the frontend that asks "is there anything to download" say yes.
+	if _, ok := item["media"]; ok {
+		t.Fatalf("group invite carried a media object: %v", item)
+	}
+	invite, ok := item["invite"].(map[string]any)
+	if !ok {
+		t.Fatalf("group invite item missing its payload: %v", item)
+	}
+	if invite["group_jid"] != "120363000000000001@g.us" || invite["code"] != "CODE123" {
+		t.Fatalf("invite identity wrong: %v", invite)
+	}
+	if invite["subject"] != "Wow3" || invite["name"] != "sender's copy" {
+		t.Fatalf("both readings of the name must survive: %v", invite)
+	}
+	if invite["member_count"] != float64(12) || invite["expires_at"] != float64(1_700_100_000) {
+		t.Fatalf("resolved facts wrong: %v", invite)
+	}
+	if invite["photo_path"] != "/cache/invite.jpg" {
+		t.Fatalf("photo path wrong: %v", invite)
+	}
+	// Nothing resolved membership, so the card must not be told we are in.
+	if _, ok := invite["joined"]; ok {
+		t.Fatalf("an unresolved invite claimed membership: %v", invite)
+	}
+	c.expectReady(sub, true)
+}
+
+// A link preview is the one payload that does not stand for its message. The
+// row's kind stays `text` and its fallback stays the words somebody typed, so
+// everything that reads a message by its kind carries on working and a
+// frontend that has never heard of a preview renders the message unchanged.
+func TestMessagesViewLinkPreviewRidesATextRow(t *testing.T) {
+	socketPath, _, db := startChatsTestServer(t)
+	chat := "c@s.whatsapp.net"
+	id := "lp-1"
+	payload, err := store.EncodePayload(store.MessagePayload{LinkPreview: &store.LinkPreviewPayload{
+		URL:             "https://example.com/road",
+		Host:            "example.com",
+		Title:           "The road",
+		Description:     "A page about a road.",
+		Type:            "image",
+		ThumbnailPath:   "/cache/lp-1.link.jpg",
+		ThumbnailWidth:  200,
+		ThumbnailHeight: 112,
+	}})
+	if err != nil {
+		t.Fatalf("encode preview: %v", err)
+	}
+	if _, err := db.SaveTextMessage(context.Background(), store.TextMessageInput{
+		ID:          id,
+		ChatID:      chat,
+		Text:        "look at this https://example.com/road",
+		Timestamp:   time.Unix(1_700_000_000, 0),
+		Direction:   store.DirectionIncoming,
+		PayloadJSON: payload,
+	}); err != nil {
+		t.Fatalf("seed preview: %v", err)
+	}
+
+	c := dialTest(t, socketPath)
+	c.hello()
+	sub := c.subscribe(2, fmt.Sprintf(`{"view":"messages","chat_id":%q}`, chat))
+	item := c.expectUpsert(sub, id)["item"].(map[string]any)
+	if item["kind"] != "text" {
+		t.Fatalf("kind = %v, a message with a preview is still a text message", item["kind"])
+	}
+	if item["text"] != "look at this https://example.com/road" {
+		t.Fatalf("text = %v", item["text"])
+	}
+	if item["fallback"] != "look at this https://example.com/road" {
+		t.Fatalf("fallback = %v, the preview must not have taken over the one-line rendering", item["fallback"])
+	}
+	// The thumbnail is a file the daemon already wrote. A `media` object would
+	// make every part of a frontend that asks "is there anything to fetch"
+	// say yes about a card that is already complete.
+	if _, ok := item["media"]; ok {
+		t.Fatalf("link preview carried a media object: %v", item)
+	}
+	preview, ok := item["link_preview"].(map[string]any)
+	if !ok {
+		t.Fatalf("text row missing its link preview: %v", item)
+	}
+	if preview["url"] != "https://example.com/road" || preview["host"] != "example.com" {
+		t.Fatalf("link identity wrong: %v", preview)
+	}
+	if preview["title"] != "The road" || preview["type"] != "image" {
+		t.Fatalf("card contents wrong: %v", preview)
+	}
+	if preview["thumbnail_path"] != "/cache/lp-1.link.jpg" {
+		t.Fatalf("thumbnail path wrong: %v", preview)
+	}
+	if preview["thumb_width"] != float64(200) || preview["thumb_height"] != float64(112) {
+		t.Fatalf("thumbnail shape wrong: %v", preview)
+	}
+	c.expectReady(sub, true)
+}
+
+// An album is one row on the wire carrying whole message items for its
+// pictures. A frontend never sees the children as rows of their own and never
+// merges anything (rule 3), and a tile is a message item in every respect, so
+// it renders with the code a lone photo already has.
+func TestMessagesViewAlbumCarriesItsPicturesAsItems(t *testing.T) {
+	socketPath, daemon, db := startChatsTestServer(t)
+	chat := "c@s.whatsapp.net"
+	ctx := context.Background()
+	payload, err := store.EncodePayload(store.MessagePayload{Album: &store.AlbumPayload{ExpectedImages: 3}})
+	if err != nil {
+		t.Fatalf("encode album: %v", err)
+	}
+	if _, err := db.SaveMediaMessage(ctx, store.MediaMessageInput{
+		TextMessageInput: store.TextMessageInput{
+			ID:          "al-1",
+			ChatID:      chat,
+			Timestamp:   time.Unix(1_700_000_000, 0),
+			Direction:   store.DirectionIncoming,
+			PayloadJSON: payload,
+		},
+		MediaKind:      store.MediaKindAlbum,
+		PayloadSummary: "3 photos",
+	}); err != nil {
+		t.Fatalf("seed album: %v", err)
+	}
+	for i, id := range []string{"al-1-p1", "al-1-p2"} {
+		if _, err := db.SaveMediaMessage(ctx, store.MediaMessageInput{
+			TextMessageInput: store.TextMessageInput{
+				ID:        id,
+				ChatID:    chat,
+				Timestamp: time.Unix(1_700_000_001, 0),
+				Direction: store.DirectionIncoming,
+			},
+			MediaKind:               store.MediaKindImage,
+			MediaMimeType:           "image/jpeg",
+			MediaThumbnailLocalPath: "/cache/" + id + ".thumb.jpg",
+			AlbumParentID:           "al-1",
+			AlbumIndex:              int32(i),
+		}); err != nil {
+			t.Fatalf("seed picture %s: %v", id, err)
+		}
+	}
+
+	c := dialTest(t, socketPath)
+	c.hello()
+	sub := c.subscribe(2, fmt.Sprintf(`{"view":"messages","chat_id":%q}`, chat))
+	item := c.expectUpsert(sub, "al-1")["item"].(map[string]any)
+	c.expectReady(sub, true)
+
+	if item["kind"] != "album" {
+		t.Fatalf("kind = %v, want album", item["kind"])
+	}
+	// The header has nothing to fetch; its pictures do.
+	if _, ok := item["media"]; ok {
+		t.Fatalf("album header carried a media object: %v", item)
+	}
+	album, ok := item["album"].(map[string]any)
+	if !ok {
+		t.Fatalf("album item missing its payload: %v", item)
+	}
+	items, ok := album["items"].([]any)
+	if !ok || len(items) != 2 {
+		t.Fatalf("album items = %v", album["items"])
+	}
+	// One picture is still missing, and an album that is still filling says so.
+	if album["expected"] != float64(3) {
+		t.Fatalf("expected = %v, want 3 while the album is short", album["expected"])
+	}
+	first := items[0].(map[string]any)
+	if first["id"] != "al-1-p1" || first["kind"] != "image" {
+		t.Fatalf("first tile is not a whole image item: %v", first)
+	}
+	if first["media"].(map[string]any)["thumbnail_path"] != "/cache/al-1-p1.thumb.jpg" {
+		t.Fatalf("a tile lost its media object: %v", first)
+	}
+
+	// A tile is a message with a fetch of its own, so its progress ring is its
+	// own: one tile downloading must not light up the rest.
+	daemon.PublishMediaDownloadChanged("al-1-p2", chat, true, "", 0, 1024)
+	album = c.expectUpsert(sub, "al-1")["item"].(map[string]any)["album"].(map[string]any)
+	items = album["items"].([]any)
+	if items[0].(map[string]any)["media"].(map[string]any)["downloading"] != nil {
+		t.Fatalf("an idle tile reports downloading: %v", items[0])
+	}
+	if items[1].(map[string]any)["media"].(map[string]any)["downloading"] != true {
+		t.Fatalf("the downloading tile does not say so: %v", items[1])
+	}
+}
+
 // Whether a fetch is in flight rides the message row, so a renderer never has
 // to join it against `transfers` and never sees the two disagree: the terminal
 // update both clears `downloading` and delivers the path.
@@ -603,16 +835,19 @@ func TestMessagesViewInboundViewOnceRendersTombstone(t *testing.T) {
 func TestMessagesViewLinkPreviewItemShape(t *testing.T) {
 	socketPath, _, db := startChatsTestServer(t)
 	chat := "c@s.whatsapp.net"
+	payload, err := store.EncodePayload(store.MessagePayload{LinkPreview: &store.LinkPreviewPayload{
+		URL: "https://example.com/a", Title: "Example", Description: "An example page", ThumbnailPath: "/cache/linkpreview.jpg",
+	}})
+	if err != nil {
+		t.Fatalf("encode preview: %v", err)
+	}
 	if _, err := db.SaveTextMessage(context.Background(), store.TextMessageInput{
-		ID:                       "link-1",
-		ChatID:                   chat,
-		Text:                     "check https://example.com/a",
-		Timestamp:                time.Unix(1_700_000_000, 0),
-		Direction:                store.DirectionIncoming,
-		LinkPreviewURL:           "https://example.com/a",
-		LinkPreviewTitle:         "Example",
-		LinkPreviewDescription:   "An example page",
-		LinkPreviewThumbnailPath: "/cache/linkpreview.jpg",
+		ID:          "link-1",
+		ChatID:      chat,
+		Text:        "check https://example.com/a",
+		Timestamp:   time.Unix(1_700_000_000, 0),
+		Direction:   store.DirectionIncoming,
+		PayloadJSON: payload,
 	}); err != nil {
 		t.Fatalf("seed link message: %v", err)
 	}
@@ -635,43 +870,71 @@ func TestMessagesViewPollContactLocationShapes(t *testing.T) {
 	socketPath, _, db := startChatsTestServer(t)
 	chat := "c@s.whatsapp.net"
 	base := time.Unix(1_700_000_000, 0)
+	pollPayload, err := store.EncodePayload(store.MessagePayload{Poll: &store.PollPayload{
+		Question: "dinner?", SelectableCount: 1,
+	}})
+	if err != nil {
+		t.Fatalf("encode poll: %v", err)
+	}
 	if _, err := db.SaveMediaMessage(context.Background(), store.MediaMessageInput{
 		TextMessageInput: store.TextMessageInput{
-			ID:        "poll-1",
-			ChatID:    chat,
-			Timestamp: base,
-			Direction: store.DirectionIncoming,
+			ID:          "poll-1",
+			ChatID:      chat,
+			Timestamp:   base,
+			Direction:   store.DirectionIncoming,
+			PayloadJSON: pollPayload,
 		},
-		MediaKind: store.MediaKindPoll,
-		PollData:  `{"question":"dinner?","options":["yes","no"],"selectable":1}`,
-		PollTally: `{"yes":2}`,
+		MediaKind:      store.MediaKindPoll,
+		PayloadSummary: "dinner?",
 	}); err != nil {
 		t.Fatalf("seed poll: %v", err)
 	}
-	if _, err := db.SaveMediaMessage(context.Background(), store.MediaMessageInput{
-		TextMessageInput: store.TextMessageInput{
-			ID:        "contact-1",
-			ChatID:    chat,
-			Text:      "Bob",
-			Timestamp: base.Add(time.Second),
-			Direction: store.DirectionIncoming,
-		},
-		MediaKind:    store.MediaKindContact,
-		MediaPayload: []byte("BEGIN:VCARD\nTEL:+1234\nEND:VCARD"),
+	if err := db.SavePollOptions(context.Background(), "poll-1", []store.PollOption{
+		{Index: 0, Name: "yes", SHA256: []byte("hash-yes")},
+		{Index: 1, Name: "no", SHA256: []byte("hash-no")},
 	}); err != nil {
-		t.Fatalf("seed contact: %v", err)
+		t.Fatalf("seed poll options: %v", err)
+	}
+	contactPayload, err := store.EncodePayload(store.MessagePayload{Contacts: &store.ContactsPayload{
+		Cards: []store.ContactCard{{
+			DisplayName: "Bob",
+			Phones:      []store.ContactField{{Label: "CELL", Value: "+1234"}},
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("encode contact: %v", err)
 	}
 	if _, err := db.SaveMediaMessage(context.Background(), store.MediaMessageInput{
 		TextMessageInput: store.TextMessageInput{
-			ID:        "loc-1",
-			ChatID:    chat,
-			Text:      "Here",
-			Timestamp: base.Add(2 * time.Second),
-			Direction: store.DirectionIncoming,
+			ID:          "contact-1",
+			ChatID:      chat,
+			Text:        "Bob",
+			Timestamp:   base.Add(time.Second),
+			Direction:   store.DirectionIncoming,
+			PayloadJSON: contactPayload,
 		},
-		MediaKind: store.MediaKindLocation,
-		GeoLat:    1.5,
-		GeoLong:   2.5,
+		MediaKind:      store.MediaKindContact,
+		PayloadSummary: "Bob",
+	}); err != nil {
+		t.Fatalf("seed contact: %v", err)
+	}
+	locationPayload, err := store.EncodePayload(store.MessagePayload{Location: &store.LocationPayload{
+		Latitude: 1.5, Longitude: 2.5, Name: "Here",
+	}})
+	if err != nil {
+		t.Fatalf("encode location: %v", err)
+	}
+	if _, err := db.SaveMediaMessage(context.Background(), store.MediaMessageInput{
+		TextMessageInput: store.TextMessageInput{
+			ID:          "loc-1",
+			ChatID:      chat,
+			Text:        "Here",
+			Timestamp:   base.Add(2 * time.Second),
+			Direction:   store.DirectionIncoming,
+			PayloadJSON: locationPayload,
+		},
+		MediaKind:      store.MediaKindLocation,
+		PayloadSummary: "Here",
 	}); err != nil {
 		t.Fatalf("seed location: %v", err)
 	}
@@ -694,18 +957,171 @@ func TestMessagesViewPollContactLocationShapes(t *testing.T) {
 	if !ok || poll["question"] != "dinner?" {
 		t.Fatalf("poll item wrong: %v", pollItem)
 	}
-	if votes, ok := poll["votes"].(map[string]any); !ok || votes["yes"] != float64(2) {
-		t.Fatalf("poll votes wrong: %v", poll)
+	options, ok := poll["options"].([]any)
+	if !ok || len(options) != 2 || options[0].(map[string]any)["name"] != "yes" {
+		t.Fatalf("poll options wrong: %v", poll)
 	}
 	contactItem := items["contact-1"]
-	contact, ok := contactItem["contact"].(map[string]any)
-	if !ok || contact["name"] != "Bob" || contact["phone"] != "+1234" {
+	contacts, ok := contactItem["contacts"].(map[string]any)
+	if !ok {
 		t.Fatalf("contact item wrong: %v", contactItem)
+	}
+	cards, ok := contacts["cards"].([]any)
+	if !ok || len(cards) != 1 {
+		t.Fatalf("contact cards wrong: %v", contacts)
+	}
+	card := cards[0].(map[string]any)
+	if card["display_name"] != "Bob" {
+		t.Fatalf("contact card wrong: %v", card)
+	}
+	phones, ok := card["phones"].([]any)
+	if !ok || len(phones) != 1 || phones[0].(map[string]any)["value"] != "+1234" {
+		t.Fatalf("contact phones wrong: %v", card)
 	}
 	locItem := items["loc-1"]
 	loc, ok := locItem["location"].(map[string]any)
-	if !ok || loc["lat"] != float64(1.5) || loc["long"] != float64(2.5) || loc["name"] != "Here" {
+	if !ok || loc["lat"] != float64(1.5) || loc["lng"] != float64(2.5) || loc["name"] != "Here" {
 		t.Fatalf("location item wrong: %v", locItem)
 	}
 	c.expectReady(sub, true)
+}
+
+// A business message crosses as one card whatever wire shape it arrived in, and
+// carries no `media` object: nothing on it is downloadable, and a kind that
+// looks fetchable puts marketing broadcasts on the auto-download path.
+func TestMessagesViewInteractiveItemShape(t *testing.T) {
+	socketPath, _, db := startChatsTestServer(t)
+	chat := "c@s.whatsapp.net"
+	id := "biz-1"
+	payload, err := store.EncodePayload(store.MessagePayload{Interactive: &store.InteractivePayload{
+		Source:        "template",
+		Title:         "Your parcel is out for delivery",
+		Body:          "BLR-4471 left the hub at 08:12.",
+		Footer:        "Sent by Bluedart",
+		ThumbnailPath: "/cache/biz-1.card.jpg",
+		Buttons: []store.InteractiveButton{
+			{Kind: store.InteractiveButtonURL, Label: "Track parcel", URL: "https://example.com/t", Live: true},
+			{Kind: store.InteractiveButtonReply, Label: "Leave with a neighbour", ID: "n"},
+		},
+		Sections: []store.InteractiveSection{{
+			Title: "Options",
+			Rows:  []store.InteractiveRow{{Title: "Reschedule", Description: "Pick another day", ID: "r"}},
+		}},
+	}})
+	if err != nil {
+		t.Fatalf("encode interactive: %v", err)
+	}
+	if _, err := db.SaveMediaMessage(context.Background(), store.MediaMessageInput{
+		TextMessageInput: store.TextMessageInput{
+			ID:          id,
+			ChatID:      chat,
+			Timestamp:   time.Unix(1_700_000_000, 0),
+			Direction:   store.DirectionIncoming,
+			PayloadJSON: payload,
+		},
+		MediaKind:      store.MediaKindInteractive,
+		PayloadSummary: "BLR-4471 left the hub at 08:12.",
+	}); err != nil {
+		t.Fatalf("seed interactive: %v", err)
+	}
+
+	c := dialTest(t, socketPath)
+	c.hello()
+	sub := c.subscribe(2, fmt.Sprintf(`{"view":"messages","chat_id":%q}`, chat))
+	item := c.expectUpsert(sub, id)["item"].(map[string]any)
+	if item["kind"] != "interactive" {
+		t.Fatalf("kind = %v", item["kind"])
+	}
+	// The one-line rendering is what the message says. "Message" with the
+	// message hidden behind it is what this used to be.
+	if item["fallback"] != "💬 BLR-4471 left the hub at 08:12." {
+		t.Fatalf("fallback = %v", item["fallback"])
+	}
+	if _, ok := item["media"]; ok {
+		t.Fatalf("a business message carried a media object: %v", item)
+	}
+	interactive, ok := item["interactive"].(map[string]any)
+	if !ok {
+		t.Fatalf("interactive row missing its card: %v", item)
+	}
+	if interactive["title"] != "Your parcel is out for delivery" || interactive["footer"] != "Sent by Bluedart" {
+		t.Fatalf("card contents wrong: %v", interactive)
+	}
+	if interactive["thumbnail_path"] != "/cache/biz-1.card.jpg" {
+		t.Fatalf("thumbnail path wrong: %v", interactive)
+	}
+
+	buttons, ok := interactive["buttons"].([]any)
+	if !ok || len(buttons) != 2 {
+		t.Fatalf("buttons = %v", interactive["buttons"])
+	}
+	live := buttons[0].(map[string]any)
+	if live["kind"] != "url" || live["live"] != true || live["url"] != "https://example.com/t" {
+		t.Fatalf("url button = %v", live)
+	}
+	// Whether a button can be pressed at all is the daemon's answer, so the
+	// card can draw a dead one as dead instead of letting somebody find out.
+	dead := buttons[1].(map[string]any)
+	if dead["kind"] != "reply" || dead["live"] != false {
+		t.Fatalf("reply button = %v", dead)
+	}
+
+	sections, ok := interactive["sections"].([]any)
+	if !ok || len(sections) != 1 {
+		t.Fatalf("sections = %v", interactive["sections"])
+	}
+	rows := sections[0].(map[string]any)["rows"].([]any)
+	if len(rows) != 1 || rows[0].(map[string]any)["title"] != "Reschedule" {
+		t.Fatalf("rows = %v", rows)
+	}
+}
+
+// A shared sticker pack is the one card in this family with something to do,
+// and whether it can do it is joined from the library at read time rather than
+// frozen into the row: installing a pack from the picker must not leave a card
+// in the transcript still offering to add it.
+func TestMessagesViewStickerPackJoinsTheLibrary(t *testing.T) {
+	socketPath, _, db := startChatsTestServer(t)
+	ctx := context.Background()
+	chat := "c@s.whatsapp.net"
+	id := "pack-msg-1"
+	payload, err := store.EncodePayload(store.MessagePayload{StickerPack: &store.StickerPackPayload{
+		PackID:    "pack-1",
+		Name:      "Cats being unhelpful",
+		Publisher: "Nobody in particular",
+		Count:     12,
+	}})
+	if err != nil {
+		t.Fatalf("encode pack: %v", err)
+	}
+	if _, err := db.SaveMediaMessage(ctx, store.MediaMessageInput{
+		TextMessageInput: store.TextMessageInput{
+			ID:          id,
+			ChatID:      chat,
+			Timestamp:   time.Unix(1_700_000_000, 0),
+			Direction:   store.DirectionIncoming,
+			PayloadJSON: payload,
+		},
+		MediaKind:      store.MediaKindStickerPack,
+		PayloadSummary: "Cats being unhelpful",
+	}); err != nil {
+		t.Fatalf("seed pack share: %v", err)
+	}
+
+	c := dialTest(t, socketPath)
+	c.hello()
+	sub := c.subscribe(2, fmt.Sprintf(`{"view":"messages","chat_id":%q}`, chat))
+	item := c.expectUpsert(sub, id)["item"].(map[string]any)
+	pack, ok := item["sticker_pack"].(map[string]any)
+	if !ok {
+		t.Fatalf("sticker pack row missing its card: %v", item)
+	}
+	if pack["name"] != "Cats being unhelpful" || pack["count"] != float64(12) {
+		t.Fatalf("pack = %v", pack)
+	}
+	// A pack the library has never heard of has nothing to install by id, and
+	// a card that offered anyway would be offering a button that fails.
+	if pack["installable"] != false || pack["installed"] != false {
+		t.Fatalf("an unknown pack must not claim to be installable: %v", pack)
+	}
 }

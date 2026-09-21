@@ -17,7 +17,10 @@ import (
 
 const slowEventHandlerThreshold = 200 * time.Millisecond
 
-func (c *Client) handleEvent(eventGen uint64, raw any) {
+// handleEvent returns whether whatsmeow may ack the event. Only a message that
+// could not be stored answers false: the ack goes unsent and the server delivers
+// it again, instead of the message being lost with nothing but a log line.
+func (c *Client) handleEvent(sess *accountSession, raw any) bool {
 	// whatsmeow dispatches events from a single queue that waits for each
 	// handler to return, so a slow handler here delays every event behind it
 	// (incoming messages, receipts, presence).
@@ -28,16 +31,16 @@ func (c *Client) handleEvent(eventGen uint64, raw any) {
 		}
 	}()
 
-	if !c.isCurrentEventGeneration(eventGen) {
-		return
+	if !sess.alive() {
+		return true
 	}
 	if evt, ok := raw.(*events.OfflineSyncPreview); ok {
 		c.handleOfflineSyncPreview(evt)
-		return
+		return true
 	}
 	if evt, ok := raw.(*events.OfflineSyncCompleted); ok {
 		c.handleOfflineSyncCompleted(evt)
-		return
+		return true
 	}
 	offlineSync := c.offlineSyncInProgress()
 	if offlineSync {
@@ -46,43 +49,62 @@ func (c *Client) handleEvent(eventGen uint64, raw any) {
 
 	switch evt := raw.(type) {
 	case *events.Connected:
-		c.daemon.SetConnMeta(0, 0, false)
-		c.daemon.SetStateDetail(app.StateOnline, "Connected to WhatsApp")
-		ctx := c.backgroundContext()
+		c.daemon.SetConnection(app.StateOnline, "Connected to WhatsApp", 0, 0, false)
+		ctx := sess.detached()
 		c.syncPresence(ctx, true)
 		c.signalSendQueue()
 		c.signalHistorySyncWorker()
-		c.startAppStateReconcile(ctx)
+		c.startAppStateReconcile()
 		c.startUnresolvedGroupNameBackfill(ctx)
-		go c.migrateLIDChats(ctx)
-		go c.backfillAnimatedWebPFlags(c.backgroundContext())
-		go c.backfillStatusThumbs(c.backgroundContext())
-		go c.pruneStatusBroadcastMirror(c.backgroundContext())
-		go c.pruneMisfiledNewsletterChats(c.backgroundContext())
+		// The store needs to know who we are to mark our own vote in a poll
+		// tally. It changes once a login, so record it here rather than asking
+		// the network layer on every page of messages.
+		c.recordSelfJID(ctx)
+		sess.spawn(c.migrateLIDChats)
+		sess.spawn(c.backfillAnimatedWebPFlags)
+		sess.spawn(c.backfillStatusThumbs)
+		sess.spawn(c.pruneStatusBroadcastMirror)
+		sess.spawn(c.pruneMisfiledNewsletterChats)
 	case *events.AppStateSyncComplete:
-		c.syncPresence(c.backgroundContext(), true)
+		c.syncPresence(sess.detached(), true)
+		// A fresh login reconciles app state on Connected, which is before the
+		// device has any: the snapshot comes back empty, and ReconcileChatPins
+		// is full authority, so it concludes nothing is pinned. This is the
+		// moment the state actually exists, and nothing was re-reading it, so a
+		// first sync finished with every pin dropped.
+		if evt.Name == appstate.WAPatchRegularLow || evt.Name == appstate.WAPatchRegularHigh {
+			c.startAppStateReconcile()
+		}
 	case *events.AppState:
 		// Typed app-state events (pins, mutes...) have their own cases;
 		// sticker favorites/recents only arrive through this generic event.
-		c.handleStickerAppState(c.backgroundContext(), evt)
+		c.handleStickerAppState(sess.detached(), evt)
 	case *events.AppStateSyncError:
 		if evt.Name == appstate.WAPatchRegularLow && isAppStateConflictError(evt.Error) {
 			c.log.Warnf("WhatsApp regular_low app state sync failed; recovering pinned chats: %v", evt.Error)
-			c.startPinnedChatRecoveryFromAppState(c.backgroundContext())
+			c.startPinnedChatRecoveryFromAppState()
 		}
 	case *events.Disconnected:
-		c.daemon.SetConnMeta(0, 0, true)
-		c.daemon.SetStateDetail(app.StateReconnecting, "Connection lost. Reconnecting...")
+		if c.connectionIsLive() {
+			// whatsmeow dispatches this on its own goroutine, so a Disconnected
+			// for a socket that is already gone can land after its replacement
+			// is up. The client itself is the authority, not arrival order.
+			c.log.Debugf("Ignoring a disconnect for a socket that is already replaced")
+			break
+		}
+		c.daemon.SetConnection(app.StateReconnecting, "Connection lost. Reconnecting...", 0, 0, true)
 		c.requestReconnect(false)
 	case *events.KeepAliveTimeout:
-		c.daemon.SetConnMeta(0, 0, true)
-		c.daemon.SetStateDetail(app.StateOffline, "Connection lost. Reconnecting...")
+		if c.connectionIsLive() {
+			c.log.Debugf("Ignoring a keepalive timeout for a socket that is already replaced")
+			break
+		}
+		c.daemon.SetConnection(app.StateOffline, "Connection lost. Reconnecting...", 0, 0, true)
 		c.requestReconnect(true)
 	case *events.KeepAliveRestored:
 		client := c.currentClient()
 		if client != nil && client.IsLoggedIn() && client.IsConnected() {
-			c.daemon.SetConnMeta(0, 0, false)
-			c.daemon.SetStateDetail(app.StateOnline, "Connected to WhatsApp")
+			c.daemon.SetConnection(app.StateOnline, "Connected to WhatsApp", 0, 0, false)
 		}
 	case *events.PairSuccess:
 		c.daemon.SetStateDetail(app.StateConnecting, "QR scanned; pairing succeeded")
@@ -92,65 +114,64 @@ func (c *Client) handleEvent(eventGen uint64, raw any) {
 		c.daemon.SetStateDetail(app.StateNeedLogin, "Enable multi-device on your phone and scan again")
 	case *events.LoggedOut:
 		c.daemon.SetStateDetail(app.StateNeedLogin, fmt.Sprintf("Logged out: %s", evt.Reason.String()))
+		// Not on the session: this ends it, and spawn would wait on itself.
 		go c.resetAfterExternalLogout()
 	case *events.ConnectFailure:
-		c.daemon.SetConnMeta(0, 0, true)
-		c.daemon.SetStateDetail(app.StateOffline, fmt.Sprintf("WhatsApp connection failed: %s", evt.Reason.String()))
+		c.daemon.SetConnection(app.StateOffline, fmt.Sprintf("WhatsApp connection failed: %s", evt.Reason.String()), 0, 0, true)
 		c.requestReconnect(true)
 	case *events.ClientOutdated:
-		c.daemon.SetConnMeta(0, 0, false)
-		c.daemon.SetStateDetail(app.StateOffline, "WhatsApp client is outdated. Update whatevr/whatevrd.")
+		c.daemon.SetConnection(app.StateOffline, "WhatsApp client is outdated. Update whatevr/whatevrd.", 0, 0, false)
 	case *events.TemporaryBan:
-		c.daemon.SetConnMeta(0, 0, false)
-		c.daemon.SetStateDetail(app.StateOffline, evt.String())
+		c.daemon.SetConnection(app.StateOffline, evt.String(), 0, 0, false)
 	case *events.Message:
-		c.handleMessage(c.backgroundContext(), evt, offlineSync)
+		return c.handleMessage(sess.detached(), evt, offlineSync)
 	case *events.CallOffer:
-		c.handleCallOffer(c.backgroundContext(), evt)
+		c.handleCallOffer(sess.detached(), evt)
 	case *events.CallOfferNotice:
-		c.handleCallOfferNotice(c.backgroundContext(), evt)
+		c.handleCallOfferNotice(sess.detached(), evt)
 	case *events.CallTerminate:
-		c.handleCallTerminate(c.backgroundContext(), evt)
+		c.handleCallTerminate(sess.detached(), evt)
 	case *events.CallReject:
-		c.handleCallReject(c.backgroundContext(), evt)
+		c.handleCallReject(sess.detached(), evt)
 	case *events.UndecryptableMessage:
-		c.handleUndecryptableMessage(c.backgroundContext(), evt)
+		c.handleUndecryptableMessage(sess.detached(), evt)
 	case *events.Receipt:
 		c.handleReceipt(evt, offlineSync)
 	case *events.HistorySync:
-		c.handleHistorySync(eventGen, evt)
+		c.handleHistorySync(sess, evt)
 	case *events.MediaRetry:
-		c.handleMediaRetry(c.backgroundContext(), evt)
+		c.handleMediaRetry(sess.detached(), evt)
 	case *events.Pin:
-		c.handlePinEvent(c.backgroundContext(), evt)
+		c.handlePinEvent(sess.detached(), evt)
 	case *events.Archive:
-		c.handleArchiveEvent(c.backgroundContext(), evt)
+		c.handleArchiveEvent(sess.detached(), evt)
 	case *events.Mute:
-		c.handleMuteEvent(c.backgroundContext(), evt)
+		c.handleMuteEvent(sess.detached(), evt)
 	case *events.UserStatusMute:
-		c.handleUserStatusMuteEvent(c.backgroundContext(), evt)
+		c.handleUserStatusMuteEvent(sess.detached(), evt)
 	case *events.Star:
-		c.handleStarEvent(c.backgroundContext(), evt)
+		c.handleStarEvent(sess.detached(), evt)
 	case *events.MarkChatAsRead:
-		c.handleMarkChatAsReadEvent(c.backgroundContext(), evt)
+		c.handleMarkChatAsReadEvent(sess.detached(), evt)
 	case *events.DeleteForMe:
-		c.handleDeleteForMeEvent(c.backgroundContext(), evt)
+		c.handleDeleteForMeEvent(sess.detached(), evt)
 	case *events.DeleteChat:
-		c.handleDeleteChatEvent(c.backgroundContext(), evt)
+		c.handleDeleteChatEvent(sess.detached(), evt)
 	case *events.ClearChat:
-		c.handleClearChatEvent(c.backgroundContext(), evt)
+		c.handleClearChatEvent(sess.detached(), evt)
 	case *events.JoinedGroup:
-		c.handleJoinedGroup(c.backgroundContext(), evt)
+		c.handleJoinedGroup(sess.detached(), evt)
 	case *events.GroupInfo:
-		c.handleGroupInfoEvent(c.backgroundContext(), evt)
+		c.handleGroupInfoEvent(sess.detached(), evt)
 	case *events.Picture:
-		c.handlePictureEvent(c.backgroundContext(), evt)
+		c.handlePictureEvent(sess.detached(), evt)
+		c.recordGroupPhotoChange(sess.detached(), evt)
 		if c.isSelfJID(evt.JID) {
 			// Our own profile photo changed: refresh the settings profile page.
 			c.daemon.PublishSelfProfileChanged()
 		}
 	case *events.ChatPresence:
-		chatJID := c.normalizeJIDForChat(c.backgroundContext(), evt.Chat)
+		chatJID := c.normalizeJIDForChat(sess.detached(), evt.Chat)
 		isComposing := evt.State == types.ChatPresenceComposing
 		c.log.Infof("Received WhatsApp chat presence event: chat=%s sender=%s state=%s media=%s composing=%t", chatJID, evt.Sender, evt.State, evt.Media, isComposing)
 		c.daemon.PublishChatPresence(chatJID.String(), evt.Sender.String(), isComposing)
@@ -160,11 +181,15 @@ func (c *Client) handleEvent(eventGen uint64, raw any) {
 		// dropped the stale identity and session, so traffic self-heals; log the
 		// "security code changed" fact and publish it so a frontend notice can
 		// render without further daemon changes.
-		jid := c.normalizeJIDForChat(c.backgroundContext(), evt.JID)
+		jid := c.normalizeJIDForChat(sess.detached(), evt.JID)
 		c.log.Warnf("WhatsApp identity changed for %s (implicit=%t)", jid, evt.Implicit)
 		c.daemon.PublishIdentityChanged(jid.ToNonAD().String())
+		// The notice above is transient. The transcript keeps the fact, because
+		// "when did this change" is the question somebody asks about a security
+		// code, and a banner that has already gone cannot answer it.
+		c.recordIdentityChange(sess.detached(), evt)
 	case *events.Presence:
-		chatJID := c.normalizeJIDForChat(c.backgroundContext(), evt.From)
+		chatJID := c.normalizeJIDForChat(sess.detached(), evt.From)
 		availability := app.ContactAvailabilityOnline
 		var lastSeenUnix int64
 		if evt.Unavailable {
@@ -177,13 +202,9 @@ func (c *Client) handleEvent(eventGen uint64, raw any) {
 	case *events.PrivacySettings:
 		// Privacy changed (here or on the phone): push a fresh snapshot so an
 		// open settings window updates live. The event only carries the changed
-		// categories (evt.NewSettings is empty), so read the full, already-updated
-		// settings from the cache rather than the event.
-		if settings, err := c.GetPrivacySettings(c.backgroundContext()); err == nil {
-			c.daemon.PublishPrivacySettingsChanged(settings)
-		} else {
-			c.log.Warnf("Failed to read privacy settings after change event: %v", err)
-		}
+		// categories (evt.NewSettings is empty), so the full, already-updated
+		// settings are read instead of the event.
+		c.signalPrivacySettingsPublish()
 	case *events.UserAbout:
 		// A user's About/status changed. For our own account, re-fetch the self
 		// profile: that path resolves the status with the same normalized JID the
@@ -203,6 +224,18 @@ func (c *Client) handleEvent(eventGen uint64, raw any) {
 	case *events.Blocklist:
 		c.daemon.PublishBlocklistChanged()
 	}
+
+	return true
+}
+
+// connectionIsLive asks the client rather than trusting which event arrived
+// last. It is deliberately strict: only a socket that is both connected and
+// logged in counts, so this can never talk the daemon into claiming an online
+// state it does not have.
+func (c *Client) connectionIsLive() bool {
+	client := c.currentClient()
+	return client != nil && client.Store != nil && client.Store.ID != nil &&
+		client.IsConnected() && client.IsLoggedIn()
 }
 
 // isSelfJID reports whether jid is the logged-in user's own account.
@@ -406,8 +439,4 @@ func (c *Client) applyMarkChatAsRead(ctx context.Context, chatID string, read bo
 	if changed {
 		c.daemon.PublishChatUpdated(toDaemonChat(updated))
 	}
-}
-
-func (c *Client) isCurrentEventGeneration(eventGen uint64) bool {
-	return eventGen != 0 && eventGen == c.eventGen.Load()
 }

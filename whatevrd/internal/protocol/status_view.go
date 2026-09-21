@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"strings"
 	"sync"
 
 	"whatevrd/internal/app"
@@ -155,7 +156,7 @@ func statusItemFromStore(st store.StatusUpdate) statusItem {
 }
 
 func statusFallback(st store.StatusUpdate) string {
-	if caption := oneLine(st.Text); caption != "" {
+	if caption := strings.Join(strings.Fields(st.Text), " "); caption != "" {
 		return caption
 	}
 	switch st.MediaKind {

@@ -5,6 +5,8 @@ set_source_files_properties(qml/I18n.qml qml/Palette.qml PROPERTIES
 # Everything the app is made of except main.cpp, kept in a variable so the DN9
 # delegate benchmark below can build the exact same code into its own binary.
 set(WHATKEVR_SOURCES
+    app/conversationsession.cpp
+    app/conversationsession.h
     app/protocolcontroller.cpp
     app/protocolcontroller.h
     app/protocolstickercontroller.cpp
@@ -125,6 +127,7 @@ set(WHATKEVR_QML_FILES
         qml/components/SearchHighlight.js
         qml/components/PinnedMessagesBanner.qml
         qml/components/HistorySyncStrip.qml
+        qml/components/NowPlayingBar.qml
         qml/components/KineticWheelScroller.qml
         qml/components/DiscreetScrollBar.qml
         qml/components/RowScrollBar.qml
@@ -134,6 +137,30 @@ set(WHATKEVR_QML_FILES
         qml/components/ChatBubble.qml
     qml/components/ChatMediaGalleryPage.qml
     qml/components/DocumentBubble.qml
+    qml/components/ImageBubble.qml
+    qml/components/RowOverlays.qml
+    qml/components/AlbumBubble.qml
+    qml/components/CardBubble.qml
+    qml/components/ContactCardBubble.qml
+    qml/components/CallLogPill.qml
+    qml/components/SystemPill.qml
+    qml/components/CardActionButton.qml
+    qml/components/CommerceCardBubble.qml
+    qml/components/InteractiveBubble.qml
+    qml/components/StickerPackBubble.qml
+    qml/components/WaitingBubble.qml
+    qml/components/ContactCardEntry.qml
+    qml/components/ContactFieldRow.qml
+    qml/components/EventBubble.qml
+    qml/components/EventResponsesDialog.qml
+    qml/components/EventRSVPChip.qml
+    qml/components/GroupInviteBubble.qml
+    qml/components/LinkPreviewCard.qml
+    qml/components/LiveLocationBanner.qml
+    qml/components/LocationBubble.qml
+    qml/components/PollBubble.qml
+    qml/components/PollOptionRow.qml
+    qml/components/PollVotersDialog.qml
     qml/components/MediaViewer.qml
     qml/components/VideoBubble.qml
     qml/components/MpvVideoSurface.qml
@@ -143,6 +170,9 @@ set(WHATKEVR_QML_FILES
     qml/components/MediaOverlayButton.qml
     qml/components/MediaDragArea.qml
     qml/components/VoiceBubble.qml
+    qml/components/AudioFileBubble.qml
+    qml/components/AudioSeekLine.qml
+    qml/components/AudioTransport.qml
         qml/components/FramelessBubble.qml
         qml/components/QuickReactionBar.qml
         qml/components/QuickReactionPopup.qml

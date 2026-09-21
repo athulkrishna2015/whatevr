@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -21,15 +22,33 @@ const (
 	connBackoffBase = 5 * time.Second
 	connBackoffMax  = 60 * time.Second
 	qrRetryDelay    = 300 * time.Millisecond
+	qrBackoffMax    = 30 * time.Second
+
+	waVersionTimeout  = 10 * time.Second
+	waVersionInterval = 6 * time.Hour
+
+	connReconcileInterval = 5 * time.Second
 )
 
-var errQRLoginRetry = errors.New("retry QR login")
+// http.DefaultClient has no timeout, so a black-holed route after sleep used to
+// hang the supervisor for minutes before backoff even started.
+var waVersionClient = &http.Client{Timeout: waVersionTimeout}
+
+var (
+	// errQRCodeExpired is the ordinary case: nobody scanned in time. A fresh
+	// code has to appear straight away, so this one is never backed off.
+	errQRCodeExpired = errors.New("QR code expired")
+	// errQRLoginRetry is a QR attempt that actually failed. Retrying those at
+	// the same speed is a hammer, so they back off.
+	errQRLoginRetry = errors.New("retry QR login")
+)
 
 // runConnectionSupervisor replaces the old one-shot start(). It loops
 // forever (until ctx is cancelled), connecting and retrying with
 // exponential backoff on any failure.
 func (c *Client) runConnectionSupervisor(ctx context.Context) {
 	attempt := 0
+	var lastVersionFetch time.Time
 
 	for {
 		if ctx.Err() != nil {
@@ -43,6 +62,16 @@ func (c *Client) runConnectionSupervisor(ctx context.Context) {
 		}
 		c.closeForReconnectIfRequested()
 
+		// store.SetWAVersion writes unsynchronized globals that connect reads,
+		// so this has to stay on the supervisor goroutine. It is refreshed on an
+		// interval rather than per attempt: a failed fetch must never cost a
+		// connect.
+		if time.Since(lastVersionFetch) >= waVersionInterval {
+			if c.refreshWAVersion(ctx) {
+				lastVersionFetch = time.Now()
+			}
+		}
+
 		err := c.connectOnce(ctx)
 		if ctx.Err() != nil {
 			return
@@ -51,14 +80,14 @@ func (c *Client) runConnectionSupervisor(ctx context.Context) {
 		if err != nil {
 			retry := connectionRetry(attempt, err)
 			attempt = retry.attempt
+			nextRetryUnix := int64(0)
 			if retry.nextRetryUnix {
-				nextRetry := time.Now().Add(retry.delay)
-				c.daemon.SetConnMeta(int32(attempt), nextRetry.Unix(), retry.canReconnect)
-			} else {
-				c.daemon.SetConnMeta(int32(attempt), 0, retry.canReconnect)
+				nextRetryUnix = time.Now().Add(retry.delay).Unix()
 			}
 			if retry.detail != "" {
-				c.daemon.SetStateDetail(retry.state, retry.detail)
+				c.daemon.SetConnection(retry.state, retry.detail, int32(attempt), nextRetryUnix, retry.canReconnect)
+			} else {
+				c.daemon.SetConnMeta(int32(attempt), nextRetryUnix, retry.canReconnect)
 			}
 
 			select {
@@ -90,23 +119,56 @@ func (c *Client) runConnectionSupervisor(ctx context.Context) {
 }
 
 func (c *Client) waitForReconnectSignal(ctx context.Context) bool {
-	ticker := time.NewTicker(10 * time.Second)
+	select {
+	case <-ctx.Done():
+		return false
+	case <-c.reconnectCh:
+		return true
+	}
+}
+
+// runConnectionReconciler keeps what the daemon says about the connection
+// matched to what the client actually has.
+//
+// It runs for the whole life of the account, not only while the supervisor is
+// parked, and it corrects in both directions. The direction that was missing is
+// the one that mattered: a socket that is up and delivering messages while the
+// UI still reads "Still offline. Check your internet connection." had nothing
+// that would ever notice, because every path that could publish Online only ran
+// on a connect the supervisor no longer believed it needed.
+func (c *Client) runConnectionReconciler(ctx context.Context) {
+	ticker := time.NewTicker(connReconcileInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			return false
-		case <-c.reconnectCh:
-			return true
+			return
 		case <-ticker.C:
-			if c.connectionLooksOffline(ctx) {
-				c.daemon.SetConnMeta(0, 0, true)
-				c.daemon.SetStateDetail(app.StateOffline, "Connection lost. Reconnecting...")
-				c.reconnectNow.Store(true)
-				return true
-			}
+			c.reconcileConnectionState()
 		}
+	}
+}
+
+func (c *Client) reconcileConnectionState() {
+	client := c.currentClient()
+	if client == nil || client.Store == nil || client.Store.ID == nil {
+		// Not logged in: the login flow owns the state and this must not
+		// overwrite "waiting for a QR scan" with a connection verdict.
+		return
+	}
+
+	published, _, _, _, _ := c.daemon.ConnectionSnapshot()
+	live := client.IsConnected() && client.IsLoggedIn()
+
+	switch {
+	case live && published != app.StateOnline:
+		c.log.Debugf("Reconciler: socket is live but state was %v; publishing online", published)
+		c.daemon.SetConnection(app.StateOnline, "Connected to WhatsApp", 0, 0, false)
+	case !live && published == app.StateOnline:
+		c.log.Debugf("Reconciler: state was online but the socket is gone; reconnecting")
+		c.daemon.SetConnection(app.StateOffline, "Connection lost. Reconnecting...", 0, 0, true)
+		c.requestReconnect(true)
 	}
 }
 
@@ -119,17 +181,6 @@ func (c *Client) closeForReconnectIfRequested() {
 	}
 }
 
-func (c *Client) connectionLooksOffline(ctx context.Context) bool {
-	client := c.currentClient()
-	if client == nil || client.Store.ID == nil {
-		return false
-	}
-	if !client.IsLoggedIn() || !client.IsConnected() {
-		return true
-	}
-	return false
-}
-
 func (c *Client) desiredPresence() types.Presence {
 	c.presenceMu.Lock()
 	defer c.presenceMu.Unlock()
@@ -139,16 +190,25 @@ func (c *Client) desiredPresence() types.Presence {
 	return types.PresenceUnavailable
 }
 
+// refreshWAVersion updates the advertised client version, reporting whether it
+// succeeded. Callers must be on the supervisor goroutine.
+func (c *Client) refreshWAVersion(ctx context.Context) bool {
+	fetchCtx, cancel := context.WithTimeout(ctx, waVersionTimeout)
+	defer cancel()
+
+	latest, err := whatsmeow.GetLatestVersion(fetchCtx, waVersionClient)
+	if err != nil {
+		c.log.Warnf("Failed to fetch latest WhatsApp version: %v", err)
+		return false
+	}
+	store.SetWAVersion(*latest)
+	return true
+}
+
 // connectOnce performs a single connection attempt. For QR-login sessions it
 // blocks until the QR flow concludes (success or failure). Returns nil on a
 // successful connect; the supervisor will then park until signalled.
 func (c *Client) connectOnce(ctx context.Context) error {
-	if latestVer, err := whatsmeow.GetLatestVersion(ctx, nil); err != nil {
-		c.log.Warnf("Failed to fetch latest WhatsApp version: %v", err)
-	} else {
-		store.SetWAVersion(*latestVer)
-	}
-
 	client := c.currentClient()
 	if client == nil {
 		return fmt.Errorf("WhatsApp client is not initialized")
@@ -159,25 +219,41 @@ func (c *Client) connectOnce(ctx context.Context) error {
 	}
 
 	c.daemon.SetStateDetail(app.StateConnecting, "Connecting to WhatsApp...")
-	if err := client.ConnectContext(ctx); err != nil {
+	// whatsmeow dispatches Disconnected on its own goroutine, so one for a dead
+	// socket can land after a new socket is already up. Treating the resulting
+	// ErrAlreadyConnected as a failure wedged the supervisor into permanent
+	// backoff while the connection was healthy.
+	if err := client.ConnectContext(ctx); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
 		return fmt.Errorf("connect: %w", err)
 	}
 	if client.IsLoggedIn() && client.IsConnected() {
-		c.daemon.SetConnMeta(0, 0, false)
-		c.daemon.SetStateDetail(app.StateOnline, "Connected to WhatsApp")
+		c.daemon.SetConnection(app.StateOnline, "Connected to WhatsApp", 0, 0, false)
 	}
 	return nil
 }
 
-func (c *Client) startQRLogin(ctx context.Context, client *whatsmeow.Client) error {
+func (c *Client) startQRLogin(ctx context.Context, client *whatsmeow.Client) (err error) {
 	c.daemon.SetStateDetail(app.StateNeedLogin, "Waiting for WhatsApp QR scan")
+
+	// GetQRChannel refuses to run on a connected socket, so an attempt that
+	// ended with the socket still up makes every attempt after it fail before
+	// it starts, and the QR flow never recovers. Leave the socket down unless
+	// the scan actually succeeded and pairing is continuing on it.
+	if client.IsConnected() {
+		client.Disconnect()
+	}
+	defer func() {
+		if err != nil && client.IsConnected() {
+			client.Disconnect()
+		}
+	}()
 
 	qrChan, err := client.GetQRChannel(ctx)
 	if err != nil {
 		return fmt.Errorf("create QR channel: %w", err)
 	}
 
-	if err := client.ConnectContext(ctx); err != nil {
+	if err := client.ConnectContext(ctx); err != nil && !errors.Is(err, whatsmeow.ErrAlreadyConnected) {
 		return fmt.Errorf("connect for QR login: %w", err)
 	}
 
@@ -198,10 +274,9 @@ func (c *Client) startQRLogin(ctx context.Context, client *whatsmeow.Client) err
 				return nil
 			case whatsmeow.QRChannelTimeout.Event:
 				c.daemon.SetStateDetail(app.StateNeedLogin, "QR login timed out; scan a new code")
-				return fmt.Errorf("QR login timed out: %w", errQRLoginRetry)
+				return fmt.Errorf("QR login timed out: %w", errQRCodeExpired)
 			case whatsmeow.QRChannelClientOutdated.Event:
-				c.daemon.SetConnMeta(0, 0, false)
-				c.daemon.SetStateDetail(app.StateOffline, "WhatsApp client is outdated. Update whatevr/whatevrd.")
+				c.daemon.SetConnection(app.StateOffline, "WhatsApp client is outdated. Update whatevr/whatevrd.", 0, 0, false)
 				return fmt.Errorf("client outdated")
 			case whatsmeow.QRChannelScannedWithoutMultidevice.Event:
 				c.daemon.SetStateDetail(app.StateNeedLogin, "Enable multi-device on your phone and scan again")
@@ -227,10 +302,20 @@ type retryPlan struct {
 }
 
 func connectionRetry(attempt int, err error) retryPlan {
-	if errors.Is(err, errQRLoginRetry) {
+	// An expired code is not a failure; the user is still looking at the
+	// screen and needs the next one immediately.
+	if errors.Is(err, errQRCodeExpired) {
 		return retryPlan{
 			attempt: 0,
 			delay:   qrRetryDelay,
+			state:   app.StateNeedLogin,
+		}
+	}
+	if errors.Is(err, errQRLoginRetry) {
+		attempt++
+		return retryPlan{
+			attempt: attempt,
+			delay:   qrBackoffDelay(attempt),
 			state:   app.StateNeedLogin,
 		}
 	}
@@ -250,10 +335,13 @@ func connectionRetry(attempt int, err error) retryPlan {
 func (c *Client) resetAfterExternalLogout() {
 	c.lifecycleMu.Lock()
 	defer c.lifecycleMu.Unlock()
-	c.eventGen.Add(1)
 
 	ctx := context.Background()
-	c.cancelRunContextLocked()
+	c.endSessionLocked()
+	// The loops come back whatever happens below. A failed wipe used to return
+	// here and leave the daemon with no supervisor, so it never reconnected and
+	// never asked for a QR either.
+	defer c.restartRunLoopsLocked()
 
 	c.mu.Lock()
 	old := c.client
@@ -270,9 +358,7 @@ func (c *Client) resetAfterExternalLogout() {
 
 	if err := c.wipeAccountData(ctx); err != nil {
 		c.log.Errorf("Failed to wipe account data after remote logout: %v", err)
-		return
 	}
-	c.restartRunLoopsLocked()
 }
 
 func (c *Client) Logout(ctx context.Context) error {
@@ -280,7 +366,6 @@ func (c *Client) Logout(ctx context.Context) error {
 	defer c.lifecycleMu.Unlock()
 
 	c.daemon.SetStateDetail(app.StateConnecting, "Logging out and clearing local session data")
-	c.eventGen.Add(1)
 
 	client := c.currentClient()
 	if client != nil {
@@ -294,14 +379,16 @@ func (c *Client) Logout(ctx context.Context) error {
 			client.Disconnect()
 		}
 	}
-	c.cancelRunContextLocked()
+	c.endSessionLocked()
+	// Same as the external-logout path: a failed wipe must not leave the daemon
+	// without a supervisor.
+	defer c.restartRunLoopsLocked()
 
 	if err := c.wipeAccountData(context.Background()); err != nil {
 		return err
 	}
 
 	c.daemon.SetStateDetail(app.StateNeedLogin, "Logged out")
-	c.restartRunLoopsLocked()
 	return nil
 }
 
@@ -356,6 +443,7 @@ func (c *Client) wipeAccountData(ctx context.Context) error {
 	c.mu.Unlock()
 
 	c.resetInMemoryAccountState()
+	c.daemon.ResetAccountState()
 
 	return c.resetClient(ctx)
 }
@@ -433,17 +521,89 @@ func (c *Client) resetInMemoryAccountState() {
 			req.timer.Stop()
 		}
 	}
+
+	c.posterMu.Lock()
+	c.posterHigh = nil
+	c.posterLow = nil
+	c.posterQueued = nil
+	c.posterMu.Unlock()
+
+	// The cancels belong to downloads started on the previous session's
+	// context, which is already cancelled; calling them is what releases the
+	// waiters instead of leaving them on a channel nobody will close.
+	c.mediaDownloadMu.Lock()
+	downloads := c.mediaDownloads
+	c.mediaDownloads = nil
+	c.mediaDownloadMu.Unlock()
+	for _, download := range downloads {
+		if download.cancel != nil {
+			download.cancel()
+		}
+	}
+
+	c.mediaRetryMu.Lock()
+	c.mediaRetries = nil
+	c.mediaRetryMu.Unlock()
+
+	c.mediaStreamMu.Lock()
+	c.mediaStreams = nil
+	c.mediaStreamMu.Unlock()
+
+	c.messageStickerMu.Lock()
+	c.messageStickerLocks = nil
+	c.messageStickerMu.Unlock()
+
+	c.stickerMu.Lock()
+	c.stickerDownloads = nil
+	stickerTimers := c.stickerLibraryTimers
+	c.stickerLibraryTimers = nil
+	c.stickerMu.Unlock()
+	for _, timer := range stickerTimers {
+		timer.Stop()
+	}
+
+	c.presenceMu.Lock()
+	c.cancelPresenceOfflineTimerLocked()
+	c.lastPresence = ""
+	c.presenceMu.Unlock()
+
+	// Latches. Each one says "work is already queued or running"; left set, the
+	// next account's first request for that work is dropped as a duplicate.
+	c.reconnectNow.Store(false)
+	c.pinBackfill.Store(false)
+	c.pinBackfillAgain.Store(false)
+
+	c.historySyncMu.Lock()
+	c.historySyncRunning = false
+	c.historySyncWake = false
+	c.historySyncMu.Unlock()
+
+	c.privacyPublishMu.Lock()
+	c.privacyPublishRunning = false
+	c.privacyPublishAgain = false
+	c.privacyPublishMu.Unlock()
 }
 
 // restartRunLoopsLocked restarts the background loops torn down by a wipe.
-// It must start the same set of loops as Start(); notably the avatar worker,
-// which was previously left dead after logout so avatars never fetched again
-// until the daemon restarted.
 func (c *Client) restartRunLoopsLocked() {
-	runCtx := c.replaceRunContextLocked(context.Background())
-	c.startRunGoroutine(func() { c.runConnectionSupervisor(runCtx) })
-	c.startRunGoroutine(func() { c.runSendQueue(runCtx) })
-	c.startAvatarWorker(runCtx)
+	c.startRunLoopsLocked(context.Background())
+}
+
+// qrBackoffDelay grows from the fast retry up to qrBackoffMax, so a QR attempt
+// that keeps failing stops hammering without ever giving up on the user.
+func qrBackoffDelay(attempt int) time.Duration {
+	if attempt <= 1 {
+		return qrRetryDelay
+	}
+	shift := attempt - 1
+	if shift > 7 {
+		shift = 7
+	}
+	delay := qrRetryDelay * (1 << uint(shift))
+	if delay > qrBackoffMax {
+		delay = qrBackoffMax
+	}
+	return delay
 }
 
 func connBackoffDelay(attempt int) time.Duration {

@@ -113,6 +113,12 @@ func main() {
 
 	protocol.RegisterDaemonViews(protocolServer, daemon, db, waClient)
 	protocol.RegisterDaemonCommands(protocolServer, waClient)
+	if protocol.DevCommandsEnabled() {
+		// Not part of PROTOCOL.md, off unless the environment asks for it. See
+		// internal/protocol/dev_commands.go.
+		protocol.RegisterDevCommands(protocolServer, waClient)
+		log.Printf("development commands enabled (%s=1)", protocol.DevEnvVar)
+	}
 	// Every view and command is registered above; only now do we accept
 	// connections, so no client can race a half-populated handler surface.
 	protocolServer.Serve(ctx)

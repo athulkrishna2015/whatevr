@@ -15,9 +15,14 @@ import (
 	appstore "whatevrd/internal/store"
 )
 
-func (c *Client) handleManualHistorySyncNotification(ctx context.Context, evt *events.Message) bool {
+// The first result says the event was a history sync notification and nothing
+// else should look at it. The second is the ack: the saved row is the only
+// record that this chunk exists, and the media it points at is the only copy of
+// a slice of history, so a failed insert must stay unacked and be delivered
+// again rather than vanish behind a log line.
+func (c *Client) handleManualHistorySyncNotification(ctx context.Context, evt *events.Message) (bool, bool) {
 	if evt == nil || evt.Info.ID == "" {
-		return false
+		return false, true
 	}
 	protocol := evt.Message.GetProtocolMessage()
 	if protocol == nil {
@@ -25,18 +30,18 @@ func (c *Client) handleManualHistorySyncNotification(ctx context.Context, evt *e
 	}
 	notif := protocol.GetHistorySyncNotification()
 	if notif == nil {
-		return false
+		return false, true
 	}
 	syncType := historySyncTypeFromNotification(notif.GetSyncType())
 
 	chunk := historySyncChunkFromNotification(evt.Info.ID, notif)
 	if _, err := c.store.SaveHistorySyncChunk(ctx, chunk); err != nil {
 		c.log.Errorf("Failed to persist history sync notification %s: %v", evt.Info.ID, err)
-		return true
+		return true, false
 	}
 	c.publishHistorySyncChunkProgress(chunk, syncType, app.HistorySyncPhaseQueued)
 	c.signalHistorySyncWorker()
-	return true
+	return true, true
 }
 
 func historySyncChunkFromNotification(id string, notif *waE2E.HistorySyncNotification) appstore.HistorySyncChunk {
@@ -119,7 +124,7 @@ func (c *Client) signalHistorySyncWorker() {
 	c.historySyncWake = false
 	c.historySyncMu.Unlock()
 
-	go c.runHistorySyncWorker(c.backgroundContext())
+	c.spawn(c.runHistorySyncWorker)
 }
 
 func (c *Client) runHistorySyncWorker(ctx context.Context) {
@@ -175,7 +180,7 @@ func (c *Client) processHistorySyncChunk(ctx context.Context, chunk appstore.His
 		blob, err := client.DownloadHistorySync(ctx, historySyncNotificationFromChunk(chunk), true)
 		if err != nil {
 			_ = c.store.MarkHistorySyncChunkFailed(ctx, chunk.ID, err.Error())
-			_ = client.SendHistorySyncServerErrorReceipt(context.WithoutCancel(ctx), chunk.ID, chunk.MediaKey)
+			_ = client.SendHistorySyncServerErrorReceipt(c.backgroundContext(), chunk.ID, chunk.MediaKey)
 			c.log.Warnf("Failed to download history sync chunk %s: %v", chunk.ID, err)
 			return false
 		}
@@ -189,8 +194,16 @@ func (c *Client) processHistorySyncChunk(ctx context.Context, chunk appstore.His
 
 		processStarted := time.Now()
 		c.publishHistorySyncChunkProgress(chunk, syncType, app.HistorySyncPhaseProcessing)
-		c.processHistorySyncData(ctx, blob)
+		stored := c.processHistorySyncData(ctx, blob)
 		if ctx.Err() != nil {
+			return false
+		}
+		if !stored {
+			// Leave it failed rather than processed so the retry budget gets a
+			// chance at it. Marking it processed here would ack, prune and lose
+			// the conversation permanently over one transient store error.
+			_ = c.store.MarkHistorySyncChunkFailed(ctx, chunk.ID, "failed to store one or more conversations")
+			c.log.Errorf("History sync chunk %s stored incompletely; leaving it for retry", chunk.ID)
 			return false
 		}
 		c.log.Debugf("Processed history sync chunk %s (type %d, chunk %d, progress %d) in %s", chunk.ID, chunk.SyncType, chunk.ChunkOrder, chunk.Progress, time.Since(processStarted).Round(time.Millisecond))
@@ -217,7 +230,7 @@ func (c *Client) processHistorySyncChunk(ctx context.Context, chunk appstore.His
 	}
 	c.log.Debugf("Finished history sync chunk %s (type %d, chunk %d, progress %d) in %s", chunk.ID, chunk.SyncType, chunk.ChunkOrder, chunk.Progress, time.Since(started).Round(time.Millisecond))
 	if chunk.DirectPath != "" {
-		go c.deleteHistorySyncMedia(context.WithoutCancel(ctx), client, chunk)
+		c.spawn(func(ctx context.Context) { c.deleteHistorySyncMedia(ctx, client, chunk) })
 	}
 	return true
 }

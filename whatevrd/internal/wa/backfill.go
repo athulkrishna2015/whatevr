@@ -107,10 +107,13 @@ func (c *Client) finishBackfillRequest(chatID string) bool {
 // in-flight requests. messagesByChat holds the raw payload message count per
 // (normalized) chat in the chunk. A response carrying fewer messages than
 // requested means the phone has nothing older, so the chat's history is
-// exhausted. A chunk that doesn't mention the chat at all resolves the same
-// way, but only when it is unambiguous (a single request in flight);
-// otherwise the request is left to its expiry timer.
-func (c *Client) resolveBackfillRequests(ctx context.Context, messagesByChat map[string]int) {
+// exhausted.
+//
+// Only a chat the chunk actually mentions is resolved here. Silence is not
+// evidence: an omitted chat is left to its expiry timer, because exhaustion is
+// a one-way latch and guessing it wrong costs that chat its older history
+// permanently.
+func (c *Client) resolveBackfillRequests(ctx context.Context, messagesByChat map[string]int, answered map[string]bool) {
 	type resolution struct {
 		chatID    string
 		exhausted bool
@@ -118,17 +121,18 @@ func (c *Client) resolveBackfillRequests(ctx context.Context, messagesByChat map
 	var resolved []resolution
 
 	c.backfillMu.Lock()
-	single := len(c.backfillInFlight) == 1
 	for chatID, req := range c.backfillInFlight {
 		count, present := messagesByChat[chatID]
-		if !present && !single {
+		if !present {
 			continue
 		}
 		if req.timer != nil {
 			req.timer.Stop()
 		}
 		delete(c.backfillInFlight, chatID)
-		resolved = append(resolved, resolution{chatID: chatID, exhausted: count < req.requested})
+		// The phone already said whether more remain; counting messages is only
+		// a guess and must not overrule it.
+		resolved = append(resolved, resolution{chatID: chatID, exhausted: !answered[chatID] && count < req.requested})
 	}
 	c.backfillMu.Unlock()
 

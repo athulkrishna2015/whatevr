@@ -10,12 +10,16 @@ import org.kde.kirigami as Kirigami
 import Whatevr as Whatevr
 
 /**
- * A voice note or shared audio file: play control, waveform, elapsed time and
- * a speed pill.
+ * A recorded voice note: a round play disc, the waveform of the recording,
+ * elapsed time and a speed pill.
  *
- * There is no player here. Every bubble binds to the one AudioPlayer singleton
- * and compares messageId, so exactly one thing plays at a time and scrolling a
- * playing note out of view and back costs nothing.
+ * Round and nameless on purpose. A voice note is someone talking, so it gets
+ * the personal shape (the same reasoning that draws a video note as a circle on
+ * the wallpaper) and the picture of its own sound. A shared audio file is an
+ * object with a name and renders as AudioFileBubble instead.
+ *
+ * Playback lives on the AudioTransport below, which is the one AudioPlayer
+ * singleton seen through this message.
  */
 Item {
     id: root
@@ -23,95 +27,12 @@ Item {
     // The ChatBubble this belongs to, for the message fields and download state.
     required property ChatBubble row
 
-    readonly property bool isCurrent: Whatevr.AudioPlayer.messageId === row.messageId
-    readonly property bool isPlaying: isCurrent && Whatevr.AudioPlayer.playing
-    readonly property bool isVoiceNote: row.isVoice
-    readonly property real totalSeconds: {
-        if (isCurrent && Whatevr.AudioPlayer.duration > 0)
-            return Whatevr.AudioPlayer.duration
-        return row.mediaDurationSecs
-    }
-    readonly property real elapsedSeconds: isCurrent ? Whatevr.AudioPlayer.position : rememberedSeconds
+    readonly property bool isPlaying: transport.isPlaying
 
-    /// A note stopped halfway keeps its place, so the bar does not lie about
-    /// where you left off. Assigned rather than bound: resumePosition() is a
-    /// plain call with nothing to notify on, so a binding through it went
-    /// stale the moment another bubble took the player.
-    property real rememberedSeconds: 0
+    AudioTransport {
+        id: transport
 
-    function refreshRemembered() {
-        rememberedSeconds = Whatevr.AudioPlayer.resumePosition(row.messageId)
-    }
-
-    Component.onCompleted: refreshRemembered()
-
-    Connections {
-        target: Whatevr.AudioPlayer
-
-        function onResumePositionChanged(messageId) {
-            if (messageId === root.row.messageId)
-                root.refreshRemembered()
-        }
-    }
-
-    Connections {
-        target: root.row
-
-        function onMessageIdChanged() {
-            root.refreshRemembered()
-        }
-    }
-    readonly property real progress: totalSeconds > 0
-        ? Math.min(1, Math.max(0, elapsedSeconds / totalSeconds))
-        : 0
-    readonly property bool hasFile: row.mediaLocalPath.length > 0
-    readonly property bool canScrub: hasFile
-                                     && totalSeconds > 0
-                                     && Whatevr.AudioPlayer.available
-                                     && !row.selectionModeActive
-
-    /// Seeks to the position under an x coordinate in the waveform, starting
-    /// this note first when something else (or nothing) is playing.
-    function scrubTo(x) {
-        const fraction = waveform.fractionAt(x)
-        if (!isCurrent) {
-            Whatevr.AudioPlayer.play(row.messageId,
-                                     Whatevr.ProtocolController.localFileUrl(row.mediaLocalPath),
-                                     row.mediaDurationSecs)
-        }
-        Whatevr.AudioPlayer.seek(fraction * totalSeconds)
-    }
-
-    function formatTime(seconds) {
-        const whole = Math.max(0, Math.floor(seconds))
-        const minutes = Math.floor(whole / 60)
-        const rest = whole % 60
-        return minutes + ":" + (rest < 10 ? "0" : "") + rest
-    }
-
-    /// Plays from the local file when it exists, otherwise asks the daemon to
-    /// stream it. Voice notes are small, so this is nearly always the file.
-    function activate() {
-        if (row.messageId.length === 0)
-            return
-        if (hasFile) {
-            Whatevr.AudioPlayer.toggle(row.messageId, Whatevr.ProtocolController.localFileUrl(row.mediaLocalPath), row.mediaDurationSecs)
-            return
-        }
-        if (row.mediaDownloading)
-            return
-        Whatevr.ProtocolController.downloadMessageMedia(row.messageId)
-    }
-
-    Connections {
-        target: Whatevr.AudioPlayer
-
-        // Sending the played receipt on first playback, not on download, is
-        // what makes the sender's mic turn blue at the right moment.
-        function onStarted(messageId) {
-            if (messageId === root.row.messageId && !root.row.isOutgoing && root.isVoiceNote && !root.row.mediaPlayed)
-                Whatevr.ProtocolController.markMessagePlayed(messageId)
-        }
+        row: root.row
     }
 
     MediaDragArea {
@@ -134,7 +55,7 @@ Item {
             hoverEnabled: true
             enabled: root.row.messageId.length > 0 && !root.row.mediaDownloading
             text: {
-                if (!root.hasFile)
+                if (!transport.hasFile)
                     return Whatevr.I18n.i18nc("@action:button", "Download")
                 return root.isPlaying
                     ? Whatevr.I18n.i18nc("@action:button", "Pause")
@@ -145,7 +66,7 @@ Item {
             Controls.ToolTip.visible: hovered
             Controls.ToolTip.delay: Kirigami.Units.toolTipDelay
             onClicked: {
-                root.activate()
+                transport.activate()
                 root.row.conversationFocusRequested()
             }
 
@@ -162,7 +83,7 @@ Item {
                 source: {
                     if (root.row.mediaDownloading)
                         return ""
-                    if (!root.hasFile)
+                    if (!transport.hasFile)
                         return "folder-download-symbolic"
                     return root.isPlaying ? "media-playback-pause-symbolic" : "media-playback-start-symbolic"
                 }
@@ -215,7 +136,7 @@ Item {
                     values: root.row.mediaWaveform && root.row.mediaWaveform.length > 0
                         ? root.row.mediaWaveform
                         : flatWaveform
-                    progress: root.progress
+                    progress: transport.progress
                     playedColor: root.row.isOutgoing
                         ? Kirigami.Theme.highlightColor
                         : Whatevr.Palette.highlight
@@ -240,18 +161,18 @@ Item {
                     // On the centre line, which is the waveform's own baseline:
                     // hanging it below the bars read as a stray dot.
                     Rectangle {
-                        visible: !root.isCurrent && root.elapsedSeconds > 0 && root.totalSeconds > 0
+                        visible: !transport.isCurrent && transport.elapsedSeconds > 0 && transport.totalSeconds > 0
                         width: Math.max(3, Math.round(Kirigami.Units.smallSpacing * 0.75))
                         height: width
                         radius: width / 2
                         color: root.row.isOutgoing ? Kirigami.Theme.highlightColor : Whatevr.Palette.highlight
-                        x: Math.round(root.progress * (parent.width - width))
+                        x: Math.round(transport.progress * (parent.width - width))
                         anchors.verticalCenter: parent.verticalCenter
                     }
 
                     TapHandler {
-                        enabled: root.canScrub
-                        onTapped: eventPoint => root.scrubTo(eventPoint.position.x)
+                        enabled: transport.canScrub
+                        onTapped: eventPoint => transport.scrubTo(waveform.fractionAt(eventPoint.position.x))
                     }
 
                     // Dragging the waveform scrubs continuously; a tap alone
@@ -259,13 +180,13 @@ Item {
                     DragHandler {
                         id: scrubHandler
 
-                        enabled: root.canScrub
+                        enabled: transport.canScrub
                         target: null
                         xAxis.enabled: true
                         yAxis.enabled: false
                         onCentroidChanged: {
                             if (active)
-                                root.scrubTo(centroid.position.x)
+                                transport.scrubTo(waveform.fractionAt(centroid.position.x))
                         }
                     }
                 }
@@ -279,32 +200,26 @@ Item {
                 spacing: Kirigami.Units.smallSpacing
 
                 Controls.Label {
-                    Layout.fillWidth: playbackError.visible
+                    Layout.fillWidth: !transport.available
                     // A dead audio engine used to leave the play button doing
                     // nothing at all, with no way to tell why.
                     text: {
-                        if (playbackError.visible)
+                        if (!transport.available)
                             return Whatevr.I18n.i18nc("@info", "Playback unavailable")
-                        if (root.isCurrent || root.elapsedSeconds > 0)
-                            return root.formatTime(root.elapsedSeconds) + " / " + root.formatTime(root.totalSeconds)
-                        return root.formatTime(root.totalSeconds)
+                        if (transport.isCurrent || transport.elapsedSeconds > 0)
+                            return transport.formatTime(transport.elapsedSeconds) + " / " + transport.formatTime(transport.totalSeconds)
+                        return transport.formatTime(transport.totalSeconds)
                     }
-                    color: playbackError.visible ? Kirigami.Theme.negativeTextColor : Kirigami.Theme.disabledTextColor
+                    color: transport.available ? Kirigami.Theme.disabledTextColor : Kirigami.Theme.negativeTextColor
                     font.pointSize: Kirigami.Theme.smallFont.pointSize
                     elide: Text.ElideRight
 
                     Controls.ToolTip.text: Whatevr.I18n.i18nc("@info", "The mpv audio engine could not be initialized")
-                    Controls.ToolTip.visible: playbackError.visible && errorHover.hovered
+                    Controls.ToolTip.visible: !transport.available && errorHover.hovered
                     Controls.ToolTip.delay: Kirigami.Units.toolTipDelay
 
                     HoverHandler {
                         id: errorHover
-                    }
-
-                    QtObject {
-                        id: playbackError
-
-                        readonly property bool visible: !Whatevr.AudioPlayer.available
                     }
                 }
 
@@ -323,8 +238,8 @@ Item {
                     // Faded rather than hidden: a Layout skips an invisible
                     // item outright, so `visible` would give the width back and
                     // reintroduce the shift this is here to stop.
-                    opacity: root.isCurrent ? 1 : 0
-                    enabled: root.isCurrent
+                    opacity: transport.isCurrent ? 1 : 0
+                    enabled: transport.isCurrent
                     hoverEnabled: true
                     implicitWidth: speedLabel.implicitWidth + Kirigami.Units.smallSpacing * 2
                     implicitHeight: speedLabel.implicitHeight + Kirigami.Units.smallSpacing / 2
@@ -335,7 +250,7 @@ Item {
                     }
                     text: Whatevr.I18n.i18nc("@action:button", "Playback speed")
                     Accessible.name: text
-                    Accessible.ignored: !root.isCurrent
+                    Accessible.ignored: !transport.isCurrent
                     Controls.ToolTip.text: text
                     Controls.ToolTip.visible: hovered
                     Controls.ToolTip.delay: Kirigami.Units.toolTipDelay

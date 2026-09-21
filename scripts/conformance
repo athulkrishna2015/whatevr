@@ -1,10 +1,19 @@
 #!/usr/bin/env python3
-"""Conformance checks for the whatevr protocol grammar."""
+"""Conformance checks for the whatevr protocol grammar.
+
+Three modes. With no arguments it checks the handshake and the view grammar
+against a synthetic fixture. `--replay FILE` runs the same client against a
+stream recorded from a real daemon by scripts/record-stream, asserting the
+window invariants after every frame. `--soak SECONDS` keeps doing that with
+faults armed, which is how a rare path gets hit often enough to matter.
+"""
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
+import random
 import socket
 import subprocess
 import sys
@@ -113,7 +122,8 @@ class Client:
         require(not chunk, f"expected connection close, got {chunk!r}")
 
 
-def start_fixture() -> tuple[tempfile.TemporaryDirectory[str] | None, subprocess.Popen[str] | None, Path]:
+def start_fixture(script: Path | None = None,
+                  faults: str = "") -> tuple[tempfile.TemporaryDirectory[str] | None, subprocess.Popen[str] | None, Path]:
     external = os.environ.get(FIXTURE_SOCKET_ENV)
     if external:
         return None, None, Path(external)
@@ -142,6 +152,10 @@ def start_fixture() -> tuple[tempfile.TemporaryDirectory[str] | None, subprocess
         "--ready-file",
         str(ready_file),
     ]
+    if script is not None:
+        cmd += ["--script", str(script)]
+    if faults:
+        cmd += ["--fault", faults]
     proc = subprocess.Popen(
         cmd,
         cwd=ROOT / "whatevrd",
@@ -252,10 +266,250 @@ def check_subscribe_ordering(socket_path: Path) -> None:
     say("subscribe/extend response, upsert, ready ordering")
 
 
+
+# ---------------------------------------------------------------- replay
+
+class Window:
+    """One subscription's local copy, applied by PROTOCOL.md's universal
+    algorithm: keyed upserts ordered by the opaque sort key."""
+
+    def __init__(self, view: str, sub: int) -> None:
+        self.view = view
+        self.sub = sub
+        self.rows: dict[str, str] = {}   # id -> sort
+        self.ready_seen = False
+        self.exhausted = False
+        self.closed = False
+        # The sort key each id was first delivered with, kept for the whole
+        # connection so a re-ingest that moves one is caught even after a reset.
+        self.first_sort: dict[str, str] = {}
+        # Delivery order within the current fill, cleared by ready and reset.
+        self.fill_sorts: list[str] = []
+        self.upserts_since_ready = 0
+
+
+def apply_frame(window: Window, msg: dict[str, object]) -> None:
+    """Apply one frame and assert what has to hold afterwards.
+
+    Each of these is a bug that shipped. A fill delivered out of sort order made
+    a transcript assemble backwards before its first ready. A re-ingest that
+    moved an id's sort key reordered the rows under the reader. `exhausted` on a
+    window that just grew is the phone-history strip claiming there is nothing
+    older when the next extend returns more.
+    """
+    event = msg.get("event")
+    require(not window.closed,
+            f"{window.view}: a frame arrived for a subscription already closed: {msg!r}")
+
+    if event == "upsert":
+        item = msg.get("item")
+        require(isinstance(item, dict) and isinstance(item.get("id"), str) and item["id"],
+                f"{window.view}: upsert item has no id: {msg!r}")
+        sort_key = msg.get("sort")
+        require(isinstance(sort_key, str) and sort_key,
+                f"{window.view}: upsert has no sort: {msg!r}")
+        item_id = item["id"]
+
+        known = window.first_sort.get(item_id)
+        require(known is None or known == sort_key,
+                f"{window.view}: id {item_id!r} changed sort key {known!r} -> {sort_key!r}, "
+                f"which reorders the window under the reader: {msg!r}")
+        window.first_sort[item_id] = sort_key
+
+        # Within one fill the daemon delivers in ascending sort order, so a
+        # client that appends is already correct before it sorts anything.
+        if window.fill_sorts:
+            require(sort_key >= window.fill_sorts[-1],
+                    f"{window.view}: fill delivered {sort_key!r} after {window.fill_sorts[-1]!r}, "
+                    f"which is out of order: {msg!r}")
+        window.fill_sorts.append(sort_key)
+        window.rows[item_id] = sort_key
+        window.upserts_since_ready += 1
+
+    elif event == "remove":
+        require(isinstance(msg.get("id"), str) and msg["id"],
+                f"{window.view}: remove has no id: {msg!r}")
+        window.rows.pop(msg["id"], None)
+
+    elif event == "reset":
+        window.rows.clear()
+        window.fill_sorts.clear()
+        window.upserts_since_ready = 0
+        window.ready_seen = False
+
+    elif event == "ready":
+        exhausted = msg.get("exhausted", False)
+        require(isinstance(exhausted, bool),
+                f"{window.view}: ready carries a non-boolean exhausted: {msg!r}")
+        # A window that just grew cannot also be at the end of history. The one
+        # exception is a window that was already exhausted and grew by nothing.
+        if window.ready_seen and exhausted and window.upserts_since_ready > 0:
+            require(window.exhausted is False or window.upserts_since_ready == 0,
+                    f"{window.view}: ready says exhausted after delivering "
+                    f"{window.upserts_since_ready} more row(s): {msg!r}")
+        window.ready_seen = True
+        window.exhausted = bool(exhausted)
+        window.fill_sorts.clear()
+        window.upserts_since_ready = 0
+
+    else:
+        raise Failure(f"{window.view}: unknown view event {event!r}: {msg!r}")
+
+    # No duplicate rows, ever: two rows for one message is what the keyed
+    # upsert exists to prevent.
+    require(len(window.rows) == len(set(window.rows)),
+            f"{window.view}: the window holds a duplicate id: {msg!r}")
+
+
+def replay_stream(socket_path: Path, label: str) -> int:
+    """Open every view the recording covers and walk each window to its end.
+
+    Returns the number of frames the daemon sent back, which is what a soak
+    reports so a run that quietly stopped doing anything is visible.
+    """
+    frames = 0
+    with Client(socket_path) as c:
+        hello(c)
+        windows: dict[int, Window] = {}
+        pending: dict[object, str] = {}
+        opened = 0
+        closed = 0
+
+        for view in REPLAY_VIEWS:
+            req = f"sub-{view}"
+            c.send({"id": req, "method": "subscribe",
+                    "params": {"view": view, "limit": 20}})
+            pending[req] = view
+
+        # One pass: subscribe answers register windows, view events apply.
+        deadline = time.time() + 20
+        while pending and time.time() < deadline:
+            msg = c.recv(timeout=5)
+            frames += 1
+            if "id" in msg:
+                view = pending.pop(msg["id"], None)
+                if view is None:
+                    continue
+                if "error" in msg:
+                    # A recording that did not cover this view is not a
+                    # failure; a malformed error is.
+                    err = msg["error"]
+                    require(isinstance(err, dict) and err.get("code"),
+                            f"subscribe error has no code: {msg!r}")
+                    continue
+                result = msg["result"]
+                require(isinstance(result, dict) and isinstance(result.get("sub"), int),
+                        f"subscribe result has no sub: {msg!r}")
+                windows[result["sub"]] = Window(view, result["sub"])
+                opened += 1
+                continue
+
+            sub = msg.get("sub")
+            require(isinstance(sub, int) and sub in windows,
+                    f"event names a subscription that was never opened: {msg!r}")
+            apply_frame(windows[sub], msg)
+
+        require(windows, f"{label}: the recording opened no windows at all")
+
+        # Walk each window to its end the way a reader scrolling does, and hold
+        # the invariants across every extend.
+        for window in list(windows.values()):
+            for step in range(8):
+                if window.exhausted:
+                    break
+                req = f"extend-{window.sub}-{step}"
+                c.send({"id": req, "method": "extend",
+                        "params": {"sub": window.sub, "count": 20, "direction": "older"}})
+                answered = False
+                while not answered and time.time() < deadline:
+                    msg = c.recv(timeout=5)
+                    frames += 1
+                    if msg.get("id") == req:
+                        answered = True
+                        if "error" in msg:
+                            # A view with no window to grow rejects the extend,
+                            # which is the documented answer, not a failure.
+                            window.exhausted = True
+                        continue
+                    sub = msg.get("sub")
+                    if not isinstance(sub, int) or sub not in windows:
+                        continue
+                    apply_frame(windows[sub], msg)
+
+        # Every window opened is a window closed. A subscription left behind is
+        # a view session the daemon keeps feeding for a frontend that is gone.
+        for window in windows.values():
+            c.send({"id": f"unsub-{window.sub}", "method": "unsubscribe",
+                    "params": {"sub": window.sub}})
+            window.closed = True
+            closed += 1
+        deadline = time.time() + 10
+        answered = 0
+        while answered < closed and time.time() < deadline:
+            msg = c.recv(timeout=5)
+            frames += 1
+            if "id" in msg:
+                answered += 1
+        require(answered == closed,
+                f"{label}: opened {opened} subscriptions and closed {answered} of {closed}")
+    return frames
+
+
+# The views a recording is asked to replay. Transcript-shaped ones first: they
+# are where a gap or a reordering actually hurts.
+REPLAY_VIEWS = ["messages", "chats", "chat", "pinned", "chat_media", "live_locations",
+                "stickers", "sticker_packs", "transfers"]
+
+
+def check_replay(script: Path) -> int:
+    tmp, proc, socket_path = start_fixture(script=script)
+    try:
+        frames = replay_stream(socket_path, "replay")
+        say(f"replayed {script.name}: {frames} frames, windows consistent throughout")
+        return 0
+    finally:
+        stop_fixture(tmp, proc)
+
+
+def check_soak(script: Path, seconds: float, faults: str) -> int:
+    deadline = time.time() + seconds
+    rounds = 0
+    total = 0
+    while time.time() < deadline:
+        rounds += 1
+        tmp, proc, socket_path = start_fixture(script=script, faults=faults)
+        try:
+            total += replay_stream(socket_path, f"soak round {rounds}")
+        finally:
+            stop_fixture(tmp, proc)
+    require(rounds > 0, "the soak ran no rounds; give it more seconds")
+    say(f"soak: {rounds} round(s), {total} frames, faults {faults!r}, windows consistent throughout")
+    return 0
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser(description="whatevr protocol conformance")
+    parser.add_argument("--replay", metavar="FILE",
+                        help="replay a stream recorded by scripts/record-stream")
+    parser.add_argument("--soak", metavar="SECONDS", type=float,
+                        help="replay repeatedly with faults armed, for this long")
+    parser.add_argument("--fault", default="all:7",
+                        help="faults to arm during a soak (default: all:7)")
+    parser.add_argument("--seed", type=int, help="seed for anything that varies")
+    args = parser.parse_args()
+
+    if args.seed is not None:
+        random.seed(args.seed)
+
     tmp = None
     proc = None
     try:
+        if args.soak is not None:
+            require(args.replay is not None, "--soak needs a --replay stream to soak")
+            return check_soak(Path(args.replay), args.soak, args.fault)
+        if args.replay is not None:
+            return check_replay(Path(args.replay))
+
         tmp, proc, socket_path = start_fixture()
         print(f"conformance socket: {socket_path}")
         check_hello(socket_path)

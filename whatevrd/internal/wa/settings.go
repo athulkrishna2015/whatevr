@@ -99,6 +99,49 @@ func privacyToApp(s types.PrivacySettings) app.PrivacySettings {
 }
 
 // GetPrivacySettings fetches the user's current WhatsApp privacy settings.
+// signalPrivacySettingsPublish pushes a fresh privacy snapshot to the frontends,
+// off the event handler queue. Reading the settings is an IQ to the server
+// whenever the cache is cold, and whatsmeow runs handlers one at a time, so
+// doing it inline parks every incoming message behind a network round trip.
+// One read at a time; an event that lands during one re-runs after it, so a
+// burst of category changes still ends on the current state.
+func (c *Client) signalPrivacySettingsPublish() {
+	c.privacyPublishMu.Lock()
+	if c.privacyPublishRunning {
+		c.privacyPublishAgain = true
+		c.privacyPublishMu.Unlock()
+		return
+	}
+	c.privacyPublishRunning = true
+	c.privacyPublishAgain = false
+	c.privacyPublishMu.Unlock()
+
+	c.spawn(func(ctx context.Context) {
+		for {
+			fetch := c.privacyFetch
+			if fetch == nil {
+				fetch = c.GetPrivacySettings
+			}
+			if settings, err := fetch(ctx); err == nil {
+				c.daemon.PublishPrivacySettingsChanged(settings)
+			} else if ctx.Err() == nil {
+				c.log.Warnf("Failed to read privacy settings after change event: %v", err)
+			}
+
+			c.privacyPublishMu.Lock()
+			again := c.privacyPublishAgain && ctx.Err() == nil
+			c.privacyPublishAgain = false
+			if !again {
+				c.privacyPublishRunning = false
+			}
+			c.privacyPublishMu.Unlock()
+			if !again {
+				return
+			}
+		}
+	})
+}
+
 func (c *Client) GetPrivacySettings(ctx context.Context) (app.PrivacySettings, error) {
 	client := c.currentClient()
 	if client == nil || !client.IsLoggedIn() {

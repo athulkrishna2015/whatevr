@@ -14,6 +14,11 @@ constexpr double playbackSpeeds[] = {1.0, 1.5, 2.0};
 // A note is only "resumable" if the user stopped somewhere in the middle;
 // stopping in the last second is finishing it.
 constexpr double resumeTailSeconds = 1.0;
+
+QString contextString(const QVariantMap &context, QLatin1StringView key)
+{
+    return context.value(QString(key)).toString();
+}
 }
 
 AudioPlayer *AudioPlayer::instance()
@@ -104,7 +109,47 @@ void AudioPlayer::setSpeed(double speed)
     m_core->setSpeed(speed);
 }
 
-void AudioPlayer::play(const QString &messageId, const QUrl &source, double durationHint)
+QString AudioPlayer::chatId() const
+{
+    return contextString(m_context, QLatin1StringView("chat_id"));
+}
+
+QString AudioPlayer::chatName() const
+{
+    return contextString(m_context, QLatin1StringView("chat_name"));
+}
+
+QString AudioPlayer::senderName() const
+{
+    return contextString(m_context, QLatin1StringView("sender_name"));
+}
+
+QString AudioPlayer::avatarPath() const
+{
+    return contextString(m_context, QLatin1StringView("avatar_path"));
+}
+
+QString AudioPlayer::fileName() const
+{
+    return contextString(m_context, QLatin1StringView("file_name"));
+}
+
+bool AudioPlayer::isVoice() const
+{
+    return m_context.value(QStringLiteral("is_voice")).toBool();
+}
+
+bool AudioPlayer::isOutgoing() const
+{
+    return m_context.value(QStringLiteral("is_outgoing")).toBool();
+}
+
+QVariantList AudioPlayer::waveform() const
+{
+    return m_context.value(QStringLiteral("waveform")).toList();
+}
+
+void AudioPlayer::play(const QString &messageId, const QUrl &source, double durationHint, const QVariantMap &context)
 {
     if (!m_core || messageId.isEmpty()) {
         return;
@@ -116,6 +161,13 @@ void AudioPlayer::play(const QString &messageId, const QUrl &source, double dura
         return;
     }
     setError(QString());
+
+    // Refreshed even when this is already the loaded note: a waveform derived
+    // after the download lands arrives on a later pass through here.
+    if (!context.isEmpty() && context != m_context) {
+        m_context = context;
+        Q_EMIT contextChanged();
+    }
 
     if (messageId == m_messageId) {
         m_core->play();
@@ -141,13 +193,25 @@ void AudioPlayer::play(const QString &messageId, const QUrl &source, double dura
     Q_EMIT durationChanged();
 }
 
-void AudioPlayer::toggle(const QString &messageId, const QUrl &source, double durationHint)
+void AudioPlayer::toggle(const QString &messageId, const QUrl &source, double durationHint, const QVariantMap &context)
 {
     if (messageId == m_messageId && playing()) {
         pause();
         return;
     }
-    play(messageId, source, durationHint);
+    play(messageId, source, durationHint, context);
+}
+
+void AudioPlayer::togglePlayPause()
+{
+    if (m_messageId.isEmpty() || !m_core) {
+        return;
+    }
+    if (playing()) {
+        pause();
+        return;
+    }
+    m_core->play();
 }
 
 void AudioPlayer::pause()
@@ -169,6 +233,8 @@ void AudioPlayer::stop()
     m_messageId.clear();
     m_durationHint = 0.0;
     m_startedReported = false;
+    m_context.clear();
+    Q_EMIT contextChanged();
     Q_EMIT messageIdChanged();
     Q_EMIT playingChanged();
     Q_EMIT positionChanged();

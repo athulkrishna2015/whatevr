@@ -187,6 +187,7 @@ type preferencesItem struct {
 	AutoDownloadMaxBytes  int64  `json:"auto_download_max_bytes"`
 	AntiDelete            bool   `json:"anti_delete"`
 	SendTypingIndicators  bool   `json:"send_typing_indicators"`
+	AutoFetchMaps         bool   `json:"auto_fetch_maps"`
 }
 
 func (v preferencesView) Open(_ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
@@ -302,6 +303,7 @@ func (s *preferencesSession) Items(max int) []Item {
 		AutoDownloadAudio:     p.AutoDownloadAudio,
 		AutoDownloadDocuments: p.AutoDownloadDocuments,
 		AutoDownloadStickers:  p.AutoDownloadStickers,
+		AutoFetchMaps:         p.AutoFetchMaps,
 		AutoDownloadMaxBytes:  p.AutoDownloadMaxBytes,
 		AntiDelete:            p.AntiDelete,
 		SendTypingIndicators:  p.SendTypingIndicators,

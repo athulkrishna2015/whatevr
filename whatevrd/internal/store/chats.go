@@ -897,6 +897,12 @@ var clearSessionKeepTables = map[string]bool{
 	"daemon_config": true,
 }
 
+// clearSessionDropConfigKeys are the daemon_config rows that are account data
+// rather than machine preference. self_jid outliving a logout meant the old
+// account's jid was still marked "me" in every poll and event tally the new
+// one loaded, until its first Connected wrote over it.
+var clearSessionDropConfigKeys = []string{daemonConfigSelfJIDKey}
+
 func (db *DB) ClearSessionData(ctx context.Context) error {
 	regular, virtual, err := db.listTables(ctx)
 	if err != nil {
@@ -922,6 +928,11 @@ func (db *DB) ClearSessionData(ctx context.Context) error {
 			return fmt.Errorf("clear table %s: %w", table, err)
 		}
 	}
+	for _, key := range clearSessionDropConfigKeys {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM daemon_config WHERE key = ?`, key); err != nil {
+			return fmt.Errorf("clear daemon config %s: %w", key, err)
+		}
+	}
 	// The only virtual tables in the schema are external-content FTS5 indexes
 	// (messages_fts). Their content tables were just emptied, so 'rebuild'
 	// resets the index to a consistent empty state.
@@ -933,6 +944,8 @@ func (db *DB) ClearSessionData(ctx context.Context) error {
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+
+	db.selfJID.Store(nil)
 
 	_, err = db.conn.ExecContext(ctx, `VACUUM`)
 	return err
@@ -1045,7 +1058,7 @@ func (db *DB) OverwriteChatUnreadCount(ctx context.Context, chatID string, unrea
 				SELECT id
 				FROM messages
 				WHERE chat_id = ? AND direction = ? AND is_revoked = 0
-				ORDER BY timestamp DESC, rowid DESC
+				ORDER BY sort_ms DESC, id DESC
 				LIMIT ?
 			)
 		`, chatID, chatID, DirectionIncoming, int64(unread)); err != nil {
@@ -1395,10 +1408,10 @@ func (db *DB) MigrateChatID(ctx context.Context, fromChatID, toChatID string) (C
 
 	if _, err := tx.ExecContext(ctx, `
 		INSERT OR IGNORE INTO messages
-		(id, chat_id, sender_id, text, timestamp, direction, is_read, status)
+		(id, chat_id, sender_id, text, timestamp, sort_ms, direction, is_read, status)
 		SELECT
 			replace(id, ? || ':', ? || ':'),
-			?, sender_id, text, timestamp, direction, is_read, status
+			?, sender_id, text, timestamp, sort_ms, direction, is_read, status
 		FROM messages
 		WHERE chat_id = ?
 	`, fromChatID, toChatID, toChatID, fromChatID); err != nil {

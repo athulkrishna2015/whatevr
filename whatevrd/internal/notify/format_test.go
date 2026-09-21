@@ -44,10 +44,13 @@ func TestFormatGroupFallsBackToSenderID(t *testing.T) {
 	}
 }
 
-func TestFormatMediaFallback(t *testing.T) {
-	content := FormatMessage(Capabilities{Body: true}, app.Message{MediaMimeType: "image/jpeg"}, app.Chat{Name: "Alice"}, Options{Preview: true})
-	if content.Body != "Image" {
-		t.Fatalf("expected image fallback, got %q", content.Body)
+// A media message has no text of its own, so its notification body is the
+// one-line rendering the store computed for it. The notifier no longer has an
+// opinion about what a photo is called.
+func TestFormatMediaUsesStorePreview(t *testing.T) {
+	content := FormatMessage(Capabilities{Body: true}, app.Message{MediaKind: "image", MediaMimeType: "image/jpeg", Preview: "📷 Photo"}, app.Chat{Name: "Alice"}, Options{Preview: true})
+	if content.Body != "📷 Photo" {
+		t.Fatalf("expected the store preview, got %q", content.Body)
 	}
 }
 

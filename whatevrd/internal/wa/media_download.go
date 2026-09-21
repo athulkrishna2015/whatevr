@@ -162,7 +162,7 @@ func (c *Client) DownloadMessageMedia(ctx context.Context, messageID string) (ap
 		}
 		c.daemon.PublishMediaDownloadChanged(message.ID, message.ChatID, false, errorText, 0, totalBytes)
 		if errorText != "" {
-			updated, err := c.store.SetMessageMediaDownloadError(context.Background(), message.ID, errorText)
+			updated, err := c.store.SetMessageMediaDownloadError(c.backgroundContext(), message.ID, errorText)
 			if err != nil {
 				c.log.Errorf("Persist media download error for %s: %v", message.ID, err)
 				return
@@ -170,6 +170,29 @@ func (c *Client) DownloadMessageMedia(ctx context.Context, messageID string) (ap
 			c.daemon.PublishMessageUpdated(toDaemonMessage(updated))
 		}
 	}()
+
+	// A location's "media" is the map the daemon draws, not a blob WhatsApp is
+	// holding, so it takes a different route to the same place: the same
+	// started/progress/error bookkeeping above, the same media_local_path at
+	// the end, and therefore the same bubble with no special case in it.
+	if isLocationKind(message) {
+		started = true
+		totalBytes = mapTilesX * mapTilesY
+		c.daemon.PublishMediaDownloadChanged(message.ID, message.ChatID, true, "", 0, totalBytes)
+		updated, err := c.fetchLocationMap(ctx, message, func(received, total uint64) {
+			c.daemon.PublishMediaDownloadChanged(message.ID, message.ChatID, true, "", received, total)
+		})
+		if err != nil {
+			if errors.Is(err, ErrMapsDisabled) {
+				err = app.NewCommandError(app.CommandErrorRejected, "map fetching is turned off")
+			}
+			state.err = err
+			return appstore.Message{}, state.err
+		}
+		state.message = updated
+		c.daemon.PublishMessageUpdated(toDaemonMessage(updated))
+		return updated, nil
+	}
 
 	if len(message.MediaPayload) == 0 {
 		state.err = app.NewCommandError(app.CommandErrorRejected, "media is not available for download")
@@ -284,11 +307,18 @@ func (c *Client) DownloadMessageMedia(ctx context.Context, messageID string) (ap
 	}
 	if err := client.DownloadToFile(ctx, media, progress); err != nil {
 		if staleMediaDownloadError(err) {
+			// Every step of the retry says what it did. A media fetch that
+			// quietly falls back and fails again is indistinguishable in the
+			// log from one that never tried, which is exactly how long the
+			// missing hash-mismatch case took to find.
+			c.log.Infof("Media for %s did not verify (%v); asking the sender for a fresh path", message.ID, err)
 			message, err = c.refreshMediaForDownload(ctx, client, message, media)
 			if err != nil {
+				c.log.Warnf("Media retry for %s got nowhere: %v", message.ID, err)
 				state.err = err
 				return appstore.Message{}, state.err
 			}
+			c.log.Infof("Media retry for %s returned a fresh path; downloading again", message.ID)
 			media, err = downloadableMediaMessage(message)
 			if err != nil {
 				state.err = err
@@ -302,6 +332,14 @@ func (c *Client) DownloadMessageMedia(ctx context.Context, messageID string) (ap
 			}
 		}
 		if err != nil {
+			if staleMediaDownloadError(err) {
+				// The sender handed over a fresh path and it still does not
+				// verify, so the media itself is gone rather than moved. Say
+				// that, rather than repeating a hash mismatch nobody can act on.
+				state.err = app.NewCommandError(app.CommandErrorNotFound,
+					"this media is no longer available from the sender")
+				return appstore.Message{}, state.err
+			}
 			state.err = app.NewCommandError(app.CommandErrorNotConnected, "download media: %v", err)
 			return appstore.Message{}, state.err
 		}
@@ -490,10 +528,22 @@ func decodedImageDimensionsFromReader(reader io.Reader) (int32, int32) {
 	return int32(cfg.Width), int32(cfg.Height)
 }
 
+// staleMediaDownloadError reports whether the failure says the path we stored
+// no longer describes the blob, which a media retry repairs by asking the
+// sender to hand us a fresh one.
+//
+// The three statuses are the obvious half: the CDN says gone. The hash and
+// length mismatches are the other half and were missing, which is why old
+// media sat on "could not be downloaded" forever with a Try again button that
+// could only ever fail the same way. They arrive as a perfectly good 200 whose
+// body is not what the message describes, because the media was rotated server
+// side; whatsmeow has already tried every host by the time it says so.
 func staleMediaDownloadError(err error) bool {
 	return errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith403) ||
 		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith404) ||
-		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith410)
+		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith410) ||
+		errors.Is(err, whatsmeow.ErrInvalidMediaEncSHA256) ||
+		errors.Is(err, whatsmeow.ErrFileLengthMismatch)
 }
 
 func (c *Client) refreshMediaForDownload(ctx context.Context, client *whatsmeow.Client, message appstore.Message, media downloadableMedia) (appstore.Message, error) {

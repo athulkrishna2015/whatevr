@@ -41,12 +41,6 @@ VideoSurfaceBackend {
         }
     }
 
-    function captureStill() {
-        if (session) {
-            session.captureStill()
-        }
-    }
-
     // The owner's wishes, pushed into the session rather than bound: two views
     // exist for a moment during a handoff, and only the one holding the session
     // may steer it.
@@ -55,6 +49,7 @@ VideoSurfaceBackend {
     onLoopChanged: if (session) session.loop = loop
     onSpeedChanged: if (session) session.rate = speed
     onVolumeChanged: if (session) session.volume = volume
+    onCoverChanged: if (session) session.setCoverContainer(cover)
 
     /// The session this view is currently showing, which is not always the one
     /// in `session`: that property is cleared the moment a handoff starts, and
@@ -77,6 +72,7 @@ VideoSurfaceBackend {
         session.loop = loop
         session.rate = speed
         session.volume = volume
+        session.setCoverContainer(cover)
         session.attachView(videoArea)
     }
 
@@ -88,6 +84,7 @@ VideoSurfaceBackend {
             session.loop = loop
             session.rate = speed
             session.volume = volume
+            session.setCoverContainer(cover)
             session.attachView(videoArea)
         }
     }

@@ -80,9 +80,32 @@ public:
     void setInitialMessagesExhausted(bool exhausted) { m_initialMessagesExhausted = exhausted; }
     void setNextExtendExhausted(bool exhausted) { m_nextExtendExhausted = exhausted; }
     void setHoldMessagesReady(bool hold) { m_holdMessagesReady = hold; }
+    // The sub id of the most recent `messages` subscribe whose `ready` was
+    // held back, so a test can release it after switching chats.
+    [[nodiscard]] int heldMessagesSub() const { return m_heldMessagesSub; }
+    void releaseMessagesReady(int sub, bool exhausted = false)
+    {
+        sendReady(sub, true, exhausted);
+    }
     void setHoldChatReady(bool hold) { m_holdChatReady = hold; }
     void setHoldExtendReady(bool hold) { m_holdExtendReady = hold; }
+    void setHoldPollVote(bool hold) { m_holdPollVote = hold; }
+    void releasePollVote(bool rejected = false)
+    {
+        if (m_heldPollVoteId < 0) {
+            return;
+        }
+        const int id = std::exchange(m_heldPollVoteId, -1);
+        if (rejected) {
+            error(id, QStringLiteral("rejected"), QStringLiteral("vote rejected"));
+        } else {
+            reply(id, QJsonObject{});
+        }
+    }
     void setRejectNextExtend(bool reject) { m_rejectNextExtend = reject; }
+    // Reject the next `messages` subscribe outright, the way the daemon does
+    // when the window it was asked for cannot be served.
+    void setRejectNextMessagesSubscribe(bool reject) { m_rejectNextMessagesSubscribe = reject; }
     void setRejectNextSend(bool reject) { m_rejectNextSend = reject; }
     void setRejectMessageCommands(bool reject) { m_rejectMessageCommands = reject; }
 
@@ -185,6 +208,7 @@ public:
     void setSearchStickers(const QJsonArray &stickers) { m_searchStickers = stickers; }
     void setCheckPhone(const QJsonObject &result) { m_checkPhone = result; }
     void setEnsureDirectChatId(const QString &chatId) { m_ensureDirectChatId = chatId; }
+    void setJoinInviteChatId(const QString &chatId) { m_joinInviteChatId = chatId; }
     void setProfilePicturePath(const QString &path) { m_profilePicturePath = path; }
 
     int reconnectCount = 0;
@@ -211,6 +235,8 @@ public:
     QStringList unsubscribedViews;
     // Every `message.*` command received, in order.
     QStringList messageCommands;
+    // Params of every `poll.vote`, in order.
+    QList<QJsonObject> pollVotes;
 
 Q_SIGNALS:
     void reconnectRequested();
@@ -268,6 +294,14 @@ private:
                 error(id, QStringLiteral("not_found"), QStringLiteral("message not found"));
                 return;
             }
+            if (view == QLatin1String("messages")
+                && std::exchange(m_rejectNextMessagesSubscribe, false)) {
+                lastMessagesParams = params;
+                ++messagesSubscribeCount;
+                error(id, QStringLiteral("internal"), QStringLiteral("window unavailable"));
+                Q_EMIT messagesSubscribed();
+                return;
+            }
             QJsonObject result{{QStringLiteral("sub"), sub}};
             if (view == QLatin1String("messages")) {
                 const QString anchor = params.value(QStringLiteral("anchor")).toString();
@@ -322,6 +356,8 @@ private:
             if ((view != QLatin1String("messages") || !m_holdMessagesReady)
                 && (view != QLatin1String("chat") || !m_holdChatReady)) {
                 sendReady(sub, view == QLatin1String("messages"), m_initialMessagesExhausted);
+            } else if (view == QLatin1String("messages")) {
+                m_heldMessagesSub = sub;
             }
             if (view == QLatin1String("chats")) {
                 lastChatsParams = params;
@@ -425,6 +461,18 @@ private:
                 reply(id, m_checkPhone);
             }
             Q_EMIT queryReceived(method);
+        } else if (method == QLatin1String("poll.vote")) {
+            lastCommandMethod = method;
+            lastCommandParams = params;
+            pollVotes.append(params);
+            // Held so a test can look at the in-flight state, which is the
+            // whole point of an optimistic vote.
+            if (m_holdPollVote) {
+                m_heldPollVoteId = id;
+            } else {
+                reply(id, QJsonObject{});
+            }
+            Q_EMIT commandReceived();
         } else if (method == QLatin1String("contact.block")) {
             lastCommandMethod = method;
             lastCommandParams = params;
@@ -451,6 +499,11 @@ private:
             lastCommandMethod = method;
             lastCommandParams = params;
             reply(id, QJsonObject{{QStringLiteral("chat_id"), m_ensureDirectChatId}});
+            Q_EMIT commandReceived();
+        } else if (method == QLatin1String("group.join_invite")) {
+            lastCommandMethod = method;
+            lastCommandParams = params;
+            reply(id, QJsonObject{{QStringLiteral("chat_id"), m_joinInviteChatId}});
             Q_EMIT commandReceived();
         } else if (method == QLatin1String("daemon.reconnect")) {
             ++reconnectCount;
@@ -524,12 +577,16 @@ private:
     bool m_initialMessagesExhausted = false;
     bool m_nextExtendExhausted = false;
     bool m_holdMessagesReady = false;
+    int m_heldMessagesSub = -1;
     bool m_holdChatReady = false;
     bool m_holdExtendReady = false;
+    bool m_holdPollVote = false;
+    int m_heldPollVoteId = -1;
     bool m_heldExtendExhausted = false;
     int m_activeChatsSub = -1;
     int m_heldExtendSub = -1;
     bool m_rejectNextExtend = false;
+    bool m_rejectNextMessagesSubscribe = false;
     bool m_rejectNextSend = false;
     bool m_rejectMessageCommands = false;
     QJsonArray m_searchChats;
@@ -537,6 +594,7 @@ private:
     QJsonArray m_searchStickers;
     QJsonObject m_checkPhone;
     QString m_ensureDirectChatId;
+    QString m_joinInviteChatId;
     QString m_profilePicturePath;
 };
 
@@ -1171,16 +1229,22 @@ private Q_SLOTS:
         QCOMPARE(daemon.lastMessagesParams.value(QStringLiteral("anchor")).toString(), QStringLiteral("target"));
         QVERIFY(!ctrl.messagesAtLiveEdge());
 
+        // Back to the live edge, and no third subscribe: this chat's `latest`
+        // window is still warm from the open, so returning to it is taking the
+        // pane back rather than asking the daemon again.
         ctrl.jumpToBottom();
-        QTRY_COMPARE(daemon.messagesSubscribeCount, 3);
-        QCOMPARE(daemon.lastMessagesParams.value(QStringLiteral("anchor")).toString(), QStringLiteral("latest"));
         QTRY_VERIFY(ctrl.messagesAtLiveEdge());
+        QCOMPARE(daemon.messagesSubscribeCount, 2);
 
         QSignalSpy unavailableSpy(&ctrl, &ProtocolController::messageJumpUnavailable);
         ctrl.jumpToMessage(QStringLiteral("not-found"));
         QTRY_COMPARE(unavailableSpy.count(), 1);
         QVERIFY(ctrl.messageErrorText().isEmpty());
-        QTRY_COMPARE(daemon.messagesSubscribeCount, 4); // prior latest window restored
+        // Still two. The rejected anchor is never counted (the daemon answers it
+        // with an error rather than a subscription), and the fallback that puts
+        // the reader back at the live edge finds that window warm.
+        QTRY_VERIFY(ctrl.messagesAtLiveEdge());
+        QCOMPARE(daemon.messagesSubscribeCount, 2);
     }
 
     void readWatermarkAndOpenChatUseConnectionSurface()
@@ -1248,7 +1312,304 @@ private Q_SLOTS:
         QVERIFY(ctrl.canLoadNewerMessages());
     }
 
-    void hiddenConversationClearsSessionAndResubscribesWhenShown()
+    // Switching back to a chat you were just in must not ask the daemon again,
+    // and must not empty the transcript on the way. Those two together are what
+    // make the return instant: the pane still holds its rows, so there is
+    // nothing to rebuild and nothing to wait for.
+    void returningToARecentChatCostsNoRoundTripAndKeepsItsRows()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats({chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000")),
+                               chatRow(QStringLiteral("b@s"), QStringLiteral("Bob"), QStringLiteral("1-001"))});
+        daemon.setMessages({messageRow(QStringLiteral("m1"), QStringLiteral("0001")),
+                            messageRow(QStringLiteral("m2"), QStringLiteral("0002"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_VERIFY(!ctrl.chatsLoading());
+        ctrl.setConversationVisible(true);
+
+        ctrl.selectChat(QStringLiteral("a@s"));
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("a@s"));
+        QCOMPARE(daemon.messagesSubscribeCount, 1);
+        auto *first = qobject_cast<ProtocolMessageModel *>(ctrl.messageListModel());
+        QVERIFY(first);
+        QCOMPARE(first->rowCount(), 2);
+
+        ctrl.selectChat(QStringLiteral("b@s"));
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("b@s"));
+        QCOMPARE(daemon.messagesSubscribeCount, 2);
+        // A different chat is a different model, which is the point: the first
+        // one is still intact behind it rather than having been emptied.
+        QVERIFY(ctrl.messageListModel() != first);
+        QCOMPARE(first->rowCount(), 2);
+
+        ctrl.selectChat(QStringLiteral("a@s"));
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("a@s"));
+        QCOMPARE(daemon.messagesSubscribeCount, 2); // warm: nothing was asked
+        QCOMPARE(ctrl.messageListModel(), first);   // and the same rows came back
+        QCOMPARE(first->rowCount(), 2);
+    }
+
+    // The pool is finite, so the chat that has been away longest gives up its
+    // slot. Coming back to that one does cost a round trip again.
+    void theColdestChatLosesItsSlotWhenThePoolIsFull()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        QList<QJsonObject> chats;
+        for (int i = 0; i < 6; ++i) {
+            chats.append(chatRow(QStringLiteral("c%1@s").arg(i), QStringLiteral("Chat %1").arg(i),
+                                 QStringLiteral("1-%1").arg(i, 3, 10, QLatin1Char('0'))));
+        }
+        daemon.setActiveChats(chats);
+        daemon.setMessages({messageRow(QStringLiteral("m1"), QStringLiteral("0001"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_VERIFY(!ctrl.chatsLoading());
+        ctrl.setConversationVisible(true);
+
+        // Fill the pool, then push one more chat through it.
+        const int warm = ProtocolController::warmWindowCount();
+        for (int i = 0; i <= warm; ++i) {
+            ctrl.selectChat(QStringLiteral("c%1@s").arg(i));
+            QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("c%1@s").arg(i));
+        }
+        QCOMPARE(daemon.messagesSubscribeCount, warm + 1);
+
+        // The one visited most recently before this is still warm.
+        ctrl.selectChat(QStringLiteral("c%1@s").arg(warm - 1));
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("c%1@s").arg(warm - 1));
+        QCOMPARE(daemon.messagesSubscribeCount, warm + 1);
+
+        // The first one is not: it was evicted to make room.
+        ctrl.selectChat(QStringLiteral("c0@s"));
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("c0@s"));
+        QCOMPARE(daemon.messagesSubscribeCount, warm + 2);
+    }
+
+    // A fill that completes after a chat switch lands on its own session.
+    //
+    // Every piece of "where this transcript was left" used to live in
+    // single-valued members on the controller and be copied in and out of a
+    // per-window struct on each switch. A `ready` for the chat the reader has
+    // just left arrived after that copy, so it wrote the new chat's frontier,
+    // its displayed id and its loading flags with the old chat's answers.
+    void aDelayedCompletionAfterAChatSwitchLandsOnItsOwnSession()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats({chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000")),
+                               chatRow(QStringLiteral("b@s"), QStringLiteral("Bob"), QStringLiteral("1-001"))});
+        daemon.setMessages({messageRow(QStringLiteral("m1"), QStringLiteral("0001"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_VERIFY(!ctrl.chatsLoading());
+        ctrl.setConversationVisible(true);
+
+        // Alice opens, and her fill is left hanging.
+        daemon.setHoldMessagesReady(true);
+        ctrl.selectChat(QStringLiteral("a@s"));
+        QTRY_COMPARE(daemon.messagesSubscribeCount, 1);
+        const int aliceSub = daemon.heldMessagesSub();
+        QVERIFY(aliceSub > 0);
+        QVERIFY(ctrl.displayedMessagesChatId().isEmpty());
+
+        // The reader gives up and opens Bob, whose fill completes normally.
+        daemon.setHoldMessagesReady(false);
+        ctrl.selectChat(QStringLiteral("b@s"));
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("b@s"));
+        QVERIFY(!ctrl.messagesLoading());
+
+        // Alice's answer finally arrives, saying her history is exhausted.
+        // Nothing about Bob may move.
+        const bool bobCanLoadOlder = ctrl.canLoadOlderMessages();
+        daemon.releaseMessagesReady(aliceSub, true);
+        QTest::qWait(50);
+
+        QCOMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("b@s"));
+        QCOMPARE(ctrl.canLoadOlderMessages(), bobCanLoadOlder);
+        QVERIFY(!ctrl.messagesLoading());
+
+        // And Alice kept it: coming back finds her window warm and settled,
+        // with no second subscribe.
+        ctrl.selectChat(QStringLiteral("a@s"));
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("a@s"));
+        QCOMPARE(daemon.messagesSubscribeCount, 2);
+        QVERIFY(!ctrl.messagesLoading());
+        QVERIFY(!ctrl.canLoadOlderMessages());
+    }
+
+    // Exactly one warm window is ever the current one.
+    //
+    // Jumping to a message the window does not hold re-subscribes the same chat
+    // at a new anchor, and both windows stay warm on purpose: that is what makes
+    // going back to the live edge free. So a chat legitimately owns two panes,
+    // and the conversation used to pick which was on screen by comparing chat
+    // ids, which both of them matched. Two panes drew at once, both claimed the
+    // conversation's message-view pointer, and both handled every jump result;
+    // the one without the target announced it missing and kept its highlight.
+    // The controller names the active window so there can only be one.
+    void onlyOneWarmWindowIsCurrentAfterAJumpReanchorsAChat()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats({chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});
+        daemon.setMessages({messageRow(QStringLiteral("m1"), QStringLiteral("0001"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_VERIFY(!ctrl.chatsLoading());
+        ctrl.setConversationVisible(true);
+        ctrl.selectChat(QStringLiteral("a@s"));
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("a@s"));
+
+        // Windows holding this chat, and how many of them claim to be current.
+        const auto census = [&](const QString &chatId) {
+            int held = 0;
+            int active = 0;
+            const QVariantList warm = ctrl.warmWindows();
+            for (const QVariant &entry : warm) {
+                const QVariantMap row = entry.toMap();
+                if (row.value(QStringLiteral("chatId")).toString() != chatId) {
+                    continue;
+                }
+                ++held;
+                if (row.value(QStringLiteral("active")).toBool()) {
+                    ++active;
+                }
+            }
+            return std::pair<int, int>(held, active);
+        };
+        auto [heldAtOpen, activeAtOpen] = census(QStringLiteral("a@s"));
+        QCOMPARE(heldAtOpen, 1);
+        QCOMPARE(activeAtOpen, 1);
+
+        // A jump into history: a second window over the same chat.
+        QSignalSpy unavailableSpy(&ctrl, &ProtocolController::messageJumpUnavailable);
+        daemon.setMessages({messageRow(QStringLiteral("target"), QStringLiteral("0005"))});
+        ctrl.jumpToMessage(QStringLiteral("target"));
+        QTRY_COMPARE(daemon.messagesSubscribeCount, 2);
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("a@s"));
+
+        // Both are warm, which is the point of the pool, but only one is current.
+        const std::pair<int, int> afterJump = census(QStringLiteral("a@s"));
+        QCOMPARE(afterJump.first, 2);
+        QVERIFY2(afterJump.second == 1,
+                 qPrintable(QStringLiteral("%1 of this chat's %2 warm windows claim to be current")
+                                .arg(afterJump.second)
+                                .arg(afterJump.first)));
+        // The jump found its message, so nothing may claim it did not.
+        QCOMPARE(unavailableSpy.count(), 0);
+
+        // And the model the conversation renders is the active window's.
+        const QVariantList warm = ctrl.warmWindows();
+        for (const QVariant &entry : warm) {
+            const QVariantMap row = entry.toMap();
+            if (!row.value(QStringLiteral("active")).toBool()) {
+                continue;
+            }
+            QCOMPARE(row.value(QStringLiteral("model")).value<QObject *>(),
+                     static_cast<QObject *>(ctrl.messageListModel()));
+        }
+
+        // Back to the live edge: still warm, still exactly one current window.
+        ctrl.jumpToBottom();
+        QTRY_VERIFY(ctrl.messagesAtLiveEdge());
+        QCOMPARE(daemon.messagesSubscribeCount, 2);
+        auto [heldAtEdge, activeAtEdge] = census(QStringLiteral("a@s"));
+        QCOMPARE(heldAtEdge, 2);
+        QCOMPARE(activeAtEdge, 1);
+    }
+
+    // Retrying a window the daemon refused has to ask the daemon again.
+    //
+    // A rejected subscribe left its entry sitting in the warm pool at the anchor
+    // it had failed at, and the pool answers by anchor, so the retry found it
+    // "warm", took it back, restored the error it was holding and never sent a
+    // thing. The Retry button under "Messages could not be loaded" did nothing
+    // at all, for the life of the pool slot.
+    void retryingARejectedWindowSubscribesAgain()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats({chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});
+        daemon.setMessages({messageRow(QStringLiteral("m1"), QStringLiteral("0001"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_VERIFY(!ctrl.chatsLoading());
+        ctrl.setConversationVisible(true);
+
+        daemon.setRejectNextMessagesSubscribe(true);
+        ctrl.selectChat(QStringLiteral("a@s"));
+        QTRY_COMPARE(daemon.messagesSubscribeCount, 1);
+        QTRY_VERIFY(!ctrl.messageErrorText().isEmpty());
+        QVERIFY(ctrl.displayedMessagesChatId().isEmpty());
+
+        // The retry must reach the daemon, and this time it is served.
+        ctrl.retryMessages();
+        QTRY_COMPARE(daemon.messagesSubscribeCount, 2);
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("a@s"));
+        QVERIFY(ctrl.messageErrorText().isEmpty());
+
+        auto *messages = qobject_cast<ProtocolMessageModel *>(ctrl.messageListModel());
+        QVERIFY(messages);
+        QCOMPARE(messages->rowCount(), 1);
+    }
+
+    // A reconnect re-issues every warm subscription at once, and only one of
+    // them is the chat on screen.
+    //
+    // The subscribe/failed handlers wrote the controller's single-valued window
+    // state without asking which window they belonged to. So a background chat
+    // whose re-subscribe was refused put "Messages could not be loaded" on the
+    // conversation the reader was actually looking at, which had just been
+    // served perfectly well. The model signals had been guarded for this all
+    // along; the subscription signals had not.
+    void aWarmWindowsFailureDoesNotBreakTheVisibleChat()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats({
+            chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000")),
+            chatRow(QStringLiteral("b@s"), QStringLiteral("Bob"), QStringLiteral("1-001")),
+        });
+        daemon.setMessages({messageRow(QStringLiteral("m1"), QStringLiteral("0001")),
+                            messageRow(QStringLiteral("m2"), QStringLiteral("0002"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_VERIFY(!ctrl.chatsLoading());
+        ctrl.setConversationVisible(true);
+
+        // a@s subscribes first, so it is also the first to be re-issued.
+        ctrl.selectChat(QStringLiteral("a@s"));
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("a@s"));
+        ctrl.selectChat(QStringLiteral("b@s"));
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("b@s"));
+        QCOMPARE(daemon.messagesSubscribeCount, 2);
+
+        // The socket drops and the first window back is refused.
+        daemon.setRejectNextMessagesSubscribe(true);
+        daemon.dropClients();
+        QTRY_COMPARE(daemon.messagesSubscribeCount, 4);
+
+        // The chat on screen is untouched: it was served, and somebody else's
+        // rejection is not its error to show.
+        QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("b@s"));
+        QVERIFY2(ctrl.messageErrorText().isEmpty(),
+                 qPrintable(QStringLiteral("the visible chat was given another window's error: %1")
+                                .arg(ctrl.messageErrorText())));
+        auto *messages = qobject_cast<ProtocolMessageModel *>(ctrl.messageListModel());
+        QVERIFY(messages);
+        QCOMPARE(messages->rowCount(), 2);
+    }
+
+    void hiddenConversationClearsTheSessionButKeepsItsTranscriptWarm()
     {
         FakeDaemon daemon(m_path);
         daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
@@ -1268,9 +1629,16 @@ private Q_SLOTS:
         QVERIFY(ctrl.hasSelectedChat()); // presentation selection survives the status page
         QVERIFY(ctrl.displayedMessagesChatId().isEmpty());
 
+        // Coming back does not ask again. The window stayed subscribed while
+        // the conversation was off screen, which is both what makes the return
+        // instant and what kept it correct in the meantime.
+        //
+        // The daemon is still told nothing is on screen, though: notification
+        // suppression and presence key off `session.update`, not off this
+        // subscription, so a warm chat off screen still notifies.
         ctrl.setConversationVisible(true);
-        QTRY_COMPARE(daemon.messagesSubscribeCount, 2);
         QTRY_COMPARE(ctrl.displayedMessagesChatId(), QStringLiteral("a@s"));
+        QCOMPARE(daemon.messagesSubscribeCount, 1);
     }
 
     void resetDuringInitialFillStillCompletesUnreadAndJump()
@@ -1367,7 +1735,9 @@ private Q_SLOTS:
         QTRY_VERIFY(!ctrl.phoneHistoryRequesting());
         auto *messages = qobject_cast<ProtocolMessageModel *>(ctrl.messageListModel());
         QVERIFY(messages);
-        QCOMPARE(messages->messageIdAt(0), QStringLiteral("old2"));
+        // The rows are held newest-first, so the oldest one has to be asked
+        // for by name rather than found at index 0.
+        QCOMPARE(messages->oldestMessageId(), QStringLiteral("old2"));
 
         ctrl.requestOlderMessagesFromPhone();
         QTRY_VERIFY(ctrl.phoneHistoryRequesting());
@@ -1775,6 +2145,67 @@ private Q_SLOTS:
         QVERIFY(ctrl.canEditAt(QDateTime::currentSecsSinceEpoch() - 60));
         QVERIFY(!ctrl.canEditAt(QDateTime::currentSecsSinceEpoch() - 3600));
         QVERIFY(!ctrl.canEditAt(0));
+    }
+
+    // Voting sends the whole selection and answers the tap before the daemon
+    // does. The bubble calls this from QML, so its absence is not a compile
+    // error anywhere: it shipped once as a call into nothing, and every tap
+    // logged a TypeError instead of voting.
+    void pollVotesAreSentAndEchoedWhileInFlight()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats({chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_VERIFY(!ctrl.chatsLoading());
+
+        // Nothing pending for a poll nobody has touched, which is what tells a
+        // row to render the daemon's tally rather than an empty selection.
+        QVERIFY(!ctrl.pendingPollSelection(QStringLiteral("m1")).isValid());
+
+        daemon.setHoldPollVote(true);
+        QSignalSpy commandSpy(&daemon, &FakeDaemon::commandReceived);
+        ctrl.votePoll(QStringLiteral("m1"), QVariantList{0, 2});
+
+        // The echo is synchronous with the call: the row must not wait even one
+        // event loop turn to show what was tapped.
+        QCOMPARE(ctrl.pendingPollSelection(QStringLiteral("m1")).toList(), (QVariantList{0, 2}));
+
+        QVERIFY(commandSpy.wait());
+        QCOMPARE(daemon.pollVotes.size(), 1);
+        QCOMPARE(daemon.pollVotes.first().value(QStringLiteral("message_id")).toString(), QStringLiteral("m1"));
+        QCOMPARE(daemon.pollVotes.first().value(QStringLiteral("option_ids")).toArray(),
+                 (QJsonArray{0, 2}));
+        // Still in flight, so the echo still stands.
+        QCOMPARE(ctrl.pendingPollSelection(QStringLiteral("m1")).toList(), (QVariantList{0, 2}));
+
+        daemon.releasePollVote();
+        // Once the daemon has answered, its tally is the truth and the echo goes.
+        QTRY_VERIFY(!ctrl.pendingPollSelection(QStringLiteral("m1")).isValid());
+
+        // A rejected vote drops the echo too, so the row falls back to the
+        // tally the daemon rolled back to rather than showing a vote nobody
+        // else will ever see.
+        QSignalSpy failedSpy(&ctrl, &ProtocolController::messageActionFailed);
+        ctrl.votePoll(QStringLiteral("m1"), QVariantList{1});
+        QCOMPARE(ctrl.pendingPollSelection(QStringLiteral("m1")).toList(), (QVariantList{1}));
+        QTRY_COMPARE(daemon.pollVotes.size(), 2);
+        daemon.releasePollVote(true);
+        QVERIFY(failedSpy.wait());
+        QVERIFY(!ctrl.pendingPollSelection(QStringLiteral("m1")).isValid());
+
+        // Taking a vote back is an empty selection, not a missing command.
+        daemon.setHoldPollVote(false);
+        ctrl.votePoll(QStringLiteral("m1"), QVariantList{});
+        QTRY_COMPARE(daemon.pollVotes.size(), 3);
+        QVERIFY(daemon.pollVotes.at(2).value(QStringLiteral("option_ids")).toArray().isEmpty());
+
+        // An empty id never reaches the daemon.
+        ctrl.votePoll(QString(), QVariantList{0});
+        QTest::qWait(50);
+        QCOMPARE(daemon.pollVotes.size(), 3);
     }
 
     // The pinned banner is the displayed conversation's `pinned` view: it
@@ -2329,6 +2760,31 @@ private Q_SLOTS:
         QVERIFY(!ctrl.searchActive());
     }
 
+    // Accepting a group invite has to land you in the group. The chat id is not
+    // something the frontend can work out: the group's jid lives inside the
+    // message payload and the daemon is what answers with it, so the ack is the
+    // only route from the button to the chat.
+    void joinGroupInviteGoesToTheGroup()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats({chatRow(QStringLiteral("120@g.us"), QStringLiteral("Wow3"), QStringLiteral("1-000"))});
+        daemon.setJoinInviteChatId(QStringLiteral("120@g.us"));
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_VERIFY(!ctrl.chatsLoading());
+
+        QSignalSpy openSpy(&ctrl, &ProtocolController::openChatRequested);
+        ctrl.joinGroupInvite(QStringLiteral("chat@s:m1"));
+        QVERIFY(openSpy.wait());
+        QCOMPARE(openSpy.first().first().toString(), QStringLiteral("120@g.us"));
+        QCOMPARE(ctrl.selectedChatId(), QStringLiteral("120@g.us"));
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("group.join_invite"));
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("message_id")).toString(),
+                 QStringLiteral("chat@s:m1"));
+    }
+
     // D6: session-long self/preferences rows and page-scoped privacy/blocklist
     // rows stay daemon-owned; every mutation is an ack and waits for a view
     // upsert/remove rather than changing the controller's copy optimistically.
@@ -2593,6 +3049,80 @@ private Q_SLOTS:
 
         QSettings().remove(QStringLiteral("settings/drafts"));
         QStandardPaths::setTestModeEnabled(false);
+    }
+
+    // Handing an event to the desktop's own calendar is the thing a phone
+    // cannot do, and it only works if the file is actually valid. iCalendar
+    // gives comma, semicolon and backslash meaning inside a text value and ends
+    // a property at a newline, so an unescaped event name or description is a
+    // file a calendar rejects outright.
+    void eventCalendarEntryEscapesWhatICalendarReserves()
+    {
+        const QVariantMap event{
+            {QStringLiteral("name"), QStringLiteral("Dinner; drinks, later")},
+            {QStringLiteral("description"), QStringLiteral("line one\nline two")},
+            {QStringLiteral("starts_at"), 1'700'000'000},
+            {QStringLiteral("ends_at"), 1'700'007'200},
+            {QStringLiteral("join_link"), QStringLiteral("https://call.whatsapp.com/abc")},
+            {QStringLiteral("location"),
+             QVariantMap{{QStringLiteral("name"), QStringLiteral("Cafe Noir")},
+                         {QStringLiteral("address"), QStringLiteral("12 MG Road, Bengaluru")}}},
+        };
+
+        const QString ics = ProtocolController::eventCalendarEntry(QStringLiteral("chat@s:m1"), event);
+        QVERIFY(ics.startsWith(QStringLiteral("BEGIN:VCALENDAR\r\n")));
+        QVERIFY(ics.endsWith(QStringLiteral("END:VCALENDAR\r\n")));
+        // CRLF throughout, not the platform's newline: §3.1 says so and some
+        // calendars enforce it.
+        QVERIFY(!ics.contains(QRegularExpression(QStringLiteral("[^\r]\n"))));
+
+        QVERIFY2(ics.contains(QStringLiteral("SUMMARY:Dinner\\; drinks\\, later")),
+                 qPrintable(ics));
+        QVERIFY2(ics.contains(QStringLiteral("DESCRIPTION:line one\\nline two")), qPrintable(ics));
+        // Times are UTC with a Z, so an event does not land an hour out for
+        // anyone whose calendar reads them as floating local times.
+        QVERIFY2(ics.contains(QStringLiteral("DTSTART:20231114T221320Z")), qPrintable(ics));
+        QVERIFY2(ics.contains(QStringLiteral("DTEND:20231115T001320Z")), qPrintable(ics));
+        // The UID is the message id, so importing the same event twice updates
+        // the entry instead of leaving two copies in the user's week.
+        QVERIFY2(ics.contains(QStringLiteral("UID:chat@s:m1@whatevr")), qPrintable(ics));
+        QVERIFY2(ics.contains(QStringLiteral("LOCATION:Cafe Noir\\, 12 MG Road\\, Bengaluru")),
+                 qPrintable(ics));
+
+        // No start time is not an event, and must not produce a file at all.
+        QVERIFY(ProtocolController::eventCalendarEntry(QStringLiteral("m2"), {}).isEmpty());
+    }
+
+    // A long description has to fold to 75 octets per line, and folding must
+    // never split a multi-byte character in half.
+    void eventCalendarEntryFoldsLongLinesWithoutBreakingUtf8()
+    {
+        const QString long8 = QString::fromUtf8("भोजन ").repeated(30);
+        const QVariantMap event{
+            {QStringLiteral("name"), long8},
+            {QStringLiteral("starts_at"), 1'700'000'000},
+        };
+        const QString ics = ProtocolController::eventCalendarEntry(QStringLiteral("m3"), event);
+
+        const QStringList lines = ics.split(QStringLiteral("\r\n"));
+        bool sawContinuation = false;
+        for (const QString &line : lines) {
+            QVERIFY2(line.toUtf8().size() <= 75, qPrintable(line));
+            if (line.startsWith(QLatin1Char(' '))) {
+                sawContinuation = true;
+            }
+        }
+        QVERIFY2(sawContinuation, "a long summary was never folded");
+        // Unfolding puts it back exactly, which is only true if no character
+        // was cut in half on the way out.
+        QString unfolded = ics;
+        unfolded.replace(QStringLiteral("\r\n "), QString());
+        // Against the simplified name, because that is what the entry carries:
+        // an event name is squeezed of stray whitespace before it is written.
+        const QString wanted = QStringLiteral("SUMMARY:") + long8.simplified();
+        QVERIFY2(unfolded.contains(wanted),
+                 qPrintable(QStringLiteral("folding corrupted the text\nunfolded=[%1]\nwanted=[%2]")
+                                .arg(unfolded, wanted)));
     }
 
     // The Backspace helper deletes whole grapheme clusters, so an emoji with a

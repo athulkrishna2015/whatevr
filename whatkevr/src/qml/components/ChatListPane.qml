@@ -136,6 +136,22 @@ Kirigami.Page {
             Layout.bottomMargin: Whatevr.ProtocolController.historySyncVisible ? Kirigami.Units.smallSpacing : 0
         }
 
+        // Audio keeps playing when you leave the chat it came from, so its
+        // controls live here, above every chat, rather than in the one bubble
+        // that started it.
+        NowPlayingBar {
+            Layout.margins: Kirigami.Units.largeSpacing
+            Layout.topMargin: Whatevr.ProtocolController.historySyncVisible ? 0 : Kirigami.Units.largeSpacing
+            Layout.bottomMargin: Whatevr.AudioPlayer.messageId.length > 0 ? Kirigami.Units.smallSpacing : 0
+
+            onRevealRequested: (chatId, messageId) => {
+                if (chatId.length === 0)
+                    return
+                Whatevr.ProtocolController.showMessageInChat(chatId, messageId)
+                root.chatSelected(chatId)
+            }
+        }
+
         Kirigami.InlineMessage {
             Layout.fillWidth: true
             Layout.leftMargin: Kirigami.Units.largeSpacing

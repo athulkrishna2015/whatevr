@@ -12,22 +12,28 @@ import org.kde.kirigami as Kirigami
 // actually enter or leave the viewport — and while pressed the thumb is
 // pointer-bound, so the view chases the thumb and never the reverse.
 //
-// Written for an ascending ListView: index 0 = oldest = visual top, highest
-// index = newest = visual bottom.
+// Everything here counts rows on the screen, never model indices. The
+// transcript is held newest-first so that a BottomToTop ListView can pin its
+// live edge at row 0, which means a row's index says nothing about where it is
+// drawn; the owner does that translation once (see MessageView) and hands this
+// two plain quantities: how many rows are above the viewport, and how many it
+// shows. A thumb that thought in indices would run backwards.
 Item {
     id: root
 
     // Row-window inputs, bound by the owner (see MessageView.updateScrollState).
     property int count: 0
-    // Row at the visual top of the viewport (lowest visible index).
-    property int topVisibleIndex: -1
-    // Row at the visual bottom of the viewport (highest visible index).
-    property int bottomVisibleIndex: -1
-    // Fraction (0..1) of the top row scrolled off above the viewport.
-    property real topRowFraction: 0
+    // Rows lying entirely above the viewport, plus the fraction of the topmost
+    // visible row that is scrolled off above it. Fractional so the thumb sweeps
+    // continuously rather than in row-sized steps.
+    property real rowsAbove: 0
+    // How many rows the viewport is showing.
+    property int visibleSpan: 1
 
-    // Anchor `index` at the visual top, then hide `fraction` of it above.
-    signal dragPositionRequested(int index, real fraction)
+    // Put this many rows above the viewport. Fractional, and in the same units
+    // as `rowsAbove`, so the owner converts it back to whatever a row index
+    // means to it.
+    signal dragPositionRequested(real rowsAbove)
     signal jumpToNewestRequested()
 
     readonly property bool dragging: dragArea.pressed
@@ -36,14 +42,7 @@ Item {
     readonly property real minThumb: Kirigami.Units.gridUnit
     readonly property real visualWidth: hoveredOrActive ? Kirigami.Units.smallSpacing * 1.5 : 2
 
-    readonly property real visibleSpan: topVisibleIndex >= 0 && bottomVisibleIndex >= 0
-                                         ? Math.max(1, bottomVisibleIndex - topVisibleIndex + 1)
-                                        : 1
     readonly property bool scrollable: count > 0 && visibleSpan < count
-    // Whole rows fully above the viewport plus the fractional part of the top
-    // row: sweeps continuously as rows pass the top edge, so the thumb moves
-    // smoothly instead of in row-sized steps.
-    readonly property real rowsAbove: Math.max(0, topVisibleIndex + topRowFraction)
     readonly property real denom: Math.max(1, count - visibleSpan)
     readonly property real posFraction: Math.max(0, Math.min(1, rowsAbove / denom))
     readonly property real thumbHeight: Math.max(minThumb, (visibleSpan / Math.max(1, count)) * height)
@@ -68,18 +67,16 @@ Item {
         }
         const frac = travel > 0 ? dragThumbY / travel : 0
         if (frac <= 0.001) {
-            // Track top: oldest row flush with the viewport top.
-            dragPositionRequested(0, 0)
+            // Track top: nothing above the viewport, so the oldest row we hold
+            // is flush with its top edge.
+            dragPositionRequested(0)
             return
         }
         if (frac >= 0.999) {
             jumpToNewestRequested()
             return
         }
-        const targetRowsAbove = frac * denom
-        const whole = Math.floor(targetRowsAbove)
-        const idx = Math.max(0, Math.min(count - 1, whole))
-        dragPositionRequested(idx, targetRowsAbove - whole)
+        dragPositionRequested(frac * denom)
     }
 
     HoverHandler {

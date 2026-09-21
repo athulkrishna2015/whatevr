@@ -37,6 +37,12 @@ QQC2.Popup {
     /// than when the dialog opened.
     property string fileName: ""
     property real timestampUnix: 0
+    /// The clip's native pixel size. The viewer needs it to know where the
+    /// picture actually ends, because a clip is fitted inside its frame and
+    /// everything either side of it is backdrop. Zero when the sender shipped
+    /// no dimensions, in which case the whole frame counts as picture.
+    property real mediaWidth: 0
+    property real mediaHeight: 0
     property string returnMessageId: ""
     property real returnPosition: 0
     property bool returnPlaying: false
@@ -97,7 +103,7 @@ QQC2.Popup {
         open()
     }
 
-    function showVideo(id, path, url, streamId, mediaKind, duration, at, name, sentAtUnix) {
+    function showVideo(id, path, url, streamId, mediaKind, duration, at, name, sentAtUnix, width, height) {
         kind = mediaKind && mediaKind.length > 0 ? mediaKind : "video"
         messageId = id
         localPath = path
@@ -106,6 +112,8 @@ QQC2.Popup {
         durationSecs = duration
         fileName = name ?? ""
         timestampUnix = sentAtUnix ?? 0
+        mediaWidth = width ?? 0
+        mediaHeight = height ?? 0
         // Before open(), so the surface engages with it already set: the start
         // position is read once, when the file is loaded. Same for the still
         // the bubble just captured, which stands in until the decoder catches
@@ -116,6 +124,52 @@ QQC2.Popup {
         surface.volume = 100
         surface.playbackWanted = true
         open()
+    }
+
+    /// The set this picture belongs to, when it came from one: an album's
+    /// pictures, as {id, kind, path, fileName, timestampUnix, width, height,
+    /// durationSecs} entries. Empty for a lone photo, which is every other
+    /// caller and behaves exactly as it always did.
+    property var gallery: []
+    property int galleryIndex: -1
+    readonly property bool hasGallery: gallery.length > 1
+
+    /// Opens the set at one of its entries. Pictures sent together are looked
+    /// at together: opening one of them and offering no way to reach the rest
+    /// makes the reader close the viewer and tap the next tile.
+    function showGallery(items, index) {
+        gallery = items ?? []
+        showGalleryEntry(index)
+    }
+
+    function stepGallery(delta) {
+        if (gallery.length <= 1) {
+            return
+        }
+        showGalleryEntry((galleryIndex + delta + gallery.length) % gallery.length)
+    }
+
+    function showGalleryEntry(index) {
+        const entry = gallery[index]
+        if (!entry) {
+            return
+        }
+        // Leaving a clip stops it first. The surface is one decoder handed
+        // between items, and switching its source while it is still running
+        // plays the next entry's audio under the previous one's last frame.
+        if (isVideo) {
+            surface.playbackWanted = false
+        }
+        galleryIndex = index
+        const kind = String(entry.kind ?? "image")
+        if (kind === "video" || kind === "gif" || kind === "video_note") {
+            showVideo(String(entry.id ?? ""), String(entry.path ?? ""), "", "", kind,
+                      entry.durationSecs ?? 0, 0, String(entry.fileName ?? ""),
+                      entry.timestampUnix ?? 0, entry.width ?? 0, entry.height ?? 0)
+        } else {
+            showImage(String(entry.path ?? ""), String(entry.id ?? ""),
+                      String(entry.fileName ?? ""), entry.timestampUnix ?? 0)
+        }
     }
 
     function formatTime(seconds) {
@@ -161,18 +215,36 @@ QQC2.Popup {
     closePolicy: QQC2.Popup.CloseOnEscape
 
     onAboutToHide: {
-        if (isVideo && messageId.length > 0) {
-            // While the decoder is still attached: the frame goes back to the
-            // bubble with the position, so it comes back showing where the user
-            // was rather than the clip's first frame.
-            surface.rememberStill()
-            returnMessageId = messageId
-            returnPosition = surface.handoffPosition()
-            // Escaping a video that never started must not make the bubble
-            // start it: wanting playback only counts once there was playback,
-            // a frame on screen or a position reached.
-            returnPlaying = surface.playbackWanted && (surface.hasFrame || surface.position > 0)
+        if (!isVideo || messageId.length === 0) {
+            return
         }
+        returnMessageId = messageId
+        returnPosition = surface.handoffPosition()
+        // Escaping a video that never started must not make the bubble
+        // start it: wanting playback only counts once there was playback,
+        // a frame on screen or a position reached.
+        returnPlaying = surface.playbackWanted && (surface.hasFrame || surface.position > 0)
+        // Here rather than after the viewer has gone, and this is the whole
+        // difference: the bubble takes this session while it is still running
+        // and still attached, so the video item moves straight back into the
+        // conversation. Handing over afterwards meant a release (which pauses),
+        // a frame of nothing, and then a re-acquire, which is the play button,
+        // the spinner and the jump this viewer used to close into.
+        handBackToInline()
+    }
+
+    /// Gives the clip back to the bubble it came from, once.
+    function handBackToInline() {
+        const id = returnMessageId
+        if (id.length === 0) {
+            return
+        }
+        const at = returnPosition
+        const resume = returnPlaying
+        returnMessageId = ""
+        returnPosition = 0
+        returnPlaying = false
+        Whatevr.VideoPlayback.handoffToInline(id, at, resume)
     }
 
     onClosed: {
@@ -188,23 +260,18 @@ QQC2.Popup {
         timestampUnix = 0
         startAt = 0
         stillRevision = 0
+        gallery = []
+        galleryIndex = -1
         surface.speed = 1.0
         surface.volume = 100
         surface.muted = false
         surface.playbackWanted = true
         streamFailed = false
         stalledOut = false
-        const id = returnMessageId
-        const at = returnPosition
-        const resume = returnPlaying
-        returnMessageId = ""
-        returnPosition = 0
-        returnPlaying = false
-        if (id.length > 0) {
-            Qt.callLater(function() {
-                Whatevr.VideoPlayback.handoffToInline(id, at, resume)
-            })
-        }
+        // Ordinarily already done from onAboutToHide, and a no-op here. This
+        // covers a viewer that was closed without one: a popup hidden with its
+        // window rather than dismissed.
+        handBackToInline()
     }
 
     onOpened: {
@@ -227,6 +294,21 @@ QQC2.Popup {
     }
 
     onBufferingChanged: if (!buffering) stalledOut = false
+
+    // A spinner is for a wait the user can feel. A handoff takes the odd frame
+    // to report a picture again (a rebuilt render context has to be told to
+    // switch the video track back on), and a spinner flashed over a clip that
+    // is already playing reads as a stutter the player invented.
+    Timer {
+        id: spinnerDelay
+
+        property bool expired: false
+
+        interval: 250
+        running: root.visible && (root.buffering || surface.seeking)
+        onTriggered: expired = true
+        onRunningChanged: if (!running) expired = false
+    }
 
     Connections {
         target: Whatevr.ProtocolController
@@ -269,24 +351,38 @@ QQC2.Popup {
     contentItem: Item {
         id: viewerContent
 
-        // On a video, a tap anywhere that is not a control plays or pauses:
-        // the clip is what the screen is for, and a full-screen player that
-        // exits when the pointer misses the picture by ten pixels is a trap.
-        // A photo has nothing to toggle, so there the backdrop still closes.
-        // The chrome bars carry their own handlers so a tap on a bar's
-        // background does not fall through to here.
-        TapHandler {
-            onTapped: {
-                if (root.isVideo) {
-                    root.togglePlayback()
-                    root.wakeChrome()
+        // The backdrop: everything that is not the picture itself. A click here
+        // dismisses, for a video as much as for a photo. Play and pause belong
+        // to the picture, which takes its own presses (see videoFrame below and
+        // the photo's own area); the letterbox either side of a clip is not the
+        // clip, and treating it as such made closing a video a hunt for the one
+        // corner the transport bar did not cover.
+        //
+        // A MouseArea rather than a TapHandler, and this is the whole reason:
+        // a handler watches events without consuming them, and modality does
+        // not help here because the press lands inside the viewer's own area
+        // rather than outside it. With nothing in the popup accepting the
+        // press, it carried on down to the conversation and started the bubble
+        // underneath playing, behind a viewer that had just been revoked.
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.AllButtons
+            hoverEnabled: true
+
+            onPositionChanged: root.wakeChrome()
+            onClicked: mouse => {
+                if (mouse.button !== Qt.LeftButton) {
                     return
                 }
                 root.close()
             }
+            // Nothing behind a full-screen viewer may scroll, either.
+            onWheel: wheel => wheel.accepted = true
         }
 
         // Any pointer movement anywhere brings the controls back.
+        // Movement over the controls themselves, which sit above the blocking
+        // area below and so never reach its own hover reporting.
         HoverHandler {
             onPointChanged: root.wakeChrome()
         }
@@ -313,10 +409,12 @@ QQC2.Popup {
             width: implicitWidth * fitScale
             height: implicitHeight * fitScale
 
-            // Takes the tap that would otherwise reach the backdrop handler:
-            // a click on the photo itself must not dismiss the viewer.
-            TapHandler {
-                onTapped: root.wakeChrome()
+            // Takes the click that would otherwise reach the blocking area
+            // below: a click on the photo itself must not dismiss the viewer.
+            // It has to consume the press to do that, which a handler does not.
+            MouseArea {
+                anchors.fill: parent
+                onClicked: root.wakeChrome()
             }
         }
 
@@ -373,6 +471,51 @@ QQC2.Popup {
                 ? width
                 : parent.height - Kirigami.Units.gridUnit * 6
 
+            // The clip is fitted inside this frame, so the frame is wider or
+            // taller than the picture on every clip whose shape is not the
+            // screen's. This is the picture: what a tap is allowed to play or
+            // pause, and the only part of the frame that is not backdrop.
+            // Falls back to the whole frame when the sender shipped no
+            // dimensions, since guessing a smaller area would put dead pixels
+            // where the video plainly is.
+            readonly property real pictureScale: root.mediaWidth > 0 && root.mediaHeight > 0
+                ? Math.min(width / root.mediaWidth, height / root.mediaHeight)
+                : 0
+
+            // Declared first so every overlay below (the big play button, the
+            // buffering and failure states) still takes its own presses; this
+            // only catches what falls through to the picture itself.
+            MouseArea {
+                id: pictureHit
+
+                anchors.centerIn: parent
+                width: videoFrame.pictureScale > 0 ? root.mediaWidth * videoFrame.pictureScale : parent.width
+                height: videoFrame.pictureScale > 0 ? root.mediaHeight * videoFrame.pictureScale : parent.height
+                acceptedButtons: Qt.LeftButton
+
+                // A video note is drawn round, so its corners are backdrop even
+                // though its bounds are square. Without this, a quarter of the
+                // circle's bounding box played and paused a picture that was
+                // not under the pointer.
+                containmentMask: QtObject {
+                    function contains(point) {
+                        if (!root.isVideoNote) {
+                            return point.x >= 0 && point.y >= 0
+                                && point.x <= pictureHit.width && point.y <= pictureHit.height
+                        }
+                        const radius = Math.min(pictureHit.width, pictureHit.height) / 2
+                        const dx = point.x - pictureHit.width / 2
+                        const dy = point.y - pictureHit.height / 2
+                        return dx * dx + dy * dy <= radius * radius
+                    }
+                }
+
+                onClicked: {
+                    root.togglePlayback()
+                    root.wakeChrome()
+                }
+            }
+
             // The frame the bubble was showing when it handed over, held until
             // this viewer's own decoder has one. Opening a file and seeking to
             // the handoff position takes long enough to see, and what used to
@@ -423,9 +566,9 @@ QQC2.Popup {
                 // loops.
                 onEndOfFile: surface.playbackWanted = false
 
-                // No tap handler of its own: the whole viewer toggles playback
-                // now, and two handlers over the same pixels both fired on one
-                // tap, which is a toggle that toggles back.
+                // No tap handler of its own: pictureHit above covers the picture
+                // for the whole frame, and two handlers over the same pixels
+                // both fired on one tap, which is a toggle that toggles back.
             }
 
             // A paused full-screen video used to show a still frame and nothing
@@ -451,7 +594,7 @@ QQC2.Popup {
             // so without the indicator a slow one would look ignored.
             QQC2.BusyIndicator {
                 anchors.centerIn: parent
-                visible: (root.buffering || surface.seeking) && !root.playbackFailed
+                visible: (root.buffering || surface.seeking) && spinnerDelay.expired && !root.playbackFailed
                 running: visible
             }
 
@@ -534,6 +677,68 @@ QQC2.Popup {
             }
         }
 
+        // Walking a set of pictures sent together. Present only when there is
+        // a set: a lone photo gets no arrows to wonder about.
+        MediaOverlayButton {
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.left: parent.left
+            anchors.margins: Kirigami.Units.largeSpacing
+            opacity: root.chromeVisible ? 1 : 0
+            visible: root.hasGallery && opacity > 0
+            Behavior on opacity {
+                NumberAnimation { duration: Kirigami.Units.longDuration }
+            }
+            focusPolicy: Qt.NoFocus
+            diameter: Kirigami.Units.gridUnit * 2.4
+            iconName: "go-previous-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button", "Previous")
+            onClicked: {
+                root.wakeChrome()
+                root.stepGallery(-1)
+            }
+        }
+
+        MediaOverlayButton {
+            anchors.verticalCenter: parent.verticalCenter
+            anchors.right: parent.right
+            anchors.margins: Kirigami.Units.largeSpacing
+            opacity: root.chromeVisible ? 1 : 0
+            visible: root.hasGallery && opacity > 0
+            Behavior on opacity {
+                NumberAnimation { duration: Kirigami.Units.longDuration }
+            }
+            focusPolicy: Qt.NoFocus
+            diameter: Kirigami.Units.gridUnit * 2.4
+            iconName: "go-next-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button", "Next")
+            onClicked: {
+                root.wakeChrome()
+                root.stepGallery(1)
+            }
+        }
+
+        // Where you are in the set. A counter rather than dots: an album can be
+        // thirty pictures, and thirty dots say less than "7 of 30".
+        QQC2.Label {
+            anchors.horizontalCenter: parent.horizontalCenter
+            anchors.top: parent.top
+            anchors.topMargin: Kirigami.Units.largeSpacing
+            opacity: root.chromeVisible ? 1 : 0
+            visible: root.hasGallery && opacity > 0
+            Behavior on opacity {
+                NumberAnimation { duration: Kirigami.Units.longDuration }
+            }
+            color: "white"
+            text: Whatevr.I18n.i18nc("@info position in an album, e.g. 2 of 5",
+                                     "%1 of %2", root.galleryIndex + 1, root.gallery.length)
+            padding: Kirigami.Units.smallSpacing
+
+            background: Rectangle {
+                radius: height / 2
+                color: Qt.rgba(0, 0, 0, 0.6)
+            }
+        }
+
         // Close, always reachable in the corner rather than only in the
         // transport bar an image never shows.
         QQC2.ToolButton {
@@ -572,10 +777,12 @@ QQC2.Popup {
             radius: Kirigami.Units.cornerRadius
             color: Qt.rgba(0, 0, 0, 0.6)
 
-            // Swallows taps on the bar's own background, which would otherwise
-            // reach the backdrop handler and close the viewer.
-            TapHandler {
-                onTapped: root.wakeChrome()
+            // Swallows clicks on the bar's own background, which would
+            // otherwise reach the blocking area below and be read as a tap on
+            // the video. Consuming the press is the part that matters.
+            MouseArea {
+                anchors.fill: parent
+                onClicked: root.wakeChrome()
             }
 
             RowLayout {
@@ -655,10 +862,11 @@ QQC2.Popup {
             radius: Kirigami.Units.cornerRadius
             color: Qt.rgba(0, 0, 0, 0.6)
 
-            // Same as the action bar: a tap on the bar itself must not fall
-            // through to the backdrop's close handler.
-            TapHandler {
-                onTapped: root.wakeChrome()
+            // Same as the action bar: a click on the bar itself must not fall
+            // through to the blocking area below.
+            MouseArea {
+                anchors.fill: parent
+                onClicked: root.wakeChrome()
             }
 
             RowLayout {
@@ -869,12 +1077,32 @@ QQC2.Popup {
                 root.togglePlayback()
                 event.accepted = true
                 break
+            // In a set of pictures the arrows walk the set. On a clip they
+            // stay the timeline, because that is what they are for and a
+            // player that would not scrub with them is a worse player; the
+            // on-screen arrows and PageUp/PageDown still step the set.
             case Qt.Key_Left:
-                root.skip(event.modifiers & Qt.ShiftModifier ? -30 : -5)
+                if (root.hasGallery && !root.isVideo) {
+                    root.stepGallery(-1)
+                } else {
+                    root.skip(event.modifiers & Qt.ShiftModifier ? -30 : -5)
+                }
                 event.accepted = true
                 break
             case Qt.Key_Right:
-                root.skip(event.modifiers & Qt.ShiftModifier ? 30 : 5)
+                if (root.hasGallery && !root.isVideo) {
+                    root.stepGallery(1)
+                } else {
+                    root.skip(event.modifiers & Qt.ShiftModifier ? 30 : 5)
+                }
+                event.accepted = true
+                break
+            case Qt.Key_PageUp:
+                root.stepGallery(-1)
+                event.accepted = true
+                break
+            case Qt.Key_PageDown:
+                root.stepGallery(1)
                 event.accepted = true
                 break
             case Qt.Key_Up:

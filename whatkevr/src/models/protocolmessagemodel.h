@@ -84,18 +84,62 @@ public:
         PinnedUntilUnixRole,
         ReactionsRole,
         MediaDownloadProgressRole,
-        PollQuestionRole,
-        PollOptionsRole,
-        PollMultiSelectRole,
-        ContactNameRole,
-        ContactPhoneRole,
-        LocationLatRole,
-        LocationLngRole,
-        LocationNameRole,
-        LocationAddressRole,
+        // Whether the daemon attached a `media` object at all. Kinds with
+        // nothing to fetch (a poll, a contact card, a system event) have a
+        // kind but no media, and a bubble that inferred "downloadable" from
+        // the kind alone would put a download button over nothing.
+        HasMediaRole,
+        // A disappearing message somebody asked to keep in the chat.
+        IsKeptRole,
+        // Kind-specific payloads, one role per family, each an empty map on a
+        // row of another kind. One role per *field* would add sixty entries
+        // here and sixty required properties to ChatBubble for payloads only
+        // one bubble ever reads.
+        LocationRole,
+        LiveShareRole,
+        ContactsRole,
+        PollRole,
+        GroupInviteRole,
+        // Named eventInfo rather than event on the QML side: ChatBubble takes
+        // `event` as the parameter of its key handlers, and a role by that
+        // name would be silently shadowed inside them.
+        EventRole,
+        // An album's pictures, as whole message items. The daemon grouped
+        // them; this model does not merge, sort or dedupe anything (rule 3).
+        AlbumRole,
+        // The card the sender's client built for a link in the text. Unlike
+        // every other payload here it arrives on a row whose kind is `text`,
+        // because the text is still the message: the card renders above it,
+        // not instead of it.
         LinkPreviewRole,
-        HasLinkPreviewRole,
+        // A business message: a header, some words and a set of things the
+        // reader is invited to do. WhatsApp has four wire shapes for that one
+        // idea; the daemon flattens all four into this, so there is one card
+        // here rather than four.
+        InteractiveRole,
+        // A product, an order or a payment. The money arrives as the integer
+        // WhatsApp sent plus its currency code, never pre-formatted: how a sum
+        // reads is a question about this machine's locale, which is the one
+        // thing the daemon cannot know.
+        CommerceRole,
+        // A shared sticker pack, with the library's own answer about whether it
+        // can be added and whether it already has been.
+        StickerPackRole,
+        // A call that happened. Not a message anybody wrote, which is why it
+        // draws as a centered pill rather than in somebody's bubble.
+        CallLogRole,
+        // Something the chat did to itself: somebody joined, the subject
+        // changed, a security code changed. Centered for the same reason a call
+        // log is, and carrying both a finished sentence and the parts it was
+        // built from, so the pill can say it in the reader's language.
+        SystemRole,
+        // A message that arrived but would not decrypt, and has been asked for
+        // again. The row turns into the real message, in place, if it comes.
+        WaitingRole,
+        // Sender device id: 0 is the primary phone app, anything else a linked
+        // device (Web/Desktop or another companion). Drives the footer mark.
         SenderDeviceRole,
+        // WhatsApp forward marker (daemon `forwarded`).
         IsForwardedRole,
     };
     Q_ENUM(Role)
@@ -128,6 +172,25 @@ public:
     [[nodiscard]] Q_INVOKABLE QStringList allMessageIds() const;
     [[nodiscard]] Q_INVOKABLE QStringList messageIdsForDay(const QString &messageId) const;
 
+    /// The ends of the transcript in time rather than in row index. Callers
+    /// that mean "the oldest message we hold" must ask for it by name: the
+    /// transcript is held newest-first, so row 0 is the newest one and the
+    /// literal 0 that used to mean "oldest" now means its opposite.
+    [[nodiscard]] Q_INVOKABLE QString oldestMessageId() const;
+    [[nodiscard]] Q_INVOKABLE QString newestMessageId() const;
+
+    /// True when row 0 holds the newest message. Every question about which way
+    /// the rows run is answered from here, and from the two neighbour helpers
+    /// below, rather than from arithmetic spelled out at each site.
+    [[nodiscard]] bool newestFirst() const;
+    /// The row holding the message immediately older (or newer) in time than
+    /// this one, or -1 at that end of the transcript.
+    [[nodiscard]] Q_INVOKABLE int olderRow(int row) const;
+    [[nodiscard]] Q_INVOKABLE int newerRow(int row) const;
+    /// The row holding the nth-oldest message, for the handful of readers that
+    /// genuinely want a conversation in the order it happened.
+    [[nodiscard]] int chronologicalRow(int nth) const;
+
 private:
     struct TextPresentation {
         QString sourceText;
@@ -148,13 +211,10 @@ private:
     // is downloading it.
     [[nodiscard]] QVariantMap transfer(const QVariantMap &item) const;
     [[nodiscard]] static QString displayText(const QVariantMap &item);
+    [[nodiscard]] static bool rendersItsOwnPayload(const QVariantMap &item);
     [[nodiscard]] static QVariantMap sender(const QVariantMap &item);
     [[nodiscard]] static QVariantMap media(const QVariantMap &item);
     [[nodiscard]] static QVariantMap reply(const QVariantMap &item);
-    [[nodiscard]] static QVariantMap poll(const QVariantMap &item);
-    [[nodiscard]] static QVariantMap contact(const QVariantMap &item);
-    [[nodiscard]] static QVariantMap location(const QVariantMap &item);
-    [[nodiscard]] static QVariantMap linkPreview(const QVariantMap &item);
     [[nodiscard]] static QString senderDisplayName(const QVariantMap &item);
     [[nodiscard]] static QString initialsForName(const QString &name);
     [[nodiscard]] static int directionValue(const QString &direction);
@@ -167,6 +227,7 @@ private:
     [[nodiscard]] static QString formatTime(qint64 timestampUnix);
     [[nodiscard]] static QString formatRelativeDate(qint64 timestampUnix);
     [[nodiscard]] QString cachedRelativeDate(const QVariantMap &item) const;
+    [[nodiscard]] static bool isAuthorless(const QVariantMap &item);
     [[nodiscard]] bool startsSenderGroup(int row) const;
     [[nodiscard]] bool endsSenderGroup(int row) const;
     [[nodiscard]] bool startsDayGroup(int row) const;
@@ -181,6 +242,10 @@ private:
     void emitNeighbourRolesChanged(int first, int last);
     void invalidateTransferRoles();
     void invalidateRowCache() const;
+    // Both take a wire item rather than a row, because an album's pictures are
+    // real messages with real ids that occupy no row of their own.
+    [[nodiscard]] QVariantMap snapshotOfItem(const QVariantMap &item, const QString &messageId) const;
+    [[nodiscard]] double downloadProgress(const QVariantMap &item) const;
 
     // Decoded view of one row. QML reads a row's ~45 roles back to back, and
     // each read used to re-decode the item map plus its nested sender, media
@@ -193,20 +258,26 @@ private:
         QVariantMap sender;
         QVariantMap media;
         QVariantMap reply;
+        QVariantMap location;
         bool senderLoaded = false;
         bool mediaLoaded = false;
         bool replyLoaded = false;
+        bool locationLoaded = false;
     };
     [[nodiscard]] const RowCache &rowCache(int row) const;
     [[nodiscard]] const QVariantMap &cachedSender(const RowCache &cache) const;
     [[nodiscard]] const QVariantMap &cachedMedia(const RowCache &cache) const;
     [[nodiscard]] const QVariantMap &cachedReply(const RowCache &cache) const;
+    [[nodiscard]] const QVariantMap &cachedLocation(const RowCache &cache) const;
 
     whatevr::proto::CollectionViewModel *m_source;
     whatevr::proto::CollectionViewModel *m_transfers = nullptr;
     mutable QHash<QString, TextPresentation> m_textById;
     QFont m_bodyFont;
     QFontMetricsF m_bodyMetrics;
+    /// The same font at the size inline emoji are actually drawn at, so a line
+    /// carrying one is measured as wide as it lands.
+    QFontMetricsF m_emojiMetrics;
     mutable QHash<int, QString> m_dateTextByDay;
     mutable QDate m_dateTextDay;
     mutable RowCache m_rowCache;

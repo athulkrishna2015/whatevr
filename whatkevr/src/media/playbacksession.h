@@ -141,12 +141,28 @@ public:
     /// a view being torn down cannot yank the item a newer view just took.
     Q_INVOKABLE void detachView(QQuickItem *container);
 
+    /**
+     * Whether the picture fills the container rather than fitting inside it.
+     *
+     * mpv letterboxes to preserve aspect, which is right everywhere the slot
+     * already carries the clip's shape. A video note is the exception: it is a
+     * circle at a fixed diameter, so a clip that is not square is drawn with
+     * mpv's black matte around it and the circle then frames the matte instead
+     * of the face. Covering oversizes the item to the container's larger axis
+     * and centres it, and the view's own texture capture crops the overhang.
+     */
+    [[nodiscard]] bool coverContainer() const { return m_coverContainer; }
+    Q_INVOKABLE void setCoverContainer(bool cover);
+
     Q_INVOKABLE void seek(double seconds);
 
     /// A finished clip playing again from the top.
     Q_INVOKABLE void replayFromStart();
 
-    /// Hands the frame on screen to whoever is keeping stills.
+    /// Asks for the frame on screen; it reaches whoever is keeping stills when
+    /// mpv answers, which is a few milliseconds later and never blocks the
+    /// caller. A capture asked for on behalf of one message and answered after
+    /// the session moved to another is dropped.
     Q_INVOKABLE void captureStill();
 
 Q_SIGNALS:
@@ -194,11 +210,15 @@ private:
     /// the session and moved between views.
     MpvVideoItem *m_item = nullptr;
     QPointer<QQuickItem> m_container;
+    bool m_coverContainer = false;
     /// The window the last view lived in, which is the scene the item is parked
     /// in between views.
     QPointer<QQuickWindow> m_window;
 
     QString m_messageId;
+    /// The message a still was asked for, kept until mpv answers. Empty when
+    /// nothing is outstanding.
+    QString m_pendingStillId;
     QUrl m_source;
     double m_startAt = 0.0;
     /// Whether the current source has been handed to mpv. False while waiting

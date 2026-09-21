@@ -31,6 +31,8 @@ private Q_SLOTS:
     void loadingAFileReportsItsDuration();
     void audioPlayerReportsFinishedAtEndOfFile();
     void audioPlayerRefusesToPlayNothing();
+    void audioPlayerCarriesTheNowPlayingContext();
+    void audioPlayerTogglesWithoutASource();
 
 private:
     /// Writes a short silent WAV, so the tests need no fixture binary and no
@@ -141,6 +143,82 @@ void TestMediaPlayback::audioPlayerRefusesToPlayNothing()
     player.play(QString(), QUrl::fromLocalFile(QStringLiteral("/nonexistent.wav")), 0);
     QVERIFY(player.messageId().isEmpty());
     QVERIFY(started.isEmpty());
+}
+
+void TestMediaPlayback::audioPlayerCarriesTheNowPlayingContext()
+{
+    // Playback outlives the bubble that started it: leave the chat and the row
+    // is gone, its subscription with it. The now-playing strip has nothing else
+    // to ask, so whatever the player was told at play() is what it must still
+    // be able to answer with.
+    const QString path = writeSilentWav(0.4);
+    QVERIFY(!path.isEmpty());
+
+    AudioPlayer player(nullptr);
+    QVERIFY2(player.available(), "AudioPlayer has no usable mpv instance");
+
+    QSignalSpy contexts(&player, &AudioPlayer::contextChanged);
+    player.play(QStringLiteral("msg-1"), QUrl::fromLocalFile(path), 0.4,
+                QVariantMap{
+                    {QStringLiteral("chat_id"), QStringLiteral("chat-a")},
+                    {QStringLiteral("chat_name"), QStringLiteral("Aditi")},
+                    {QStringLiteral("sender_name"), QStringLiteral("Aditi")},
+                    {QStringLiteral("is_voice"), true},
+                    {QStringLiteral("waveform"), QVariantList{12, 40, 7}},
+                });
+
+    QCOMPARE(player.chatId(), QStringLiteral("chat-a"));
+    QCOMPARE(player.chatName(), QStringLiteral("Aditi"));
+    QVERIFY(player.isVoice());
+    QVERIFY(!player.isOutgoing());
+    QCOMPARE(player.waveform().size(), 3);
+    QCOMPARE(contexts.size(), 1);
+
+    // Switching messages replaces it wholesale rather than merging: a track has
+    // no waveform and must not inherit the last voice note's.
+    player.play(QStringLiteral("msg-2"), QUrl::fromLocalFile(path), 0.4,
+                QVariantMap{
+                    {QStringLiteral("chat_id"), QStringLiteral("chat-b")},
+                    {QStringLiteral("file_name"), QStringLiteral("track.mp3")},
+                    {QStringLiteral("is_voice"), false},
+                });
+    QCOMPARE(player.chatId(), QStringLiteral("chat-b"));
+    QCOMPARE(player.fileName(), QStringLiteral("track.mp3"));
+    QVERIFY(!player.isVoice());
+    QVERIFY(player.waveform().isEmpty());
+
+    // Dismissing the strip stops playback and takes the context with it, which
+    // is what makes "something is loaded" the strip's whole visibility rule.
+    player.stop();
+    QVERIFY(player.chatId().isEmpty());
+    QVERIFY(player.chatName().isEmpty());
+    QVERIFY(player.fileName().isEmpty());
+    QVERIFY(player.waveform().isEmpty());
+}
+
+void TestMediaPlayback::audioPlayerTogglesWithoutASource()
+{
+    // The now-playing strip knows what is playing but not where it came from on
+    // disk, so its play button cannot go through toggle(messageId, url, ...).
+    const QString path = writeSilentWav(2.0);
+    QVERIFY(!path.isEmpty());
+
+    AudioPlayer player(nullptr);
+    QVERIFY2(player.available(), "AudioPlayer has no usable mpv instance");
+
+    // Nothing loaded: a press is a no-op rather than an error.
+    player.togglePlayPause();
+    QVERIFY(player.messageId().isEmpty());
+
+    player.play(QStringLiteral("msg-1"), QUrl::fromLocalFile(path), 2.0);
+    QTRY_VERIFY_WITH_TIMEOUT(player.playing(), 5000);
+
+    player.togglePlayPause();
+    QTRY_VERIFY_WITH_TIMEOUT(!player.playing(), 5000);
+    QCOMPARE(player.messageId(), QStringLiteral("msg-1"));
+
+    player.togglePlayPause();
+    QTRY_VERIFY_WITH_TIMEOUT(player.playing(), 5000);
 }
 
 QTEST_MAIN(TestMediaPlayback)

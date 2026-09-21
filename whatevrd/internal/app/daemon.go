@@ -21,23 +21,32 @@ type Status struct {
 	DroppedLoginEvents  uint64
 }
 
+// connState is the whole of what the daemon says about the connection. It is
+// one value behind one lock on purpose: as five independent atomics with three
+// writer goroutines, a reader could see the state from one event and the detail
+// from another, and publish "Offline" alongside "Connected to WhatsApp".
+type connState struct {
+	state         State
+	detail        string
+	retryAttempt  int32
+	nextRetryUnix int64
+	canReconnect  bool
+}
+
 type Daemon struct {
 	paths             Paths
-	state             atomic.Int32
 	nextSubID         atomic.Uint64
 	subMu             sync.Mutex
 	daemonSubs        map[uint64]chan DaemonEvent
 	loginSubs         map[uint64]chan LoginEvent
 	latestQR          *QRCode
-	lastDetail        string
 	presenceByChatID  map[string]presenceState
 	latestHistorySync *HistorySyncEvent
 	mediaDownloads    map[string]MediaDownloadEvent
 	ringingCalls      map[string]RingingCall
 
-	retryAttempt  atomic.Int32
-	nextRetryUnix atomic.Int64
-	canReconnect  atomic.Bool
+	connMu sync.Mutex
+	conn   connState
 
 	droppedDaemonEvents atomic.Uint64
 	droppedLoginEvents  atomic.Uint64
@@ -55,48 +64,87 @@ func NewDaemon(paths Paths) *Daemon {
 	return d
 }
 
+// ResetAccountState drops the account-scoped snapshots the daemon replays to a
+// new subscriber. Without it the previous account's QR, typing indicators,
+// history-sync progress and in-flight downloads were handed to the next
+// account's first frontend.
+func (d *Daemon) ResetAccountState() {
+	d.subMu.Lock()
+	d.latestQR = nil
+	d.latestHistorySync = nil
+	d.presenceByChatID = make(map[string]presenceState)
+	d.mediaDownloads = make(map[string]MediaDownloadEvent)
+	d.subMu.Unlock()
+}
+
 func (d *Daemon) SetState(state State) {
 	d.SetStateDetail(state, "")
 }
 
 func (d *Daemon) SetStateDetail(state State, detail string) {
-	d.state.Store(int32(state))
+	d.connMu.Lock()
+	d.conn.state = state
+	d.conn.detail = detail
+	snapshot := d.conn
+	d.connMu.Unlock()
 
-	d.subMu.Lock()
-	d.lastDetail = detail
-	d.subMu.Unlock()
-
-	d.broadcastDaemonEvent(DaemonEvent{
-		Kind:          DaemonEventConnectionChanged,
-		State:         state,
-		Detail:        detail,
-		RetryAttempt:  d.retryAttempt.Load(),
-		NextRetryUnix: d.nextRetryUnix.Load(),
-		CanReconnect:  d.canReconnect.Load(),
-	})
-	d.broadcastLoginEvent(LoginEvent{Kind: LoginEventState, State: state, Detail: detail})
+	d.publishConnState(snapshot)
 }
 
 // SetConnMeta updates retry/reconnect metadata without changing state.
 // Call before SetStateDetail so the next broadcast includes the new values.
+//
+// Prefer SetConnection where both change: two calls leave a window in which a
+// reader sees the new metadata against the old state.
 func (d *Daemon) SetConnMeta(attempt int32, nextRetryUnix int64, canReconnect bool) {
-	d.retryAttempt.Store(attempt)
-	d.nextRetryUnix.Store(nextRetryUnix)
-	d.canReconnect.Store(canReconnect)
+	d.connMu.Lock()
+	d.conn.retryAttempt = attempt
+	d.conn.nextRetryUnix = nextRetryUnix
+	d.conn.canReconnect = canReconnect
+	d.connMu.Unlock()
+}
+
+// SetConnection publishes state, detail and retry metadata as one change, so
+// no reader can catch the connection half-updated.
+func (d *Daemon) SetConnection(state State, detail string, attempt int32, nextRetryUnix int64, canReconnect bool) {
+	d.connMu.Lock()
+	d.conn = connState{
+		state:         state,
+		detail:        detail,
+		retryAttempt:  attempt,
+		nextRetryUnix: nextRetryUnix,
+		canReconnect:  canReconnect,
+	}
+	snapshot := d.conn
+	d.connMu.Unlock()
+
+	d.publishConnState(snapshot)
+}
+
+func (d *Daemon) publishConnState(snapshot connState) {
+	d.broadcastDaemonEvent(DaemonEvent{
+		Kind:          DaemonEventConnectionChanged,
+		State:         snapshot.state,
+		Detail:        snapshot.detail,
+		RetryAttempt:  snapshot.retryAttempt,
+		NextRetryUnix: snapshot.nextRetryUnix,
+		CanReconnect:  snapshot.canReconnect,
+	})
+	d.broadcastLoginEvent(LoginEvent{Kind: LoginEventState, State: snapshot.state, Detail: snapshot.detail})
 }
 
 func (d *Daemon) Status() Status {
-	d.subMu.Lock()
-	detail := d.lastDetail
-	d.subMu.Unlock()
+	d.connMu.Lock()
+	snapshot := d.conn
+	d.connMu.Unlock()
 
 	return Status{
-		State:               State(d.state.Load()),
-		Detail:              detail,
+		State:               snapshot.state,
+		Detail:              snapshot.detail,
 		Paths:               d.paths,
-		RetryAttempt:        d.retryAttempt.Load(),
-		NextRetryUnix:       d.nextRetryUnix.Load(),
-		CanReconnect:        d.canReconnect.Load(),
+		RetryAttempt:        snapshot.retryAttempt,
+		NextRetryUnix:       snapshot.nextRetryUnix,
+		CanReconnect:        snapshot.canReconnect,
 		DroppedDaemonEvents: d.droppedDaemonEvents.Load(),
 		DroppedLoginEvents:  d.droppedLoginEvents.Load(),
 	}
@@ -203,6 +251,11 @@ const (
 	// refreshes. It carries no payload; the `channels` view re-reads the
 	// store.
 	DaemonEventChannelsChanged
+	// DaemonEventLiveLocationsChanged fires when a live-location share in a
+	// chat opens, moves or ends. Its own view exists because a position that
+	// changes every few seconds has no business sharing an item with a message
+	// row that does not (PROTOCOL.md, Granularity).
+	DaemonEventLiveLocationsChanged
 	// DaemonEventResync is a synthetic sentinel the broadcaster posts to a
 	// subscriber whose buffer overflowed: rather than silently dropping events
 	// (which permanently desyncs a view that folds events into local state), the
@@ -365,7 +418,7 @@ type Message struct {
 	SenderAvatarLocalPath   string
 	Text                    string
 	TimestampUnix           int64
-	SortSeq                 int64
+	SortMS                  int64
 	Direction               string
 	Status                  string
 	MediaKind               string
@@ -376,13 +429,17 @@ type Message struct {
 	MediaHeight             int32
 	MediaAnimated           bool
 	MediaCacheKey           string
-	IsRevoked               bool
-	IsEdited                bool
-	IsStarred               bool
-	PinnedUntilUnix         int64
-	ReplyTo                 MessageReply
-	Reactions               []Reaction
-	Mentions                []Mention
+	// Preview is the message rendered as one human-readable line, computed
+	// once by the store so the notifier, the chat row and the wire `fallback`
+	// cannot say three different things about the same message.
+	Preview         string
+	IsRevoked       bool
+	IsEdited        bool
+	IsStarred       bool
+	PinnedUntilUnix int64
+	ReplyTo         MessageReply
+	Reactions       []Reaction
+	Mentions        []Mention
 }
 
 type Mention struct {
@@ -537,6 +594,12 @@ type AppPreferences struct {
 	// Turning it off just omits the announcement (passive); it changes no
 	// message content or timing.
 	SendTypingIndicators bool
+	// AutoFetchMaps lets the daemon draw a real map for a shared location by
+	// fetching tiles. On by default, because a location bubble without a map is
+	// a pair of numbers. Turning it off means nothing tells a tile server you
+	// received a location, and the bubble falls back to the small JPEG the
+	// sender embedded.
+	AutoFetchMaps bool
 }
 
 // DefaultAppPreferences are applied the first time the daemon runs, before the
@@ -550,6 +613,7 @@ func DefaultAppPreferences() AppPreferences {
 		AutoDownloadMaxBytes: 16 * 1024 * 1024,
 		AntiDelete:           true,
 		SendTypingIndicators: true,
+		AutoFetchMaps:        true,
 	}
 }
 
@@ -584,9 +648,13 @@ func (d *Daemon) PublishQRCode(code string, expiresAt time.Time) {
 func (d *Daemon) SubscribeDaemonEvents() (<-chan DaemonEvent, func()) {
 	id := d.nextSubID.Add(1)
 
+	// One snapshot, so the replayed event cannot mix a state from one moment
+	// with retry metadata from another.
+	d.connMu.Lock()
+	conn := d.conn
+	d.connMu.Unlock()
+
 	d.subMu.Lock()
-	state := State(d.state.Load())
-	detail := d.lastDetail
 	latestHistorySync := d.latestHistorySync
 	mediaDownloads := make([]MediaDownloadEvent, 0, len(d.mediaDownloads))
 	for _, download := range d.mediaDownloads {
@@ -597,11 +665,11 @@ func (d *Daemon) SubscribeDaemonEvents() (<-chan DaemonEvent, func()) {
 	// event can overtake this snapshot and regress the subscriber's state.
 	ch <- DaemonEvent{
 		Kind:          DaemonEventConnectionChanged,
-		State:         state,
-		Detail:        detail,
-		RetryAttempt:  d.retryAttempt.Load(),
-		NextRetryUnix: d.nextRetryUnix.Load(),
-		CanReconnect:  d.canReconnect.Load(),
+		State:         conn.state,
+		Detail:        conn.detail,
+		RetryAttempt:  conn.retryAttempt,
+		NextRetryUnix: conn.nextRetryUnix,
+		CanReconnect:  conn.canReconnect,
 	}
 	if latestHistorySync != nil {
 		ch <- DaemonEvent{Kind: DaemonEventHistorySyncProgress, HistorySync: *latestHistorySync}
@@ -621,18 +689,21 @@ func (d *Daemon) SubscribeDaemonEvents() (<-chan DaemonEvent, func()) {
 
 func (d *Daemon) SubscribeLoginEvents() (<-chan LoginEvent, func()) {
 	id := d.nextSubID.Add(1)
+	ch := make(chan LoginEvent, 32)
+
+	d.connMu.Lock()
+	conn := d.conn
+	d.connMu.Unlock()
 
 	d.subMu.Lock()
-	state := State(d.state.Load())
-	detail := d.lastDetail
+	d.loginSubs[id] = ch
 	latestQR := d.latestQR
-	ch := make(chan LoginEvent, 2)
-	ch <- LoginEvent{Kind: LoginEventState, State: state, Detail: detail}
+	d.subMu.Unlock()
+
+	ch <- LoginEvent{Kind: LoginEventState, State: conn.state, Detail: conn.detail}
 	if latestQR != nil && time.Now().Before(latestQR.ExpiresAt) {
 		ch <- LoginEvent{Kind: LoginEventQR, QRCode: latestQR.Code, ExpiresAt: latestQR.ExpiresAt}
 	}
-	d.loginSubs[id] = ch
-	d.subMu.Unlock()
 
 	return ch, func() {
 		d.subMu.Lock()
@@ -979,10 +1050,9 @@ func (d *Daemon) ClearRingingCall(callID string) {
 // ConnectionSnapshot returns the current connection state the subscribe replay's
 // ConnectionChanged carries, for the `connection` view to reload on a resync.
 func (d *Daemon) ConnectionSnapshot() (state State, detail string, attempt int32, nextRetryUnix int64, canReconnect bool) {
-	d.subMu.Lock()
-	detail = d.lastDetail
-	d.subMu.Unlock()
-	return State(d.state.Load()), detail, d.retryAttempt.Load(), d.nextRetryUnix.Load(), d.canReconnect.Load()
+	d.connMu.Lock()
+	defer d.connMu.Unlock()
+	return d.conn.state, d.conn.detail, d.conn.retryAttempt, d.conn.nextRetryUnix, d.conn.canReconnect
 }
 
 // LatestHistorySync returns the last history-sync progress event (ok=false if
@@ -1063,6 +1133,12 @@ func (d *Daemon) PublishCallChanged(callID, chatID string) {
 // `channels` view re-reads the store off it.
 func (d *Daemon) PublishChannelsChanged() {
 	d.broadcastDaemonEvent(DaemonEvent{Kind: DaemonEventChannelsChanged})
+}
+
+// PublishLiveLocationsChanged signals that a chat's set of running
+// live-location shares changed, so an open `live_locations` view re-reads it.
+func (d *Daemon) PublishLiveLocationsChanged(chatID string) {
+	d.broadcastDaemonEvent(DaemonEvent{Kind: DaemonEventLiveLocationsChanged, Chat: Chat{ID: chatID}})
 }
 
 // PublishIdentityChanged signals that a contact's WhatsApp identity (security

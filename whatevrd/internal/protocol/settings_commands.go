@@ -84,6 +84,7 @@ type preferencesSetParams struct {
 	AutoDownloadMaxBytes  *int64 `json:"auto_download_max_bytes"`
 	AntiDelete            *bool  `json:"anti_delete"`
 	SendTypingIndicators  *bool  `json:"send_typing_indicators"`
+	AutoFetchMaps         *bool  `json:"auto_fetch_maps"`
 }
 
 func (h commandHandlers) preferencesSet(_ *conn, req request) (any, *Error) {
@@ -136,6 +137,9 @@ func applyPreferencesPatch(prefs *app.AppPreferences, p preferencesSetParams) {
 	}
 	if p.SendTypingIndicators != nil {
 		prefs.SendTypingIndicators = *p.SendTypingIndicators
+	}
+	if p.AutoFetchMaps != nil {
+		prefs.AutoFetchMaps = *p.AutoFetchMaps
 	}
 }
 
