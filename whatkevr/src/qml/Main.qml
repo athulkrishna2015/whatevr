@@ -149,7 +149,11 @@ Kirigami.ApplicationWindow {
     Window {
         id: trayMenuWindow
 
-        flags: Qt.Popup | Qt.FramelessWindowHint
+        // Do not use Qt.Popup here. Popup windows take a native pointer grab;
+        // after the main window is hidden to tray that grab can survive the
+        // restore on Wayland, leaving scrolling alive while swallowing every
+        // click on chat rows and buttons. A tool window stays non-modal.
+        flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         color: "transparent"
         visible: false
 
@@ -535,18 +539,10 @@ Kirigami.ApplicationWindow {
     }
 
     function activateWindow() {
-        // Same grab hazard as onClosing: never restore with the popup open.
         trayMenuWindow.close()
         root.show()
         root.raise()
         root.requestActivate()
-        // Wayland may deliver the activation after show(); defer focus until
-        // the restored window is the active native window.
-        Qt.callLater(() => {
-            root.raise()
-            root.requestActivate()
-            root.forceActiveFocus()
-        })
     }
 
     onVisibleChanged: {
