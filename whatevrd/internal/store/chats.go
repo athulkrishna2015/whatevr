@@ -51,6 +51,33 @@ func normalizeChatNameSource(source string) string {
 	}
 }
 
+// Sender names climb the same kind of ladder as chat names, but with a
+// different rung order: in a group "~Asha" beats "+91 77700 00001", while a
+// chat titled with the number beats one titled with a push name.
+const (
+	SenderNameSourceRaw      = "raw"
+	SenderNameSourcePhone    = "phone"
+	SenderNameSourceWhatsApp = "whatsapp"
+	SenderNameSourceContact  = "contact"
+)
+
+func senderNameSourcePriority(source string) int {
+	switch strings.TrimSpace(source) {
+	case SenderNameSourceRaw:
+		return 1
+	case SenderNameSourcePhone:
+		return 2
+	case SenderNameSourceWhatsApp:
+		return 3
+	case SenderNameSourceContact:
+		return 4
+	default:
+		// an unsourced write is the weakest claim there is, but it still beats
+		// having no name at all
+		return 0
+	}
+}
+
 func chatNameSourcePriority(source string) int {
 	switch normalizeChatNameSource(source) {
 	case ChatNameSourceRaw:
@@ -1199,16 +1226,18 @@ func (db *DB) ClearSenderAvatar(ctx context.Context, senderID, status string) er
 	return err
 }
 
-func (db *DB) UpdateSenderName(ctx context.Context, senderID, name string) error {
+func (db *DB) UpdateSenderName(ctx context.Context, senderID, name, source string) error {
 	name = strings.TrimSpace(name)
 	if senderID == "" || name == "" || senderID == "me" {
 		return nil
 	}
 	_, err := db.conn.ExecContext(ctx, `
-		INSERT INTO senders (id, name)
-		VALUES (?, ?)
-		ON CONFLICT(id) DO UPDATE SET name = excluded.name
-	`, senderID, name)
+		INSERT INTO senders (id, name, name_source)
+		VALUES (?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			name = CASE WHEN sender_name_source_priority(excluded.name_source) >= sender_name_source_priority(senders.name_source) THEN excluded.name ELSE senders.name END,
+			name_source = CASE WHEN sender_name_source_priority(excluded.name_source) >= sender_name_source_priority(senders.name_source) THEN excluded.name_source ELSE senders.name_source END
+	`, senderID, name, strings.TrimSpace(source))
 	return err
 }
 

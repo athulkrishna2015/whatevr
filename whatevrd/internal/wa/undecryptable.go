@@ -50,16 +50,17 @@ func (c *Client) waitingRowInput(ctx context.Context, evt *events.UndecryptableM
 	}
 	return appstore.MediaMessageInput{
 		TextMessageInput: appstore.TextMessageInput{
-			ID:          internalID,
-			ChatID:      chatID,
-			SenderID:    senderID(evt.Info),
-			SenderName:  c.senderName(ctx, evt.Info.Sender),
-			Timestamp:   timestamp,
-			Direction:   appstore.DirectionIncoming,
-			Status:      appstore.StatusDelivered,
-			IsGroup:     evt.Info.IsGroup,
-			CountUnread: !evt.Info.IsFromMe,
-			PayloadJSON: payloadJSON,
+			ID:               internalID,
+			ChatID:           chatID,
+			SenderID:         senderID(evt.Info),
+			SenderName:       c.senderName(ctx, evt.Info.Sender),
+			SenderNameSource: c.senderNameSource(ctx, evt.Info.Sender),
+			Timestamp:        timestamp,
+			Direction:        appstore.DirectionIncoming,
+			Status:           appstore.StatusDelivered,
+			IsGroup:          evt.Info.IsGroup,
+			CountUnread:      !evt.Info.IsFromMe,
+			PayloadJSON:      payloadJSON,
 		},
 		MediaKind: appstore.MediaKindWaiting,
 	}, true

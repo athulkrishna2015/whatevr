@@ -646,7 +646,7 @@ func TestListMessagesReflectsUpdatedSenderPushName(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("save message: %v", err)
 	}
-	if err := db.UpdateSenderName(ctx, senderID, "~Alice"); err != nil {
+	if err := db.UpdateSenderName(ctx, senderID, "~Alice", SenderNameSourceWhatsApp); err != nil {
 		t.Fatalf("update sender name: %v", err)
 	}
 
@@ -660,6 +660,56 @@ func TestListMessagesReflectsUpdatedSenderPushName(t *testing.T) {
 	if messages[0].SenderName != "~Alice" {
 		t.Fatalf("sender name = %q, want ~Alice", messages[0].SenderName)
 	}
+}
+
+// A push name must not bury an address book name. History sync hands the two
+// over in separate chunks and the push name chunk is always processed last, so
+// without the ladder every saved contact ends up rendered as "~Asha".
+func TestSenderNameSourceLadder(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	const senderID = "919000000001@s.whatsapp.net"
+
+	if err := db.UpdateSenderName(ctx, senderID, "Asha", SenderNameSourceContact); err != nil {
+		t.Fatalf("contact name: %v", err)
+	}
+	if err := db.UpdateSenderName(ctx, senderID, "~Asha", SenderNameSourceWhatsApp); err != nil {
+		t.Fatalf("push name: %v", err)
+	}
+	if name := senderNameFor(t, db, senderID); name != "Asha" {
+		t.Fatalf("push name overwrote the contact name: got %q", name)
+	}
+
+	// The other order, and an unsourced write, must both leave it alone too.
+	const other = "919000000002@s.whatsapp.net"
+	if err := db.UpdateSenderName(ctx, other, "~Ravi", SenderNameSourceWhatsApp); err != nil {
+		t.Fatalf("push name: %v", err)
+	}
+	if name := senderNameFor(t, db, other); name != "~Ravi" {
+		t.Fatalf("push name did not land: got %q", name)
+	}
+	if err := db.UpdateSenderName(ctx, other, "+91 90000 00002", SenderNameSourcePhone); err != nil {
+		t.Fatalf("phone name: %v", err)
+	}
+	if name := senderNameFor(t, db, other); name != "~Ravi" {
+		t.Fatalf("phone number overwrote the push name: got %q", name)
+	}
+	if err := db.UpdateSenderName(ctx, other, "Ravi", SenderNameSourceContact); err != nil {
+		t.Fatalf("contact name: %v", err)
+	}
+	if name := senderNameFor(t, db, other); name != "Ravi" {
+		t.Fatalf("contact name did not win: got %q", name)
+	}
+}
+
+func senderNameFor(t *testing.T, db *DB, senderID string) string {
+	t.Helper()
+	var name string
+	if err := db.reader().QueryRowContext(context.Background(),
+		`SELECT name FROM senders WHERE id = ?`, senderID).Scan(&name); err != nil {
+		t.Fatalf("read sender name: %v", err)
+	}
+	return name
 }
 
 func TestListSenderProfilesByChatIDOrdersRecentGroupSenders(t *testing.T) {

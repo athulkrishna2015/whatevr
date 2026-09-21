@@ -185,7 +185,7 @@ func TestGetMessageInfoUsesParticipantAvatarFromLIDAlias(t *testing.T) {
 		t.Fatalf("participants: %v", err)
 	}
 	c.markGroupParticipantsFresh("group@g.us")
-	if err := db.UpdateSenderName(ctx, lid.String(), "Alice"); err != nil {
+	if err := db.UpdateSenderName(ctx, lid.String(), "Alice", appstore.SenderNameSourceContact); err != nil {
 		t.Fatalf("sender name: %v", err)
 	}
 	if err := db.UpdateSenderAvatar(ctx, lid.String(), "pic-1", "/tmp/alice.jpg"); err != nil {

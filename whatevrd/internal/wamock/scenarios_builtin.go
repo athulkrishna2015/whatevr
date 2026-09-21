@@ -46,8 +46,11 @@ func buildVisual(w *World) {
 	asha := w.Contact("917770000001", "Asha")
 	ravi := w.Contact("917770000002", "Ravi")
 	meera := w.Contact("917770000003", "Meera")
+	// One contact nobody saved, so both name fallbacks have a case: "~Unknown
+	// Caller" in the group transcript, the bare number in the chat list.
+	stranger := w.Contact("917770000009", "Unknown Caller").Unsaved()
 
-	group := w.Group("Visual Test Group", asha, ravi, meera)
+	group := w.Group("Visual Test Group", asha, ravi, meera, stranger)
 	// History is what the account already had. It arrives through a real
 	// history sync, so the transcript has something to scroll back into and
 	// the sync view has progress to report.
@@ -72,9 +75,8 @@ func buildVisual(w *World) {
 	quiet := w.DM(ravi)
 	quiet.Say(ravi, "yesterday, so the day divider has something to divide", Ago(26*time.Hour))
 
-	// One contact nobody saved, so the phone-number fallback has a case.
-	stranger := w.Contact("917770000009", "Unknown Caller").Unsaved()
 	w.DM(stranger).Say(stranger, "a contact who is not in the address book", Ago(50*time.Hour))
+	group.Say(stranger, "and a group message from somebody unsaved", Ago(100*time.Minute))
 }
 
 // buildBusy is the scenario for anything about ordering: enough chats that the

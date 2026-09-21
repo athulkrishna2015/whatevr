@@ -212,7 +212,11 @@ the whole download, MAC check, decrypt and decompress itself.
 
 This is also where contact names come from. `InlineContacts` on the first chunk
 is what makes a chat say "Asha" rather than "+91 77700 00001", and the push
-names ride along in their own `PUSH_NAME` chunk.
+names ride along in their own `PUSH_NAME` chunk. Having both is what found the
+`~Asha` bug: the daemon processes chunks ordered by sync type, so the push names
+always landed last and buried the address book. Sender names now carry a source
+and refuse to be downgraded, which is why an unsaved contact still shows as
+`~Unknown Caller` while a saved one does not.
 
 Chunks carry two conversations each so the `sync` view has progress to report.
 `--mock-history-delay 1500ms` (or `World.HistoryPace`) spreads them out; the
@@ -253,10 +257,3 @@ list of what a new daemon feature needs.
 
 Still to come: media (`w:m` upload and ranged download of real attachments) and
 stickers. A sticker pack catalogue fetch currently answers with an empty list.
-
-One thing the mock surfaces rather than fixes: a saved contact's messages in a
-group render as `~Asha` rather than `Asha`. Both names land in the same
-`senders.name` column, and the daemon processes history sync chunks ordered by
-sync type, so the `PUSH_NAME` chunk always lands after the address book and
-overwrites it. A real account does the same thing. Fixing it is a daemon
-change, not a mock one.

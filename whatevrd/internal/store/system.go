@@ -31,12 +31,13 @@ import (
 // SystemMessageInput is one system event, already resolved to names and already
 // summarized into the sentence a pill will read.
 type SystemMessageInput struct {
-	ChatID     string
-	ChatName   string
-	IsGroup    bool
-	SenderID   string
-	SenderName string
-	Timestamp  time.Time
+	ChatID           string
+	ChatName         string
+	IsGroup          bool
+	SenderID         string
+	SenderName       string
+	SenderNameSource string
+	Timestamp        time.Time
 	// Summary is the whole line: "Ana, Bo and 12 others joined".
 	Summary string
 	Payload SystemPayload
@@ -130,7 +131,7 @@ func (db *DB) SaveSystemMessage(ctx context.Context, input SystemMessageInput) (
 	if err := upsertChat(ctx, tx, base); err != nil {
 		return SavedTextMessage{}, err
 	}
-	if err := upsertSender(ctx, tx, input.SenderID, input.SenderName); err != nil {
+	if err := upsertSender(ctx, tx, input.SenderID, input.SenderName, input.SenderNameSource); err != nil {
 		return SavedTextMessage{}, err
 	}
 
