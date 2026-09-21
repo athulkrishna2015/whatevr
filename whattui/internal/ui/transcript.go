@@ -83,6 +83,9 @@ func (a *App) refreshTranscript(c *conversation, items []view.Item[proto.Message
 		c.cacheVer == ver && c.cacheGroup == group && c.cacheBoxed == a.boxed {
 		return
 	}
+	// A version bump is the daemon changing a row, which may well be the row
+	// the cursor is on, or the row the cursor was on leaving the window.
+	a.syncCursor(c, items)
 	if c.cache == nil || c.cacheWidth != w || c.cacheRows != rows {
 		c.cache = make(map[string]entry, len(items))
 	}
@@ -286,11 +289,14 @@ func (a *App) drawRun(pane vaxis.Window, c *conversation, r run, row, w int) {
 		width := minInt(e.block.width, r.width)
 		words := a.wordsAt(r.outgoing, rule, width)
 		height := e.block.rows()
-		ground := a.hoverGround(id)
+		ground, cursor := a.messageGround(id)
 		// The pointer lights the whole row, not the words: a message is a
 		// line of the conversation, and the line is what you point at.
 		a.noteMessage(pane, id, 0, row, w, height)
 		a.paintBand(pane, 0, row, w, height, ground)
+		if cursor {
+			a.drawCursorMark(pane, row, height)
+		}
 		if a.boxed {
 			a.drawBox(pane, r, words-1-bubblePadX, row, width+2*(1+bubblePadX), height)
 		}
@@ -464,18 +470,6 @@ func (a *App) noteMessage(pane vaxis.Window, id string, col, row, w, h int) {
 type messageAt struct {
 	id string
 	at layout.Rect
-}
-
-// hoverGround is the colour under one message: the pane's own, unless the
-// pointer is on it. A run is one shape, so this is what says where one message
-// in it ends and the next begins.
-func (a *App) hoverGround(id string) vaxis.Color {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.hoveredMsg != "" && a.hoveredMsg == id {
-		return a.theme.BackgroundHover
-	}
-	return a.theme.Background
 }
 
 // paintBand lays the ground for one message, gutter included, so the pointer

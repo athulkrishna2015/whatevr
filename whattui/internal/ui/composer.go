@@ -157,6 +157,9 @@ func (a *App) onComposerKey(k vaxis.Key) {
 			c.clear()
 			return
 		}
+		if a.clearCursor() {
+			return
+		}
 		a.setFocus(FocusList)
 	case k.Matches(vaxis.KeyBackspace):
 		c.deleteBack()
@@ -194,15 +197,27 @@ func (a *App) onComposerKey(k vaxis.Key) {
 
 	// The arrows belong to the transcript while there is nothing typed, and
 	// to the text the moment there is. One rule, no mode.
+	//
+	// On an empty line they move the selection cursor, which is the gesture
+	// every chat application already taught: up is your last message, and
+	// everything you can do to it appears on the hint line once it is lit.
 	case k.Matches(vaxis.KeyUp):
-		if c.empty() || !c.multiline() {
+		if c.empty() {
+			a.moveCursor(1)
+			return
+		}
+		if !c.multiline() {
 			a.setFocus(FocusTranscript)
 			a.scrollTranscript(1)
 			return
 		}
 		c.moveLine(-1)
 	case k.Matches(vaxis.KeyDown):
-		if c.empty() || !c.multiline() {
+		if c.empty() {
+			a.moveCursor(-1)
+			return
+		}
+		if !c.multiline() {
 			a.scrollTranscript(-1)
 			return
 		}
@@ -217,6 +232,10 @@ func (a *App) onComposerKey(k vaxis.Key) {
 		// Anything that generated text is text. A control sequence generates
 		// none, so this needs no list of keys to exclude.
 		if k.Text != "" {
+			// Typing is not pointing at a message. Letting go here is what
+			// keeps the cursor and a draft from ever being on screen at once,
+			// which is what makes both escape and a bare letter unambiguous.
+			a.clearCursor()
 			c.sendErr = ""
 			c.insert(k.Text)
 		}

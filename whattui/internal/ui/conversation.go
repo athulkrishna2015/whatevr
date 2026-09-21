@@ -47,8 +47,12 @@ type conversation struct {
 	// runs is the window gathered into runs, newest first, which is the order
 	// the transcript draws them in.
 	runs []run
-	// selected is the message the actions act on, by id, or empty for none.
-	selected string
+	// selected is the message the actions act on, by id, or empty for none,
+	// and selectedRow is that message as of the last time anything about it
+	// changed. The copy is what lets an action ask whether it applies without
+	// asking the collection: see setCursor.
+	selected    string
+	selectedRow proto.MessageRow
 
 	atLiveEdge   bool
 	canLoadOlder bool

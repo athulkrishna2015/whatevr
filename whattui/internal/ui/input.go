@@ -114,16 +114,32 @@ func isListNav(k vaxis.Key) bool {
 }
 
 func (a *App) onTranscriptKey(k vaxis.Key) {
+	// With a cursor the arrows move it and the screen follows; without one
+	// they scroll. Which of the two is live is on the screen rather than in a
+	// flag: either a message is lit or none is.
+	pointing := a.cursor() != ""
 	switch {
 	case k.Matches(vaxis.KeyUp) || k.Matches('k'):
+		if pointing {
+			a.moveCursor(1)
+			return
+		}
 		a.scrollTranscript(1)
 	case k.Matches(vaxis.KeyDown) || k.Matches('j'):
+		if pointing {
+			a.moveCursor(-1)
+			return
+		}
 		a.scrollTranscript(-1)
 	case k.Matches(vaxis.KeyPgUp):
 		a.scrollTranscript(a.transcriptPage())
 	case k.Matches(vaxis.KeyPgDown):
 		a.scrollTranscript(-a.transcriptPage())
 	case k.Matches(vaxis.KeyEsc):
+		// One level at a time: the cursor first, the pane after it.
+		if a.clearCursor() {
+			return
+		}
 		a.setFocus(FocusComposer)
 	default:
 		if k.Text != "" && a.activeChat != "" && !isTranscriptNav(k) {
@@ -341,6 +357,14 @@ func (a *App) onMouse(m vaxis.Mouse) bool {
 			case inRect(m, l.Composer):
 				a.setFocus(FocusComposer)
 			case inRect(m, l.Transcript):
+				// Pointing at a message is what the pointer is for, so a click
+				// on one is the same cursor the arrows move. A click on the
+				// ground beside them puts it down again.
+				if id := a.messageUnder(m); id != "" {
+					a.setCursor(id)
+				} else {
+					a.clearCursor()
+				}
 				a.setFocus(FocusTranscript)
 			}
 			return true
