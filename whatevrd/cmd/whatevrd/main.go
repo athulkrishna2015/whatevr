@@ -75,11 +75,18 @@ func main() {
 	} else if notificationWorker, err = notify.NewWorker(protocolServer); err != nil {
 		log.Printf("notifications disabled: %v", err)
 	}
+	// Built separately rather than passed straight in: a nil *notify.Worker
+	// inside an interface is not a nil interface, and wa.Client checks for a
+	// nil interface before it notifies.
+	var notifier wa.MessageNotifier
+	if notificationWorker != nil {
+		notifier = notificationWorker
+	}
 	if notificationWorker != nil {
 		notificationWorker.Start(ctx)
 	}
 
-	waClient, err := wa.New(ctx, paths, daemon, db, notificationWorker)
+	waClient, err := wa.New(ctx, paths, daemon, db, notifier)
 	if err != nil {
 		log.Fatalf("initialize WhatsApp client: %v", err)
 	}
