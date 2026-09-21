@@ -8,7 +8,6 @@ import (
 	"time"
 
 	waBinary "go.mau.fi/whatsmeow/binary"
-	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
 )
@@ -152,7 +151,7 @@ func (s *session) pumpOutbox(ctx context.Context) {
 // sendMessage encrypts one world message to the connected device and puts it on
 // the wire as the <message> stanza whatsmeow expects.
 func (s *session) sendMessage(ctx context.Context, m *Msg, offline bool) error {
-	plaintext, err := proto.Marshal(&waE2E.Message{Conversation: proto.String(m.Text)})
+	plaintext, err := proto.Marshal(m.payload())
 	if err != nil {
 		return fmt.Errorf("marshal message: %w", err)
 	}
@@ -181,7 +180,7 @@ func (s *session) sendMessage(ctx context.Context, m *Msg, offline bool) error {
 	attrs := waBinary.Attrs{
 		"id":   m.ID,
 		"t":    fmt.Sprintf("%d", m.At.Unix()),
-		"type": "text",
+		"type": m.stanzaType(),
 	}
 	switch {
 	case m.Chat.IsGroup:

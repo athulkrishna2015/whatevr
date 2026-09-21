@@ -94,6 +94,10 @@ type Server struct {
 	// answered with the same id.
 	avatars *avatarCache
 
+	// stickers is the sticker store: packs, their contents and tray images,
+	// built on the first request rather than at boot.
+	stickers *stickerCatalogue
+
 	// appState is the server half of the app state sync: the key and the
 	// patches the client validates against.
 	appState *mockAppState
@@ -149,6 +153,7 @@ func New(opts Options) (*Server, error) {
 		media:     newMediaStore(),
 		settings:  newAccountSettings(),
 		avatars:   newAvatarCache(),
+		stickers:  newStickerCatalogue(),
 		appState:  newMockAppState(rng),
 	}
 	srv.world = newWorld(srv)
@@ -174,8 +179,8 @@ func (s *Server) Start(ctx context.Context) error {
 	mux.HandleFunc("/ws/chat", s.handleWS)
 	mux.HandleFunc(mediaPathPrefix, s.handleMedia)
 	mux.HandleFunc(avatarPathPrefix, s.handleMedia)
-	mux.HandleFunc("/mms/", s.handleMediaDelete)
-	mux.HandleFunc("/sticker", s.handleStickerPack)
+	mux.HandleFunc("/mms/", s.handleMMS)
+	mux.HandleFunc("/sticker", s.handleStickerStore)
 	// whatsmeow scrapes a client_revision out of the web.whatsapp.com landing
 	// page to decide the version it advertises. Serving it keeps the daemon
 	// from retrying a 404 on every connect.
@@ -313,6 +318,7 @@ func (s *Server) forgetPairing() {
 	s.keysOnce = sync.Once{}
 	s.appState = newMockAppState(s.rng)
 	s.avatars = newAvatarCache()
+	s.stickers = newStickerCatalogue()
 	world := newWorld(s)
 	s.world = world
 	s.mu.Unlock()

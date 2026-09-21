@@ -189,3 +189,15 @@ func TestSeedIsDeterministic(t *testing.T) {
 		t.Error("different seeds produced the same static noise key")
 	}
 }
+
+// testServer is a mock server that never listens. The media, sticker and
+// attachment paths are all pure functions of the server's own state, so they
+// are worth testing without a handshake in the way.
+func testServer(t *testing.T) *Server {
+	t.Helper()
+	srv, err := New(Options{Login: &testLogin{}, Logger: discardLogger()})
+	if err != nil {
+		t.Fatalf("new server: %v", err)
+	}
+	return srv
+}

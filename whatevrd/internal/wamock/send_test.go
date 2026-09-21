@@ -270,3 +270,158 @@ func TestProfilePicture(t *testing.T) {
 		t.Error("somebody who is not in the world has a profile picture")
 	}
 }
+
+// A pin made on another device has to reach a connected client, which means the
+// mock has to encode the patch and then send the notification that tells the
+// client to come and fetch it. Nothing at login exercises that path.
+func TestLiveAppStatePush(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	pins := make(chan *events.Pin, 8)
+	stars := make(chan *events.Star, 8)
+	reads := make(chan *events.MarkChatAsRead, 8)
+	synced := make(chan appstate.WAPatchName, 16)
+	srv, cli, _ := dialMock(ctx, t, Options{Seed: 26, Scenario: "test:send"})
+	// regular_high is empty until this test puts a star in it, so the client is
+	// at version 0 and asks for a snapshot; it gets patches and processes them
+	// as a full sync, whose events whatsmeow drops by default. The daemon turns
+	// this on for the same collection and the same reason.
+	cli.EmitAppStateEventsOnFullSync = true
+	cli.AddEventHandler(func(raw any) {
+		switch evt := raw.(type) {
+		case *events.AppStateSyncComplete:
+			select {
+			case synced <- evt.Name:
+			default:
+			}
+		case *events.Pin:
+			if !evt.FromFullSync {
+				select {
+				case pins <- evt:
+				default:
+				}
+			}
+		case *events.Star:
+			select {
+			case stars <- evt:
+			default:
+			}
+		case *events.MarkChatAsRead:
+			if !evt.FromFullSync {
+				select {
+				case reads <- evt:
+				default:
+				}
+			}
+		}
+	})
+	waiting := map[appstate.WAPatchName]bool{
+		appstate.WAPatchCriticalBlock: true,
+		appstate.WAPatchRegularLow:    true,
+	}
+	for len(waiting) > 0 {
+		select {
+		case name := <-synced:
+			delete(waiting, name)
+		case <-time.After(30 * time.Second):
+			t.Fatalf("app state never synced %v", waiting)
+		}
+	}
+
+	world := srv.world
+	direct := world.DM(world.contactNamed(t, "917770000001"))
+	direct.Pin()
+	select {
+	case evt := <-pins:
+		if !evt.Action.GetPinned() || evt.JID.User != "917770000001" {
+			t.Fatalf("unexpected pin: %+v", evt)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("a pin made on another device never reached the client")
+	}
+
+	direct.MarkUnread()
+	select {
+	case evt := <-reads:
+		if evt.Action.GetRead() {
+			t.Fatal("expected the chat to be marked unread")
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("mark unread never reached the client")
+	}
+
+	message := direct.Say(direct.Other(), "worth keeping", time.Now())
+	message.Star()
+	select {
+	case evt := <-stars:
+		if evt.MessageID != message.ID || !evt.Action.GetStarred() {
+			t.Fatalf("unexpected star: %+v", evt)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("a star made on another device never reached the client")
+	}
+}
+
+// Media has to survive the whole round trip: generated, encrypted, hosted,
+// delivered inside a real Signal envelope, then downloaded and decrypted by
+// whatsmeow with nothing but the key in the message.
+func TestInboundMediaDownloads(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	media := make(chan *events.Message, 8)
+	srv, cli, _ := dialMock(ctx, t, Options{Seed: 27, Scenario: "test:send"})
+	cli.AddEventHandler(func(raw any) {
+		if evt, ok := raw.(*events.Message); ok && hasMedia(evt.Message) {
+			select {
+			case media <- evt:
+			default:
+			}
+		}
+	})
+
+	world := srv.world
+	direct := world.DM(world.contactNamed(t, "917770000001"))
+	sent := direct.Attach(direct.Other(), Image("a real jpeg"), time.Now())
+	if sent.media == nil {
+		t.Fatal("the attachment never built")
+	}
+
+	select {
+	case evt := <-media:
+		image := evt.Message.GetImageMessage()
+		if image == nil {
+			t.Fatalf("expected an image, got %+v", evt.Message)
+		}
+		if image.GetCaption() != "a real jpeg" {
+			t.Fatalf("caption = %q", image.GetCaption())
+		}
+		data, err := cli.Download(ctx, image)
+		if err != nil {
+			t.Fatalf("download: %v", err)
+		}
+		if len(data) == 0 || string(data[:2]) != "\xff\xd8" {
+			t.Fatalf("what came down is not a jpeg (%d bytes)", len(data))
+		}
+		// Downloading twice has to work: the mock verifies its own uploads by
+		// decrypting them, and an in-place decrypt would have eaten the blob.
+		if _, err := cli.Download(ctx, image); err != nil {
+			t.Fatalf("second download: %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("the attachment never arrived")
+	}
+}
+
+// contactNamed is the scenario-facing lookup the tests need: World.Contact
+// would create somebody new if the phone number were wrong, which would turn a
+// typo into a passing test.
+func (w *World) contactNamed(t *testing.T, phone string) *Contact {
+	t.Helper()
+	contact, ok := w.contactByJID(types.JID{User: phone, Server: types.DefaultUserServer})
+	if !ok {
+		t.Fatalf("no contact %s in this world", phone)
+	}
+	return contact
+}

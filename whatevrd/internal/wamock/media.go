@@ -3,11 +3,15 @@
 package wamock
 
 import (
+	"bytes"
 	"context"
+	"crypto/aes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -44,6 +48,10 @@ type mediaRef struct {
 	FileSHA256 []byte
 	FileEncSHA []byte
 	FileLength uint64
+	// Sidecar is the per-chunk MAC table that lets the daemon fetch and verify
+	// a range instead of the whole file. Only audio and video carry one on the
+	// wire, but it costs nothing to compute for everything.
+	Sidecar []byte
 }
 
 type mediaStore struct {
@@ -95,6 +103,7 @@ func (s *Server) putEncrypted(plaintext []byte, mediaType whatsmeow.MediaType) (
 
 	fileSHA := sha256.Sum256(plaintext)
 	encSHA := sha256.Sum256(body)
+	sidecar := streamingSidecar(macKey, iv, ciphertext)
 	// A real direct path already carries a query string, and the download URL
 	// is built by appending &hash=... to it. Without the ?, that & starts a
 	// path segment rather than a parameter.
@@ -106,7 +115,29 @@ func (s *Server) putEncrypted(plaintext []byte, mediaType whatsmeow.MediaType) (
 		FileSHA256: fileSHA[:],
 		FileEncSHA: encSHA[:],
 		FileLength: uint64(len(plaintext)),
+		Sidecar:    sidecar,
 	}, nil
+}
+
+// streamingSidecar is one truncated HMAC per 64 KiB chunk of ciphertext, each
+// covering the block before the chunk followed by the chunk itself. That is the
+// leading-IV layout of the two internal/mediastream knows about, and it is what
+// lets a video start playing before the whole file has arrived.
+func streamingSidecar(macKey, iv, ciphertext []byte) []byte {
+	const chunk = 64 * 1024
+	var out []byte
+	for offset := 0; offset < len(ciphertext); offset += chunk {
+		end := min(offset+chunk, len(ciphertext))
+		leading := iv
+		if offset > 0 {
+			leading = ciphertext[offset-aes.BlockSize : offset]
+		}
+		mac := hmac.New(sha256.New, macKey)
+		mac.Write(leading)
+		mac.Write(ciphertext[offset:end])
+		out = append(out, mac.Sum(nil)[:10]...)
+	}
+	return out
 }
 
 // putAvatar hosts an image unencrypted, which is how profile pictures work.
@@ -120,21 +151,58 @@ func (s *Server) putAvatar(data []byte) (id, url string) {
 	return id, "https://" + avatarHost + path
 }
 
-// handleStickerPack answers the sticker pack catalogue fetch with an empty
-// list, which is what a world with no sticker packs in it looks like. Stickers
-// themselves are a later stage; an unanswered fetch here would only show up as
-// a 404 in the log.
-func (s *Server) handleStickerPack(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte("[]"))
+// handleMMS is the media endpoint proper: POST uploads an attachment the
+// account is sending, DELETE retires a blob the client has finished with.
+func (s *Server) handleMMS(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		s.handleMediaUpload(w, r)
+	case http.MethodDelete:
+		// whatsmeow deletes every history sync chunk once it has read it. The
+		// mock keeps the bytes: a scenario that replays has to be able to sync
+		// again.
+		w.WriteHeader(http.StatusOK)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
-// handleMediaDelete answers the client's request to drop a blob it has finished
-// with, which is what whatsmeow does after every history sync chunk. The mock
-// keeps the bytes: a scenario that replays has to be able to sync again.
-func (s *Server) handleMediaDelete(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
+// handleMediaUpload takes the encrypted bytes of something the account is
+// sending and hosts them, which is what makes an outgoing attachment
+// downloadable by the account's own other devices. The mock never sees the
+// media key here: it arrives later, inside the message that points at this
+// blob, which is exactly the property real end to end encrypted media has.
+func (s *Server) handleMediaUpload(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxUploadBytes+1))
+	if err != nil {
+		http.Error(w, "read body", http.StatusBadRequest)
+		return
+	}
+	if len(body) > maxUploadBytes {
+		http.Error(w, "too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+
+	path := fmt.Sprintf("%s%d?ccb=mock", mediaPathPrefix, s.media.nextID())
+	s.media.put(strings.SplitN(path, "?", 2)[0], "application/octet-stream", body)
+
+	sum := sha256.Sum256(body)
+	response := map[string]string{
+		"url":         "https://" + mediaHost + path,
+		"direct_path": path,
+		"handle":      hex.EncodeToString(sum[:8]),
+		"object_id":   hex.EncodeToString(sum[8:16]),
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		s.log.Printf("upload response: %v", err)
+	}
 }
+
+// maxUploadBytes is the ceiling on anything a frontend sends through the mock.
+// Real WhatsApp caps attachments well below this; the number here exists to
+// keep a runaway send from eating the machine's memory.
+const maxUploadBytes = 128 << 20
 
 func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 	b, ok := s.media.get(r.URL.Path)
@@ -164,4 +232,42 @@ func (s *session) handleMediaConnIQ(ctx context.Context, node *waBinary.Node) er
 			Attrs: waBinary.Attrs{"hostname": mediaHost},
 		}},
 	}))
+}
+
+// openHostedMedia is the download the client would do, done by the mock: fetch
+// the blob, check its MAC, decrypt it, and check the plaintext hash. It is how
+// the mock verifies its own upload endpoint rather than trusting it.
+func (s *Server) openHostedMedia(directPath string, mediaKey, fileSHA []byte, mediaType whatsmeow.MediaType) error {
+	if directPath == "" || len(mediaKey) != 32 {
+		return fmt.Errorf("media reference is incomplete")
+	}
+	b, ok := s.media.get(strings.SplitN(directPath, "?", 2)[0])
+	if !ok {
+		return fmt.Errorf("nothing hosted at %s", directPath)
+	}
+	if len(b.body) < 10 {
+		return fmt.Errorf("blob at %s is too short to carry a mac", directPath)
+	}
+	expanded := hkdfutil.SHA256(mediaKey, nil, []byte(mediaType), 112)
+	iv, cipherKey, macKey := expanded[:16], expanded[16:48], expanded[48:80]
+
+	// The copy is not optional: cbcutil.Decrypt decrypts in place, so handing
+	// it the stored slice would leave the hosted blob as plaintext and every
+	// later download of it would fail its own mac check.
+	body := bytes.Clone(b.body)
+	ciphertext, want := body[:len(body)-10], body[len(body)-10:]
+	mac := hmac.New(sha256.New, macKey)
+	mac.Write(iv)
+	mac.Write(ciphertext)
+	if !hmac.Equal(mac.Sum(nil)[:10], want) {
+		return fmt.Errorf("mac mismatch on %s", directPath)
+	}
+	plaintext, err := cbcutil.Decrypt(cipherKey, iv, ciphertext)
+	if err != nil {
+		return fmt.Errorf("decrypt %s: %w", directPath, err)
+	}
+	if sum := sha256.Sum256(plaintext); len(fileSHA) == 32 && !hmac.Equal(sum[:], fileSHA) {
+		return fmt.Errorf("plaintext hash mismatch on %s", directPath)
+	}
+	return nil
 }

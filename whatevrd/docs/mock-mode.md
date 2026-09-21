@@ -134,11 +134,29 @@ wording:
 | `Say` after login | live, on the wire, while a frontend watches |
 | `OnSend` | the answer to something the account just sent |
 
+`Attach`, `AttachFromMe` and `AttachHistory` are the same three paths for media:
+
+```go
+group.Attach(asha, wamock.Image("look at this"), wamock.Ago(2*time.Hour))
+group.AttachFromMe(wamock.Voice(7*time.Second), wamock.Ago(time.Hour))
+direct.AttachHistory(ravi, wamock.Document("report.pdf"), wamock.Ago(30*time.Hour))
+```
+
+The attachment kinds are `Image`, `Video`, `GIF`, `VideoNote`, `Voice`, `Audio`,
+`Document` and `Sticker`, with `.Size(w, h)` for the visual ones.
+
 The rest of the model: `Contact` (saved by default, `Unsaved()` for somebody who
-is not in the address book), `DM`, `Group`, `Chat.Pin`, `Chat.Archive`,
-`Chat.Mute`, `Chat.Unread`, `Chat.Typing`, `World.SetOnline`, `World.Receipts`
-for how fast a sent message goes to two ticks and then blue, and
-`World.HistoryPace` for how slowly the initial sync arrives.
+is not in the address book), `DM`, `Group`, `Chat.Typing`, `World.SetOnline`,
+`World.Receipts` for how fast a sent message goes to two ticks and then blue,
+and `World.HistoryPace` for how slowly the initial sync arrives.
+
+App state has its own set, and they work before login and during it:
+`Chat.Pin`/`Unpin`, `Chat.Archive`/`Unarchive`, `Chat.Mute`/`Unmute`,
+`Chat.MarkRead`/`MarkUnread` and `Msg.Star`/`Unstar`. Called while a frontend is
+connected, each one becomes a real patch plus the notification that makes the
+client fetch it, which is how a change made on the phone reaches a linked
+device. `Chat.Unread(n)` is the other kind: a badge the account already had,
+which rides the history sync rather than app state.
 
 Timestamps are relative (`wamock.Ago`) so day dividers land in the right place
 whatever day the scenario runs on.
@@ -244,16 +262,55 @@ A collection is answered empty until the client has the key. Serving patches
 first costs a failed decode and a key re-request in the daemon's log; whatsmeow
 re-syncs everything the moment the key lands, so nothing is lost by waiting.
 
+## Media
+
+Everything the mock attaches to a message is a real file, generated from a seed
+so two runs produce identical bytes. A jpeg that decodes, a lossless webp
+sticker, an animated gif, a wav with a shape to it, and a one page pdf. Video is
+motion jpeg in a quicktime container: ffmpeg pulls a poster out of it and mpv
+plays it, which is as close as the mock gets without carrying a video encoder.
+`synth_test.go` checks each of them against a decoder that is not the one that
+wrote it.
+
+Files are hosted exactly as WhatsApp hosts them: AES-CBC under a key derived
+from the message's own media key, with a truncated HMAC appended, and served
+over ranges. Audio and video also carry a streaming sidecar, one MAC per 64 KiB
+chunk, so `internal/mediastream` fetches and verifies pieces rather than falling
+back to the whole file.
+
+Sending works the other way round. `POST /mms/...` takes the encrypted bytes and
+hands back a direct path; the key arrives later, inside the message that points
+at the blob, which is the property real end to end encrypted media has. The mock
+then opens its own upload with that key and logs if it cannot, so a broken
+upload fails in the mock's log rather than as a mystery download error three
+steps later.
+
+That self-check found the one bug worth remembering here: `cbcutil.Decrypt`
+decrypts in place, so verifying a blob without copying it first leaves the
+hosted bytes as plaintext and every later download of them fails its own MAC.
+
+The sticker store is not XMPP at all: three packs, eight stickers each, served
+off `static.whatsapp.net/sticker` as the pack index, one pack's contents, and a
+tray image. Tray art is png and the stickers themselves are webp, because that
+is what the daemon writes each of them to disk as.
+
 ## Scope
 
-Stages 0 to 3 are in: handshake, pairing, login, a world model, scenarios,
-inbound messages, outbound messages with the full receipt lifecycle, typing and
-presence, group metadata, contact lookups, history sync, contact names,
-profile pictures, and app state.
+Stages 0 to 5 are in: handshake, pairing, login, a world model, scenarios,
+inbound and outbound messages with the full receipt lifecycle, typing and
+presence, group metadata, contact lookups, history sync, contact names, profile
+pictures, app state in both directions, media of every kind, and stickers.
 
 Every info query the daemon makes is answered. An unhandled one is still
 answered empty and logged as `unanswered iq xmlns=...`, which is the running
 list of what a new daemon feature needs.
 
-Still to come: media (`w:m` upload and ranged download of real attachments) and
-stickers. A sticker pack catalogue fetch currently answers with an empty list.
+One shortcut worth knowing: a client at version 0 for a collection asks for a
+snapshot, and the mock answers with patches instead. The client processes those
+as a full sync, which works but means whatsmeow drops the resulting events
+unless `EmitAppStateEventsOnFullSync` is set. The daemon sets it for the one
+collection where it matters.
+
+Still to come is stage 6: the quiescence barrier, and moving whattui's golden
+frames and `scripts/whattui-screenshot` off the recorded fixture onto a
+scenario.

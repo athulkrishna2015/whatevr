@@ -32,6 +32,11 @@ func init() {
 		Build:       buildSync,
 	})
 	Register(Scenario{
+		Name:        "media",
+		Description: "every attachment kind, for bubbles, downloads and playback",
+		Build:       buildMedia,
+	})
+	Register(Scenario{
 		Name:        "busy",
 		Description: "several chats with recent traffic, for scrolling and ordering",
 		Build:       buildBusy,
@@ -98,7 +103,7 @@ func buildBusy(w *World) {
 	}
 
 	team := w.Group("Team standup", people[0], people[1], people[2], people[3])
-	team.Say(people[0], "standing up", Ago(20*time.Minute))
+	starred := team.Say(people[0], "standing up", Ago(20*time.Minute))
 	team.Say(people[1], "same", Ago(19*time.Minute))
 	team.SayFromMe("on my way", Ago(18*time.Minute))
 
@@ -129,6 +134,17 @@ func buildBusy(w *World) {
 	})
 	w.After(8*time.Second, func() {
 		w.DM(people[7]).Say(people[7], "and another, in a different chat", time.Now())
+	})
+	// App state made somewhere else: this is what a frontend sees when the
+	// phone pins a chat or marks one unread while it is connected.
+	w.After(12*time.Second, func() {
+		w.DM(people[0]).Pin()
+		w.DM(people[7]).MarkRead()
+		starred.Star()
+	})
+	w.After(16*time.Second, func() {
+		family.Unpin()
+		w.DM(people[1]).MarkUnread()
 	})
 }
 
@@ -176,4 +192,40 @@ func buildSync(w *World) {
 			chat.History(person, fmt.Sprintf("%s history %d", person.Name, j), Ago(time.Duration(100-j)*time.Hour-time.Duration(i)*time.Minute))
 		}
 	}
+}
+
+// buildMedia is the scenario for anything about attachments. Every file it
+// produces is real: a jpeg that decodes, a webp sticker, a quicktime clip
+// ffmpeg pulls a poster out of, a wav with a shape to it, and a pdf that opens.
+// Half of it arrives through history sync and half live, because the two paths
+// build the message from different protobufs.
+func buildMedia(w *World) {
+	asha := w.Contact("917770000001", "Asha")
+	ravi := w.Contact("917770000002", "Ravi")
+
+	dm := w.DM(asha)
+	dm.AttachHistory(asha, Image("from before this device existed"), Ago(26*time.Hour))
+	dm.AttachHistory(asha, Document("quarterly-report.pdf"), Ago(25*time.Hour))
+	dm.Attach(asha, Image("a photo with a caption"), Ago(3*time.Hour))
+	dm.Attach(asha, Image(""), Ago(2*time.Hour+50*time.Minute))
+	dm.Attach(asha, Voice(6*time.Second), Ago(2*time.Hour+40*time.Minute))
+	dm.AttachFromMe(Image("and one from this account"), Ago(2*time.Hour+30*time.Minute))
+	dm.Say(asha, "that is the still picture set", Ago(2*time.Hour))
+
+	group := w.Group("Media test group", asha, ravi)
+	group.Attach(ravi, Video("a clip that plays", 4*time.Second), Ago(90*time.Minute))
+	group.Attach(asha, GIF("looping and muted"), Ago(80*time.Minute))
+	group.Attach(ravi, VideoNote(5*time.Second), Ago(70*time.Minute))
+	group.Attach(asha, Audio("a shared track", 8*time.Second), Ago(60*time.Minute))
+	group.Attach(ravi, Sticker(), Ago(50*time.Minute))
+	group.Attach(asha, Document("notes.txt"), Ago(40*time.Minute))
+	group.Attach(ravi, Image("a wide one, for layout").Size(1280, 360), Ago(30*time.Minute))
+	group.Attach(asha, Image("and a tall one").Size(360, 1280), Ago(20*time.Minute))
+	group.Say(ravi, "and that is everything else", Ago(10*time.Minute)).Star()
+
+	// Something arriving live, so a download can be watched rather than found
+	// already finished.
+	w.After(4*time.Second, func() {
+		group.Attach(ravi, Video("this one arrived while you were looking", 6*time.Second), time.Now())
+	})
 }

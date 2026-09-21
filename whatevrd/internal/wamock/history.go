@@ -188,7 +188,7 @@ func (m *Msg) webMessage() *waWeb.WebMessageInfo {
 			RemoteJID: proto.String(m.Chat.JID.String()),
 		},
 		MessageTimestamp: proto.Uint64(uint64(m.At.Unix())),
-		Message:          &waE2E.Message{Conversation: proto.String(m.Text)},
+		Message:          m.payload(),
 		Status:           &status,
 	}
 	if m.Chat.IsGroup && !m.FromMe {

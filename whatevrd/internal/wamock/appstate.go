@@ -86,6 +86,15 @@ func (m *mockAppState) build(ctx context.Context, w *World) error {
 			infos = append(infos, appstate.BuildMuteAbs(chat.JID, true, nil))
 		}
 	}
+	// Stars are per message rather than per chat, and they are the only app
+	// state the mock builds out of the timeline rather than out of chat flags.
+	for _, msg := range w.starredMessages() {
+		sender := msg.From.JID
+		if msg.FromMe {
+			sender = w.Self().JID
+		}
+		infos = append(infos, appstate.BuildStar(msg.Chat.JID, sender, msg.ID, msg.FromMe, true))
+	}
 
 	for _, info := range infos {
 		if info.Timestamp.IsZero() {
@@ -383,6 +392,82 @@ func applyMutations(w *World, mutations []appstate.Mutation) {
 			chat.archived = mutation.Action.GetArchiveChatAction().GetArchived()
 		case appstate.IndexMute:
 			chat.muted = mutation.Action.GetMuteAction().GetMuted()
+		case appstate.IndexMarkChatAsRead:
+			// Marking a chat read clears its badge; marking it unread is how
+			// the UI puts a badge on a chat with nothing new in it.
+			if mutation.Action.GetMarkChatAsReadAction().GetRead() {
+				chat.unread = 0
+			} else if chat.unread == 0 {
+				chat.unread = 1
+			}
+		case appstate.IndexStar:
+			if len(mutation.Index) < 3 {
+				continue
+			}
+			w.setStarred(mutation.Index[2], mutation.Action.GetStarAction().GetStarred())
 		}
 	}
+}
+
+// push encodes one patch and tells the client to come and fetch it, which is
+// how app state changes made on another device reach a linked one.
+//
+// It does nothing before build has run: until then the scenario's own flags are
+// the source of truth and build will pick them up, so pushing would only
+// duplicate the mutation.
+func (m *mockAppState) push(ctx context.Context, w *World, info appstate.PatchInfo) (appstate.WAPatchName, uint64, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.built {
+		return "", 0, false
+	}
+	if info.Timestamp.IsZero() {
+		info.Timestamp = time.Now()
+	}
+	encoded, err := m.proc.EncodePatch(ctx, m.keyID, m.states[info.Type], info)
+	if err != nil {
+		w.srv.log.Printf("encode %s patch: %v", info.Type, err)
+		return "", 0, false
+	}
+	if _, err := m.applyPatch(ctx, w, info.Type, encoded); err != nil {
+		w.srv.log.Printf("apply %s patch: %v", info.Type, err)
+		return "", 0, false
+	}
+	return info.Type, uint64(len(m.patches[info.Type])), true
+}
+
+// pushAppState applies a patch and sends the server_sync notification that
+// makes the client re-fetch the collection it landed in.
+func (s *Server) pushAppState(info appstate.PatchInfo) {
+	world := s.world
+	if world == nil {
+		return
+	}
+	ctx := context.Background()
+	name, version, ok := s.appState.push(ctx, world, info)
+	if !ok {
+		return
+	}
+	sess := s.live()
+	if sess == nil {
+		return
+	}
+	sess.enqueue(func(ctx context.Context) error {
+		return sess.sendNode(ctx, waBinary.Node{
+			Tag: "notification",
+			Attrs: waBinary.Attrs{
+				"id":   s.rng.messageID(),
+				"from": s.accountJID(),
+				"type": "server_sync",
+				"t":    fmt.Sprintf("%d", time.Now().Unix()),
+			},
+			Content: []waBinary.Node{{
+				Tag: "collection",
+				Attrs: waBinary.Attrs{
+					"name":    string(name),
+					"version": fmt.Sprintf("%d", version),
+				},
+			}},
+		})
+	})
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"go.mau.fi/whatsmeow"
 	waBinary "go.mau.fi/whatsmeow/binary"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
@@ -142,7 +143,70 @@ func messageText(message *waE2E.Message) string {
 	if text := message.GetConversation(); text != "" {
 		return text
 	}
-	return message.GetExtendedTextMessage().GetText()
+	if text := message.GetExtendedTextMessage().GetText(); text != "" {
+		return text
+	}
+	if image := message.GetImageMessage(); image != nil {
+		return image.GetCaption()
+	}
+	if video := message.GetVideoMessage(); video != nil {
+		return video.GetCaption()
+	}
+	if document := message.GetDocumentMessage(); document != nil {
+		return document.GetFileName()
+	}
+	return ""
+}
+
+// hasMedia reports whether a message the account sent carries an attachment.
+func hasMedia(message *waE2E.Message) bool {
+	return message.GetImageMessage() != nil ||
+		message.GetVideoMessage() != nil ||
+		message.GetPtvMessage() != nil ||
+		message.GetAudioMessage() != nil ||
+		message.GetDocumentMessage() != nil ||
+		message.GetStickerMessage() != nil
+}
+
+// mediaFields pulls the download coordinates out of whichever media message
+// this is. PTV rides the VideoMessage type, and a sticker is downloaded as an
+// image, which is why neither gets a case of its own.
+func mediaFields(message *waE2E.Message) (directPath string, mediaKey, fileSHA []byte, mediaType whatsmeow.MediaType) {
+	switch {
+	case message.GetImageMessage() != nil:
+		m := message.GetImageMessage()
+		return m.GetDirectPath(), m.GetMediaKey(), m.GetFileSHA256(), whatsmeow.MediaImage
+	case message.GetStickerMessage() != nil:
+		m := message.GetStickerMessage()
+		return m.GetDirectPath(), m.GetMediaKey(), m.GetFileSHA256(), whatsmeow.MediaImage
+	case message.GetVideoMessage() != nil || message.GetPtvMessage() != nil:
+		m := message.GetVideoMessage()
+		if m == nil {
+			m = message.GetPtvMessage()
+		}
+		return m.GetDirectPath(), m.GetMediaKey(), m.GetFileSHA256(), whatsmeow.MediaVideo
+	case message.GetAudioMessage() != nil:
+		m := message.GetAudioMessage()
+		return m.GetDirectPath(), m.GetMediaKey(), m.GetFileSHA256(), whatsmeow.MediaAudio
+	case message.GetDocumentMessage() != nil:
+		m := message.GetDocumentMessage()
+		return m.GetDirectPath(), m.GetMediaKey(), m.GetFileSHA256(), whatsmeow.MediaDocument
+	}
+	return "", nil, nil, ""
+}
+
+// checkUploadedMedia opens the blob an outgoing attachment points at, using the
+// key the message itself carries. Nothing depends on the result: it runs so
+// that a broken upload path fails here, in the mock's own log, rather than as a
+// download error in the daemon three steps later.
+func (s *Server) checkUploadedMedia(message *waE2E.Message) {
+	directPath, mediaKey, fileSHA, mediaType := mediaFields(message)
+	if mediaType == "" {
+		return
+	}
+	if err := s.openHostedMedia(directPath, mediaKey, fileSHA, mediaType); err != nil {
+		s.log.Printf("outgoing attachment does not open: %v", err)
+	}
 }
 
 // noteClientMessage puts a sent message in the world, pages the scenario's
@@ -177,6 +241,11 @@ func (s *Server) noteClientMessage(id string, to types.JID, message *waE2E.Messa
 		At:     time.Now(),
 		FromMe: true,
 	}
+	if hasMedia(message) {
+		msg.media = message
+		s.checkUploadedMedia(message)
+	}
+	world.remember(msg)
 	go s.runSendHooks(msg)
 }
 
