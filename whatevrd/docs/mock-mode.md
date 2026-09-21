@@ -59,9 +59,17 @@ Unix socket paths cap out at 108 bytes. A deep `--mock-dir` fails at bind with
 | `--mock-history-delay <d>` | how long between history sync chunks |
 | `--mock-phone <digits>` | the number the mock account answers as |
 | `--mock-keep` | keep existing scratch state |
+| `--mock-now <rfc3339>` | pin the clock every scenario timestamp hangs off |
+| `--mock-control <path>` | bind the quiescence socket here |
+| `--mock-notify` | let a mock run raise desktop notifications |
 
 `--mock-scan-delay` is the one worth knowing about: it is how you get a QR to
 sit on screen long enough to look at, instead of pairing instantly.
+
+Desktop notifications are off in mock mode unless asked for. A scenario is
+synthetic traffic and a stress scenario is hundreds of messages a second;
+a toast for any of it is wrong, and the frontends are what the mock exists to
+exercise anyway.
 
 ## How a connection goes
 
@@ -161,10 +169,59 @@ which rides the history sync rather than app state.
 Timestamps are relative (`wamock.Ago`) so day dividers land in the right place
 whatever day the scenario runs on.
 
-Register in `scenarios_builtin.go`; `--mock-list` prints the registry. The
-strings `READY-HARNESS` and `Visual Test Group` in the `visual` scenario are
-load-bearing: `scripts/whattui-screenshot` waits for them on screen, so
-renaming either breaks the harness rather than the scenario.
+Register in `scenarios_builtin.go`, or `scenarios_stress.go` for the ones that
+exist to hurt; `--mock-list` prints the registry. The strings `READY-HARNESS`
+and `Visual Test Group` in the `visual` scenario are load-bearing, and so are
+`frames` and its `Reference` chat: the screenshot script and the whattui golden
+frames both look for them by name. A guard test asks `--mock-list` whether they
+are still there, so a rename fails loudly.
+
+### The ones that exist to hurt
+
+| scenario | what it is for |
+|---|---|
+| `frames` | fixed, quiet, history only: the account the golden frames are diffed against |
+| `torture` | every text and layout case that breaks a renderer, each labelled |
+| `flood` | four hundred chats, a three thousand message conversation, live bursts |
+| `fuzz` | a different account at every `--mock-seed`, the same one at each |
+
+`torture` is a test sheet. The corpus is in `nasty.go`: bidi overrides and
+isolates, zero width joiner families, combining mark stacks, terminal escapes
+(colour, cursor movement, screen clear, OSC 8 hyperlinks, OSC 52 clipboard
+writes), nul bytes, a forty thousand character message, chat names with
+newlines in them, three hundred member groups, twenty four messages at the same
+millisecond, timestamps at the epoch and in the future, and attachments four
+thousand pixels on one side and one on the other. Each sample is preceded by a
+label from the account, as its own message, so a screenshot reads as a sheet
+without changing how the sample beside it wraps.
+
+`fuzz` draws from the same corpus with a seeded generator, so a crash is
+reproducible from the one number in the log line. It cannot be a golden: use it
+for soak runs, and quote the seed when something falls over.
+
+`buildFrames` is history only on purpose. A backlog delivered at login and a
+history chunk describing the same chat are two pipelines racing, and the unread
+badge is whichever lands last. That race belongs in a scenario somebody is
+watching, not in the one the frames are diffed against.
+
+## The quiescence barrier
+
+`--mock-control <path>` binds a unix socket that answers one NDJSON request per
+line. It exists so a test can ask whether the mock has finished talking instead
+of sleeping long enough to be fairly sure.
+
+| command | answer |
+|---|---|
+| `{"cmd":"sync"}` | blocks until nothing is queued, scheduled or being served, and the wire has been quiet for a moment |
+| `{"cmd":"status"}` | the same question without the waiting |
+| `{"cmd":"scenario"}` | the name, the seed and the pinned clock |
+| `{"cmd":"list"}` | the registry |
+| `{"cmd":"say","chat":"Asha","text":"..."}` | put a message in from outside the scenario |
+
+`sync` is only the server's half. Whether a view has emitted `ready`, and
+whether the daemon has finished ingesting what it was sent, are things only the
+frontend can see, so a caller waits on both: the whattui harness syncs, then
+waits for its collections to stop changing for 300ms.
 
 ## How a message is delivered
 
@@ -296,10 +353,12 @@ is what the daemon writes each of them to disk as.
 
 ## Scope
 
-Stages 0 to 5 are in: handshake, pairing, login, a world model, scenarios,
-inbound and outbound messages with the full receipt lifecycle, typing and
-presence, group metadata, contact lookups, history sync, contact names, profile
-pictures, app state in both directions, media of every kind, and stickers.
+All of it is in: handshake, pairing, login, a world model, scenarios, inbound
+and outbound messages with the full receipt lifecycle, typing and presence,
+group metadata, contact lookups, history sync, contact names, profile pictures,
+app state in both directions, media of every kind, stickers, a pinned clock, a
+quiescence barrier, and the whattui golden frames and screenshot harness both
+running against a real daemon rather than a recorded fixture.
 
 Every info query the daemon makes is answered. An unhandled one is still
 answered empty and logged as `unanswered iq xmlns=...`, which is the running
@@ -311,6 +370,25 @@ as a full sync, which works but means whatsmeow drops the resulting events
 unless `EmitAppStateEventsOnFullSync` is set. The daemon sets it for the one
 collection where it matters.
 
-Still to come is stage 6: the quiescence barrier, and moving whattui's golden
-frames and `scripts/whattui-screenshot` off the recorded fixture onto a
-scenario.
+## What it found
+
+The mock exists to make states reachable, and the states it reached had bugs in
+them. Each of these was a real daemon fault, not a mock one:
+
+- a push name from one history sync chunk buried the address book name from
+  another, so group transcripts read `~Asha` for somebody you had saved
+- the account's own push name was tagged with the `~` marker that means "a name
+  this person chose rather than one you saved", which only makes sense about
+  somebody else
+- `cbcutil.Decrypt` decrypts in place, so the mock's own upload self-check was
+  overwriting hosted blobs with plaintext: the first download of a sent
+  attachment worked and every one after it failed its mac
+- a message that was empty, or only spaces, was declined by the text path and
+  then tombstoned as a payload nobody had written code for
+- two avatar refreshes of the same person shared one temp file name, so one
+  could rename the other's half-written file into a content addressed path that
+  claimed the bytes were whole
+- history sync overwrote a chat's unread count with the phone's number, which
+  discarded anything that had arrived live since the blob was made. Linking a
+  device takes minutes and messages arrive throughout, so the badge for them
+  vanished.

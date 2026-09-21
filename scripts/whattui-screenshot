@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """Photograph real whattui frames in an isolated kitty window.
 
-For looking at, by a person or an agent. It builds whattui and the protocol
-fixture, serves committed synthetic data over a private socket, opens a kitty
-of exactly the size asked for on a Hyprland headless output nobody is looking
-at, drives it with whatever keys were asked for, and writes a png once the
-frame has stopped changing. The real account and the real screen are never
-involved.
+A camera, not a test. For looking at, by a person or an agent, when something
+about a frame needs eyes on it. Nothing here compares anything: it builds
+whattui and a mock-mode whatevrd, runs a real daemon against a fake WhatsApp
+server on a private socket, opens a kitty of exactly the size asked for on a
+Hyprland headless output nobody is looking at, drives it with whatever keys were
+asked for, and writes a png once the frame has stopped changing. The real
+account and the real screen are never involved.
+
+The clock is the real one and the account is live, so a picture looks like an
+account rather than like a fixture. Frame comparison lives in whattui's golden
+tests, which pin both.
 """
 
 from __future__ import annotations
@@ -29,11 +34,25 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "build" / "whattui-screenshots"
-FIXTURE = ROOT / "whattui" / "testdata" / "visual" / "fixture.ndjson"
-# The data actually served. Another file is fine: this is a camera, and what
-# you point it at is your business. It still has to be a file, never a real
-# account.
-fixture = FIXTURE
+# The accounts that can be photographed: a mock scenario name, the chat whose
+# name proves the list has drawn, and the text that proves the transcript has.
+# Another account is fine, this is a camera and what you point it at is your
+# business, but it is always a scenario and never a real account.
+ACCOUNTS = {
+    "visual": ("Visual Test Group", "READY-HARNESS"),
+    "frames": ("Reference", "READY-HARNESS"),
+    "busy": ("Team standup", "standing up"),
+    "media": ("Media test group", "and that is everything else"),
+    "torture": ("Text torture", "--- zalgo ---"),
+    "flood": ("Group 00", "group 00 message"),
+    "fuzz": ("", ""),
+    "sync": ("Syncing group", "group history"),
+    "echo": ("Echo chamber", "same in here"),
+    "empty": ("", ""),
+}
+DEFAULT_ACCOUNT = "visual"
+# The account actually served.
+account = DEFAULT_ACCOUNT
 # Environment whattui is started with, from --env.
 EXTRA_ENV: dict[str, str] = {}
 KITTY_CONFIG = ROOT / "scripts" / "whattui-kitty.conf"
@@ -244,54 +263,40 @@ class HeadlessOutput:
         }
 
 
-def validate_fixture() -> int:
-    views: set[str] = set()
-    messages = 0
-    with fixture.open(encoding="utf-8") as stream:
-        for number, raw in enumerate(stream, 1):
-            text = raw.strip()
-            if not text or text.startswith("#"):
-                continue
-            try:
-                frame = json.loads(text)
-            except json.JSONDecodeError as exc:
-                raise Failure(f"{fixture}:{number}: {exc}") from exc
-            if (
-                not isinstance(frame, dict)
-                or not frame.get("view")
-                or not frame.get("event")
-            ):
-                raise Failure(f"{fixture}:{number}: frame needs view and event")
-            views.add(str(frame["view"]))
-            messages += frame["view"] == "messages"
-    if not {"connection", "chats", "messages"}.issubset(views) or messages < 8:
-        raise Failure(
-            "fixture must contain connection, chats, and at least eight messages"
-        )
-    return messages
+def validate_account() -> str:
+    """The account has to be a scenario the binary actually has."""
+    if account not in ACCOUNTS:
+        known = ", ".join(sorted(ACCOUNTS))
+        raise Failure(f"unknown account {account!r}; known ones are {known}")
+    return account
 
 
 def build_binaries(run_dir: Path) -> dict[str, Path]:
     bin_dir = run_dir / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
     whattui = bin_dir / "whattui"
-    fixture = bin_dir / "protocol-fixture"
+    daemon = bin_dir / "whatevrd"
     run(
         ["go", "build", "-buildvcs=false", "-o", str(whattui), "./cmd/whattui"],
         cwd=ROOT / "whattui",
     )
+    # The mock server mutates process-global certificate state, so it exists
+    # only behind this tag and never in a release binary.
     run(
         [
             "go",
             "build",
             "-buildvcs=false",
+            "-tags",
+            "sqlite_fts5 whatevr_mock",
             "-o",
-            str(fixture),
-            "./cmd/protocol-fixture",
+            str(daemon),
+            "./cmd/whatevrd",
         ],
         cwd=ROOT / "whatevrd",
+        env={**os.environ, "CGO_ENABLED": "1"},
     )
-    return {"whattui": whattui, "fixture": fixture}
+    return {"whattui": whattui, "whatevrd": daemon}
 
 
 def child_mode(args: argparse.Namespace) -> int:
@@ -311,12 +316,12 @@ class Harness:
         self,
         run_dir: Path,
         binaries: dict[str, Path],
-        fixture_socket: Path,
+        daemon_socket: Path,
         headless: HeadlessOutput,
     ) -> None:
         self.run_dir = run_dir
         self.binaries = binaries
-        self.fixture_socket = fixture_socket
+        self.daemon_socket = daemon_socket
         self.headless = headless
         self.states: list[dict[str, Any]] = []
         self.sequence = 0
@@ -398,7 +403,7 @@ class Harness:
             "--",
             str(self.binaries["whattui"]),
             "--socket",
-            str(self.fixture_socket),
+            str(self.daemon_socket),
         ]
         if self.headless.name is None:
             raise Failure("headless output is not available")
@@ -463,7 +468,12 @@ class Harness:
             raise Failure("Hyprland did not apply the floating exec rule")
         self.headless.observe_active_workspace("kitty-placed")
         self.resize(state, cols, rows)
-        self.wait_text(state, "Visual Test Group")
+        # A camera waits for the picture, not for a barrier: the daemon is
+        # still syncing when whattui draws its first frame, and an account with
+        # nothing in it never draws more than the connection line.
+        self.wait_gone(state, "connecting to whatevrd")
+        if ACCOUNTS[account][0]:
+            self.wait_text(state, ACCOUNTS[account][0])
         self.remote(socket, ["send-key", "--match", f"id:{window_id}", "enter"])
         self.wait_gone(state, "pick a chat")
         return state
@@ -656,7 +666,8 @@ class Harness:
         )
         wait_for("whattui tab to become visible", lambda: self.tab_active(state))
         self.remote(state["socket"], ["close-window", "--match", f"id:{hidden_id}"])
-        self.wait_text(state, "READY-HARNESS")
+        if ACCOUNTS[account][1]:
+            self.wait_text(state, ACCOUNTS[account][1])
 
     # Every window of this scenario's own kitty, not just whattui's: a cover
     # tab left behind keeps the toplevel alive and the wait below never ends.
@@ -746,40 +757,39 @@ class Harness:
                 self.states.remove(state)
 
 
-def start_fixture(
+def start_daemon(
     run_dir: Path, binary: Path
 ) -> tuple[subprocess.Popen[Any], Path, Path]:
-    socket = run_dir / "fixture" / "whatevrd.sock"
-    socket.parent.mkdir(parents=True, exist_ok=True)
-    socket.parent.chmod(0o700)
-    ready = run_dir / "fixture.ready"
-    log_path = run_dir / "logs" / "protocol-fixture.log"
+    """Run a real whatevrd against the fake WhatsApp server, and wait for it."""
+    root = run_dir / "mock"
+    root.mkdir(parents=True, exist_ok=True)
+    root.chmod(0o700)
+    # prepareMockDir only ever clears a directory carrying this marker.
+    (root / ".whatevr-mock").write_text("whattui-screenshot\n", encoding="utf-8")
+    log_path = run_dir / "logs" / "whatevrd.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log = log_path.open("wb")
     proc = subprocess.Popen(
         [
             str(binary),
-            "--socket",
-            str(socket),
-            "--ready-file",
-            str(ready),
-            "--script",
-            str(fixture),
+            "--mock",
+            account,
+            "--mock-dir",
+            str(root),
         ],
         cwd=ROOT / "whatevrd",
         stdout=log,
         stderr=subprocess.STDOUT,
         start_new_session=True,
     )
+    socket = root / "run" / "whatevr" / "whatevrd.sock"
 
-    def fixture_ready() -> bool:
+    def daemon_ready() -> bool:
         if proc.poll() is not None:
-            raise Failure(
-                f"protocol-fixture exited with {proc.returncode}; see {log_path}"
-            )
-        return ready.exists() and socket.exists()
+            raise Failure(f"whatevrd exited with {proc.returncode}; see {log_path}")
+        return socket.exists()
 
-    wait_for("protocol fixture ready file and socket", fixture_ready)
+    wait_for("the whatevrd socket", daemon_ready)
     return proc, socket, log_path
 
 
@@ -795,12 +805,12 @@ def stop_process(proc: subprocess.Popen[Any]) -> None:
 
 def self_check() -> dict[str, Any]:
     required_tools()
-    messages = validate_fixture()
+    name = validate_account()
     if not KITTY_CONFIG.is_file():
         raise Failure(f"missing {KITTY_CONFIG}")
     return {
-        "fixture": str(fixture),
-        "fixture_messages": messages,
+        "account": name,
+        "account_chat": ACCOUNTS[name][0],
         "kitty_config": str(KITTY_CONFIG.relative_to(ROOT)),
         "tools": tools_metadata(),
     }
@@ -911,9 +921,9 @@ def main() -> int:
         "WHATTUI_NO_TEXT_SCALE=1 (repeatable)",
     )
     parser.add_argument(
-        "--fixture",
-        type=Path,
-        help=f"ndjson to serve instead of {FIXTURE.relative_to(ROOT)}",
+        "--account",
+        choices=sorted(ACCOUNTS),
+        help=f"mock scenario to photograph (default {DEFAULT_ACCOUNT})",
     )
     parser.add_argument(
         "--out",
@@ -965,11 +975,9 @@ def main() -> int:
             raise Failure(f"bad --env {pair!r}, want KEY=VALUE")
         EXTRA_ENV[key] = value
 
-    if args.fixture:
-        global fixture
-        fixture = args.fixture.resolve()
-        if not fixture.is_file():
-            raise Failure(f"no such fixture: {fixture}")
+    if args.account:
+        global account
+        account = args.account
 
     if args.list:
         for name, (cols, rows, keys, _) in sorted(SCENARIOS.items()):
@@ -998,13 +1006,13 @@ def main() -> int:
     run_dir = out / "run"
     run_dir.mkdir(parents=True, exist_ok=True)
     binaries = build_binaries(run_dir)
-    fixture_proc: subprocess.Popen[Any] | None = None
+    daemon_proc: subprocess.Popen[Any] | None = None
     harness: Harness | None = None
     taken: list[Path] = []
     try:
         headless.create()
-        fixture_proc, fixture_socket, _ = start_fixture(run_dir, binaries["fixture"])
-        harness = Harness(out, binaries, fixture_socket, headless)
+        daemon_proc, daemon_socket, _ = start_daemon(run_dir, binaries["whatevrd"])
+        harness = Harness(out, binaries, daemon_socket, headless)
         for shot in shots:
             cols, rows = shot["size"]
             name = shot["name"]
@@ -1034,8 +1042,8 @@ def main() -> int:
     finally:
         if harness is not None:
             harness.cleanup()
-        if fixture_proc is not None:
-            stop_process(fixture_proc)
+        if daemon_proc is not None:
+            stop_process(daemon_proc)
         headless.remove()
         if not args.keep_run_dir:
             shutil.rmtree(run_dir, ignore_errors=True)

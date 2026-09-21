@@ -58,6 +58,9 @@ jobs:
               - 'justfile'
               - '.gitmodules'
               - 'whattui/**'
+              # The golden frames are drawn against a real whatevrd in mock
+              # mode, so a daemon change can move them.
+              - 'whatevrd/**'
               - '.github/workflows/**'
             validate:
               - 'justfile'
@@ -149,6 +152,18 @@ jobs:
         with:
           go-version-file: whattui/go.mod
           cache-dependency-path: whattui/go.sum
+
+      # The golden frames and the paint benchmarks run against a real daemon
+      # speaking to a fake WhatsApp server. Mock mode mutates process-global
+      # certificate state, so it exists only behind this tag, and it needs cgo
+      # for sqlite.
+      - name: Build whatevrd with mock support
+        run: |
+          CGO_ENABLED=1 go build -buildvcs=false \
+            -tags "sqlite_fts5 whatevr_mock" \
+            -o "$GITHUB_WORKSPACE/build/mock/whatevrd" ./cmd/whatevrd
+          printf 'WHATTUI_WHATEVRD=%s\n' "$GITHUB_WORKSPACE/build/mock/whatevrd" >> "$GITHUB_ENV"
+        working-directory: whatevrd
 
       - name: Check formatting
         working-directory: whattui
