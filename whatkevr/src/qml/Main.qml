@@ -145,7 +145,10 @@ Kirigami.ApplicationWindow {
     Window {
         id: trayMenuWindow
 
-        flags: Qt.Popup | Qt.FramelessWindowHint
+        // A Qt.Popup keeps a native pointer grab. If it survives the main
+        // window's close-to-tray hide/show cycle, scrolling still works but
+        // every chat-row and button click is swallowed. Keep it non-modal.
+        flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         color: "transparent"
         visible: false
 
@@ -531,6 +534,7 @@ Kirigami.ApplicationWindow {
     }
 
     function activateWindow() {
+        trayMenuWindow.close()
         root.show()
         root.raise()
         root.requestActivate()
