@@ -1282,6 +1282,12 @@ func (c *Client) unsupportedMessageInput(ctx context.Context, evt *events.Messag
 	}
 	label, ok := unsupportedMessageLabel(evt)
 	if !ok {
+		// A text payload that got this far is an empty envelope, not a kind
+		// nobody has written code for. The text path owned it and declined, so
+		// there is no row and nothing to warn about.
+		if evt.Message.Conversation != nil || evt.Message.ExtendedTextMessage != nil {
+			return appstore.MediaMessageInput{}, false
+		}
 		field, unknown := unrecognizedPayloadField(evt.Message)
 		if !unknown {
 			return appstore.MediaMessageInput{}, false
@@ -1580,7 +1586,10 @@ func (c *Client) textMessageInput(ctx context.Context, evt *events.Message, opts
 	}
 
 	text := textFromMessage(evt.Message)
-	if strings.TrimSpace(text) == "" {
+	// Only a message with nothing in it is declined. Spaces and tabs are
+	// content: somebody sent them, and rendering an empty bubble is honest,
+	// where dropping the row loses a message that is really there.
+	if text == "" {
 		return appstore.TextMessageInput{}, false
 	}
 

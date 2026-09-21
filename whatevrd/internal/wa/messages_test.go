@@ -938,3 +938,68 @@ func TestNormalizedWaveformRejectsWrongShapes(t *testing.T) {
 		t.Errorf("clamped value = %d, want 100", got[0])
 	}
 }
+
+// A message made only of spaces is a message. Trimming it away lost a row that
+// really arrived, and the tombstone path then claimed the daemon had never
+// heard of a plain text payload.
+func TestWhitespaceOnlyTextIsStillText(t *testing.T) {
+	ctx := context.Background()
+	db, err := appstore.Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{}), log: waLog.Noop}
+
+	evt := &events.Message{
+		Info: types.MessageInfo{
+			ID: "WHITESPACE1",
+			MessageSource: types.MessageSource{
+				Chat:   types.JID{User: "111", Server: types.DefaultUserServer},
+				Sender: types.JID{User: "111", Server: types.DefaultUserServer},
+			},
+		},
+		Message: &waE2E.Message{Conversation: proto.String("   \t ")},
+	}
+	input, ok := client.textMessageInput(ctx, evt, ingestOptions{})
+	if !ok {
+		t.Fatal("a whitespace only message was declined")
+	}
+	if input.Text != "   \t " {
+		t.Fatalf("text = %q, want the spaces it was sent with", input.Text)
+	}
+}
+
+// An empty conversation is an empty envelope, not a payload nobody has written
+// code for. It gets no row, and above all no grey "Unsupported message" bubble.
+func TestEmptyTextIsNotTombstoned(t *testing.T) {
+	ctx := context.Background()
+	db, err := appstore.Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{}), log: waLog.Noop}
+
+	for name, message := range map[string]*waE2E.Message{
+		"conversation":  {Conversation: proto.String("")},
+		"extended text": {ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: proto.String("")}},
+	} {
+		evt := &events.Message{
+			Info: types.MessageInfo{
+				ID: "EMPTY1",
+				MessageSource: types.MessageSource{
+					Chat:   types.JID{User: "111", Server: types.DefaultUserServer},
+					Sender: types.JID{User: "111", Server: types.DefaultUserServer},
+				},
+			},
+			Message: message,
+		}
+		if _, ok := client.textMessageInput(ctx, evt, ingestOptions{}); ok {
+			t.Fatalf("%s: an empty message was stored as text", name)
+		}
+		if _, ok := client.unsupportedMessageInput(ctx, evt, ingestOptions{}); ok {
+			t.Fatalf("%s: an empty message was stored as a tombstone", name)
+		}
+	}
+}
