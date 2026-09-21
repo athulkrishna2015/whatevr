@@ -77,6 +77,9 @@ Item {
     required property var waiting
     required property bool isRevoked
     required property bool isEdited
+    // WhatsApp forward marker (daemon `forwarded`), rendered as a header
+    // above the bubble content in framed bubbles.
+    required property bool isForwarded
     required property bool isStarred
     required property bool isPinned
     required property bool mediaDownloading
@@ -218,6 +221,12 @@ Item {
     property real listWidth: 0
     readonly property bool showDateSeparator: dateSeparatorText.length > 0
     readonly property bool hasReplyPreview: replyToMessageId.length > 0
+    // Forwarded header: framed bubbles only; frameless rows (stickers/jumbo/
+    // video notes) draw no plate to hang it on.
+    readonly property bool showForwardedHeader: isForwarded && !frameless
+    readonly property real forwardedHeaderHeight: showForwardedHeader
+        ? forwardedLoader.height
+        : 0
     readonly property bool canReply: messageId.length > 0
                                      && !isRevoked
                                      && !centeredPill
@@ -748,19 +757,21 @@ Item {
     // The reply preview and caption text are inset by innerPadding; media is
     // edge-to-edge and sits flush at the top when it is the first region.
     function contentOffsetBeforeMedia() {
+        const top = root.innerPadding + root.forwardedHeaderHeight
         return root.hasReplyPreview
-            ? root.innerPadding + replyPreviewLoader.height + Kirigami.Units.smallSpacing
-            : 0
+            ? top + replyPreviewLoader.height + Kirigami.Units.smallSpacing
+            : (root.showForwardedHeader ? top : 0)
     }
 
     function contentOffsetBeforeBody() {
+        const top = root.innerPadding + root.forwardedHeaderHeight
         if (mediaSlot.visible) {
             return mediaSlot.y + mediaSlot.height + Kirigami.Units.smallSpacing
         }
         if (root.hasReplyPreview) {
-            return root.innerPadding + replyPreviewLoader.height + Kirigami.Units.smallSpacing - root.bodyTopInsetCorrection
+            return top + replyPreviewLoader.height + Kirigami.Units.smallSpacing - root.bodyTopInsetCorrection
         }
-        return root.innerPadding - root.bodyTopInsetCorrection
+        return top - root.bodyTopInsetCorrection
     }
 
     function contentOffsetBeforeFooter() {
@@ -774,9 +785,9 @@ Item {
             return mediaSlot.y + mediaSlot.height
         }
         if (root.hasReplyPreview) {
-            return root.innerPadding + replyPreviewLoader.height + Kirigami.Units.smallSpacing
+            return root.innerPadding + root.forwardedHeaderHeight + replyPreviewLoader.height + Kirigami.Units.smallSpacing
         }
-        return root.innerPadding
+        return root.innerPadding + root.forwardedHeaderHeight
     }
 
     // Natural width the reply preview wants for its content, floored so a tiny
@@ -1131,11 +1142,31 @@ Item {
             }
 
             Loader {
+                id: forwardedLoader
+
+                active: root.showForwardedHeader
+                x: root.innerPadding
+                y: root.innerPadding
+                width: root.textRegionWidth
+                height: active && item ? item.implicitHeight : 0
+
+                sourceComponent: Label {
+                    width: parent.width
+                    text: Whatevr.I18n.i18nc("@label forwarded message header", "Forwarded")
+                    font.italic: true
+                    font.pointSize: Kirigami.Theme.smallFont.pointSize
+                    color: Kirigami.Theme.highlightColor
+                    elide: Text.ElideRight
+                    maximumLineCount: 1
+                }
+            }
+
+            Loader {
                 id: replyPreviewLoader
 
                 active: root.hasReplyPreview
                 x: root.innerPadding
-                y: root.innerPadding
+                y: root.innerPadding + root.forwardedHeaderHeight
                 width: root.textRegionWidth
 
                 sourceComponent: ReplyPreview {
