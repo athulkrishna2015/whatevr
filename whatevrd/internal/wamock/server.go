@@ -48,6 +48,15 @@ type Options struct {
 	// finishes before the first frame can be watched.
 	HistoryDelay time.Duration
 
+	// Now pins the clock every relative scenario timestamp hangs off. Zero
+	// means the real one, which is what you want when looking at the thing; a
+	// fixed instant is what you want when comparing frames byte for byte.
+	Now time.Time
+
+	// Control is where the quiescence socket is bound. Empty means no control
+	// socket, which is the normal case for a human running a scenario.
+	Control string
+
 	// Login is the daemon's login event stream. The mock needs it to read the
 	// QR it is meant to scan, because the adv secret exists nowhere else.
 	Login LoginWatcher
@@ -102,6 +111,13 @@ type Server struct {
 	// patches the client validates against.
 	appState *mockAppState
 
+	// quiet counts what is still in flight, so a test can ask whether the mock
+	// has finished talking rather than guessing with a sleep.
+	quiet *quiescence
+
+	// control is the quiescence socket, bound only when a harness asks for it.
+	control net.Listener
+
 	// keysReady closes once the client has uploaded the identity and signed
 	// prekey the mock needs before it can encrypt anything.
 	keysReady chan struct{}
@@ -118,6 +134,9 @@ type Server struct {
 func New(opts Options) (*Server, error) {
 	if opts.Logger == nil {
 		opts.Logger = log.New(log.Writer(), "wamock: ", log.LstdFlags)
+	}
+	if !opts.Now.IsZero() {
+		SetBootTime(opts.Now)
 	}
 	now := time.Now()
 	rng := newSeededRand(opts.Seed)
@@ -155,6 +174,7 @@ func New(opts Options) (*Server, error) {
 		avatars:   newAvatarCache(),
 		stickers:  newStickerCatalogue(),
 		appState:  newMockAppState(rng),
+		quiet:     newQuiescence(),
 	}
 	srv.world = newWorld(srv)
 	if scenario, ok := Lookup(opts.Scenario); ok && scenario.Build != nil {
@@ -176,7 +196,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.ln = ln
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ws/chat", s.handleWS)
+	mux.HandleFunc(websocketPath, s.handleWS)
 	mux.HandleFunc(mediaPathPrefix, s.handleMedia)
 	mux.HandleFunc(avatarPathPrefix, s.handleMedia)
 	mux.HandleFunc("/mms/", s.handleMMS)
@@ -185,7 +205,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// page to decide the version it advertises. Serving it keeps the daemon
 	// from retrying a 404 on every connect.
 	mux.HandleFunc("/", s.handleRoot)
-	s.http = &http.Server{Handler: mux}
+	s.http = &http.Server{Handler: s.countHTTP(mux)}
 
 	installCertPubKey(s.ident)
 	installTransport(s.tlsID, ln.Addr().String())
@@ -201,6 +221,23 @@ func (s *Server) Start(ctx context.Context) error {
 	}()
 	s.log.Printf("fake WhatsApp server on %s (scenario %q, seed %d)", ln.Addr(), s.opts.Scenario, s.opts.Seed)
 	return nil
+}
+
+// countHTTP keeps the quiescence tracker honest about downloads. A history
+// chunk or an attachment the daemon is still fetching is work in flight, and a
+// frame taken while it lands is not the frame a rerun would take.
+func (s *Server) countHTTP(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The websocket is a request that never returns, so counting it would
+		// mean the mock is busy for as long as anybody is connected.
+		if r.URL.Path == websocketPath {
+			next.ServeHTTP(w, r)
+			return
+		}
+		s.quiet.addHTTP(1)
+		defer s.quiet.addHTTP(-1)
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) isClosed() bool {
@@ -224,6 +261,9 @@ func (s *Server) Close() error {
 
 	for _, sess := range sessions {
 		sess.close(websocket.StatusGoingAway, "server shutting down")
+	}
+	if s.control != nil {
+		_ = s.control.Close()
 	}
 	if s.http != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -342,6 +382,10 @@ func (s *Server) Paired() (pairedDevice, bool) {
 // rather than current: a scenario should not change behaviour because the real
 // WhatsApp shipped a release.
 const mockClientRevision = 1023000000
+
+// websocketPath is where the client connects. socket.URL is a const in
+// whatsmeow, so the path is fixed too.
+const websocketPath = "/ws/chat"
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {

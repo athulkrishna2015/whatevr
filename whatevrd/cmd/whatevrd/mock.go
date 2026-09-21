@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"whatevrd/internal/app"
 	"whatevrd/internal/wamock"
@@ -22,6 +23,16 @@ type mockRun struct {
 	scenario wamock.Scenario
 	dir      string
 	opts     wamock.Options
+	notify   bool
+}
+
+// mockSilencesNotifications reports whether this run should keep its hands off
+// the session bus. A scenario is synthetic traffic, and a stress scenario is
+// hundreds of messages a second: a desktop toast for any of it is wrong, and
+// the frontends are what the mock exists to exercise anyway. --mock-notify puts
+// them back for the one case where the notifier itself is the thing under test.
+func mockSilencesNotifications(run *mockRun) bool {
+	return run != nil && !run.notify
 }
 
 // mockPrepare parses the mock flags and, in mock mode, repoints the XDG
@@ -37,6 +48,9 @@ func mockPrepare() *mockRun {
 		phone     = flag.String("mock-phone", "", "phone number the mock account answers as")
 		keep      = flag.Bool("mock-keep", false, "keep existing mock state instead of starting fresh")
 		histDelay = flag.Duration("mock-history-delay", 0, "how long between history sync chunks, to make the sync view watchable")
+		control   = flag.String("mock-control", "", "bind a control socket here for the quiescence barrier")
+		now       = flag.String("mock-now", "", "pin the clock scenario timestamps hang off, as RFC3339, for reproducible frames")
+		notify    = flag.Bool("mock-notify", false, "let a mock run raise desktop notifications")
 	)
 	flag.Parse()
 
@@ -94,8 +108,16 @@ func mockPrepare() *mockRun {
 		AccountPhone: *phone,
 		ScanDelay:    *scanDelay,
 		HistoryDelay: *histDelay,
+		Control:      *control,
 	}
-	return &mockRun{scenario: found, dir: root, opts: opts}
+	if *now != "" {
+		at, err := time.Parse(time.RFC3339, *now)
+		if err != nil {
+			log.Fatalf("parse --mock-now: %v", err)
+		}
+		opts.Now = at
+	}
+	return &mockRun{scenario: found, dir: root, opts: opts, notify: *notify}
 }
 
 // prepareMockDir makes root exist and, unless asked to keep it, empty. It only
@@ -140,6 +162,9 @@ func mockStart(ctx context.Context, run *mockRun, daemon *app.Daemon) (func(), e
 		return nil, err
 	}
 	if err := srv.Start(ctx); err != nil {
+		return nil, err
+	}
+	if err := srv.StartControl(ctx, run.opts.Control); err != nil {
 		return nil, err
 	}
 	log.Printf("mock mode: scenario %q, state in %s", run.scenario.Name, run.dir)

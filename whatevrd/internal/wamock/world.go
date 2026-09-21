@@ -4,8 +4,10 @@ package wamock
 
 import (
 	"fmt"
+	"math/rand"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.mau.fi/whatsmeow/appstate"
@@ -15,14 +17,26 @@ import (
 )
 
 // bootTime is the instant every relative scenario timestamp hangs off. It is
-// fixed once per process so that two chats built in the same scenario agree on
-// what "three hours ago" means, however long the build took.
-var bootTime = time.Now()
+// fixed once per run so that two chats built in the same scenario agree on what
+// "three hours ago" means, however long the build took.
+var bootTime atomic.Pointer[time.Time]
+
+// SetBootTime pins what Ago counts back from. A golden frame has to render the
+// same clock every run, and "three hours before whenever the test started" does
+// not. Scenarios keep saying Ago; only the origin moves.
+func SetBootTime(t time.Time) { bootTime.Store(&t) }
+
+func init() { SetBootTime(time.Now()) }
 
 // Ago is a scenario timestamp that many durations before the mock booted. Day
 // dividers and relative labels in the frontends depend on messages sitting at
 // sensible distances from now rather than at fixed wall-clock dates.
-func Ago(d time.Duration) time.Time { return bootTime.Add(-d) }
+func Ago(d time.Duration) time.Time { return bootTime.Load().Add(-d) }
+
+// Now is the mock's own clock: the instant Ago counts back from. Scenarios that
+// want something to land at the newest end of a chat use it rather than
+// time.Now, so a pinned run stays pinned.
+func Now() time.Time { return *bootTime.Load() }
 
 // World is the account a scenario describes: who is in it, what they said, and
 // what happens once a frontend connects. A scenario builds it once, before the
@@ -365,6 +379,20 @@ func (w *World) presenceOf(c *Contact) (online bool, lastSeen time.Time) {
 // Self is the account the daemon is logged in as.
 func (w *World) Self() *Contact { return w.self }
 
+// Rand is the scenario's own randomness, seeded from --mock-seed. It is a
+// separate stream from the one that makes keys and ids, so adding a contact
+// does not shuffle every message a generated scenario produces.
+func (w *World) Rand() *rand.Rand {
+	return rand.New(rand.NewSource(w.srv.opts.Seed ^ scenarioSeedSalt))
+}
+
+// scenarioSeedSalt keeps the scenario stream from ever lining up with the key
+// stream at the same seed.
+const scenarioSeedSalt = 0x5343454e
+
+// Seed is what the run was seeded with, for a scenario that wants to say so.
+func (w *World) Seed() int64 { return w.srv.opts.Seed }
+
 // Contact adds somebody to the world, or returns them if they are already in
 // it. The phone number is plain digits, country code included.
 func (w *World) Contact(phone, name string) *Contact {
@@ -613,6 +641,35 @@ func (w *World) Msg(id string) (*Msg, bool) {
 	defer w.mu.Unlock()
 	m, ok := w.messages[id]
 	return m, ok
+}
+
+// chatNamed finds a chat by the name a scenario gave it, or by its jid. It is
+// how something outside the scenario, a control socket command, names a chat it
+// did not create.
+func (w *World) chatNamed(name string) (*Chat, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if chat, ok := w.chats[name]; ok {
+		return chat, true
+	}
+	for _, chat := range w.order {
+		if chat.Name == name {
+			return chat, true
+		}
+	}
+	return nil, false
+}
+
+// contactNamed finds somebody by their saved or push name.
+func (w *World) contactNamed(name string) (*Contact, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, c := range w.contacts {
+		if c.Name == name || c.Saved == name {
+			return c, true
+		}
+	}
+	return nil, false
 }
 
 // remember files a message under its id. Messages the world made are filed by

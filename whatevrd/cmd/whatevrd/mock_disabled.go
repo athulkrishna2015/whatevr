@@ -32,3 +32,7 @@ func mockPrepare() *mockRun {
 func mockStart(context.Context, *mockRun, *app.Daemon) (func(), error) {
 	return func() {}, nil
 }
+
+// mockSilencesNotifications is never true in a release build: there is no mock
+// run to silence them for.
+func mockSilencesNotifications(*mockRun) bool { return false }

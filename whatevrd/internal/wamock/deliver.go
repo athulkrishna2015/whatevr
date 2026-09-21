@@ -79,6 +79,7 @@ func (s *session) postLogin(ctx context.Context) {
 		})
 	}
 	go world.runTimeline(ctx)
+	s.srv.quiet.setLoggedIn()
 }
 
 // awaitClientKeys blocks until the client has uploaded the identity and signed
@@ -125,9 +126,11 @@ func (s *Server) deliverLive(m *Msg) {
 // dropping: a scenario that loses a message halfway through is a mock nobody
 // can trust.
 func (s *session) enqueue(fn func(context.Context) error) {
+	s.srv.quiet.addWork(1)
 	select {
 	case s.outbox <- fn:
 	case <-s.done:
+		s.srv.quiet.addWork(-1)
 	}
 }
 
@@ -139,7 +142,9 @@ func (s *session) pumpOutbox(ctx context.Context) {
 	for {
 		select {
 		case fn := <-s.outbox:
-			if err := fn(ctx); err != nil {
+			err := fn(ctx)
+			s.srv.quiet.addWork(-1)
+			if err != nil {
 				s.srv.log.Printf("deliver: %v", err)
 			}
 		case <-ctx.Done():

@@ -105,6 +105,7 @@ func (s *session) run(ctx context.Context) {
 			}
 			return
 		}
+		s.srv.quiet.touch()
 		if err := s.handleNode(ctx, node); err != nil {
 			s.srv.log.Printf("handle <%s>: %v", node.Tag, err)
 		}
@@ -284,6 +285,7 @@ func (s *session) sendNode(ctx context.Context, node waBinary.Node) error {
 	binary.BigEndian.PutUint32(iv[8:], s.writeCounter)
 	s.writeCounter++
 	ciphertext := s.writeKey.Seal(nil, iv, plaintext, nil)
+	s.srv.quiet.touch()
 	return s.writeFrame(ctx, ciphertext)
 }
 

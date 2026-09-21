@@ -330,7 +330,7 @@ func TestLiveAppStatePush(t *testing.T) {
 	}
 
 	world := srv.world
-	direct := world.DM(world.contactNamed(t, "917770000001"))
+	direct := world.DM(world.contactByPhone(t, "917770000001"))
 	direct.Pin()
 	select {
 	case evt := <-pins:
@@ -382,7 +382,7 @@ func TestInboundMediaDownloads(t *testing.T) {
 	})
 
 	world := srv.world
-	direct := world.DM(world.contactNamed(t, "917770000001"))
+	direct := world.DM(world.contactByPhone(t, "917770000001"))
 	sent := direct.Attach(direct.Other(), Image("a real jpeg"), time.Now())
 	if sent.media == nil {
 		t.Fatal("the attachment never built")
@@ -414,10 +414,10 @@ func TestInboundMediaDownloads(t *testing.T) {
 	}
 }
 
-// contactNamed is the scenario-facing lookup the tests need: World.Contact
+// contactByPhone is the scenario-facing lookup the tests need: World.Contact
 // would create somebody new if the phone number were wrong, which would turn a
 // typo into a passing test.
-func (w *World) contactNamed(t *testing.T, phone string) *Contact {
+func (w *World) contactByPhone(t *testing.T, phone string) *Contact {
 	t.Helper()
 	contact, ok := w.contactByJID(types.JID{User: phone, Server: types.DefaultUserServer})
 	if !ok {

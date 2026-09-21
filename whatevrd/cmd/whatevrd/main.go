@@ -69,8 +69,10 @@ func main() {
 
 	// The protocol server routes daemon→frontend pushes (open_chat on a
 	// notification click) as connection-directed events.
-	notificationWorker, err := notify.NewWorker(protocolServer)
-	if err != nil {
+	var notificationWorker *notify.Worker
+	if mockSilencesNotifications(mock) {
+		log.Print("notifications disabled: mock mode")
+	} else if notificationWorker, err = notify.NewWorker(protocolServer); err != nil {
 		log.Printf("notifications disabled: %v", err)
 	}
 	if notificationWorker != nil {
