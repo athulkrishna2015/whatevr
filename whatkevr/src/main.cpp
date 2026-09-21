@@ -1,4 +1,6 @@
 #include <QApplication>
+#include <QCommandLineOption>
+#include <QCommandLineParser>
 #include <QLoggingCategory>
 #include <QPixmapCache>
 #include <QQmlApplicationEngine>
@@ -132,6 +134,19 @@ int main(int argc, char *argv[])
 
     KAboutData::setApplicationData(aboutData);
 
+    QCommandLineParser parser;
+    QCommandLineOption socketOption(
+        {QStringLiteral("s"), QStringLiteral("socket")},
+        i18nc("@info:shell", "Talk to the daemon on this socket instead of the one under XDG_RUNTIME_DIR. This is how you point the app at `whatevrd --mock`."),
+        i18nc("@info:shell", "path"));
+    aboutData.setupCommandLine(&parser);
+    parser.addOption(socketOption);
+    parser.addPositionalArgument(QStringLiteral("url"),
+                                 i18nc("@info:shell", "A whatevr://chat/<id> link to open."));
+    parser.process(app);
+    aboutData.processCommandLine(&parser);
+    const QString socketPath = parser.value(socketOption);
+
     QQmlApplicationEngine engine;
     engine.rootContext()->setContextObject(new KLocalizedContext(&engine));
     // The last frame a video decoder was showing when it let go, so a clip
@@ -147,7 +162,8 @@ int main(int argc, char *argv[])
 
     // The one controller: it owns the socket to whatevrd and every view the UI
     // renders (PROTOCOL.md).
-    ProtocolController protocolController(nullptr);
+    ProtocolController protocolController(
+        socketPath.isEmpty() ? ProtocolController::daemonSocketPath() : socketPath, nullptr);
     ProtocolController::setInstance(&protocolController);
 
     // A stream that finishes downloading mid-playback is swapped onto its
@@ -177,7 +193,10 @@ int main(int argc, char *argv[])
     // `whatkevr whatevr://chat/<id>` via the desktop scheme handler) forwards its
     // command line to the running instance through activateRequested instead of
     // starting a new window.
-    KDBusService service(KDBusService::Unique);
+    // --socket is a second daemon, normally a mock, so that instance has to be
+    // allowed to run beside the real one. Unique would hand the arguments to
+    // whatever is already on the bus and raise its window instead.
+    KDBusService service(socketPath.isEmpty() ? KDBusService::Unique : KDBusService::Multiple);
     QObject::connect(&service,
                      &KDBusService::activateRequested,
                      &protocolController,

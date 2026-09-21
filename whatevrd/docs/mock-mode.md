@@ -43,10 +43,19 @@ run can never open a real account:
       data/whatevrd/session/whatsmeow.db
       cache/whatevrd/
 
-Point a frontend at the socket that prints on startup. The tree is cleared on
-each run; `--mock-keep` keeps it, and `--mock-dir` puts it somewhere else. A
-directory is only ever cleared if it carries the `.whatevr-mock` marker this
-binary wrote, so a mistyped `--mock-dir` fails instead of deleting something.
+Point a frontend at the socket that prints on startup. Both take it as a flag:
+
+    sock=$XDG_RUNTIME_DIR/whatevr-mock/visual/run/whatevr/whatevrd.sock
+    build/debug/whatkevr/bin/whatkevr --socket "$sock"
+    build/debug/whattui --socket "$sock"
+
+A whatkevr started with `--socket` does not take the single-instance lock, so it
+runs beside a whatkevr on the real account instead of just raising its window.
+
+The tree is cleared on each run; `--mock-keep` keeps it, and `--mock-dir` puts
+it somewhere else. A directory is only ever cleared if it carries the
+`.whatevr-mock` marker this binary wrote, so a mistyped `--mock-dir` fails
+instead of deleting something.
 
 Unix socket paths cap out at 108 bytes. A deep `--mock-dir` fails at bind with
 `invalid argument`; keep it short.
