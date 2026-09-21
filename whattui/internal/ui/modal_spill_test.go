@@ -13,7 +13,7 @@ import (
 // A two cell emoji one column left of a panel paints its second half inside
 // the panel, on the border. The panel has to blank it from its own side.
 func TestAPanelBlanksWhatSpillsIntoIt(t *testing.T) {
-	a := benchApp(100, 26, 4, 0)
+	a := stubApp(100, 26, 4, 0)
 	win := a.vx.Window()
 	r := layout.Rect{Col: 10, Row: 2, Width: 20, Height: 5}
 
@@ -56,7 +56,7 @@ func TestEveryWayOutOfAModal(t *testing.T) {
 			a.onMouse(vaxis.Mouse{Col: 0, Row: 0, Button: vaxis.MouseLeftButton, EventType: vaxis.EventRelease})
 		},
 	} {
-		a := benchApp(100, 26, 2, 0)
+		a := stubApp(100, 26, 2, 0)
 		a.openModal(modalPalette)
 		a.paint()
 		out(a)
@@ -68,7 +68,7 @@ func TestEveryWayOutOfAModal(t *testing.T) {
 
 // Everything behind a panel fades, cells and rasterised words alike.
 func TestAModalDimsWhatIsBehindIt(t *testing.T) {
-	a := benchApp(100, 26, 4, 0)
+	a := stubApp(100, 26, 4, 0)
 	// A real palette, because indexed colours are the terminal's own and the
 	// fade is computed rather than guessed.
 	a.theme = theme.Derive(vaxis.RGBColor(0x10, 0x11, 0x14), vaxis.RGBColor(0xe6, 0xe6, 0xe6))
@@ -110,7 +110,7 @@ func TestAModalDimsWhatIsBehindIt(t *testing.T) {
 // The hint line follows whatever owns the keyboard, so an open panel names its
 // own keys rather than the pane's.
 func TestTheHintLineFollowsTheOpenPanel(t *testing.T) {
-	a := benchApp(100, 26, 2, 0)
+	a := stubApp(100, 26, 2, 0)
 	a.focus = FocusComposer
 	a.paint()
 	if got := hintLine(a); !strings.Contains(got, "send") {

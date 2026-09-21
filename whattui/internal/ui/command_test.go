@@ -22,7 +22,7 @@ func key(r rune, mods ...vaxis.ModifierMask) vaxis.Key {
 }
 
 func TestCommandRegistryIDsAreUniqueAndSurfacesResolve(t *testing.T) {
-	a := benchApp(80, 24, 2, 0)
+	a := stubApp(80, 24, 2, 0)
 	a.initCommands()
 	seen := map[commandID]bool{}
 	for _, c := range a.commands.ordered {
@@ -48,7 +48,7 @@ func TestCommandRegistryIDsAreUniqueAndSurfacesResolve(t *testing.T) {
 }
 
 func TestBindingsAndModalUseSameExecutor(t *testing.T) {
-	a := benchApp(80, 24, 2, 0)
+	a := stubApp(80, 24, 2, 0)
 	a.initCommands()
 	a.focus = FocusList
 	runs := 0
@@ -78,7 +78,7 @@ func TestBindingsAndModalUseSameExecutor(t *testing.T) {
 }
 
 func TestModalInputPrecedesPaneAndPreservesFocus(t *testing.T) {
-	a := benchApp(80, 24, 2, 0)
+	a := stubApp(80, 24, 2, 0)
 	a.focus = FocusTranscript
 	a.openModal(modalPalette)
 	a.onKey(key('z'))
@@ -95,7 +95,7 @@ func TestModalInputPrecedesPaneAndPreservesFocus(t *testing.T) {
 }
 
 func TestSlashMenuAndContextualHelp(t *testing.T) {
-	a := benchApp(80, 24, 2, 0)
+	a := stubApp(80, 24, 2, 0)
 	a.focus = FocusComposer
 	a.onKey(key('?'))
 	if got := a.composer.String(); got != "?" || a.modal.kind != modalNone {
@@ -134,7 +134,7 @@ func TestSlashMenuAndContextualHelp(t *testing.T) {
 }
 
 func TestPaletteChatSearchPreservesDaemonOrderAndIgnoresStaleResponses(t *testing.T) {
-	a := benchApp(80, 24, 2, 0)
+	a := stubApp(80, 24, 2, 0)
 	type call struct {
 		query string
 		cb    proto.ResponseFunc
@@ -168,7 +168,7 @@ func TestPaletteChatSearchPreservesDaemonOrderAndIgnoresStaleResponses(t *testin
 }
 
 func TestPaletteIgnoresResponseFromPreviousOpen(t *testing.T) {
-	a := benchApp(80, 24, 2, 0)
+	a := stubApp(80, 24, 2, 0)
 	var callbacks []proto.ResponseFunc
 	a.request = func(_ string, _ proto.Params, cb proto.ResponseFunc) { callbacks = append(callbacks, cb) }
 	a.openModal(modalPalette)
@@ -187,7 +187,7 @@ func TestPaletteIgnoresResponseFromPreviousOpen(t *testing.T) {
 }
 
 func TestDisabledCommandsRemainVisibleWithReason(t *testing.T) {
-	a := benchApp(80, 24, 0, 0)
+	a := stubApp(80, 24, 0, 0)
 	a.activeChat = ""
 	choices := a.commandChoices("send", false, false)
 	if len(choices) == 0 || choices[0].Command != cmdSend || choices[0].Disabled == "" {
@@ -196,14 +196,14 @@ func TestDisabledCommandsRemainVisibleWithReason(t *testing.T) {
 }
 
 func TestModalMouseHoverClickWheelAndTinyPaint(t *testing.T) {
-	a := benchApp(10, 3, 2, 0)
+	a := stubApp(10, 3, 2, 0)
 	a.openModal(modalHelp)
 	a.paint()
 	if a.modal.rect.Width <= 0 || a.modal.rect.Height <= 0 {
 		t.Fatalf("tiny modal rect = %#v", a.modal.rect)
 	}
 
-	a = benchApp(80, 24, 2, 0)
+	a = stubApp(80, 24, 2, 0)
 	a.openModal(modalHelp)
 	a.paint()
 	m := vaxis.Mouse{Col: a.modal.list.Col, Row: a.modal.list.Row, Button: vaxis.MouseNoButton, EventType: vaxis.EventMotion}
@@ -235,7 +235,7 @@ func TestModalMouseHoverClickWheelAndTinyPaint(t *testing.T) {
 // empty slash query lists all of them, not the two somebody remembered to
 // name.
 func TestEveryCommandHasASlashName(t *testing.T) {
-	a := benchApp(80, 24, 2, 0)
+	a := stubApp(80, 24, 2, 0)
 	a.initCommands()
 	seen := map[string]commandID{}
 	for _, c := range a.commands.ordered {

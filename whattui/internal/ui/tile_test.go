@@ -22,7 +22,7 @@ func TestEveryCellBelongsToAPane(t *testing.T) {
 	}
 	for _, size := range sizes {
 		t.Run(fmt.Sprintf("%dx%d", size[0], size[1]), func(t *testing.T) {
-			a := benchApp(size[0], size[1], 6, 8)
+			a := stubApp(size[0], size[1], 6, 8)
 			sentinel := vaxis.Cell{
 				Character: vaxis.Character{Grapheme: "·", Width: 1},
 				Style:     vaxis.Style{Foreground: vaxis.RGBColor(0xff, 0x00, 0xff)},
@@ -66,7 +66,7 @@ func TestEveryCellBelongsToAPaneInEveryState(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			a := benchApp(113, 45, 6, 8)
+			a := stubApp(113, 45, 6, 8)
 			setup(a)
 			a.paint()
 

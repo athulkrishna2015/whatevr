@@ -14,7 +14,7 @@ import (
 // asked the collection anything while it held a read lock deadlocked with the
 // next batch: a frozen terminal that answers no key.
 func TestDrawingWhileTheDaemonWritesNeverDeadlocks(t *testing.T) {
-	a := benchApp(100, 26, 0, 0)
+	a := stubApp(100, 26, 0, 0)
 	a.chats = view.NewCollection[proto.ChatRow]()
 
 	stop := make(chan struct{})
@@ -53,7 +53,7 @@ func TestDrawingWhileTheDaemonWritesNeverDeadlocks(t *testing.T) {
 // asks the collection a question of its own waits behind the daemon's next
 // message, and the daemon's next message waits behind the frame.
 func TestDrawingATranscriptWhileMessagesArriveNeverDeadlocks(t *testing.T) {
-	a := benchApp(100, 26, 4, 20)
+	a := stubApp(100, 26, 4, 20)
 	c := a.conversation
 
 	stop := make(chan struct{})

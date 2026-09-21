@@ -35,14 +35,14 @@ func ruleOf(a *App) (col, row, height int, ok bool) {
 // as a hairline is exactly the column the tier below fills with a glyph, which
 // is the whole promise of "geometry is tier independent".
 func TestAPaintedRuleCoversTheCellsATypedOneWouldHave(t *testing.T) {
-	typed := goldenApp(100, 30, term.TierColor)
+	typed := tierApp(100, 30, term.TierColor)
 	typed.paint()
 	col, row, height, ok := ruleOf(typed)
 	if !ok {
 		t.Fatal("the typed tier drew no rule")
 	}
 
-	painted := goldenApp(100, 30, term.TierGraphics)
+	painted := tierApp(100, 30, term.TierGraphics)
 	painted.paint()
 	if _, _, _, ok := ruleOf(painted); ok {
 		t.Fatal("the painted tier drew rule glyphs as well as chrome")
@@ -65,7 +65,7 @@ func TestAPaintedRuleCoversTheCellsATypedOneWouldHave(t *testing.T) {
 // cell background, so filling the panel does not cover a bubble under it: the
 // placement has to go, and only the covered part of it.
 func TestAPanelTakesTheChromeUnderItWithIt(t *testing.T) {
-	a := goldenApp(120, 40, term.TierGraphics)
+	a := tierApp(120, 40, term.TierGraphics)
 	a.paint()
 	before := len(a.surfaces)
 	if before == 0 {
@@ -92,7 +92,7 @@ func TestAPanelTakesTheChromeUnderItWithIt(t *testing.T) {
 // A panel dims what is behind it. Chrome is an image and an image ignores the
 // dim attribute a cell carries, so it has to be repainted darker.
 func TestChromeBehindAPanelFadesWithEverythingElse(t *testing.T) {
-	a := goldenApp(120, 40, term.TierGraphics)
+	a := tierApp(120, 40, term.TierGraphics)
 	a.openModal(modalPalette)
 	a.paint()
 	if len(a.surfaces) == 0 {
@@ -109,7 +109,7 @@ func TestChromeBehindAPanelFadesWithEverythingElse(t *testing.T) {
 // source rectangle. Cropping the pixels instead would rasterise and upload a
 // new image for every row a transcript scrolls.
 func TestChromeClippedByAPaneIsTheSameUpload(t *testing.T) {
-	a := goldenApp(100, 30, term.TierGraphics)
+	a := tierApp(100, 30, term.TierGraphics)
 	a.paint()
 	a.flushImages()
 
@@ -139,7 +139,7 @@ func TestChromeClippedByAPaneIsTheSameUpload(t *testing.T) {
 // colour as a cell background: the image already carries that ground, and a
 // cell painted with it would tint the picture a second time.
 func TestTextInABoxKeepsThePanesGround(t *testing.T) {
-	a := goldenApp(100, 30, term.TierGraphics)
+	a := tierApp(100, 30, term.TierGraphics)
 	a.boxed = true
 	a.paint()
 
@@ -168,7 +168,7 @@ func TestTextInABoxKeepsThePanesGround(t *testing.T) {
 // drawn at the size of the circle, centred on it, and nothing typed into the
 // cells underneath.
 func TestADiscDrawsItsOwnLetter(t *testing.T) {
-	a := goldenApp(120, 40, term.TierGraphics)
+	a := tierApp(120, 40, term.TierGraphics)
 	a.caps.TextScale = false
 	a.shaper = shaperForTest(t)
 	a.paint()
@@ -199,7 +199,7 @@ func TestADiscDrawsItsOwnLetter(t *testing.T) {
 // And with no pixels to draw into, the terminal draws the letter and the block
 // it needs is claimed either way, so nothing moves when the font turns up.
 func TestADiscWithoutPixelsTypesItsLetter(t *testing.T) {
-	a := goldenApp(120, 40, term.TierColor)
+	a := tierApp(120, 40, term.TierColor)
 	a.paint()
 	if len(a.surfaces) != 0 {
 		t.Fatalf("a tier that cannot draw painted %d surfaces", len(a.surfaces))
@@ -232,7 +232,7 @@ func shaperForTest(t *testing.T) *textrun.Shaper {
 // cell that no longer exists, and terminals disagree about whether they tidy
 // that up. The frame after one starts from nothing.
 func TestAResizeDropsEveryGraphicTheTerminalHolds(t *testing.T) {
-	a := goldenApp(120, 40, term.TierGraphics)
+	a := tierApp(120, 40, term.TierGraphics)
 	a.paint()
 	a.flushImages()
 	if len(a.vx.Snapshot().Placements()) == 0 {
@@ -249,7 +249,7 @@ func TestAResizeDropsEveryGraphicTheTerminalHolds(t *testing.T) {
 // stands still and every image in it was drawn for a cell that is now a
 // different size.
 func TestAFontSizeChangeThrowsAwayWhatWasDrawnForTheOldCell(t *testing.T) {
-	a := goldenApp(120, 40, term.TierGraphics)
+	a := tierApp(120, 40, term.TierGraphics)
 	a.paint()
 	a.flushImages()
 	if len(a.images) == 0 {

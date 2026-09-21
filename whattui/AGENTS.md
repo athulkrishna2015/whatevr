@@ -37,8 +37,11 @@
   collection anything from inside its own `Read`: the window arrives as
   `view.State` for exactly that reason. Both are deadlocks the moment the
   daemon has a message to deliver, and they present as a frozen terminal.
-- Never test against the real daemon account. Use `protocol-fixture` with
-  synthetic data. `just screenshot --fixture <file>` points the camera at any
-  synthetic stream you like.
+- Never test against the real daemon account. Use a mock scenario: the golden
+  frames and `just screenshot` both run a real `whatevrd --mock` against a fake
+  WhatsApp server, so everything below the socket is production code and
+  nothing is a real account. `just screenshot --account <name>` picks the
+  scenario; `whatevrd --mock-list` names them. `torture`, `flood` and `fuzz`
+  are the ones that exist to break a renderer.
 - Verify Vaxis with normal tests, `kittyonly` tests, and vet. Verify pawbar with normal and `kittyonly` builds.
 - Commit after each completed work unit. Sign every commit. Use single-line subjects and no co-author trailers.

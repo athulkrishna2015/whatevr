@@ -13,7 +13,7 @@ import (
 // to start from their first character rather than from the empty ground the
 // press landed on.
 func TestADragStartedBesideTheWordsStillSelectsThem(t *testing.T) {
-	a := benchApp(100, 26, 4, 4)
+	a := stubApp(100, 26, 4, 4)
 	a.paint()
 
 	words, ok := firstBlock(a)
@@ -72,7 +72,7 @@ func firstBlock(a *App) (layout.Rect, bool) {
 // position is reading cells: the pointer has to be pulled inside the screen
 // before any of them see it.
 func TestAPointerFromBeforeAResizeDoesNotCrash(t *testing.T) {
-	a := benchApp(120, 40, 4, 6)
+	a := stubApp(120, 40, 4, 6)
 	a.paint()
 
 	a.vx.Resize(vaxisResize(94, 24))

@@ -15,7 +15,7 @@ import (
 // A message taller than the pane has to be readable a row at a time. Scrolling
 // by message meant one notch of the wheel took the whole thing off screen.
 func TestScrollingMovesOneRowAtATimeThroughATallMessage(t *testing.T) {
-	a := benchApp(80, 24, 4, 0)
+	a := stubApp(80, 24, 4, 0)
 	c := a.conversation
 	c.msgs.Reset()
 	long := ""
@@ -69,7 +69,7 @@ func (a *App) transcriptRowsText() string {
 // The layout cache exists to not re-wrap what has not changed, and it must not
 // go stale when the daemon does change something.
 func TestAChangedMessageIsLaidOutAgain(t *testing.T) {
-	a := benchApp(80, 24, 4, 0)
+	a := stubApp(80, 24, 4, 0)
 	c := a.conversation
 	c.msgs.Reset()
 	c.msgs.Upsert("00000000000000000001", mustJSON(proto.MessageRow{
@@ -92,7 +92,7 @@ func TestAChangedMessageIsLaidOutAgain(t *testing.T) {
 }
 
 func TestResizingRelaysTheWholeTranscript(t *testing.T) {
-	a := benchApp(120, 40, 4, 20)
+	a := stubApp(120, 40, 4, 20)
 	a.paint()
 	wide := a.conversation.contentRows
 
@@ -109,7 +109,7 @@ func TestResizingRelaysTheWholeTranscript(t *testing.T) {
 // rather than dropped: the phrase piles up at the bottom of the transcript
 // instead of scrolling out of it.
 func TestNothingIsPlacedOutsideTheTranscript(t *testing.T) {
-	a := benchApp(100, 26, 4, 0)
+	a := stubApp(100, 26, 4, 0)
 	a.caps = term.Caps{Tier: term.TierShm, RGB: true}
 	a.shaper = textrun.New(textrun.Options{})
 	a.shaper.SetCellSize(10, 21)
@@ -161,7 +161,7 @@ func TestNothingIsPlacedOutsideTheTranscript(t *testing.T) {
 func TestAModalTakesTheRunsUnderItWithIt(t *testing.T) {
 	// Wide enough that the panel lands inside the transcript with message
 	// text running out past both of its edges.
-	a := benchApp(140, 26, 4, 0)
+	a := stubApp(140, 26, 4, 0)
 	a.caps = term.Caps{Tier: term.TierShm, RGB: true}
 	a.shaper = textrun.New(textrun.Options{})
 	a.shaper.SetCellSize(10, 21)
@@ -218,7 +218,7 @@ func TestAModalTakesTheRunsUnderItWithIt(t *testing.T) {
 // A run is one shape. Pointing at it has to say which message in it you are
 // pointing at, or a run of five looks like one thing you cannot act on.
 func TestThePointerLightsOneMessageOfARun(t *testing.T) {
-	a := benchApp(100, 26, 4, 6)
+	a := stubApp(100, 26, 4, 6)
 	a.paint()
 	if len(a.messages) < 2 {
 		t.Fatalf("frame has %d messages, want a run to point into", len(a.messages))
@@ -247,7 +247,7 @@ func TestThePointerLightsOneMessageOfARun(t *testing.T) {
 // The pointer finds a message by where the last frame put it, which is the
 // only thing that knows.
 func TestThePointerFindsTheMessageItIsOver(t *testing.T) {
-	a := benchApp(100, 26, 4, 6)
+	a := stubApp(100, 26, 4, 6)
 	a.paint()
 	if len(a.messages) == 0 {
 		t.Fatal("frame has no messages")

@@ -40,7 +40,7 @@ func TestGoldenFrames(t *testing.T) {
 			var golden strings.Builder
 			var geometry layout.Layout
 			for i, tier := range []term.Tier{term.TierPlain, term.TierColor, term.TierGraphics} {
-				a := goldenApp(size.cols, size.rows, tier)
+				a := goldenApp(t, size.cols, size.rows, tier)
 				a.paint()
 				if tier == term.TierGraphics {
 					addSyntheticPlacement(a, size.cols)
@@ -94,8 +94,14 @@ func TestGoldenFrames(t *testing.T) {
 	}
 }
 
-func goldenApp(cols, rows int, tier term.Tier) *App {
-	a := benchApp(cols, rows, 8, 5)
+// goldenApp is the frame under test: the mock account, at one capability tier.
+func goldenApp(t *testing.T, cols, rows int, tier term.Tier) *App {
+	t.Helper()
+	return atTier(mockApp(t, framesScenario, framesChat, cols, rows), tier)
+}
+
+// atTier dresses an app as a terminal of the given ability.
+func atTier(a *App, tier term.Tier) *App {
 	a.caps = term.Caps{
 		Tier:          tier,
 		RGB:           tier >= term.TierColor,
