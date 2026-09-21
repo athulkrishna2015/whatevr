@@ -72,7 +72,7 @@ Kirigami.ApplicationWindow {
             // Dismiss the tray popup first: a Qt.Popup holds the input grab,
             // and a grab that survives the hide/show cycle leaves the restored
             // window visible but dead to clicks.
-            trayMenuWindow.visible = false
+            trayMenuWindow.close()
             root.hide()
         }
     }
@@ -536,10 +536,23 @@ Kirigami.ApplicationWindow {
 
     function activateWindow() {
         // Same grab hazard as onClosing: never restore with the popup open.
-        trayMenuWindow.visible = false
+        trayMenuWindow.close()
         root.show()
         root.raise()
         root.requestActivate()
+        // Wayland may deliver the activation after show(); defer focus until
+        // the restored window is the active native window.
+        Qt.callLater(() => {
+            root.raise()
+            root.requestActivate()
+            root.forceActiveFocus()
+        })
+    }
+
+    onVisibleChanged: {
+        if (!visible) {
+            trayMenuWindow.close()
+        }
     }
 
     onChatWideLayoutChanged: {
