@@ -6,6 +6,8 @@ import (
 	"unicode"
 
 	"go.rockorager.dev/vaxis"
+
+	"whattui/internal/proto"
 )
 
 type commandID string
@@ -21,6 +23,25 @@ const (
 	cmdFocusPrevious commandID = "focus.previous"
 	cmdBoxes         commandID = "transcript.boxes"
 	cmdRedraw        commandID = "app.redraw"
+	cmdReply         commandID = "message.reply"
+	cmdEditMessage   commandID = "message.edit"
+	cmdCopyMessage   commandID = "message.copy"
+	cmdStar          commandID = "message.star"
+	cmdDelete        commandID = "message.delete"
+	cmdDeleteForMe   commandID = "message.delete-for-me"
+	cmdRevoke        commandID = "message.delete-for-everyone"
+)
+
+// scope says where a direct binding is live. A binding with no scope belongs to
+// the whole application; one with a scope is resolved by whatever owns that
+// context, because a bare letter is only ever a binding while nobody is typing.
+type scope int
+
+const (
+	scopeGlobal scope = iota
+	// scopeMessage is live only while the selection cursor is on a message,
+	// which is only ever while the composer is empty.
+	scopeMessage
 )
 
 type command struct {
@@ -28,6 +49,7 @@ type command struct {
 	Title       string
 	Description string
 	Direct      string
+	Scope       scope
 	Leader      string
 	Slash       string
 	Enabled     func(commandState) (bool, string)
@@ -43,6 +65,11 @@ type commandState struct {
 	hasChat   bool
 	hasDraft  bool
 	chatCount int
+	// The message the selection cursor is on, and whether there is one. The
+	// row is carried rather than fetched: whether an action applies is asked
+	// under App.mu, and asking the collection under App.mu is a deadlock.
+	hasMessage bool
+	message    proto.MessageRow
 }
 
 func newCommandRegistry(commands []command) commandRegistry {
@@ -63,6 +90,12 @@ func (a *App) initCommands() {
 	hasChat := func(state commandState) (bool, string) {
 		if !state.hasChat {
 			return false, "open a chat first"
+		}
+		return true, ""
+	}
+	hasMessage := func(state commandState) (bool, string) {
+		if !state.hasMessage {
+			return false, "point at a message with the arrows first"
 		}
 		return true, ""
 	}
@@ -88,6 +121,34 @@ func (a *App) initCommands() {
 		{ID: cmdFocusPrevious, Title: "Focus previous pane", Description: "Move focus anticlockwise", Direct: "s-tab", Slash: "focus-previous", Run: func() { a.cycleFocus(-1) }},
 		{ID: cmdBoxes, Title: "Toggle message boxes", Description: "Draw a panel per message instead of a rule per run", Leader: "b", Slash: "boxes", Run: a.toggleBoxes},
 		{ID: cmdRedraw, Title: "Redraw the screen", Description: "Throw away what the terminal is showing and draw it again", Direct: "^l", Slash: "redraw", Run: a.redraw},
+		{ID: cmdReply, Title: "Reply to message", Description: "Answer the message the cursor is on", Direct: "r", Scope: scopeMessage, Slash: "reply", Enabled: hasMessage, Run: a.replySelected},
+		{ID: cmdEditMessage, Title: "Edit message", Description: "Rewrite a message you sent", Direct: "e", Scope: scopeMessage, Slash: "edit", Enabled: func(state commandState) (bool, string) {
+			if ok, why := hasMessage(state); !ok {
+				return false, why
+			}
+			switch {
+			case !state.message.Outgoing():
+				return false, "you can only edit your own messages"
+			case state.message.Revoked:
+				return false, "that message is already deleted"
+			case state.message.Kind != "text":
+				return false, "only a text message can be edited"
+			}
+			return true, ""
+		}, Run: a.editSelected},
+		{ID: cmdCopyMessage, Title: "Copy message", Description: "Put the message on the clipboard", Direct: "y", Scope: scopeMessage, Slash: "copy", Enabled: hasMessage, Run: a.copySelected},
+		{ID: cmdStar, Title: "Star message", Description: "Star the message, or take the star off", Direct: "s", Scope: scopeMessage, Slash: "star", Enabled: hasMessage, Run: a.starSelected},
+		{ID: cmdDelete, Title: "Delete message", Description: "Ask which kind of delete this is", Direct: "d", Scope: scopeMessage, Slash: "delete", Enabled: hasMessage, Run: a.deleteSelected},
+		{ID: cmdDeleteForMe, Title: "Delete for me", Description: "Take the message off this device only", Slash: "delete-for-me", Enabled: hasMessage, Run: a.deleteSelectedForMe},
+		{ID: cmdRevoke, Title: "Delete for everyone", Description: "Take the message away from everybody in the chat", Slash: "delete-for-everyone", Enabled: func(state commandState) (bool, string) {
+			if ok, why := hasMessage(state); !ok {
+				return false, why
+			}
+			if !state.message.Outgoing() {
+				return false, "you can only delete your own messages for everyone"
+			}
+			return true, ""
+		}, Run: a.revokeSelected},
 		{ID: cmdInterrupt, Title: "Clear draft or quit", Description: "Clear typed text, otherwise quit", Direct: "^c", Slash: "clear", Run: a.interrupt},
 		{ID: cmdQuit, Title: "Quit", Description: "Close whattui", Direct: "^q", Leader: "q", Slash: "quit", Run: a.quitApp},
 	})
@@ -128,8 +189,28 @@ func (a *App) interrupt() {
 func (a *App) directCommand(k vaxis.Key) (commandID, bool) {
 	a.initCommands()
 	for _, c := range a.commands.ordered {
+		if c.Scope != scopeGlobal {
+			continue
+		}
 		// Textual and focus-dependent bindings are resolved by their pane.
 		if c.Direct != "?" && c.Direct != "enter" && matchesBinding(k, c.Direct) {
+			return c.ID, true
+		}
+	}
+	return "", false
+}
+
+// messageCommand resolves a bare letter against the actions that act on the
+// message the cursor is on. Only the caller knows whether there is one, and
+// there is only ever one while nothing is typed: that is what makes a letter
+// safe to spend here.
+func (a *App) messageCommand(k vaxis.Key) (commandID, bool) {
+	a.initCommands()
+	if k.Modifiers != 0 || k.Text == "" {
+		return "", false
+	}
+	for _, c := range a.commands.ordered {
+		if c.Scope == scopeMessage && c.Direct == k.Text {
 			return c.ID, true
 		}
 	}
@@ -241,11 +322,29 @@ func (a *App) commandState() commandState {
 }
 
 func (a *App) commandStateLocked() commandState {
+	message, hasMessage := a.selectedMessageLocked()
 	return commandState{
-		hasChat:   a.activeChat != "",
-		hasDraft:  strings.TrimSpace(a.composer.String()) != "",
-		chatCount: a.chats.Len(),
+		hasChat:    a.activeChat != "",
+		hasDraft:   strings.TrimSpace(a.composer.String()) != "",
+		chatCount:  a.chats.Len(),
+		hasMessage: hasMessage,
+		message:    message,
 	}
+}
+
+// enabled is whether a command applies right now, for the surfaces that show
+// only the ones that do.
+func (a *App) enabled(id commandID, state commandState) bool {
+	a.initCommands()
+	c := a.commands.byID[id]
+	if c == nil {
+		return false
+	}
+	if c.Enabled == nil {
+		return true
+	}
+	ok, _ := c.Enabled(state)
+	return ok
 }
 
 func commandBindings(c command) string {

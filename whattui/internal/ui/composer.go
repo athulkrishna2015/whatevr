@@ -29,6 +29,29 @@ type composer struct {
 	// sendErr is what the daemon said about the last send, cleared the moment
 	// the reader types again.
 	sendErr string
+
+	// What this draft is about, if it is about an existing message: replyTo is
+	// the message it answers and editing is the message it replaces. Never
+	// both, because an edit is not an answer. The strip above the draft says
+	// which, and targetName and targetText are what it says.
+	replyTo    string
+	editing    string
+	targetName string
+	targetText string
+	// targetColour is the colour that message is known by: the sender's own,
+	// which is the same one their rule and their disc carry in the transcript.
+	targetColour vaxis.Color
+}
+
+// targeted reports whether the draft is aimed at an existing message.
+func (c *composer) targeted() bool { return c.replyTo != "" || c.editing != "" }
+
+// clearTarget puts the draft back to being a new message. Clearing the text
+// does not do this: cutting a line you were writing is not taking back the
+// reply you were writing it as.
+func (c *composer) clearTarget() {
+	c.replyTo, c.editing = "", ""
+	c.targetName, c.targetText, c.targetColour = "", "", 0
 }
 
 func (c *composer) empty() bool { return len(c.text) == 0 }
@@ -157,6 +180,12 @@ func (a *App) onComposerKey(k vaxis.Key) {
 			c.clear()
 			return
 		}
+		// One level per press, outermost first: what is typed, then what it
+		// was going to be, then what is lit, then the pane.
+		if c.targeted() {
+			c.clearTarget()
+			return
+		}
 		if a.clearCursor() {
 			return
 		}
@@ -273,6 +302,7 @@ func (a *App) send() {
 	a.mu.Lock()
 	chat := a.activeChat
 	text := strings.TrimRight(a.composer.String(), "\n")
+	draft := a.composer
 	a.mu.Unlock()
 
 	if chat == "" || strings.TrimSpace(text) == "" {
@@ -281,24 +311,48 @@ func (a *App) send() {
 
 	a.mu.Lock()
 	a.composer.clear()
+	a.composer.clearTarget()
 	a.composer.sendErr = ""
 	a.mu.Unlock()
 
-	a.client.Do("send.text", proto.Params{"chat_id": chat, "text": text}, func(_ json.RawMessage, err *proto.Error) {
-		if err == nil {
-			return
+	request := a.request
+	if request == nil {
+		return
+	}
+	// An edit replaces a message rather than saying another one, so it is a
+	// different request with the same gesture behind it.
+	if draft.editing != "" {
+		request("message.edit", proto.Params{"message_id": draft.editing, "text": text},
+			func(_ json.RawMessage, err *proto.Error) { a.sent(draft, text, err) })
+		return
+	}
+
+	params := proto.Params{"chat_id": chat, "text": text}
+	if draft.replyTo != "" {
+		params["reply_to"] = draft.replyTo
+	}
+	request("send.text", params, func(_ json.RawMessage, err *proto.Error) { a.sent(draft, text, err) })
+}
+
+// sent puts the draft back when the daemon would not take it. Losing what
+// somebody typed because a socket blinked is the one unforgivable bug in a chat
+// client, and what it was an answer to is part of what they typed.
+func (a *App) sent(draft composer, text string, err *proto.Error) {
+	if err == nil {
+		return
+	}
+	a.mu.Lock()
+	if a.composer.empty() {
+		a.composer.text = []rune(text)
+		a.composer.cursor = len(a.composer.text)
+		if !a.composer.targeted() {
+			a.composer.replyTo, a.composer.editing = draft.replyTo, draft.editing
+			a.composer.targetName, a.composer.targetText = draft.targetName, draft.targetText
 		}
-		a.mu.Lock()
-		// Put the words back. Losing what somebody typed because a socket
-		// blinked is the one unforgivable bug in a chat client.
-		if a.composer.empty() {
-			a.composer.text = []rune(text)
-			a.composer.cursor = len(a.composer.text)
-		}
-		a.composer.sendErr = err.Message
-		a.mu.Unlock()
-		a.vx.PostEvent(redraw{})
-	})
+	}
+	a.composer.sendErr = err.Message
+	a.mu.Unlock()
+	a.vx.PostEvent(redraw{})
 }
 
 // composerRows is how many rows the text needs, clamped to what the screen can
@@ -306,15 +360,21 @@ func (a *App) send() {
 func (a *App) composerRows(width int) int {
 	a.mu.Lock()
 	text := a.composer.String()
+	// The strip that says which message this draft is about is a row of the
+	// composer, so the pane has to be a row taller while it is there.
+	strip := 0
+	if a.composer.targeted() {
+		strip = 1
+	}
 	a.mu.Unlock()
 	if width < 4 || text == "" {
-		return 1
+		return 1 + strip
 	}
 	n := len(a.wrap(text, width-composerGutter))
 	if n < 1 {
 		n = 1
 	}
-	return minInt(n, maxComposerRows)
+	return minInt(n, maxComposerRows) + strip
 }
 
 // composerGutter is the prompt marker plus the space each side of the text,

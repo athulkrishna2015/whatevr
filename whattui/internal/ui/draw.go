@@ -11,6 +11,7 @@ import (
 	"whattui/internal/layout"
 	"whattui/internal/paint"
 	"whattui/internal/proto"
+	"whattui/internal/term"
 	"whattui/internal/theme"
 	"whattui/internal/view"
 )
@@ -562,6 +563,8 @@ func (a *App) drawComposer(win vaxis.Window, r layout.Rect) {
 	a.mu.Lock()
 	active, focus := a.activeChat, a.focus
 	text, cursor, sendErr := a.composer.String(), a.composer.cursor, a.composer.sendErr
+	editing, targetName, targetText := a.composer.editing != "", a.composer.targetName, a.composer.targetText
+	targetColour, targeted := a.composer.targetColour, a.composer.targeted()
 	a.mu.Unlock()
 
 	// The field carries its own ground where there is something to draw it
@@ -577,45 +580,80 @@ func (a *App) drawComposer(win vaxis.Window, r layout.Rect) {
 	}
 	a.drawField(pane, 1, 0, w-2, h, focus == FocusComposer)
 
+	// The strip takes the top row of the field, so the draft starts under it.
+	top, rows := 0, h
+	if targeted {
+		a.drawTarget(pane, w, editing, targetName, targetText, targetColour, ground)
+		top, rows = 1, h-1
+	}
+	if rows < 1 {
+		return
+	}
+
 	marker := vaxis.Style{Foreground: a.theme.Border, Background: ground}
 	if focus == FocusComposer {
 		marker = vaxis.Style{Foreground: a.theme.Accent, Background: ground}
 	}
-	a.print(pane, 2, 0, marker, "\u203a")
+	a.print(pane, 2, top, marker, "\u203a")
 
 	if sendErr != "" {
-		a.print(pane, composerText, 0, vaxis.Style{
+		a.print(pane, composerText, top, vaxis.Style{
 			Foreground: a.theme.Error, Background: ground,
 		}, a.clip("not sent: "+sendErr, w-composerGutter))
 		return
 	}
 
 	if text == "" {
-		a.print(pane, composerText, 0, vaxis.Style{
+		a.print(pane, composerText, top, vaxis.Style{
 			Foreground: a.theme.TextFaint, Background: ground,
 		}, "type a message")
 		if focus == FocusComposer {
-			win.ShowCursor(r.Col+composerText, r.Row, vaxis.CursorBeam)
+			win.ShowCursor(r.Col+composerText, r.Row+top, vaxis.CursorBeam)
 		}
 		return
 	}
 
 	style := vaxis.Style{Foreground: a.theme.Text, Background: ground}
 	lines := a.wrap(text, w-composerGutter)
-	a.noteBlock(pane, composerText, 0, w-composerGutter, h)
+	a.noteBlock(pane, composerText, top, w-composerGutter, rows)
 	// The tail is what is being written, so that is the end that stays on
 	// screen when the draft outgrows the rows it has.
-	if len(lines) > h {
-		lines = lines[len(lines)-h:]
+	if len(lines) > rows {
+		lines = lines[len(lines)-rows:]
 	}
 	for i, line := range lines {
-		a.print(pane, composerText, i, style, line)
+		a.print(pane, composerText, top+i, style, line)
 	}
 
 	if focus == FocusComposer {
-		col, row := a.cursorCell(text, cursor, w-composerGutter, len(lines), h)
-		win.ShowCursor(r.Col+composerText+col, r.Row+row, vaxis.CursorBeam)
+		col, row := a.cursorCell(text, cursor, w-composerGutter, len(lines), rows)
+		win.ShowCursor(r.Col+composerText+col, r.Row+top+row, vaxis.CursorBeam)
 	}
+}
+
+// drawTarget is the line above a draft that says which message it is about:
+// the one being answered, or the one being rewritten. It shares the draft's
+// left edge, because the two are one block and a reader should see one.
+//
+// Nothing else says so. Without it an edit looks exactly like a new message
+// until it lands on top of an old one.
+func (a *App) drawTarget(pane vaxis.Window, w int, editing bool, name, text string, accent, ground vaxis.Color) {
+	mark := "↩"
+	if editing {
+		mark = "✎"
+	}
+	if a.caps.Tier <= term.TierPlain {
+		mark = ">"
+		if editing {
+			mark = "*"
+		}
+	}
+	a.print(pane, 2, 0, vaxis.Style{Foreground: accent, Background: ground}, mark)
+	col := a.print(pane, composerText, 0, vaxis.Style{
+		Foreground: accent, Background: ground, Attribute: vaxis.AttrBold,
+	}, a.clip(name, maxInt(w/3, 8)))
+	a.print(pane, col+1, 0, vaxis.Style{Foreground: a.theme.TextMuted, Background: ground},
+		a.clip(text, maxInt(w-col-3, 1)))
 }
 
 // drawField is the rounded box a draft is typed into. A terminal cannot set a
@@ -679,6 +717,7 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 	typed := !a.composer.empty()
 	leader := a.leader
 	modal := a.modal.kind
+	message, pointing := a.selectedMessageLocked()
 	a.mu.Unlock()
 
 	newline := "s-\u23ce"
@@ -712,6 +751,24 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 	// rather than what the pane behind it would have done.
 	case modal != modalNone:
 		hints = []hint{{"", "\u2191\u2193 move"}, {"", "\u23ce run"}, {"", "esc close"}}
+	// A lit message owns the letters, so the line is what those letters do to
+	// it. Only the ones that apply: an edit hint over somebody else's message
+	// is a key that answers with an excuse.
+	case pointing:
+		star := "star"
+		if message.Starred {
+			star = "unstar"
+		}
+		state := a.commandState()
+		for _, h := range []hint{
+			{cmdReply, "reply"}, {cmdEditMessage, "edit"}, {cmdCopyMessage, "copy"},
+			{cmdStar, star}, {cmdDelete, "delete"},
+		} {
+			if a.enabled(h.id, state) {
+				hints = append(hints, h)
+			}
+		}
+		hints = append(hints, hint{"", "esc drop"})
 	case focus == FocusList:
 		hints = []hint{{cmdOpenChat, "open"}, {"", "\u2191\u2193 move"}, {cmdFocusNext, "chat"}, {cmdQuit, "quit"}}
 	case focus == FocusTranscript:

@@ -19,6 +19,9 @@ const (
 	modalPalette
 	modalSlash
 	modalHelp
+	// modalConfirm is a question with its answers under it, and no line to
+	// type on: the choices are the whole panel.
+	modalConfirm
 )
 
 type modalChoice struct {
@@ -30,7 +33,10 @@ type modalChoice struct {
 }
 
 type modalState struct {
-	kind     modalKind
+	kind modalKind
+	// prompt is what a confirmation asks about, in place of the line the other
+	// panels are typed into.
+	prompt   string
 	query    []rune
 	cursor   int
 	selector selector[modalChoice]
@@ -54,6 +60,10 @@ func (a *App) openModal(kind modalKind) {
 	a.refreshModalLocked()
 	a.mu.Unlock()
 }
+
+// modalPage is how many rows of results a panel shows when what it holds could
+// be anything.
+const modalPage = 10
 
 // dismissModalLocked closes whatever is open without acting on it, and
 // remembers a slash draft so the menu does not spring straight back up.
@@ -173,6 +183,11 @@ func (a *App) onModalKey(k vaxis.Key) bool {
 		} else {
 			a.execute(choice.Command)
 		}
+		return true
+	case a.modal.kind == modalConfirm:
+		// A confirmation is two lines and a way out. Everything that is not one
+		// of those is swallowed rather than filtering a list this short.
+		a.mu.Unlock()
 		return true
 	case k.Matches(vaxis.KeyBackspace):
 		if a.modal.kind == modalSlash {
@@ -350,12 +365,19 @@ func (a *App) onModalMouse(m vaxis.Mouse) (bool, bool) {
 
 // modalRect is where a panel sits: a third of the way down, centred, and the
 // whole screen when the screen is too small to have an outside.
-func (a *App) modalRect(w, h int) layout.Rect {
+//
+// rows is how many results it has to hold. A list that could be anything asks
+// for a page of them; two answers to a question are two answers tall, because
+// a dozen rows of frame around them says the panel is waiting for something
+// else.
+func (a *App) modalRect(w, h, rows int) layout.Rect {
 	width := minInt(72, w-2)
 	if width < 8 {
 		width = w
 	}
-	height := minInt(14, h-2)
+	// The frame, the line that says what this is about, the blank under it,
+	// and the rows themselves.
+	height := minInt(rows+4, minInt(14, h-2))
 	if height < 3 {
 		height = h
 	}
@@ -372,11 +394,18 @@ func (a *App) drawModal(win vaxis.Window) {
 		return
 	}
 	kind, query := a.modal.kind, string(a.modal.query)
+	ask, answers := a.modal.prompt, len(a.modal.selector.items)
 	selected, hovered := a.modal.selector.selected, a.modal.selector.hovered
 	a.mu.Unlock()
 
+	// A list of commands or chats is as long as the query makes it, so it takes
+	// a page. A question has exactly as many answers as it has.
+	rows := modalPage
+	if kind == modalConfirm {
+		rows = answers
+	}
 	w, h := win.Size()
-	outer := a.modalRect(w, h)
+	outer := a.modalRect(w, h, rows)
 	if outer.Empty() {
 		return
 	}
@@ -396,6 +425,10 @@ func (a *App) drawModal(win vaxis.Window) {
 		title, prompt = "Slash commands", "/"
 	case modalHelp:
 		title, prompt = "Keyboard help", "? "
+	case modalConfirm:
+		// The message itself stands where the query line does, because which
+		// message this is about is the thing worth saying.
+		title, prompt = "Delete message", ask
 	}
 
 	// The frame, so the panel reads as something on top of the transcript
@@ -429,7 +462,12 @@ func (a *App) drawModal(win vaxis.Window) {
 	a.dimBehind(win, outer)
 
 	body := sub(win, inner)
-	a.print(body, 0, 0, vaxis.Style{Foreground: a.theme.Text, Background: panel}, a.clip(prompt+query, inner.Width))
+	line := vaxis.Style{Foreground: a.theme.Text, Background: panel}
+	if kind == modalConfirm {
+		// Not a line anybody types on, and it must not look like one.
+		line = vaxis.Style{Foreground: a.theme.TextMuted, Background: panel, Attribute: vaxis.AttrItalic}
+	}
+	a.print(body, 0, 0, line, a.clip(prompt+query, inner.Width))
 
 	// One blank row under the query, then the results. The list is what the
 	// panel is for, so it takes every row that is left.

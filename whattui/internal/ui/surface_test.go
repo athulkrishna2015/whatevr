@@ -80,7 +80,7 @@ func TestAPanelTakesTheChromeUnderItWithIt(t *testing.T) {
 
 	win := a.vx.Window()
 	w, h := win.Size()
-	panel := a.modalRect(w, h)
+	panel := a.modalRect(w, h, modalPage)
 	for _, s := range a.surfaces {
 		if s.row < panel.Row+panel.Height && s.row+s.h > panel.Row &&
 			s.col < panel.Col+panel.Width && s.col+s.w > panel.Col {

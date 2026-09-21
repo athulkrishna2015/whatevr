@@ -225,9 +225,26 @@ func TestModalMouseHoverClickWheelAndTinyPaint(t *testing.T) {
 	if a.modal.selector.top == 0 && len(a.modal.selector.items) > a.modal.visible {
 		t.Fatal("wheel did not scroll modal")
 	}
-	a.onModalMouse(vaxis.Mouse{Col: m.Col, Row: m.Row, Button: vaxis.MouseLeftButton, EventType: vaxis.EventRelease})
-	if a.modal.kind != modalPalette {
-		t.Fatalf("click executed modal %d, want palette", a.modal.kind)
+	// A click runs the row it lands on, wherever the wheel happens to have left
+	// it, which is the whole contract between the pointer and the registry.
+	at, target := -1, modalChoice{}
+	for i, item := range a.modal.selector.Visible(a.modal.visible) {
+		if item.Disabled == "" {
+			at, target = i, item
+			break
+		}
+	}
+	if at < 0 {
+		t.Fatal("no runnable row in the panel")
+	}
+	ran := false
+	a.commands.byID[target.Command].Run = func() { ran = true }
+	a.onModalMouse(vaxis.Mouse{
+		Col: m.Col, Row: a.modal.list.Row + at,
+		Button: vaxis.MouseLeftButton, EventType: vaxis.EventRelease,
+	})
+	if !ran {
+		t.Fatalf("a click on %q ran nothing", target.Command)
 	}
 }
 
