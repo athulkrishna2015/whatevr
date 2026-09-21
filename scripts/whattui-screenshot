@@ -980,8 +980,12 @@ def main() -> int:
         account = args.account
 
     if args.list:
+        print("states:")
         for name, (cols, rows, keys, _) in sorted(SCENARIOS.items()):
-            print(f"{name:16} {cols}x{rows:<4} {' '.join(keys) or '(nothing typed)'}")
+            print(f"  {name:14} {cols}x{rows:<4} {' '.join(keys) or '(nothing typed)'}")
+        print("accounts (--account):")
+        for name, (chat, _) in sorted(ACCOUNTS.items()):
+            print(f"  {name:14} {chat or '(nothing in it)'}")
         return 0
 
     checked = self_check()
