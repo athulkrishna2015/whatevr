@@ -4,6 +4,7 @@ import (
 	"image/color"
 	"testing"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -14,7 +15,35 @@ func shaped(t *testing.T, text string) *Run {
 	t.Helper()
 	sh := New(Options{})
 	sh.SetCellSize(10, 21)
-	return wait(t, sh, text)
+	r := wait(t, sh, text)
+	requireGlyphs(t, sh, text)
+	return r
+}
+
+// requireGlyphs skips unless some installed face actually draws every rune of
+// text. Having an index is not the same as having the script: with no
+// devanagari face the phrase comes out as a row of tofu, each box a full cell
+// wide, and every width below then measures the boxes instead of the writing.
+// ci installs the font, so there it runs.
+func requireGlyphs(t *testing.T, sh *Shaper, text string) {
+	t.Helper()
+	s, ok := sh.ready()
+	if !ok {
+		t.Skip("no usable font index on this machine")
+	}
+	fams := s.families(text)
+	for _, r := range text {
+		if unicode.IsSpace(r) {
+			continue
+		}
+		face := s.faceFor(r, fams)
+		if face == nil {
+			t.Skipf("no face for %q on this machine", r)
+		}
+		if _, ok := face.NominalGlyph(r); !ok {
+			t.Skipf("nothing on this machine draws %q", r)
+		}
+	}
 }
 
 // wait spins until the shaper has built its font index, which it does off the

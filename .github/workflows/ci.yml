@@ -165,6 +165,15 @@ jobs:
           printf 'WHATTUI_WHATEVRD=%s\n' "$GITHUB_WORKSPACE/build/mock/whatevrd" >> "$GITHUB_ENV"
         working-directory: whatevrd
 
+      # internal/textrun measures real glyphs, so its devanagari tests skip on a
+      # machine with no face for the script. That is the one package that exists
+      # for the writing systems a terminal gets wrong, so give the runner the
+      # font and let it run.
+      - name: Install a devanagari font
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-noto-core
+
       - name: Check formatting
         working-directory: whattui
         run: |
