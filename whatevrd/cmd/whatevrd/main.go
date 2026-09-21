@@ -17,6 +17,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Mock mode repoints the XDG directories at a scratch tree, so it has to
+	// settle before anything resolves a path. In a release build this parses
+	// no flags and returns nil.
+	mock := mockPrepare()
+
 	paths, err := app.ResolvePaths()
 	if err != nil {
 		log.Fatalf("resolve paths: %v", err)
@@ -46,6 +51,15 @@ func main() {
 	defer db.Close()
 
 	daemon := app.NewDaemon(paths)
+
+	// The fake WhatsApp server has to bind before wa.New, because whatsmeow
+	// snapshots http.DefaultTransport when it constructs its client.
+	stopMock, err := mockStart(ctx, mock, daemon)
+	if err != nil {
+		log.Fatalf("start mock server: %v", err)
+	}
+	defer stopMock()
+
 	// The whatevr protocol server (PROTOCOL.md) is the daemon's only frontend
 	// interface.
 	protocolServer, err := protocol.New(paths.SocketPath, activatedListener, daemon)

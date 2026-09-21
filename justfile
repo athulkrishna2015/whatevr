@@ -15,6 +15,20 @@ build dir=build_dir:
 build-release dir=build_dir:
     @just _build release "{{dir}}"
 
+# A daemon that talks to the fake WhatsApp server instead of WhatsApp.
+#
+#   just build-mock && build/mock/whatevrd --mock-list
+#   build/mock/whatevrd --mock empty
+#
+# Never installed and never released: see check-mock-gate.
+build-mock dir=build_dir:
+    @mkdir -p "{{dir}}/mock"
+    @CGO_ENABLED=1 go -C whatevrd build -buildvcs=false \
+        -tags "sqlite_fts5 whatevr_mock" \
+        -ldflags "-X whatevrd/internal/protocol.Version={{version}}" \
+        -o "$(pwd)/{{dir}}/mock/whatevrd" ./cmd/whatevrd
+    @printf 'built {{dir}}/mock/whatevrd (mock mode enabled)\n'
+
 # Build and install an optimized release.
 install prefix="/usr/local" destdir="":
     @just _install release "{{prefix}}" "{{destdir}}"
@@ -58,10 +72,19 @@ sanitize dir=build_dir:
 # protocol grammar.
 test dir=build_dir:
     @cd whatevrd && go test -tags sqlite_fts5 ./...
+    @cd whatevrd && go test -tags "sqlite_fts5 whatevr_mock" ./internal/wamock/...
+    @just check-mock-gate
     @just test-whattui
     @just build "{{dir}}"
     @ctest --test-dir "{{dir}}/debug/whatkevr" --output-on-failure
     @just conformance
+
+# Prove the fake WhatsApp server cannot reach a shipped binary. It mutates
+# process-global TLS trust and whatsmeow's pinned certificate key, so it is
+# compiled in only under -tags whatevr_mock, and this is what makes that tag
+# more than a convention.
+check-mock-gate:
+    @scripts/check-mock-gate
 
 # The terminal frontend, everything a change to it has to pass. The race
 # detector is not optional here: the protocol client, the view models and the

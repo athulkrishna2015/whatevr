@@ -117,6 +117,19 @@ jobs:
         working-directory: whatevrd
         run: go test -tags sqlite_fts5 ./...
 
+      - name: Vet mock server
+        working-directory: whatevrd
+        run: go vet -tags "sqlite_fts5 whatevr_mock" ./...
+
+      - name: Test mock server
+        working-directory: whatevrd
+        run: go test -tags "sqlite_fts5 whatevr_mock" ./internal/wamock/...
+
+      # The fake WhatsApp server overrides whatsmeow's pinned certificate key
+      # and trusts a private CA. It must never reach a shipped binary.
+      - name: Check mock build gate
+        run: scripts/check-mock-gate
+
   whattui:
     name: Terminal frontend
     runs-on: ubuntu-latest
