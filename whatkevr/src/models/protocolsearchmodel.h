@@ -61,21 +61,23 @@ public:
     [[nodiscard]] int numberCount() const { return static_cast<int>(m_number.size()); }
 
 private:
+    // the strings get an initializer too: the setters name only the fields their
+    // result set uses, and a member without one warns at every call site.
     struct Row {
         bool isMessage = false;
         bool isNumber = false;
-        QString avatarLocalPath;
-        QString initials;
-        QString title;
-        QString subtitle;
+        QString avatarLocalPath = {};
+        QString initials = {};
+        QString title = {};
+        QString subtitle = {};
         bool isGroup = false;
-        QString chatId;
-        QString messageId;
-        QString senderName;
-        QString timeText;
+        QString chatId = {};
+        QString messageId = {};
+        QString senderName = {};
+        QString timeText = {};
         qint64 timestampUnix = 0;
         bool isOutgoing = false;
-        QString jid;
+        QString jid = {};
         bool registered = false;
     };
 

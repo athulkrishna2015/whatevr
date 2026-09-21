@@ -56,7 +56,10 @@ _test-whattui:
     @cd whattui && go test ./...
     @cd whattui && go test -race ./...
 
+# The tests are off in a plain build so it does not need Qt6::Test; asking for
+# them here turns them on for good in this tree.
 _test-frontend dir=build_dir:
+    @just _build-frontend debug "{{dir}}" --tests
     @just build "{{dir}}"
     @ctest --test-dir "{{dir}}/debug/whatkevr" --output-on-failure
 
@@ -162,14 +165,14 @@ _build-daemon profile dir=build_dir:
     CGO_ENABLED=1 go -C whatevrd build "${go_flags[@]}" -ldflags "$ldflags" \
         -o "$out_dir/whatevrd" ./cmd/whatevrd
 
-_build-frontend profile dir=build_dir:
+_build-frontend profile dir=build_dir tests="":
     @profile="{{profile}}"; \
     if [ "$profile" = release ]; then build_type=Release; else build_type=Debug; fi; \
     scripts/configure-frontend \
         --build "{{dir}}/$profile/whatkevr" \
         --build-type "$build_type" \
         --version {{version_numeric}} \
-        --version-full {{version}}; \
+        --version-full {{version}} {{tests}}; \
     cmake --build "{{dir}}/$profile/whatkevr"
 
 _install profile prefix destdir:

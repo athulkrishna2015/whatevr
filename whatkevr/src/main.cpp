@@ -4,7 +4,6 @@
 #include <QLoggingCategory>
 #include <QPixmapCache>
 #include <QQmlApplicationEngine>
-#include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QSGRendererInterface>
@@ -12,7 +11,7 @@
 
 #include <KAboutData>
 #include <KDBusService>
-#include <KLocalizedContext>
+#include <KLocalizedQmlContext>
 #include <KLocalizedString>
 
 #include "app/protocolcontroller.h"
@@ -148,7 +147,7 @@ int main(int argc, char *argv[])
     const QString socketPath = parser.value(socketOption);
 
     QQmlApplicationEngine engine;
-    engine.rootContext()->setContextObject(new KLocalizedContext(&engine));
+    KLocalization::setupLocalizedContext(&engine);
     // The last frame a video decoder was showing when it let go, so a clip
     // moving between an inline bubble and the full-screen viewer keeps its
     // picture instead of falling back to the poster (see VideoPlaybackArbiter).

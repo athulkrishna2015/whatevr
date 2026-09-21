@@ -28,6 +28,13 @@ include(FeatureSummary)
 include(ECMFindQmlModule)
 include(KDECompilerSettings NO_POLICY_SCOPE)
 include(KDEInstallDirs)
+# KDECMakeSettings adds a fetch-translations target for projects on
+# invent.kde.org, and working out the remote runs `git rev-parse @{u}`, which
+# prints "fatal: no upstream configured" on a branch that tracks nothing. we are
+# not a kde project and have no po/ dir, so take the target name and the whole
+# block is skipped.
+add_custom_target(fetch-translations
+    COMMAND ${CMAKE_COMMAND} -E echo "whatevr has no kde l10n project to fetch from")
 include(KDECMakeSettings)
 
 set(CMAKE_CXX_STANDARD 20)
