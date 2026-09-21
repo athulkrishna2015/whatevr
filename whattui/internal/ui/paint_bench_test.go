@@ -35,6 +35,10 @@ func benchApp(cols, rows, chats, msgs int) *App {
 		glyphs:  map[glyphKey]*image.NRGBA{},
 		drag:    drag{chat: -1},
 	}
+	// A client that has never dialled, which is what the frame asks about
+	// when it has to tell the reader the daemon is not there.
+	a.client = proto.New("/nonexistent/whattui-test.sock", "whattui-test")
+	a.request = func(string, proto.Params, proto.ResponseFunc) {}
 	a.transport = proto.Ready
 
 	a.conn.Upsert("", mustJSON(proto.Connection{State: "online"}))
