@@ -54,12 +54,36 @@ sanitize dir=build_dir:
     done
 
 
-# The whole suite: daemon, frontend, and the protocol grammar.
+# The whole suite: daemon, terminal frontend, desktop frontend, and the
+# protocol grammar.
 test dir=build_dir:
     @cd whatevrd && go test -tags sqlite_fts5 ./...
+    @just test-whattui
     @just build "{{dir}}"
     @ctest --test-dir "{{dir}}/debug/whatkevr" --output-on-failure
     @just conformance
+
+# The terminal frontend, everything a change to it has to pass. The race
+# detector is not optional here: the protocol client, the view models and the
+# render loop are three goroutines sharing one model.
+test-whattui:
+    @just _require-vaxis
+    @cd whattui && files="$(gofmt -l . | grep -v '^vaxis/' || true)"; \
+        if [ -n "$files" ]; then printf '%s\n' "$files"; exit 1; fi
+    @cd whattui && go vet ./...
+    @cd whattui && go test ./...
+    @cd whattui && go test -race ./...
+
+# A picture of whattui, at any size, in any state, from a real kitty on a
+# Hyprland dummy monitor. For looking at. Not part of `just test`: it needs a
+# live compositor, and CI has none.
+#
+#   just screenshot --list
+#   just screenshot --size 100x30 --scenario palette
+#   just screenshot --size 72x20 --keys ctrl+p,/,a,n --wait "> /an"
+#   just screenshot --env WHATTUI_NO_TEXT_SCALE=1     # degradation, photographed
+screenshot *args:
+    @scripts/whattui-screenshot {{args}}
 
 # Protocol conformance. With no stream it checks the handshake and the view
 # grammar; with one it replays real frames and holds the window invariants
@@ -100,6 +124,7 @@ uninstall prefix="/usr/local" destdir="":
     @prefix="{{prefix}}"; \
     destdir="{{destdir}}"; \
     rm -f "$destdir$prefix/bin/whatevrd"; \
+    rm -f "$destdir$prefix/bin/whattui"; \
     rm -f "$destdir$prefix/bin/whatkevr"; \
     rm -f "$destdir$prefix/lib/systemd/user/whatevrd.service"; \
     rm -f "$destdir$prefix/lib/systemd/user/whatevrd.socket"; \
@@ -114,7 +139,38 @@ clean:
 _build profile dir=build_dir:
     @test "{{profile}}" = debug -o "{{profile}}" = release
     @just _build-daemon "{{profile}}" "{{dir}}"
+    @just _build-whattui "{{profile}}" "{{dir}}"
     @just _build-frontend "{{profile}}" "{{dir}}"
+
+# whattui builds against the vaxis fork in whattui/vaxis, which is a submodule.
+# A release tarball is `git archive`, which carries no submodule, so a build
+# from one skips whattui rather than failing.
+_require-vaxis:
+    @if [ ! -f whattui/vaxis/go.mod ]; then \
+        printf 'whattui/vaxis is empty: run git submodule update --init --recursive\n' >&2; \
+        exit 1; \
+    fi
+
+_build-whattui profile dir=build_dir:
+    @if [ ! -f whattui/vaxis/go.mod ]; then \
+        printf 'skipping whattui: whattui/vaxis is not checked out\n' >&2; \
+        exit 0; \
+    fi; \
+    profile="{{profile}}"; \
+    build_root="{{dir}}"; \
+    case "$build_root" in \
+        /*) out_dir="$build_root/$profile" ;; \
+        *) out_dir="$(pwd)/$build_root/$profile" ;; \
+    esac; \
+    go_flags=(-buildvcs=false); \
+    ldflags=""; \
+    if [ "$profile" = release ]; then \
+        go_flags=(-trimpath "${go_flags[@]}"); \
+        ldflags="-s -w"; \
+    fi; \
+    mkdir -p "$out_dir"; \
+    go -C whattui build "${go_flags[@]}" -ldflags "$ldflags" \
+        -o "$out_dir/whattui" ./cmd/whattui
 
 _build-daemon profile dir=build_dir:
     @profile="{{profile}}"; \
@@ -152,6 +208,9 @@ _install profile prefix destdir:
     bindir="$prefix/bin"; \
     user_unit_dir="$prefix/lib/systemd/user"; \
     install -Dm755 "$build_root/whatevrd" "$destdir$bindir/whatevrd"; \
+    if [ -f "$build_root/whattui" ]; then \
+        install -Dm755 "$build_root/whattui" "$destdir$bindir/whattui"; \
+    fi; \
     DESTDIR="$destdir" cmake --install "$build_root/whatkevr" --prefix "$prefix"; \
     sed "s|@BINDIR@|$bindir|g" packaging/systemd/whatevrd.service.in \
         > "$build_root/whatevrd.service"; \
@@ -179,6 +238,9 @@ _binary-tarball arch:
     rm -rf "$root" "$dist_dir" "$(pwd)/{{build_dir}}/$name.tar.zst"; \
     just _install release /usr "$root"; \
     strip --strip-unneeded "$root/usr/bin/whatevrd"; \
+    if [ -f "$root/usr/bin/whattui" ]; then \
+        strip --strip-unneeded "$root/usr/bin/whattui"; \
+    fi; \
     strip --strip-unneeded "$root/usr/bin/whatkevr"; \
     install -Dm644 LICENSE "$root/usr/share/licenses/whatevr/LICENSE"; \
     mkdir -p "$dist_dir"; \

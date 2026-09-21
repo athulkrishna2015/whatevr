@@ -25,6 +25,7 @@ jobs:
       pull-requests: read
     outputs:
       go: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.go == 'true' }}
+      whattui: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.whattui == 'true' }}
       validate: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.validate == 'true' }}
       build: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.build == 'true' }}
       aur: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.aur == 'true' }}
@@ -52,6 +53,11 @@ jobs:
               - 'justfile'
               - 'VERSION'
               - 'whatevrd/**'
+              - '.github/workflows/**'
+            whattui:
+              - 'justfile'
+              - '.gitmodules'
+              - 'whattui/**'
               - '.github/workflows/**'
             validate:
               - 'justfile'
@@ -111,6 +117,58 @@ jobs:
         working-directory: whatevrd
         run: go test -tags sqlite_fts5 ./...
 
+  whattui:
+    name: Terminal frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: changes
+    if: ${{ needs.changes.outputs.whattui == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          # whattui builds against the vaxis fork, which is a submodule.
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: whattui/go.mod
+          cache-dependency-path: whattui/go.sum
+
+      - name: Check formatting
+        working-directory: whattui
+        run: |
+          files="$(gofmt -l . | grep -v '^vaxis/' || true)"
+          if [ -n "$files" ]; then
+            printf '%s\n' "$files"
+            exit 1
+          fi
+
+      - name: Vet
+        working-directory: whattui
+        run: go vet ./...
+
+      - name: Test
+        working-directory: whattui
+        run: go test ./...
+
+      # Three goroutines share one model: the protocol client, the view models
+      # and the render loop.
+      - name: Test under the race detector
+        working-directory: whattui
+        run: go test -race ./...
+
+      # pawbar shares this fork and compiles it with the tag, so both arms of
+      # every capability branch have to keep building.
+      - name: Test the vaxis fork
+        working-directory: whattui/vaxis
+        run: |
+          go test ./...
+          go test -tags kittyonly ./...
+          go vet ./...
+
   validate:
     name: Validate metadata
     runs-on: ubuntu-latest
@@ -153,6 +211,8 @@ jobs:
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          # `just build` builds whattui too, against the vaxis submodule.
+          submodules: recursive
           persist-credentials: false
 
       - name: Mark workspace safe for Git
