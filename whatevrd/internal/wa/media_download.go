@@ -393,7 +393,6 @@ func (c *Client) DownloadMessageMedia(ctx context.Context, messageID string) (ap
 	c.daemon.PublishMessageUpdated(toDaemonMessage(updated))
 	c.queueVideoPoster(updated, posterPriorityDownload)
 	c.maybeDeriveVoiceWaveform(ctx, updated)
-	c.maybeDerivePDFThumbnail(ctx, updated)
 	return updated, nil
 }
 

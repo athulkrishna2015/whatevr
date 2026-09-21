@@ -1016,6 +1016,11 @@ func (c *Client) mediaInputBase(ctx context.Context, evt *events.Message, opts i
 		// this kind, not from re-deriving it: a captioned photo or video can
 		// @-mention people, and until now the media path dropped every one.
 		Mentions: c.resolveMentions(ctx, mentionedJIDsFromContextInfo(contextInfo)),
+		// The sender's client marks forwarded copies in the same context
+		// info; without this only our own forwards (flagged at send time)
+		// ever rendered the header, so forwarded-to-us rows showed it on
+		// the phone but never on the desktop.
+		IsForwarded: contextInfo.GetIsForwarded(),
 	}, chatID, true
 }
 
@@ -1142,7 +1147,7 @@ func (c *Client) documentMessageInput(ctx context.Context, evt *events.Message, 
 		return appstore.MediaMessageInput{}, false
 	}
 
-	base, chatID, ok := c.mediaInputBase(ctx, evt, opts, docMsg.GetCaption(), docMsg.GetContextInfo())
+	base, _, ok := c.mediaInputBase(ctx, evt, opts, docMsg.GetCaption(), docMsg.GetContextInfo())
 	if !ok {
 		return appstore.MediaMessageInput{}, false
 	}
@@ -1162,16 +1167,13 @@ func (c *Client) documentMessageInput(ctx context.Context, evt *events.Message, 
 	}
 
 	return appstore.MediaMessageInput{
-		TextMessageInput:        base,
-		MediaKind:               appstore.MediaKindDocument,
-		MediaMimeType:           mimeType,
-		MediaThumbnailLocalPath: c.saveMessageThumbnail(chatID, base.ID, docMsg.GetJPEGThumbnail()),
-		MediaWidth:              int32(docMsg.GetThumbnailWidth()),
-		MediaHeight:             int32(docMsg.GetThumbnailHeight()),
-		MediaPayload:            payload,
-		MediaSizeBytes:          int64(docMsg.GetFileLength()),
-		MediaFileName:           fileName,
-		MediaPageCount:          int32(docMsg.GetPageCount()),
+		TextMessageInput: base,
+		MediaKind:        appstore.MediaKindDocument,
+		MediaMimeType:    mimeType,
+		MediaPayload:     payload,
+		MediaSizeBytes:   int64(docMsg.GetFileLength()),
+		MediaFileName:    fileName,
+		MediaPageCount:   int32(docMsg.GetPageCount()),
 	}, true
 }
 
@@ -1248,6 +1250,7 @@ func (c *Client) imageMessageInput(ctx context.Context, evt *events.Message, opt
 			IsGroup:        info.IsGroup,
 			CountUnread:    shouldCountUnread(evt, opts),
 			ReplyTo:        c.replyFromContextInfo(ctx, chatID, imgMsg.GetContextInfo()),
+			IsForwarded:    imgMsg.GetContextInfo().GetIsForwarded(),
 		},
 		MediaKind:               appstore.MediaKindImage,
 		MediaMimeType:           mimeType,
@@ -1301,6 +1304,7 @@ func (c *Client) stickerMessageInput(ctx context.Context, evt *events.Message, o
 			IsGroup:        info.IsGroup,
 			CountUnread:    shouldCountUnread(evt, opts),
 			ReplyTo:        c.replyFromContextInfo(ctx, chatID, stickerMsg.GetContextInfo()),
+			IsForwarded:    stickerMsg.GetContextInfo().GetIsForwarded(),
 		},
 		MediaKind:               appstore.MediaKindSticker,
 		MediaMimeType:           mimeType,
@@ -1708,6 +1712,7 @@ func (c *Client) textMessageInput(ctx context.Context, evt *events.Message, opts
 		CountUnread:    shouldCountUnread(evt, opts),
 		ReplyTo:        c.replyFromContextInfo(ctx, chatID, contextInfoFromMessage(evt.Message)),
 		Mentions:       c.mentionsFromMessage(ctx, evt.Message),
+		IsForwarded:    contextInfoFromMessage(evt.Message).GetIsForwarded(),
 	}
 
 	// A link preview attaches to the row rather than replacing it: the message

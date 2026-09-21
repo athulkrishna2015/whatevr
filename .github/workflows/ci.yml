@@ -144,7 +144,7 @@ jobs:
         run: |
           pacman -Syu --noconfirm --needed \
             git sudo base-devel go just cmake ninja ccache extra-cmake-modules zstd vulkan-headers \
-            qt6-base qt6-declarative qt6-multimedia qt6-shadertools mpv ffmpeg \
+            qt6-base qt6-declarative qt6-multimedia qt6-shadertools mpv ffmpeg appstream \
             kcoreaddons kdbusaddons ki18n kirigami kirigami-addons prison qqc2-desktop-style sqlite
           useradd -m -G wheel builduser
           printf 'builduser ALL=(ALL) NOPASSWD: ALL\n' >> /etc/sudoers
@@ -154,6 +154,9 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Mark workspace safe for Git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Set rlottie cache key
         id: rlottie-cache-key

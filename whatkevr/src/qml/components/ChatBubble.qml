@@ -555,10 +555,6 @@ Item {
     // The fallback is what the slot reserves before the card has laid out, and
     // it is deliberately close to the real thing so nothing jumps.
     property real cardBlockHeight: Kirigami.Units.gridUnit * 12
-    // Documents with a first-page thumbnail (sender-provided, or derived
-    // locally via pdftoppm) show a preview strip above the filename row.
-    readonly property bool hasDocumentThumbnail: isDocument && mediaThumbnailLocalPath.length > 0
-    readonly property real documentThumbnailHeight: hasDocumentThumbnail ? Kirigami.Units.gridUnit * 7 : 0
     // Two lines for a voice note: the waveform and the line under it that now
     // carries the timestamp too, so the block no longer reserves a third. An
     // audio file needs three, since its name will not share a line with its
@@ -568,8 +564,7 @@ Item {
         : isAudioFile
             ? Kirigami.Units.gridUnit * 3.4
             : isDocument
-                ? Kirigami.Units.gridUnit * 2.9 + documentThumbnailHeight
-                    + (hasDocumentThumbnail ? Kirigami.Units.smallSpacing : 0)
+                ? Kirigami.Units.gridUnit * 2.9
                 : Kirigami.Units.gridUnit * 2.6
 
     readonly property int imageDecodeWidth: decodeWidthForAspect(imageDecodeWidthCap, imageDecodeHeightCap, reservedImageAspectRatio)

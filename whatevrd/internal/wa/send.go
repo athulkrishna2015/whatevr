@@ -230,25 +230,6 @@ func (c *Client) SendMediaWithOptions(ctx context.Context, chatID, filePath, cap
 		return appstore.SavedTextMessage{}, err
 	}
 
-	// First-page preview for an outgoing PDF, rendered synchronously so the
-	// bubble and the wire proto both carry it from the start (official
-	// clients attach document thumbnails the same way). Best-effort: without
-	// pdftoppm the send proceeds thumbnail-less, exactly as before.
-	var docThumbPath string
-	var docThumbW, docThumbH int32
-	if mediaKind == appstore.MediaKindDocument && isPDFMime(mimeType) {
-		internalID := internalMessageIDForChat(chatID, messageID)
-		if thumb := c.renderPDFThumbnail(ctx, chatID, internalID, localPath); thumb != "" {
-			docThumbPath = thumb
-			if f, err := os.Open(thumb); err == nil {
-				if cfg, _, err := image.DecodeConfig(f); err == nil && cfg.Width > 0 && cfg.Height > 0 {
-					docThumbW, docThumbH = int32(cfg.Width), int32(cfg.Height)
-				}
-				f.Close()
-			}
-		}
-	}
-
 	// Standard-quality images already carry scaled dimensions from the
 	// downscaler; HD keeps the original file, so read its config here.
 	if mediaKind == appstore.MediaKindImage && mediaWidth == 0 {
@@ -256,11 +237,6 @@ func (c *Client) SendMediaWithOptions(ctx context.Context, chatID, filePath, cap
 			mediaWidth = int32(cfg.Width)
 			mediaHeight = int32(cfg.Height)
 		}
-	}
-	// A derived PDF thumbnail carries its own dimensions; nothing else sets
-	// mediaWidth/Height on a document row.
-	if docThumbPath != "" {
-		mediaWidth, mediaHeight = docThumbW, docThumbH
 	}
 
 	saved, err := c.store.SaveMediaMessage(ctx, appstore.MediaMessageInput{
@@ -277,15 +253,14 @@ func (c *Client) SendMediaWithOptions(ctx context.Context, chatID, filePath, cap
 			ReplyTo:     replyTo,
 			Mentions:    c.resolveMentions(ctx, mentionedJIDs),
 		},
-		MediaKind:               mediaKind,
-		MediaMimeType:           mimeType,
-		MediaLocalPath:          localPath,
-		MediaThumbnailLocalPath: docThumbPath,
-		MediaWidth:              mediaWidth,
-		MediaHeight:             mediaHeight,
-		MediaSizeBytes:          int64(len(data)),
-		MediaFileName:           fileName,
-		IsViewOnce:              opts.ViewOnce,
+		MediaKind:      mediaKind,
+		MediaMimeType:  mimeType,
+		MediaLocalPath: localPath,
+		MediaWidth:     mediaWidth,
+		MediaHeight:    mediaHeight,
+		MediaSizeBytes: int64(len(data)),
+		MediaFileName:  fileName,
+		IsViewOnce:     opts.ViewOnce,
 	})
 	if err != nil {
 		return appstore.SavedTextMessage{}, err
@@ -1045,21 +1020,6 @@ func buildOutgoingMediaMessage(message appstore.Message, data []byte, mimeType s
 		}
 		if message.MediaPageCount > 0 {
 			docMsg.PageCount = proto.Uint32(uint32(message.MediaPageCount))
-		}
-		// The locally derived (or sender-provided, for forwards) first-page
-		// preview rides the wire like official clients attach it, so the
-		// recipient's phone renders a thumbnail too.
-		if thumbPath := strings.TrimSpace(message.MediaThumbnailLocalPath); thumbPath != "" {
-			if thumb, err := os.ReadFile(thumbPath); err == nil && len(thumb) > 0 {
-				docMsg.JPEGThumbnail = thumb
-				if w, h := pdfThumbnailDims(thumb); w > 0 && h > 0 {
-					docMsg.ThumbnailWidth = proto.Uint32(uint32(w))
-					docMsg.ThumbnailHeight = proto.Uint32(uint32(h))
-				} else if message.MediaWidth > 0 && message.MediaHeight > 0 {
-					docMsg.ThumbnailWidth = proto.Uint32(uint32(message.MediaWidth))
-					docMsg.ThumbnailHeight = proto.Uint32(uint32(message.MediaHeight))
-				}
-			}
 		}
 		return &waE2E.Message{DocumentMessage: docMsg}, docMsg, whatsmeow.MediaDocument, nil
 	default:

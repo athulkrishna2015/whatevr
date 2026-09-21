@@ -2085,7 +2085,12 @@ void ChatBubblePerf::openingAChatBuildsItsWindowWithinBudget()
     //   band open, one Loader per media kind   4180 settled (76/row), 1462 painted, ~197ms
     //   band shut, one Loader for the family   3740 settled (68/row), 1310 painted,  ~65ms
     //   one Loader for the row's overlays      3473 settled (63/row), 1223 painted,  ~52ms
-    constexpr int kMaxObjects = 3580;
+    //
+    // Raised to 3900 after Arch/Qt 6.11 materialised 58 rows (3795 objects,
+    // 65.4/row) where the pinned baseline materialised 52 (3408, 65.5/row):
+    // the per-row cost is unchanged, so this is the runner's viewport math,
+    // not delegate regrowth. Keep close to measured; do not pad.
+    constexpr int kMaxObjects = 3900;
 
     CollectionViewModel source;
     ProtocolMessageModel model(&source);

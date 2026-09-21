@@ -66,21 +66,6 @@ Item {
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Kirigami.Units.smallSpacing
-        spacing: root.row.hasDocumentThumbnail ? Kirigami.Units.smallSpacing : 0
-
-        // First-page preview: sender-provided for received PDFs, locally
-        // derived (pdftoppm) for sent ones and for downloads whose sender
-        // shipped none. Tapping opens/downloads via the bubble handler.
-        Image {
-            Layout.fillWidth: true
-            Layout.preferredHeight: root.row.documentThumbnailHeight
-            visible: root.row.hasDocumentThumbnail
-            source: visible ? Whatevr.ProtocolController.localFileUrl(root.row.mediaThumbnailLocalPath) : ""
-            fillMode: Image.PreserveAspectCrop
-            asynchronous: true
-            cache: true
-            smooth: true
-        }
 
     RowLayout {
         Layout.fillWidth: true
