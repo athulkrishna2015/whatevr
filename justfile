@@ -7,27 +7,13 @@ version_numeric := `scripts/version.py numeric`
 default:
     @just --list
 
-# Debug build for local testing.
+# Debug build. Includes the fake WhatsApp server.
 build dir=build_dir:
     @just _build debug "{{dir}}"
 
 # Optimized release build.
 build-release dir=build_dir:
     @just _build release "{{dir}}"
-
-# A daemon that talks to the fake WhatsApp server instead of WhatsApp.
-#
-#   just build-mock && build/mock/whatevrd --mock-list
-#   build/mock/whatevrd --mock empty
-#
-# Never installed and never released: see check-mock-gate.
-build-mock dir=build_dir:
-    @mkdir -p "{{dir}}/mock"
-    @CGO_ENABLED=1 go -C whatevrd build -buildvcs=false \
-        -tags "sqlite_fts5 whatevr_mock" \
-        -ldflags "-X whatevrd/internal/protocol.Version={{version}}" \
-        -o "$(pwd)/{{dir}}/mock/whatevrd" ./cmd/whatevrd
-    @printf 'built {{dir}}/mock/whatevrd (mock mode enabled)\n'
 
 # Build and install an optimized release.
 install prefix="/usr/local" destdir="":
@@ -43,53 +29,26 @@ artifacts arch=`uname -m`:
     @just _binary-tarball "{{arch}}"
     @just _checksums
 
-# Build and run the frontend tests that can carry sanitizers, under ASan+UBSan.
-#
-# Not the whole suite: the mpv and QML-render tests want a GPU, and a software
-# fallback tells you nothing about memory safety. These three are where the
-# transport, the models and the window ownership live, which is where the bugs
-# this catches actually are.
-sanitize dir=build_dir:
-    @cmake -S whatkevr -B "{{dir}}/asan/whatkevr" -G Ninja \
-        -DCMAKE_BUILD_TYPE=Debug \
-        -DWHATEVR_BUILD_TESTS=ON \
-        -DWHATEVR_VERSION={{version_numeric}} \
-        -DWHATEVR_VERSION_FULL={{version}} \
-        -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g" \
-        -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" \
-        -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=address,undefined"
-    @cmake --build "{{dir}}/asan/whatkevr" --target tst_protocolcore tst_protocolmessagemodel tst_protocolcontroller
-    @for t in tst_protocolcore tst_protocolmessagemodel tst_protocolcontroller; do \
-        printf '\n== %s ==\n' "$t"; \
-        QT_QPA_PLATFORM=offscreen \
-        ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 \
-        UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
-        "{{dir}}/asan/whatkevr/bin/$t"; \
-    done
+# Run tests. Target: all, daemon, whattui, frontend, protocol, asan.
+test target="all" dir=build_dir:
+    @case "{{target}}" in \
+        all) just _test-daemon && just _test-whattui && just _test-frontend "{{dir}}" && scripts/conformance ;; \
+        daemon) just _test-daemon ;; \
+        whattui) just _test-whattui ;; \
+        frontend) just _test-frontend "{{dir}}" ;; \
+        protocol) scripts/conformance ;; \
+        asan) scripts/asan "{{dir}}" ;; \
+        *) printf 'unknown target: %s\n' "{{target}}" >&2; exit 1 ;; \
+    esac
 
-
-# The whole suite: daemon, terminal frontend, desktop frontend, and the
-# protocol grammar.
-test dir=build_dir:
+_test-daemon:
     @cd whatevrd && go test -tags sqlite_fts5 ./...
     @cd whatevrd && go test -tags "sqlite_fts5 whatevr_mock" ./internal/wamock/...
-    @just check-mock-gate
-    @just test-whattui
-    @just build "{{dir}}"
-    @ctest --test-dir "{{dir}}/debug/whatkevr" --output-on-failure
-    @just conformance
-
-# Prove the fake WhatsApp server cannot reach a shipped binary. It mutates
-# process-global TLS trust and whatsmeow's pinned certificate key, so it is
-# compiled in only under -tags whatevr_mock, and this is what makes that tag
-# more than a convention.
-check-mock-gate:
     @scripts/check-mock-gate
 
-# The terminal frontend, everything a change to it has to pass. The race
-# detector is not optional here: the protocol client, the view models and the
-# render loop are three goroutines sharing one model.
-test-whattui:
+# Race is not optional: the protocol client, the view models and the render
+# loop are three goroutines over one model.
+_test-whattui:
     @just _require-vaxis
     @cd whattui && files="$(gofmt -l . | grep -v '^vaxis/' || true)"; \
         if [ -n "$files" ]; then printf '%s\n' "$files"; exit 1; fi
@@ -97,36 +56,22 @@ test-whattui:
     @cd whattui && go test ./...
     @cd whattui && go test -race ./...
 
-# A picture of whattui, at any size, in any state, from a real kitty on a
-# Hyprland dummy monitor. For looking at. Not part of `just test`: it needs a
-# live compositor, and CI has none.
+_test-frontend dir=build_dir:
+    @just build "{{dir}}"
+    @ctest --test-dir "{{dir}}/debug/whatkevr" --output-on-failure
+
+# Photograph whattui at any size and state, in kitty on a dummy monitor.
+# Needs a compositor, so it is not in `just test`.
 #
 #   just screenshot --list
 #   just screenshot --size 100x30 --scenario palette
 #   just screenshot --size 72x20 --keys ctrl+p,/,a,n --wait "> /an"
-#   just screenshot --env WHATTUI_NO_TEXT_SCALE=1     # degradation, photographed
-#   just screenshot --account torture --size 120x40   # the text that breaks it
+#   just screenshot --env WHATTUI_NO_TEXT_SCALE=1
+#   just screenshot --account torture --size 120x40
+
+# Take a picture of whattui.
 screenshot *args:
     @scripts/whattui-screenshot {{args}}
-
-# Protocol conformance. With no stream it checks the handshake and the view
-# grammar; with one it replays real frames and holds the window invariants
-# after every one of them.
-#
-# Record a stream first with `scripts/record-stream --out stream.ndjson`
-# against a running daemon. A recording is real conversation data, so keep it
-# out of the repository.
-conformance stream="":
-    @if [ -n "{{stream}}" ]; then \
-        scripts/conformance --replay "{{stream}}"; \
-    else \
-        scripts/conformance; \
-    fi
-
-# Replay a recorded stream repeatedly with faults armed. Not part of `just
-# test`: it is minutes, not seconds, and it belongs on a schedule.
-soak stream seconds="300" fault="all:7":
-    @scripts/conformance --replay "{{stream}}" --soak "{{seconds}}" --fault "{{fault}}"
 
 validate:
     @desktop-file-validate whatkevr/data/in.codelif.Whatevr.desktop
@@ -204,11 +149,15 @@ _build-daemon profile dir=build_dir:
         *) out_dir="$(pwd)/$build_root/$profile" ;; \
     esac; \
     ldflags="-X whatevrd/internal/protocol.Version={{version}}"; \
-    go_flags=(-buildvcs=false -tags sqlite_fts5); \
+    tags="sqlite_fts5"; \
     if [ "$profile" = release ]; then \
-        go_flags=(-trimpath "${go_flags[@]}"); \
+        go_flags=(-trimpath -buildvcs=false); \
         ldflags="$ldflags -s -w"; \
+    else \
+        tags="$tags whatevr_mock"; \
+        go_flags=(-buildvcs=false); \
     fi; \
+    go_flags+=(-tags "$tags"); \
     mkdir -p "$out_dir"; \
     CGO_ENABLED=1 go -C whatevrd build "${go_flags[@]}" -ldflags "$ldflags" \
         -o "$out_dir/whatevrd" ./cmd/whatevrd

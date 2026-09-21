@@ -400,7 +400,7 @@ jobs:
           CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
           CCACHE_MAXSIZE: 500M
           CMAKE_CXX_COMPILER_LAUNCHER: ccache
-        run: just sanitize
+        run: scripts/asan
 
 
   aur:

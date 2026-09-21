@@ -9,9 +9,12 @@ other end of the websocket.
 This is what frontend work runs against. No phone, no pairing dance, no history
 sync wait, and the same scenario produces the same account every time.
 
-    just build-mock
-    build/mock/whatevrd --mock-list
-    build/mock/whatevrd --mock empty
+    just build
+    build/debug/whatevrd --mock-list
+    build/debug/whatevrd --mock empty
+
+Every debug build carries it. Release builds do not, and that is the whole
+point of the next section.
 
 ## Why it is behind a build tag
 
@@ -20,7 +23,8 @@ verify that it is really talking to WhatsApp, and it points
 `http.DefaultTransport` at a private CA. Both are process-global. A binary that
 can do that is a binary that can be argued into trusting the wrong server, so
 the entire `internal/wamock` package is compiled only under
-`-tags whatevr_mock`, and `cmd/whatevrd/mock_disabled.go` makes a release build
+`-tags whatevr_mock`, which `just build` passes and `just build-release` does
+not, and `cmd/whatevrd/mock_disabled.go` makes a release build
 refuse `--mock` outright.
 
 `scripts/check-mock-gate` is what keeps that true. It asserts the package is
@@ -197,7 +201,7 @@ without changing how the sample beside it wraps.
 
 `fuzz` draws from the same corpus with a seeded generator, so a crash is
 reproducible from the one number in the log line. It cannot be a golden: use it
-for soak runs, and quote the seed when something falls over.
+for long runs, and quote the seed when something falls over.
 
 `buildFrames` is history only on purpose. A backlog delivered at login and a
 history chunk describing the same chat are two pipelines racing, and the unread

@@ -79,7 +79,7 @@ func TestMain(m *testing.M) {
 
 // whatevrdBinary finds the mock-enabled daemon, building it if nobody has.
 // WHATTUI_WHATEVRD is how CI hands over a binary it already built; otherwise
-// the build lands where just build-mock puts one, so a second run is free.
+// the build is cached under build/mock, so a second run is free.
 func whatevrdBinary() (string, error) {
 	binaryOnce.Do(func() {
 		if path := os.Getenv("WHATTUI_WHATEVRD"); path != "" {
