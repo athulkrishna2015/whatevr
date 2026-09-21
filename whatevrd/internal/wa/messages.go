@@ -243,6 +243,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 					reactions:     webMsg.GetReactions(),
 					keptKnown:     keptKnown,
 					kept:          kept,
+					timestamp:     parsedEvt.Info.Timestamp,
 				})
 			} else if mediaInput, ok := c.mediaMessageInput(ctx, parsedEvt, opts); ok {
 				input := mediaInput
@@ -263,6 +264,18 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 
 		// Phase 2: persist the whole conversation in one transaction.
 		messagesAdded := uint32(0)
+		// The newest message this conversation carried is the moment the
+		// phone's unread count describes. Anything unread after it is live
+		// traffic the snapshot never saw.
+		newestHistoryMS := int64(0)
+		for _, entry := range pending {
+			if entry.timestamp.IsZero() {
+				continue
+			}
+			if ms := entry.timestamp.UnixMilli(); ms > newestHistoryMS {
+				newestHistoryMS = ms
+			}
+		}
 		var lastSavedChat appstore.Chat
 		items := make([]appstore.MessageSaveItem, len(pending))
 		for i := range pending {
@@ -322,7 +335,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		if ctx.Err() != nil {
 			return false
 		}
-		updatedChat, unreadChanged, err := c.store.OverwriteChatUnreadCount(ctx, chatID, convUnread)
+		updatedChat, unreadChanged, err := c.store.OverwriteChatUnreadCountSince(ctx, chatID, convUnread, newestHistoryMS)
 		if err != nil {
 			c.log.Warnf("Failed to overwrite unread count for %s: %v", chatID, err)
 		} else if updatedChat.ID != "" {

@@ -2372,3 +2372,58 @@ func TestUpdateMessagesStatusAppliesOneReceiptAtOnce(t *testing.T) {
 		t.Fatalf("chat summary status is %q, want %q", chat.LastMessageStatus, StatusRead)
 	}
 }
+
+// Linking a device takes minutes and messages keep arriving throughout. The
+// phone's unread count describes the chat as of the newest message the history
+// blob carried; anything unread after that is newer than the snapshot and has
+// to survive the overwrite, or the badge for it disappears and nobody ever
+// learns the message is there.
+func TestOverwriteChatUnreadCountKeepsLiveMessages(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	chatID := "chat-live-unread"
+	historyAt := time.Unix(1000, 0)
+	// What the blob carried: stored the way history sync stores it, read.
+	if _, err := db.SaveTextMessage(ctx, TextMessageInput{
+		ID: chatID + ":history", ChatID: chatID, ChatName: "Test", SenderID: "sender-1",
+		Text: "from the blob", Timestamp: historyAt,
+		Direction: DirectionIncoming, Status: StatusDelivered,
+	}); err != nil {
+		t.Fatalf("save history: %v", err)
+	}
+	// What arrived on the wire while the blob was in flight.
+	for i, at := range []time.Time{historyAt.Add(time.Minute), historyAt.Add(2 * time.Minute)} {
+		if _, err := db.SaveTextMessage(ctx, TextMessageInput{
+			ID: fmt.Sprintf("%s:live%d", chatID, i), ChatID: chatID, ChatName: "Test", SenderID: "sender-1",
+			Text: "live", Timestamp: at,
+			Direction: DirectionIncoming, Status: StatusDelivered, CountUnread: true,
+		}); err != nil {
+			t.Fatalf("save live %d: %v", i, err)
+		}
+	}
+
+	// The phone says the chat is read. The two that arrived after the snapshot
+	// are not.
+	chat, _, err := db.OverwriteChatUnreadCountSince(ctx, chatID, 0, historyAt.UnixMilli())
+	if err != nil {
+		t.Fatalf("overwrite since: %v", err)
+	}
+	if chat.UnreadCount != 2 {
+		t.Fatalf("unread = %d, want the two that arrived after the snapshot", chat.UnreadCount)
+	}
+
+	// Without a boundary it is still an exact overwrite, which is what the
+	// app-state mark-unread path needs.
+	chat, _, err = db.OverwriteChatUnreadCount(ctx, chatID, 0)
+	if err != nil {
+		t.Fatalf("overwrite exact: %v", err)
+	}
+	if chat.UnreadCount != 0 {
+		t.Fatalf("unread = %d, want an exact overwrite", chat.UnreadCount)
+	}
+}

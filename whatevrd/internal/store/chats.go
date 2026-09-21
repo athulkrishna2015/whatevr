@@ -918,6 +918,21 @@ func (db *DB) listTables(ctx context.Context) (regular, virtual []string, err er
 //
 // Returns the chat row (post-update) and whether anything actually changed.
 func (db *DB) OverwriteChatUnreadCount(ctx context.Context, chatID string, unread uint32) (Chat, bool, error) {
+	return db.overwriteChatUnreadCount(ctx, chatID, unread, 0)
+}
+
+// OverwriteChatUnreadCountSince is the history sync's version of the same
+// thing. The phone's count describes the chat as of newestHistoryMS, the newest
+// message the blob carried. Anything still unread that arrived after that
+// moment is newer than the snapshot and is added to the count rather than
+// thrown away: linking a device takes minutes, messages arrive throughout, and
+// a badge that vanishes because a history chunk landed afterwards is a message
+// the reader never learns about.
+func (db *DB) OverwriteChatUnreadCountSince(ctx context.Context, chatID string, unread uint32, newestHistoryMS int64) (Chat, bool, error) {
+	return db.overwriteChatUnreadCount(ctx, chatID, unread, newestHistoryMS)
+}
+
+func (db *DB) overwriteChatUnreadCount(ctx context.Context, chatID string, unread uint32, newestHistoryMS int64) (Chat, bool, error) {
 	if chatID == "" {
 		return Chat{}, false, nil
 	}
@@ -931,6 +946,17 @@ func (db *DB) OverwriteChatUnreadCount(ctx context.Context, chatID string, unrea
 	current, err := getChatTx(ctx, tx, chatID)
 	if err != nil {
 		return Chat{}, false, err
+	}
+
+	if newestHistoryMS > 0 {
+		var live uint32
+		if err := tx.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM messages
+			WHERE chat_id = ? AND direction = ? AND is_read = 0 AND is_revoked = 0 AND sort_ms > ?
+		`, chatID, DirectionIncoming, newestHistoryMS).Scan(&live); err != nil {
+			return Chat{}, false, err
+		}
+		unread += live
 	}
 
 	changed := int32(unread) != current.UnreadCount
