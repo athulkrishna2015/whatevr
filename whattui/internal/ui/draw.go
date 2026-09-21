@@ -363,7 +363,9 @@ const discMix = 0.22
 
 // initial is the letter to stand in for a picture until there are pictures.
 func initial(name string) string {
-	name = strings.TrimSpace(name)
+	// Sanitised first, or the letter in the disc is whatever control character
+	// the name happened to start with.
+	name = strings.TrimSpace(safe(name))
 	for _, r := range name {
 		return strings.ToUpper(string(r))
 	}

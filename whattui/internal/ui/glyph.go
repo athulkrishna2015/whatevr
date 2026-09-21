@@ -27,6 +27,10 @@ import (
 // terminal's own rules; a complex word is measured by what we are about to
 // draw, because the terminal's answer for it is the wrong answer.
 func (a *App) width(s string) int {
+	// Measured on what will actually be drawn. A control character that print
+	// drops but width counted is a column that reserves a cell nothing fills,
+	// which is how a list loses its right hand edge.
+	s = safe(s)
 	if !a.shaping || !textrun.Complex(s) {
 		return a.vx.RenderedWidth(s)
 	}
@@ -53,6 +57,7 @@ func (a *App) clip(s string, width int) string {
 	if width <= 0 {
 		return ""
 	}
+	s = safe(s)
 	if a.width(s) <= width {
 		return s
 	}
@@ -124,6 +129,11 @@ func (a *App) print(win vaxis.Window, col, row int, style vaxis.Style, s string)
 	// dropping it, which is a phrase piling up at the bottom of the
 	// transcript instead of scrolling out of it.
 	if row < 0 || row >= h || col >= w || s == "" {
+		return col
+	}
+	// Nothing untrusted becomes a cell without coming through here; see
+	// safetext.go for what goes and why.
+	if s = safe(s); s == "" {
 		return col
 	}
 	if !a.shaping || !textrun.Complex(s) {
