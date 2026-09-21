@@ -69,6 +69,10 @@ Kirigami.ApplicationWindow {
     onClosing: closeEvent => {
         if (Whatevr.Settings.closeToTray && !quitting) {
             closeEvent.accepted = false
+            // Dismiss the tray popup first: a Qt.Popup holds the input grab,
+            // and a grab that survives the hide/show cycle leaves the restored
+            // window visible but dead to clicks.
+            trayMenuWindow.visible = false
             root.hide()
         }
     }
@@ -531,6 +535,8 @@ Kirigami.ApplicationWindow {
     }
 
     function activateWindow() {
+        // Same grab hazard as onClosing: never restore with the popup open.
+        trayMenuWindow.visible = false
         root.show()
         root.raise()
         root.requestActivate()
