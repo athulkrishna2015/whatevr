@@ -12,7 +12,7 @@ import (
 	"github.com/mattn/go-sqlite3"
 )
 
-const schemaVersion = 7
+const schemaVersion = 10
 const SQLiteDriverName = "whatevrd-sqlite"
 
 // SQLiteReadDriverName backs the read-only connection pool. Its ConnectHook
@@ -246,7 +246,6 @@ func (db *DB) migrate(ctx context.Context) error {
 			FOREIGN KEY(chat_id) REFERENCES chats(id) ON DELETE CASCADE
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_chat_timestamp ON messages(chat_id, timestamp DESC)`,
-		`CREATE INDEX IF NOT EXISTS idx_messages_chat_sort ON messages(chat_id, sort_ms DESC, id DESC)`,
 		// Deleting a message for me removes the row, and a later backfill chunk
 		// would put it straight back. The id outlives the row so the message
 		// stays deleted.
@@ -471,6 +470,13 @@ func (db *DB) migrate(ctx context.Context) error {
 	if err := db.ensureUndecryptableMessagesTable(ctx); err != nil {
 		return err
 	}
+	// Column migrations before index creation: several indexes reference
+	// migrated columns (e.g. idx_messages_chat_sort on sort_ms), and an
+	// older database reaching the index step first fails with "no such
+	// column".
+	if err := db.ensureMessageRevokedColumn(ctx); err != nil {
+		return err
+	}
 	if err := db.ensureQueryIndexes(ctx); err != nil {
 		return err
 	}
@@ -481,9 +487,6 @@ func (db *DB) migrate(ctx context.Context) error {
 		return err
 	}
 
-	if err := db.ensureMessageRevokedColumn(ctx); err != nil {
-		return err
-	}
 	if err := db.ensureMessageReceiptsTable(ctx); err != nil {
 		return err
 	}
@@ -501,6 +504,15 @@ func (db *DB) migrate(ctx context.Context) error {
 		// mark-read only ever looks at is_read=0 rows and found none. Needs the
 		// is_revoked column, hence its position after every ensure* step.
 		if err := db.repairChatUnreadState(ctx); err != nil {
+			return err
+		}
+	}
+
+	if version < 8 {
+		// v8: status thumbnail/width/height columns so status media carries
+		// the same rendering facts as chat media. Idempotent: fresh schemas
+		// already have them.
+		if err := db.ensureStatusMediaColumns(ctx); err != nil {
 			return err
 		}
 	}
@@ -670,6 +682,7 @@ func (db *DB) ensureMessageRevokedColumn(ctx context.Context) error {
 
 func (db *DB) ensureQueryIndexes(ctx context.Context) error {
 	for _, statement := range []string{
+		`CREATE INDEX IF NOT EXISTS idx_messages_chat_sort ON messages(chat_id, sort_ms DESC, id DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_pending_outgoing ON messages(direction, status, next_send_attempt, timestamp ASC, id ASC)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_downloaded_stickers ON messages(media_kind, media_local_path)`,
 		`CREATE INDEX IF NOT EXISTS idx_messages_sticker_cache_key ON messages(media_kind, media_cache_key, media_local_path)`,
@@ -1533,4 +1546,15 @@ func (db *DB) ensureChatFolderColumns(ctx context.Context) error {
 		return fmt.Errorf("add chats.folder_id: %w", err)
 	}
 	return nil
+}
+
+// ensureStatusMediaColumns adds the status thumbnail/dimension columns for
+// databases created before status media carried rendering facts. Idempotent:
+// fresh schemas already have them.
+func (db *DB) ensureStatusMediaColumns(ctx context.Context) error {
+	return db.addColumns(ctx, "status_updates", [][2]string{
+		{"media_thumbnail_local_path", `ALTER TABLE status_updates ADD COLUMN media_thumbnail_local_path TEXT NOT NULL DEFAULT ''`},
+		{"media_width", `ALTER TABLE status_updates ADD COLUMN media_width INTEGER NOT NULL DEFAULT 0`},
+		{"media_height", `ALTER TABLE status_updates ADD COLUMN media_height INTEGER NOT NULL DEFAULT 0`},
+	})
 }
