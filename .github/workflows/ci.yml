@@ -144,7 +144,7 @@ jobs:
         run: |
           pacman -Syu --noconfirm --needed \
             git sudo base-devel go just cmake ninja ccache extra-cmake-modules zstd vulkan-headers \
-            qt6-base qt6-declarative qt6-multimedia qt6-shadertools mpv ffmpeg \
+            qt6-base qt6-declarative qt6-multimedia qt6-shadertools mpv ffmpeg appstream \
             kcoreaddons kdbusaddons ki18n kirigami kirigami-addons prison qqc2-desktop-style sqlite
           useradd -m -G wheel builduser
           printf 'builduser ALL=(ALL) NOPASSWD: ALL\n' >> /etc/sudoers
@@ -154,6 +154,9 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Mark workspace safe for Git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Set rlottie cache key
         id: rlottie-cache-key
@@ -263,6 +266,36 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Set rlottie cache key
+        id: rlottie-cache-key
+        run: printf 'week=%s\n' "$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore rlottie package
+        uses: actions/cache@v5
+        with:
+          path: .cache/aur/rlottie
+          key: arch-rlottie-${{ steps.rlottie-cache-key.outputs.week }}
+
+      - name: Install rlottie
+        run: |
+          install -d "$GITHUB_WORKSPACE/.cache/aur/rlottie"
+          shopt -s nullglob
+          cached=("$GITHUB_WORKSPACE"/.cache/aur/rlottie/rlottie-*.pkg.tar*)
+          if ((${#cached[@]})) && pacman -U --noconfirm "${cached[@]}"; then
+            exit 0
+          fi
+
+          rm -f "$GITHUB_WORKSPACE"/.cache/aur/rlottie/rlottie-*.pkg.tar*
+          rm -rf "$RUNNER_TEMP/rlottie"
+          git clone https://aur.archlinux.org/rlottie.git "$RUNNER_TEMP/rlottie"
+          useradd -m -G wheel builduser || true
+          printf 'builduser ALL=(ALL) NOPASSWD: ALL\n' >> /etc/sudoers
+          chown -R builduser:builduser "$RUNNER_TEMP/rlottie"
+          cd "$RUNNER_TEMP/rlottie"
+          sudo -u builduser makepkg -s --noconfirm
+          cp rlottie-*.pkg.tar* "$GITHUB_WORKSPACE/.cache/aur/rlottie/"
+          pacman -U --noconfirm "$GITHUB_WORKSPACE"/.cache/aur/rlottie/rlottie-*.pkg.tar*
 
       - name: Restore ccache
         uses: actions/cache@v5
