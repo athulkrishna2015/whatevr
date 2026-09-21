@@ -162,7 +162,10 @@ func (c *Client) SelfProfile(ctx context.Context) (app.ContactInfo, error) {
 			PhoneNumber: formatPhoneDisplayName(selfJID),
 		}
 	}
-	if name := whatsAppDisplayName(client.Store.PushName); name != "" {
+	// No tilde here. The marker means "a name this person chose rather than one
+	// you saved", which is a distinction that only makes sense about somebody
+	// else: on your own profile it reads as part of your name.
+	if name := strings.TrimSpace(client.Store.PushName); name != "" {
 		info.PushName = name
 	}
 	return info, nil
