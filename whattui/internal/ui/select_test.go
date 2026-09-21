@@ -67,6 +67,47 @@ func firstBlock(a *App) (layout.Rect, bool) {
 	return layout.Rect{}, false
 }
 
+// A chat row is a button. Dragging down a column of them would hand back the
+// daemon's own summaries cut into pieces, so the list records no blocks and
+// nothing in it can be taken.
+func TestTheChatListIsNotSelectable(t *testing.T) {
+	a := stubApp(100, 26, 8, 4)
+	a.paint()
+
+	list := a.layout().ChatList
+	if list.Empty() {
+		t.Fatal("no chat list on this frame")
+	}
+	for row := list.Row; row < list.Row+list.Height; row++ {
+		for col := list.Col; col < list.Col+list.Width; col++ {
+			if b, ok := a.blockAt(point{col: col, row: row}); ok {
+				t.Fatalf("cell %d,%d in the chat list is inside block %+v", col, row, b)
+			}
+		}
+	}
+
+	// And a drag down the names selects nothing, rather than selecting the
+	// cells it crossed.
+	start := point{col: list.Col + 2, row: list.Row}
+	a.onSelectPress(start)
+	a.onSelectMotion(point{col: list.Col + 8, row: list.Row + 2})
+	if a.sel.on {
+		t.Fatal("a drag down the chat list made a selection")
+	}
+	if a.onSelectRelease() {
+		t.Fatal("the drag was taken as a selection on release")
+	}
+
+	// The pointer says so before the drag starts: a hand over a row you can
+	// open, never a beam over words you cannot take.
+	if got := a.shapeFor(vaxis.Mouse{Col: start.col, Row: start.row}, 0); got != vaxis.MouseShapeClickable {
+		t.Errorf("pointer over a chat row is %v, want the hand", got)
+	}
+	if got := a.shapeFor(vaxis.Mouse{Col: start.col, Row: start.row}, -1); got != vaxis.MouseShapeDefault {
+		t.Errorf("pointer over the list off any row is %v, want the arrow", got)
+	}
+}
+
 // A mouse event carries the size the terminal had when the pointer moved. A
 // resize between the event and the frame is ordinary, and every reader of that
 // position is reading cells: the pointer has to be pulled inside the screen

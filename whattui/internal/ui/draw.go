@@ -170,7 +170,6 @@ func (a *App) ground(st rowState) vaxis.Color {
 func (a *App) drawChatRow(pane vaxis.Window, row, w, height int, c proto.ChatRow, st rowState) {
 	bg := a.ground(st)
 	fill(pane.New(0, row, w, height), bg)
-	a.noteBlock(pane, 1, row, w-1, height)
 	line := pane.New(0, row, w, 1)
 
 	unread := c.Unread > 0

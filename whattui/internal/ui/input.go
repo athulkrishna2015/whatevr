@@ -377,12 +377,10 @@ func (a *App) shapeFor(m vaxis.Mouse, overChat int) vaxis.MouseShape {
 		return vaxis.MouseShapeClickable
 	case a.vx.Cell(p.col, p.row).Style.Hyperlink != "":
 		return vaxis.MouseShapeClickable
-	case wordish(a.vx.Cell(p.col, p.row).Grapheme):
-		return vaxis.MouseShapeTextInput
 	default:
-		// The gaps inside a block are still text as far as a drag across them
-		// is concerned. The ground between two bubbles is not, and a beam
-		// over it would be a promise of something to select.
+		// A block, rather than whether there is a glyph here: the gaps inside
+		// one are still text as far as a drag across them is concerned, and a
+		// beam over anything else would promise a selection that never comes.
 		if _, ok := a.blockAt(p); ok {
 			return vaxis.MouseShapeTextInput
 		}
