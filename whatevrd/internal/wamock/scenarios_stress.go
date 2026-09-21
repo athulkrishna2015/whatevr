@@ -16,9 +16,9 @@ import (
 
 func init() {
 	Register(Scenario{
-		Name:        "golden",
-		Description: "a fixed, quiet account for golden frames and screenshots",
-		Build:       buildGolden,
+		Name:        "frames",
+		Description: "a fixed, quiet account for reference frames and screenshots",
+		Build:       buildFrames,
 	})
 	Register(Scenario{
 		Name:        "torture",
@@ -37,15 +37,20 @@ func init() {
 	})
 }
 
-// goldenChat is the name the whattui golden harness opens. It is load bearing
+// framesChat is the name the whattui frame harness opens. It is load bearing
 // the same way READY-HARNESS is: the test finds the chat by this string.
-const goldenChat = "Golden"
+const framesChat = "Reference"
 
-// buildGolden is the account the golden frames are taken against. Everything in
-// it is fixed: no timeline, no live traffic, no attachment that has to finish
-// downloading, and every timestamp hangs off --mock-now. A frame taken from it
-// twice is the same bytes twice, which is the only property that matters here.
-func buildGolden(w *World) {
+// buildFrames is the account the reference frames are taken against. Everything
+// in it is fixed: no timeline, no live traffic, no attachment that has to
+// finish downloading, and every timestamp hangs off --mock-now.
+//
+// Everything arrives through history sync, deliberately. A backlog delivered at
+// login and a history chunk describing the same chat are two pipelines racing,
+// and the unread badge is whichever of them lands last. That race is worth
+// having in a scenario somebody is watching; it is not worth having in the one
+// the frames are diffed against.
+func buildFrames(w *World) {
 	people := []*Contact{
 		w.Contact("917770000001", "Asha"),
 		w.Contact("917770000002", "Ravi"),
@@ -57,9 +62,9 @@ func buildGolden(w *World) {
 	}
 	stranger := w.Contact("917770000009", "Unknown Caller").Unsaved()
 
-	main := w.Group(goldenChat, people[0], people[1], people[2], stranger)
-	// Enough history to fill a tall transcript and to put a day divider in a
-	// short one, spaced a minute apart so no two ever tie on the sort key.
+	main := w.Group(framesChat, people[0], people[1], people[2], stranger)
+	// Enough to fill a tall transcript and to put a day divider in a short one,
+	// spaced so no two ever tie on the sort key.
 	for i := 0; i < 24; i++ {
 		at := Ago(time.Duration(40-i) * time.Hour)
 		switch i % 4 {
@@ -71,28 +76,29 @@ func buildGolden(w *World) {
 			main.History(people[i%3], fmt.Sprintf("older message %d", i), at)
 		}
 	}
-	main.Say(people[0], "READY-HARNESS: stable synthetic conversation", Ago(3*time.Hour))
-	main.Say(people[1], "pick a chat to see it render", Ago(3*time.Hour-90*time.Second))
-	main.SayFromMe("this side is the account itself", Ago(3*time.Hour-3*time.Minute))
+	main.History(people[0], "READY-HARNESS: stable synthetic conversation", Ago(3*time.Hour))
+	main.History(people[1], "pick a chat to see it render", Ago(3*time.Hour-90*time.Second))
+	main.HistoryFromMe("this side is the account itself", Ago(3*time.Hour-3*time.Minute))
 	// The hyperlink is required: a frame with no link cells means the link
 	// detector stopped working, and the golden test fails on exactly that.
-	main.Say(people[2], "the spec is at https://example.com/spec and it wraps far enough to need a second line of text in the transcript", Ago(3*time.Hour-5*time.Minute))
-	main.Say(stranger, "and a group message from somebody unsaved", Ago(100*time.Minute))
-	main.Say(people[0], "short", Ago(2*time.Hour))
+	main.History(people[2], "the spec is at https://example.com/spec and it wraps far enough to need a second line of text in the transcript", Ago(3*time.Hour-5*time.Minute))
+	main.History(stranger, "and a group message from somebody unsaved", Ago(100*time.Minute))
+	main.History(people[0], "short", Ago(2*time.Hour))
+	main.Unread(3)
 
 	direct := w.DM(people[0])
-	direct.Say(people[0], "a one to one chat, for the header without a member count", Ago(90*time.Minute))
-	direct.SayFromMe("replied from the phone", Ago(85*time.Minute))
+	direct.History(people[0], "a one to one chat, for the header without a member count", Ago(90*time.Minute))
+	direct.HistoryFromMe("replied from the phone", Ago(85*time.Minute))
 	direct.Pin()
 
 	quiet := w.DM(people[1])
-	quiet.Say(people[1], "yesterday, so the day divider has something to divide", Ago(26*time.Hour))
+	quiet.History(people[1], "yesterday, so the day divider has something to divide", Ago(26*time.Hour))
 
-	w.DM(people[3]).Say(people[3], "muted, so the row carries the badge", Ago(5*time.Hour)).Chat.Mute()
-	w.DM(people[4]).Say(people[4], "unread, four of them", Ago(6*time.Hour)).Chat.Unread(4)
-	w.DM(people[5]).Say(people[5], "archived, so it is not in the list at all", Ago(7*time.Hour)).Chat.Archive()
-	w.DM(people[6]).Say(people[6], "and one more, to make the list scroll on a short terminal", Ago(8*time.Hour))
-	w.DM(stranger).Say(stranger, "a contact who is not in the address book", Ago(50*time.Hour))
+	w.DM(people[3]).History(people[3], "muted, so the row carries the badge", Ago(5*time.Hour)).Chat.Mute()
+	w.DM(people[4]).History(people[4], "unread, four of them", Ago(6*time.Hour)).Chat.Unread(4)
+	w.DM(people[5]).History(people[5], "archived, so it is not in the list at all", Ago(7*time.Hour)).Chat.Archive()
+	w.DM(people[6]).History(people[6], "and one more, to make the list scroll on a short terminal", Ago(8*time.Hour))
+	w.DM(stranger).History(stranger, "a contact who is not in the address book", Ago(50*time.Hour))
 }
 
 // buildTorture is the sheet. Every entry in the corpus arrives as its own
@@ -129,13 +135,16 @@ func buildTorture(w *World) {
 	named := w.Group(nastyNames()[4], victim, witness)
 	named.Say(witness, "a group whose subject does not fit anywhere", Ago(30*time.Hour))
 
-	// Everything about ordering that a tiebreak has to settle.
-	ties := w.Group("Same millisecond", victim, witness)
-	tie := Ago(12 * time.Hour)
+	// Everything about ordering that a tiebreak has to settle. A message
+	// timestamp is seconds on the wire, so a burst sent inside one second is
+	// twenty four messages with nothing to order them by but their ids, which
+	// is the case the sort key exists for.
+	ties := w.Group("Same second", victim, witness)
+	tie := Ago(12 * time.Hour).Truncate(time.Second)
 	for i := 0; i < 24; i++ {
-		ties.History(victim, fmt.Sprintf("tied message %02d, all at the same instant", i), tie)
+		ties.History(victim, fmt.Sprintf("tied message %02d, all in the same second", i), tie)
 	}
-	ties.History(witness, "and one a millisecond later", tie.Add(time.Millisecond))
+	ties.History(witness, "and one a second later", tie.Add(time.Second))
 
 	edges := w.Group("Clock edges", victim)
 	edges.History(victim, "sent at the unix epoch", time.Unix(0, 0))
