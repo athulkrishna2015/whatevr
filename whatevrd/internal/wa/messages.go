@@ -1018,8 +1018,8 @@ func (c *Client) mediaInputBase(ctx context.Context, evt *events.Message, opts i
 		Mentions: c.resolveMentions(ctx, mentionedJIDsFromContextInfo(contextInfo)),
 		// The sender's client marks forwarded copies in the same context
 		// info; without this only our own forwards (flagged at send time)
-		// ever rendered the header, so forwarded-to-us rows showed it on
-		// the phone but never on the desktop.
+		// ever rendered a forwarded header, so forwarded-to-us rows showed
+		// it on the phone but never on the desktop.
 		IsForwarded: contextInfo.GetIsForwarded(),
 	}, chatID, true
 }
