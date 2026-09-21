@@ -43,6 +43,11 @@ type Options struct {
 	// is what you want when the QR screen itself is the thing being looked at.
 	ScanDelay time.Duration
 
+	// HistoryDelay spreads the history sync out, one chunk every this long. It
+	// overrides whatever the scenario asked for, so a sync that normally
+	// finishes before the first frame can be watched.
+	HistoryDelay time.Duration
+
 	// Login is the daemon's login event stream. The mock needs it to read the
 	// QR it is meant to scan, because the adv secret exists nowhere else.
 	Login LoginWatcher
@@ -76,6 +81,22 @@ type Server struct {
 	// world is what the scenario built: contacts, chats and the messages that
 	// are meant to already be there.
 	world *World
+
+	// media is everything the mock is hosting over http: history sync blobs,
+	// avatars, and later the attachments themselves.
+	media *mediaStore
+
+	// settings is the account state that is not conversation: privacy, blocks,
+	// the about line.
+	settings *accountSettings
+
+	// avatars are the generated profile pictures, kept so a re-fetch is
+	// answered with the same id.
+	avatars *avatarCache
+
+	// appState is the server half of the app state sync: the key and the
+	// patches the client validates against.
+	appState *mockAppState
 
 	// keysReady closes once the client has uploaded the identity and signed
 	// prekey the mock needs before it can encrypt anything.
@@ -125,6 +146,10 @@ func New(opts Options) (*Server, error) {
 		keysReady: make(chan struct{}),
 		sessions:  make(map[*session]struct{}),
 		peers:     make(map[string]*peer),
+		media:     newMediaStore(),
+		settings:  newAccountSettings(),
+		avatars:   newAvatarCache(),
+		appState:  newMockAppState(rng),
 	}
 	srv.world = newWorld(srv)
 	if scenario, ok := Lookup(opts.Scenario); ok && scenario.Build != nil {
@@ -147,6 +172,10 @@ func (s *Server) Start(ctx context.Context) error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws/chat", s.handleWS)
+	mux.HandleFunc(mediaPathPrefix, s.handleMedia)
+	mux.HandleFunc(avatarPathPrefix, s.handleMedia)
+	mux.HandleFunc("/mms/", s.handleMediaDelete)
+	mux.HandleFunc("/sticker", s.handleStickerPack)
 	// whatsmeow scrapes a client_revision out of the web.whatsapp.com landing
 	// page to decide the version it advertises. Serving it keeps the daemon
 	// from retrying a 404 on every connect.
@@ -269,6 +298,28 @@ func (s *Server) notePaired(dev pairedDevice) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.paired = &dev
+}
+
+// forgetPairing drops the linked device and everything that belonged to it.
+// A logout wipes the daemon's database, so the account it comes back to has to
+// be a fresh one: the old Signal sessions are keyed to a client that no longer
+// exists, and the world's backlog was already spent on the previous link.
+func (s *Server) forgetPairing() {
+	s.mu.Lock()
+	s.paired = nil
+	s.peers = make(map[string]*peer)
+	s.keys = &clientKeys{}
+	s.keysReady = make(chan struct{})
+	s.keysOnce = sync.Once{}
+	s.appState = newMockAppState(s.rng)
+	s.avatars = newAvatarCache()
+	world := newWorld(s)
+	s.world = world
+	s.mu.Unlock()
+
+	if scenario, ok := Lookup(s.opts.Scenario); ok && scenario.Build != nil {
+		scenario.Build(world)
+	}
 }
 
 // Paired reports the device a completed pairing produced, if any.

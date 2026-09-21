@@ -65,23 +65,6 @@ func (s *Server) capturePreKeys(node *waBinary.Node) {
 	}
 }
 
-// takePreKey hands out one uploaded prekey for an X3DH. Real WhatsApp burns a
-// prekey per new session; running out here just means later sessions reuse the
-// last one, which the client accepts.
-func (s *Server) takePreKey() *keys.PreKey {
-	s.keys.mu.Lock()
-	defer s.keys.mu.Unlock()
-	if len(s.keys.preKeys) == 0 {
-		return nil
-	}
-	if s.keys.consumed >= len(s.keys.preKeys) {
-		return s.keys.preKeys[len(s.keys.preKeys)-1]
-	}
-	key := s.keys.preKeys[s.keys.consumed]
-	s.keys.consumed++
-	return key
-}
-
 // parsePreKeyNode mirrors whatsmeow's nodeToPreKey: a three-byte big-endian id,
 // a 32-byte public value, and for a signed prekey a 64-byte signature.
 func parsePreKeyNode(node waBinary.Node) *keys.PreKey {

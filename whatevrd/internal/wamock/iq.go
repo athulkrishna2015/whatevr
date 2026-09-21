@@ -70,6 +70,26 @@ func (s *session) handleIQ(ctx context.Context, node *waBinary.Node) error {
 		return s.handleGroupIQ(ctx, node)
 	case "usync":
 		return s.handleUsyncIQ(ctx, node)
+	case "w:profile:picture":
+		return s.handleProfilePictureIQ(ctx, node)
+	case "w:m":
+		return s.handleMediaConnIQ(ctx, node)
+	case "w:sync:app:state":
+		return s.handleAppStateIQ(ctx, node)
+	case "privacy":
+		return s.handlePrivacyIQ(ctx, node)
+	case "blocklist":
+		return s.handleBlocklistIQ(ctx, node)
+	case "urn:xmpp:whatsapp:dirty":
+		return s.handleDirtyIQ(ctx, node)
+	case "w:mex":
+		return s.handleMexIQ(ctx, node)
+	case "status":
+		return s.handleStatusIQ(ctx, node)
+	case "w:p":
+		return s.handlePingIQ(ctx, node)
+	case "md":
+		return s.handleCompanionIQ(ctx, node)
 	default:
 		// Answering rather than dropping matters: an unanswered info query
 		// stalls the daemon for the full 60s command timeout. Later stages
@@ -90,8 +110,38 @@ func (s *session) handleEncryptIQ(ctx context.Context, node *waBinary.Node) erro
 				Attrs: waBinary.Attrs{"value": fmt.Sprintf("%d", s.srv.preKeyCount())},
 			}))
 		}
+		if key, ok := node.GetOptionalChildByTag("key"); ok {
+			return s.sendNode(ctx, iqResult(node, s.srv.preKeyBundles(&key)))
+		}
 		return s.sendNode(ctx, iqResult(node))
 	}
 	s.srv.capturePreKeys(node)
 	return s.sendNode(ctx, iqResult(node))
+}
+
+// preKeyBundles answers the client's request for somebody else's keys, which is
+// what it needs before it can send them anything. Every jid the world knows
+// about gets a real bundle; anybody else gets the 404 a real server sends.
+func (s *Server) preKeyBundles(key *waBinary.Node) waBinary.Node {
+	var users []waBinary.Node
+	for _, child := range key.GetChildren() {
+		if child.Tag != "user" {
+			continue
+		}
+		jid := child.AttrGetter().OptionalJIDOrEmpty("jid")
+		p, err := s.peerForRecipient(jid)
+		if err != nil {
+			users = append(users, waBinary.Node{
+				Tag:   "user",
+				Attrs: waBinary.Attrs{"jid": jid},
+				Content: []waBinary.Node{{
+					Tag:   "error",
+					Attrs: waBinary.Attrs{"code": "404", "text": "item-not-found"},
+				}},
+			})
+			continue
+		}
+		users = append(users, p.preKeyBundleNode())
+	}
+	return waBinary.Node{Tag: "list", Content: users}
 }

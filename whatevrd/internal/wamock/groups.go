@@ -40,10 +40,9 @@ func (s *session) handleGroupIQ(ctx context.Context, node *waBinary.Node) error 
 	return s.sendNode(ctx, iqResult(node, s.srv.groupNode(chat)))
 }
 
-// groupNode is the <group> element parseGroupNode reads. Participants carry a
-// phone number and no lid: handing out a LID here would make the client switch
-// to LID addressing for those contacts, and then decrypt under an address the
-// mock never encrypted to.
+// groupNode is the <group> element parseGroupNode reads. Participants carry
+// both spellings of their address, because the daemon needs the mapping before
+// it can send anything to them.
 func (s *Server) groupNode(chat *Chat) waBinary.Node {
 	owner := chat.Members[0]
 	for _, member := range chat.Members {
@@ -54,7 +53,7 @@ func (s *Server) groupNode(chat *Chat) waBinary.Node {
 	}
 	participants := make([]waBinary.Node, 0, len(chat.Members))
 	for _, member := range chat.Members {
-		attrs := waBinary.Attrs{"jid": member.JID}
+		attrs := waBinary.Attrs{"jid": member.JID, "lid": lidFor(member.JID)}
 		if member == owner {
 			attrs["type"] = "superadmin"
 		}
@@ -174,10 +173,18 @@ func (s *Server) usyncUserNode(req *waBinary.Node, wanted map[string]bool) waBin
 	}
 
 	node := waBinary.Node{Tag: "user", Attrs: waBinary.Attrs{"jid": jid}}
+	// The client asks by whichever address it happens to hold, and since
+	// whatsmeow went LID-first that is usually the LID. The world only knows
+	// people by number, so the lookup normalises and the answer echoes back
+	// whatever was asked for.
+	lookup := jid
+	if lookup.Server == types.HiddenUserServer {
+		lookup.Server = types.DefaultUserServer
+	}
 	known := false
-	if world := s.world; world != nil && !jid.IsEmpty() {
+	if world := s.world; world != nil && !lookup.IsEmpty() {
 		world.mu.Lock()
-		_, known = world.contacts[jid.ToNonAD().String()]
+		_, known = world.contacts[lookup.ToNonAD().String()]
 		world.mu.Unlock()
 	}
 
@@ -198,7 +205,17 @@ func (s *Server) usyncUserNode(req *waBinary.Node, wanted map[string]bool) waBin
 		return node
 	}
 	if wanted["status"] {
-		content = append(content, waBinary.Node{Tag: "status", Content: []byte(mockStatus)})
+		status := mockStatus
+		if lookup.User == s.opts.AccountPhone {
+			status, _ = s.settings.aboutText()
+		}
+		content = append(content, waBinary.Node{Tag: "status", Content: []byte(status)})
+	}
+	if wanted["lid"] {
+		content = append(content, waBinary.Node{
+			Tag:   "lid",
+			Attrs: waBinary.Attrs{"val": lidFor(lookup)},
+		})
 	}
 	if wanted["devices"] {
 		content = append(content, waBinary.Node{

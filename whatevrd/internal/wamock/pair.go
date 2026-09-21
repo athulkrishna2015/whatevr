@@ -177,7 +177,7 @@ func (s *session) completePairing(ctx context.Context, code string) error {
 	}
 
 	id := s.srv.rng.stanzaID()
-	s.pairRequestID = id
+	s.setPairRequest(id)
 	return s.sendNode(ctx, waBinary.Node{
 		Tag: "iq",
 		Attrs: waBinary.Attrs{
@@ -203,11 +203,9 @@ func (s *session) completePairing(ctx context.Context, code string) error {
 // expects the connection to drop after it, then reconnects as a logged-in
 // device, which is exactly what a real pairing does.
 func (s *session) handleIQResponse(ctx context.Context, node *waBinary.Node) error {
-	id := node.AttrGetter().OptionalString("id")
-	if s.pairRequestID == "" || id != s.pairRequestID {
+	if !s.takePairRequest(node.AttrGetter().OptionalString("id")) {
 		return nil
 	}
-	s.pairRequestID = ""
 	if node.AttrGetter().OptionalString("type") == "error" {
 		return fmt.Errorf("client rejected pair-success: %s", node.String())
 	}

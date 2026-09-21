@@ -36,6 +36,7 @@ func mockPrepare() *mockRun {
 		scanDelay = flag.Duration("mock-scan-delay", 0, "how long a published QR sits unscanned before the mock phone pairs")
 		phone     = flag.String("mock-phone", "", "phone number the mock account answers as")
 		keep      = flag.Bool("mock-keep", false, "keep existing mock state instead of starting fresh")
+		histDelay = flag.Duration("mock-history-delay", 0, "how long between history sync chunks, to make the sync view watchable")
 	)
 	flag.Parse()
 
@@ -92,6 +93,7 @@ func mockPrepare() *mockRun {
 		Scenario:     found.Name,
 		AccountPhone: *phone,
 		ScanDelay:    *scanDelay,
+		HistoryDelay: *histDelay,
 	}
 	return &mockRun{scenario: found, dir: root, opts: opts}
 }

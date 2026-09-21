@@ -91,6 +91,12 @@ func dialMock(ctx context.Context, t *testing.T, opts Options) (*Server, *whatsm
 		case *events.Connected:
 			once.Do(func() { close(connected) })
 		case *events.Message:
+			// Key shares and history sync notifications are protocol traffic
+			// rather than conversation; a test counting messages should not
+			// have to know how many of those a stage happens to send.
+			if evt.Message.GetConversation() == "" && evt.Message.GetExtendedTextMessage() == nil {
+				return
+			}
 			select {
 			case messages <- evt:
 			default:

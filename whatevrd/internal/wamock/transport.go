@@ -83,11 +83,15 @@ func newTLSIdentity(r io.Reader, now time.Time) (*tlsIdentity, error) {
 		NotAfter:     now.Add(certValidity),
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		// Wildcards rather than a list: the mock hosts media and profile
+		// pictures on their own names, and a missing one fails as a TLS error
+		// rather than as anything that points at the cause.
 		DNSNames: []string{
-			"web.whatsapp.com",
-			"g.whatsapp.net",
-			"mmg.whatsapp.net",
-			"media.whatsapp.net",
+			"*.whatsapp.com",
+			"*.whatsapp.net",
+			"*.fbcdn.net",
+			"whatsapp.com",
+			"whatsapp.net",
 			"localhost",
 		},
 		IPAddresses: []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},

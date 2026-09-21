@@ -50,7 +50,9 @@ type session struct {
 	lid     types.JID
 
 	// pairRequestID is the id of the outstanding pair-success, so the client's
-	// result can be told apart from any other iq it answers.
+	// result can be told apart from any other iq it answers. It is written by
+	// the pairing goroutine and read by the read loop, hence the lock.
+	pairMu        sync.Mutex
 	pairRequestID string
 
 	// outbox serialises everything the server originates after login, so
@@ -283,4 +285,22 @@ func (s *session) sendNode(ctx context.Context, node waBinary.Node) error {
 	s.writeCounter++
 	ciphertext := s.writeKey.Seal(nil, iv, plaintext, nil)
 	return s.writeFrame(ctx, ciphertext)
+}
+
+func (s *session) setPairRequest(id string) {
+	s.pairMu.Lock()
+	defer s.pairMu.Unlock()
+	s.pairRequestID = id
+}
+
+// takePairRequest reports whether id is the outstanding pair-success and clears
+// it if so, so the answer is only ever acted on once.
+func (s *session) takePairRequest(id string) bool {
+	s.pairMu.Lock()
+	defer s.pairMu.Unlock()
+	if s.pairRequestID == "" || id != s.pairRequestID {
+		return false
+	}
+	s.pairRequestID = ""
+	return true
 }

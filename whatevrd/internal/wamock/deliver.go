@@ -36,6 +36,13 @@ func (s *session) postLogin(ctx context.Context) {
 		return
 	}
 
+	// The app state key goes out before anything is queued behind it. The
+	// daemon asks for app state as soon as it is connected, and a key that
+	// arrives after that costs a failed fetch and a re-sync.
+	if err := s.sendAppStateKey(ctx); err != nil {
+		s.srv.log.Printf("app state key: %v", err)
+	}
+
 	go s.pumpOutbox(ctx)
 	s.srv.setLive(s)
 
@@ -46,6 +53,10 @@ func (s *session) postLogin(ctx context.Context) {
 	// Groups have to exist before their messages arrive, or the first message
 	// creates a chat named after its own id.
 	s.announceGroups()
+
+	// History next: it is what the account already had, and it carries the
+	// contact names everything else is displayed under.
+	s.sendHistorySync(ctx)
 
 	backlog := world.takeBacklog()
 	if len(backlog) > 0 {
@@ -101,9 +112,7 @@ func (s *Server) clearLive(sess *session) {
 // deliverLive sends a message a scenario produced after the frontend was
 // already connected.
 func (s *Server) deliverLive(m *Msg) {
-	s.mu.Lock()
-	sess := s.liveSession
-	s.mu.Unlock()
+	sess := s.live()
 	if sess == nil {
 		s.log.Printf("dropping %q: nothing is connected", m.Text)
 		return
@@ -178,13 +187,19 @@ func (s *session) sendMessage(ctx context.Context, m *Msg, offline bool) error {
 	case m.Chat.IsGroup:
 		attrs["from"] = m.Chat.JID
 		attrs["participant"] = sender
+		// participant_lid is how the client learns which address to decrypt
+		// under before it has ever asked who this person is. Without it the
+		// first message from somebody new fails, and only the second works.
+		attrs["participant_lid"] = lidFor(sender)
 	case m.FromMe:
 		// A message the account sent from another device arrives addressed
 		// from the account, with the chat named as the recipient.
 		attrs["from"] = sender
 		attrs["recipient"] = m.Chat.JID
+		attrs["peer_recipient_lid"] = lidFor(m.Chat.JID)
 	default:
 		attrs["from"] = sender
+		attrs["sender_lid"] = lidFor(sender)
 	}
 	if !m.FromMe && m.From.Name != "" {
 		// notify is how an unsaved contact gets a name. It is the only contact
@@ -202,14 +217,11 @@ func (s *session) sendMessage(ctx context.Context, m *Msg, offline bool) error {
 	})
 }
 
-// encryptionJID is the address the client will decrypt a sender under.
-// whatsmeow reaches for a LID whenever its store knows one, and the one it
-// always knows is the account's own, stored the moment <success> lands. Guess
-// wrong here and every message from the account's other device fails to
-// decrypt.
+// encryptionJID is the address the client will decrypt a sender under, which is
+// always the LID. Modern whatsmeow is LID-first: it rewrites the destination of
+// every direct message to the LID, and it decrypts under one whenever its store
+// knows the mapping. The mock hands those mappings out on every stanza, so
+// there is never a window where the two sides disagree.
 func (s *Server) encryptionJID(sender types.JID) types.JID {
-	if sender.Server == types.DefaultUserServer && sender.User == s.opts.AccountPhone {
-		return lidFor(sender)
-	}
-	return sender
+	return lidFor(sender)
 }

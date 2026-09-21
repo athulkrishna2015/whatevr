@@ -66,9 +66,19 @@ func (s *session) handleNode(ctx context.Context, node *waBinary.Node) error {
 	case "ib":
 		// Info blob the client volunteers about itself. Nothing to answer.
 		return nil
-	case "message", "receipt", "presence", "chatstate", "notification", "call":
-		// Stages 2 and later give these real behaviour. Acking keeps the client
-		// from retrying them in the meantime.
+	case "message":
+		return s.handleClientMessage(ctx, node)
+	case "presence":
+		return s.handleClientPresence(ctx, node)
+	case "chatstate":
+		// The account typing. Nothing in the world watches, and a real server
+		// does not ack these.
+		return nil
+	case "receipt":
+		return s.handleClientReceipt(ctx, node)
+	case "notification", "call":
+		// Acking keeps the client from retrying something the mock has no
+		// opinion about.
 		return s.ackStanza(ctx, node)
 	default:
 		s.srv.log.Printf("unhandled client node <%s>", node.Tag)
@@ -84,6 +94,9 @@ func (s *session) ackStanza(ctx context.Context, node *waBinary.Node) error {
 	attrs := waBinary.Attrs{
 		"id":    ag.String("id"),
 		"class": node.Tag,
+		// The send path reads the sent timestamp straight off the ack. Without
+		// it every message the account sends is stored as sent in 1970.
+		"t": fmt.Sprintf("%d", time.Now().Unix()),
 	}
 	if to := ag.OptionalJIDOrEmpty("to"); !to.IsEmpty() {
 		attrs["from"] = to
