@@ -18,6 +18,63 @@ func onTheConsole(a *App) *App {
 	return a
 }
 
+// A tick is a picture, and a font without pictures draws every one of them as
+// the same blank. Two blanks beside two blanks say nothing at all, which is
+// what "delivered" and "read" looked like on a console, so the mark is written
+// in the alphabet that terminal actually has.
+func TestDeliveryStatesAreToldApartWhereTheFontHasNoTicks(t *testing.T) {
+	a := onTheConsole(stubApp(90, 26, 4, 0))
+
+	seen := map[string]string{}
+	for _, status := range []string{"sent", "delivered", "read", "failed", "pending"} {
+		glyph := a.statusGlyph(status)
+		if glyph == "" {
+			t.Fatalf("%s draws nothing", status)
+		}
+		for _, r := range glyph {
+			if r > 0x7f {
+				t.Errorf("%s draws %q, which is not in the console font", status, glyph)
+			}
+		}
+		if other, clash := seen[glyph]; clash {
+			t.Errorf("%s and %s both draw %q, so nothing tells them apart", status, other, glyph)
+		}
+		seen[glyph] = status
+	}
+
+	// And the fact is still in the glyph rather than only in the colour, on
+	// every terminal: two ticks and two heavy ticks are two different marks.
+	rich := stubApp(90, 26, 4, 0)
+	if rich.statusGlyph("delivered") == rich.statusGlyph("read") {
+		t.Error("delivered and read draw the same glyph, so colour is carrying it alone")
+	}
+	if rich.statusInk("read") != rich.theme.Accent || rich.statusInk("failed") != rich.theme.Error {
+		t.Error("read and failed are not in their own ink")
+	}
+}
+
+// The mark stands beside the time in the gutter, in its own colour, and the
+// time stays as faint as it is on a message nobody sent.
+func TestTheDeliveryMarkIsDrawnApartFromTheTime(t *testing.T) {
+	a := stubApp(100, 26, 4, 0)
+	c := a.conversation
+	c.msgs.Reset()
+	c.msgs.Upsert("00000000000000000001", mustJSON(proto.MessageRow{
+		ID: "m", Kind: "text", Direction: "outgoing", Status: "read",
+		Text: "read by everybody", Timestamp: 1758000000,
+	}))
+	c.msgs.Ready(true, true)
+	a.paint()
+
+	mark, time := a.styleOf(t, "✔"), a.styleOf(t, ":")
+	if mark.Foreground != a.theme.Accent {
+		t.Errorf("the read mark is %v, want the accent", mark.Foreground)
+	}
+	if time.Foreground != a.theme.TextFaint {
+		t.Errorf("the time beside it is %v, want the faint step", time.Foreground)
+	}
+}
+
 // What the daemon composed opens with a picture and then says the same thing in
 // words. Where the picture cannot be drawn it is the half that goes: a hole and
 // a word is worse than the word.

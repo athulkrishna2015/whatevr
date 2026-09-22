@@ -14,7 +14,9 @@ row 02
   005-028 w=1 size=0 fg=0x1000007 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" ["t","h","i","s"," ","s","i","d","e"," ","i","s"," ","t","h","e"," ","a","c","c","o","u","n","t"]
   029-029 w=1 size=0 fg=0x1000006 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" ["|"]
   030-030 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  031-038 w=1 size=0 fg=0x1000008 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" ["0","9",":","0","3"," ","✔","✔"]
+  031-035 w=1 size=0 fg=0x1000008 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" ["0","9",":","0","3"]
+  036-036 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  037-038 w=1 size=0 fg=0x1000006 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" ["✔","✔"]
   039-039 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "]
 row 03
   000-004 w=1 size=0 fg=0x0 bg=0x0 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "]
@@ -124,7 +126,9 @@ row 02
   005-028 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" ["t","h","i","s"," ","s","i","d","e"," ","i","s"," ","t","h","e"," ","a","c","c","o","u","n","t"]
   029-029 w=1 size=0 fg=0x24c9aff bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" ["▎"]
   030-030 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
-  031-038 w=1 size=0 fg=0x26a6b6f bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" ["0","9",":","0","3"," ","✔","✔"]
+  031-035 w=1 size=0 fg=0x26a6b6f bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" ["0","9",":","0","3"]
+  036-036 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  037-038 w=1 size=0 fg=0x24c9aff bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" ["✔","✔"]
   039-039 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
 row 03
   000-004 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "]
@@ -233,7 +237,9 @@ row 02
   000-004 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "]
   005-028 w=1 size=0 fg=0x2e4e4e6 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" ["t","h","i","s"," ","s","i","d","e"," ","i","s"," ","t","h","e"," ","a","c","c","o","u","n","t"]
   029-030 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "]
-  031-038 w=1 size=0 fg=0x26a6b6f bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" ["0","9",":","0","3"," ","✔","✔"]
+  031-035 w=1 size=0 fg=0x26a6b6f bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" ["0","9",":","0","3"]
+  036-036 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
+  037-038 w=1 size=0 fg=0x24c9aff bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" ["✔","✔"]
   039-039 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "]
 row 03
   000-004 w=1 size=0 fg=0x0 bg=0x2121418 ul=0x0 us=0 attr=0 link="" params="" [" "," "," "," "," "]

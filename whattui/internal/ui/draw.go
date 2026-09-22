@@ -655,6 +655,7 @@ func (a *App) layoutMessage(m proto.MessageRow, paneWidth int) block {
 
 	b := a.layoutBlock(quote, a.body(m), a.messageStamp(m), a.runRoom(paneWidth))
 	b.muted = m.Revoked
+	b.mark, b.status = a.statusMark(m), m.Status
 
 	// A message nobody can read any more carries no reactions: WhatsApp drops
 	// them when it goes, and a row of applause under a deleted message is
@@ -686,22 +687,46 @@ func (a *App) layoutMessage(m proto.MessageRow, paneWidth int) block {
 	return b
 }
 
-// messageStamp is what stands in the gutter beside a message: when it was sent
-// and where it got to, and nothing else. The gutter is exactly as wide as those
-// two, so anything else put in it is a glyph pressed against one of them.
-//
-// Every state is its own glyph, not just its own colour: one tick sent, two
-// delivered, two filled read. Colour reinforces it rather than carrying it, so
-// the state survives NO_COLOR, a colour-blind reader, and the plain tier.
+// messageStamp is when a message was sent. It stands in the gutter beside the
+// message rather than at the end of its words, which is what makes a column of
+// times down the edge of the transcript readable as a column.
 func (a *App) messageStamp(m proto.MessageRow) string {
-	stamp := time.Unix(m.Timestamp, 0).Format("15:04")
-	if !m.Outgoing() {
-		return stamp
-	}
-	return stamp + " " + statusGlyph(m.Status)
+	return time.Unix(m.Timestamp, 0).Format("15:04")
 }
 
-func statusGlyph(status string) string {
+// statusMark is how far a message you sent got, and nothing at all for one you
+// did not: a message somebody else wrote has no delivery state of yours.
+func (a *App) statusMark(m proto.MessageRow) string {
+	if !m.Outgoing() {
+		return ""
+	}
+	return a.statusGlyph(m.Status)
+}
+
+// statusGlyph is the mark itself. Every state is its own glyph and not just its
+// own colour: one tick sent, two delivered, two heavy read. Colour reinforces
+// it rather than carrying it, so the state survives NO_COLOR and a reader who
+// cannot tell two of them apart.
+//
+// A font without dingbats in it draws a tick as a hole, and two holes beside
+// two holes say nothing whatever colour they are. The letter every font has
+// carries the same count there, and capitals carry the weight the heavy tick
+// carries everywhere else.
+func (a *App) statusGlyph(status string) string {
+	if a.caps.PlainFont {
+		switch status {
+		case "read":
+			return "VV"
+		case "delivered":
+			return "vv"
+		case "sent":
+			return "v"
+		case "failed":
+			return "!"
+		default:
+			return "."
+		}
+	}
 	switch status {
 	case "read":
 		return "✔✔"
@@ -713,6 +738,20 @@ func statusGlyph(status string) string {
 		return "!"
 	default:
 		return "·"
+	}
+}
+
+// statusInk is the mark's colour. Read is the accent, which is where every
+// chat application puts it, and a send that failed is the one delivery state
+// worth interrupting somebody over.
+func (a *App) statusInk(status string) vaxis.Color {
+	switch status {
+	case "read":
+		return a.theme.Accent
+	case "failed":
+		return a.theme.Error
+	default:
+		return a.theme.TextFaint
 	}
 }
 

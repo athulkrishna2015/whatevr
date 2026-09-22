@@ -409,7 +409,12 @@ func (a *App) drawStamp(pane vaxis.Window, r run, e entry, rule, row int, ground
 		style.UnderlineColor = a.theme.Warning
 	}
 	if r.outgoing {
-		a.print(pane, rule+2, row, style, a.clip(stamp, runGutter))
+		col := a.print(pane, rule+2, row, style, a.clip(stamp, runGutter))
+		// Outside the underline an edit puts on the time: what an edit makes
+		// untrue is when the message was written, not where it got to.
+		a.print(pane, col+1, row, vaxis.Style{
+			Foreground: a.statusInk(e.block.status), Background: ground,
+		}, a.clip(e.block.mark, rule+2+runGutter-col-1))
 		return
 	}
 	stamp = a.clip(stamp, runGutterIn)

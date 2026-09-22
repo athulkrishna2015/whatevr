@@ -56,6 +56,13 @@ type block struct {
 	// muted draws the words quietly. A message nobody can read any more is not
 	// a message anybody said.
 	muted bool
+	// mark is how far a message you sent got, and status is which state that
+	// is. The glyph and the colour are separated from the time because they
+	// are a different fact in a different ink: the time is faint whatever
+	// happens, and a read message is the one thing in the gutter worth a
+	// colour of its own.
+	mark   string
+	status string
 	// reacts is what people put on the message, on a row of its own under the
 	// words. Under rather than after them, because a reaction is about the
 	// whole message: a strip that follows the last word moves every time the
