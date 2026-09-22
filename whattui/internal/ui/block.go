@@ -188,21 +188,23 @@ func (a *App) drawChip(pane vaxis.Window, col, row, width int, mine bool, ground
 	}
 	if a.painted() {
 		a.blank(pane, col, row, width, vaxis.Style{Background: ground})
-		cw, _ := a.cellPix()
 		a.paintRect(pane, col, row, width, 1, func(pw, ph int) paint.Spec {
-			// Air enough to read as a chip and no more: most of a column back
-			// at the sides, so the glyph is not marooned in a box, and a
-			// sliver top and bottom so the shape keeps off the words above it
-			// and the message below. More off the top than the bottom, because
-			// the glyph it is drawn around stands on a baseline rather than in
-			// the middle of its cell.
+			// The air a chip needs is inside it, not around it. The cells it
+			// was given already hold a column of padding at each end; taking
+			// another two thirds of a column off the sides here spends that
+			// padding on the gap instead, which is how a strip ends up as
+			// small boxes far apart with the glyphs jammed against their
+			// edges. A hairline is all the sides want: enough that two chips
+			// never share a pixel column, and the column of padding is then
+			// what the emoji sits in.
+			//
 			// An emoji is drawn down to the bottom of its cell, so a chip with
 			// air under it is a chip the glyph hangs out of. It takes its air
 			// off the top instead, where the row above holds letters rather
 			// than pictures and their descenders stop well short of it, and
 			// stands on the bottom of its own row, where the next row's letters
 			// start well below.
-			x, top, bottom := maxInt(cw*3/4, 3), maxInt(ph/7, 2), 0
+			x, top, bottom := 1, maxInt(ph/7, 2), 0
 			// A corner taken off, not a side rounded away. The radius every
 			// other shape here uses is most of this one's height, and a shape
 			// as round as it is tall is a lozenge: a quarter of the height is
