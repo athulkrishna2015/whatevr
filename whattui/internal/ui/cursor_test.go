@@ -264,3 +264,37 @@ func above(t *testing.T, c *conversation, id string) int {
 	}
 	return rows
 }
+
+// Up is what reaches into the transcript. Down on an empty composer used to
+// light the newest message, which is a selection nobody asked for and a hint
+// line that changes under somebody who was about to type.
+func TestDownOnAnEmptyComposerPointsAtNothing(t *testing.T) {
+	a := stubApp(100, 26, 4, 8)
+	a.paint()
+
+	a.onKey(arrow(vaxis.KeyDown))
+	if got := a.cursor(); got != "" {
+		t.Errorf("down on an empty composer points at %q", got)
+	}
+	if a.focus != FocusComposer {
+		t.Errorf("focus is %v, want the composer somebody was typing in", a.focus)
+	}
+
+	// It still scrolls, which is what down does when nothing is pointed at.
+	a.conversation.scroll = 4
+	a.onKey(arrow(vaxis.KeyDown))
+	if a.conversation.scroll != 3 {
+		t.Errorf("scroll is %d, want one row nearer the live edge", a.conversation.scroll)
+	}
+
+	// And once up has pointed at something, down is the way back out of it.
+	a.onKey(arrow(vaxis.KeyUp))
+	pointed := a.cursor()
+	if pointed == "" {
+		t.Fatal("up pointed at nothing")
+	}
+	a.onKey(arrow(vaxis.KeyDown))
+	if a.cursor() == pointed {
+		t.Error("down did not walk back out of the transcript")
+	}
+}

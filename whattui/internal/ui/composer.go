@@ -239,7 +239,15 @@ func (a *App) onComposerKey(k vaxis.Key) {
 		c.moveLine(-1)
 	case k.Matches(vaxis.KeyDown):
 		if c.empty() {
-			a.moveCursor(-1)
+			// Up is what reaches into the transcript, because up is where the
+			// messages are. Down only ever walks back out of it: with nothing
+			// pointed at there is nothing to walk back towards, and lighting
+			// the newest message is a selection nobody asked for.
+			if a.cursor() != "" {
+				a.moveCursor(-1)
+				return
+			}
+			a.scrollTranscript(-1)
 			return
 		}
 		if !c.multiline() {
