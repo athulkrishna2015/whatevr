@@ -2,6 +2,7 @@ package ui
 
 import (
 	"testing"
+	"time"
 
 	"go.rockorager.dev/vaxis"
 
@@ -105,6 +106,72 @@ func TestTheChatListIsNotSelectable(t *testing.T) {
 	}
 	if got := a.shapeFor(vaxis.Mouse{Col: start.col, Row: start.row}, -1); got != vaxis.MouseShapeDefault {
 		t.Errorf("pointer over the list off any row is %v, want the arrow", got)
+	}
+}
+
+// A touchpad goes on sending notches after the fingers have left it. The
+// pointer wandering onto the other pane mid-glide must not hand it the rest of
+// the flick, stopping one pane and shoving another for one gesture.
+func TestAGlideKeepsMovingThePaneItStartedIn(t *testing.T) {
+	a := stubApp(100, 26, 60, 40)
+	a.paint()
+	l := a.layout()
+	if l.ChatList.Empty() || l.Transcript.Empty() {
+		t.Fatal("this frame has only one pane to scroll")
+	}
+
+	wheel := func(r layout.Rect) vaxis.Mouse {
+		return vaxis.Mouse{
+			Col: r.Col + 1, Row: r.Row + 1,
+			Button: vaxis.MouseWheelUp, EventType: vaxis.EventPress,
+		}
+	}
+	// A flick that starts in the transcript.
+	a.onMouse(wheel(l.Transcript))
+	scrolled := a.conversation.scroll
+	if scrolled == 0 {
+		t.Fatal("the first notch moved nothing")
+	}
+
+	// The rest of it arrives with the pointer over the chat list.
+	for i := 0; i < 4; i++ {
+		a.onMouse(wheel(l.ChatList))
+	}
+	if a.listTop != 0 {
+		t.Errorf("the chat list scrolled to %d on a glide that started elsewhere", a.listTop)
+	}
+	if got := a.conversation.scroll; got <= scrolled {
+		t.Errorf("the transcript stopped at %d when the pointer left it, want it still moving", got)
+	}
+
+	// A hand back on the pad takes the scroll at once, without waiting for the
+	// glide to die: the notches speed up, and a glide only ever slows down.
+	a.mu.Lock()
+	a.wheelAt, a.wheelGap = time.Now(), 80*time.Millisecond
+	a.mu.Unlock()
+	before := a.conversation.scroll
+	boost := wheel(l.ChatList)
+	boost.Button = vaxis.MouseWheelDown
+	a.onMouse(boost)
+	if a.listTop == 0 {
+		t.Error("scrolling again over the chat list did not take the scroll")
+	}
+	if a.conversation.scroll != before {
+		t.Error("the boost moved the transcript as well")
+	}
+
+	// And a gesture after everything has stopped belongs to whatever it is
+	// over, with nothing clever needed.
+	a.mu.Lock()
+	a.wheelAt, a.wheelGap = time.Now().Add(-time.Second), 0
+	a.listTop = 0
+	a.mu.Unlock()
+	a.onMouse(wheel(l.Transcript))
+	if a.conversation.scroll <= before {
+		t.Error("a fresh gesture over the transcript did not move it")
+	}
+	if a.listTop != 0 {
+		t.Error("a fresh gesture over the transcript moved the chat list as well")
 	}
 }
 

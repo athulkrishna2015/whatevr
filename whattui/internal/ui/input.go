@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"time"
+
 	"go.rockorager.dev/vaxis"
 
 	"whattui/internal/layout"
@@ -273,6 +275,49 @@ func (a *App) scrollTranscript(by int) {
 // what every other application does.
 const wheelRows = 3
 
+// wheelPane is which pane a wheel notch moves: the one the gesture started in,
+// for as long as the gesture lasts.
+//
+// A touchpad goes on sending notches after the fingers have left it, and the
+// pointer is free to wander over the other pane while it glides. Routing every
+// notch by where the pointer is at that instant hands the rest of the glide to
+// whatever it wandered onto, which stops one pane mid-flick and shoves another.
+// So the first notch picks the pane and the rest of the burst follows it.
+//
+// A burst ends three ways, and the middle one is what makes this bearable:
+//
+//   - the notches stop for long enough to be over;
+//   - they speed up, which a glide never does. A notch that arrives faster than
+//     the one before it is a hand back on the pad, and a hand over the other
+//     pane means that pane, right now, with no wait;
+//   - they have been going for longer than anything glides, so whatever this
+//     is, it is somebody scrolling.
+func (a *App) wheelPane(overList bool) bool {
+	now := time.Now()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	gap := now.Sub(a.wheelAt)
+	elsewhere := overList != a.wheelList
+	if gap > wheelIdle || now.Sub(a.wheelSince) > wheelBurst || (elsewhere && gap*2 < a.wheelGap) {
+		a.wheelList, a.wheelSince = overList, now
+		// A burst that has only had one notch has no rate yet, and one
+		// interval cannot be faster than the interval before it.
+		gap = 0
+	}
+	a.wheelAt, a.wheelGap = now, gap
+	return a.wheelList
+}
+
+const (
+	// wheelIdle is how long after a notch the next one is still the same
+	// gesture. Long enough for the slow tail of a glide, short enough that two
+	// deliberate flicks are two gestures.
+	wheelIdle = 250 * time.Millisecond
+	// wheelBurst is the longest one gesture holds a pane. Nothing coasts for a
+	// second, so past that the pointer decides again whatever else is true.
+	wheelBurst = time.Second
+)
+
 func (a *App) listPage() int {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -320,23 +365,21 @@ func (a *App) onMouse(m vaxis.Mouse) bool {
 	a.pointer(a.shapeFor(m, over))
 
 	switch m.Button {
-	case vaxis.MouseWheelUp:
+	case vaxis.MouseWheelUp, vaxis.MouseWheelDown:
 		// The content moves out from under a selection made on the screen, so
 		// the selection goes with it.
 		a.clearSelection()
-		if inRect(m, l.ChatList) {
+		list := a.wheelPane(inRect(m, l.ChatList))
+		switch {
+		case list && m.Button == vaxis.MouseWheelUp:
 			a.scrollList(-1)
-			return true
-		}
-		a.scrollTranscript(wheelRows)
-		return true
-	case vaxis.MouseWheelDown:
-		a.clearSelection()
-		if inRect(m, l.ChatList) {
+		case list:
 			a.scrollList(1)
-			return true
+		case m.Button == vaxis.MouseWheelUp:
+			a.scrollTranscript(wheelRows)
+		default:
+			a.scrollTranscript(-wheelRows)
 		}
-		a.scrollTranscript(-wheelRows)
 		return true
 	case vaxis.MouseLeftButton:
 		p := point{m.Col, m.Row}

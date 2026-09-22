@@ -95,6 +95,14 @@ type App struct {
 	boxed bool
 	// shape is the mouse cursor the terminal was last told to wear.
 	shape vaxis.MouseShape
+	// Which pane the wheel is moving, when the last notch arrived, how long it
+	// was after the one before it, and when the burst started. A glide outlives
+	// the fingers that started it, so the pane it moves is decided once rather
+	// than per notch, and the interval is what says a hand is back on the pad.
+	wheelList  bool
+	wheelAt    time.Time
+	wheelGap   time.Duration
+	wheelSince time.Time
 	// cellW and cellH are the terminal's cell in pixels as of the last frame,
 	// so a font size change can be noticed.
 	cellW, cellH int
