@@ -498,15 +498,12 @@ func (a *App) layoutMessage(m proto.MessageRow, paneWidth int) block {
 		}
 	}
 
-	b := a.layoutBlock(quote, m.Body(), a.messageStamp(m), messageMark(m), a.runRoom(paneWidth))
+	b := a.layoutBlock(quote, m.Body(), a.messageStamp(m), a.runRoom(paneWidth))
 	b.muted = m.Revoked
 
 	// A message that is nothing but emoji draws big, the way it does in every
 	// other chat client, because the size is what the message means.
 	if n := emojiOnlyCount(m.Text); n > 0 && !m.Revoked && len(b.body) == 1 && a.caps.TextScale {
-		// A scaled row is several rows tall, so there is no last line for a
-		// mark to sit on the end of.
-		b.markOwn = b.mark != ""
 		// Clamped to the room the column can grow into, not the room it
 		// currently occupies: the message is sized by its content, and at
 		// this point the content is about to get three times bigger.
@@ -535,23 +532,6 @@ func (a *App) messageStamp(m proto.MessageRow) string {
 		return stamp
 	}
 	return stamp + " " + statusGlyph(m.Status)
-}
-
-// messageMark is what happened to a message after it was said, drawn after the
-// words: starred, edited, or both. A message nobody can read any more carries
-// neither, because what was done to it before it went is no longer news.
-func messageMark(m proto.MessageRow) string {
-	if m.Revoked {
-		return ""
-	}
-	marks := make([]string, 0, 2)
-	if m.Starred {
-		marks = append(marks, "★")
-	}
-	if m.Edited {
-		marks = append(marks, "edited")
-	}
-	return strings.Join(marks, " ")
 }
 
 func statusGlyph(status string) string {
@@ -773,6 +753,12 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 		if message.Starred {
 			star = "unstar"
 		}
+		// What the marks in the transcript mean, in words, for the one message
+		// they are about. The column and the underline are what you notice; the
+		// line is where you find out what you noticed.
+		for _, said := range flagWords(message) {
+			hints = append(hints, hint{"", said})
+		}
 		state := a.commandState()
 		for _, h := range []hint{
 			{cmdReply, "reply"}, {cmdEditMessage, "edit"}, {cmdCopyMessage, "copy"},
@@ -810,6 +796,23 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 		col = a.print(pane, col, 0, vaxis.Style{Foreground: a.theme.TextFaint}, h)
 		col += 2
 	}
+}
+
+// flagWords says what the transcript's marks mean, for the message the cursor
+// is on. Each one leads with the mark it explains, so the line reads as a
+// legend rather than as another key to press.
+func flagWords(m proto.MessageRow) []string {
+	if m.Revoked {
+		return nil
+	}
+	var out []string
+	if m.Starred {
+		out = append(out, "★ starred")
+	}
+	if m.Edited {
+		out = append(out, "edited")
+	}
+	return out
 }
 
 // drawLeaderHints projects the registry's leader bindings onto the hint line,

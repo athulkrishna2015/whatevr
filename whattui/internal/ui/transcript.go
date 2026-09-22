@@ -10,6 +10,7 @@ import (
 	"whattui/internal/layout"
 	"whattui/internal/paint"
 	"whattui/internal/proto"
+	"whattui/internal/term"
 	"whattui/internal/theme"
 	"whattui/internal/view"
 )
@@ -24,6 +25,12 @@ type entry struct {
 	centred bool
 	lines   []string
 	block   block
+	// What is true about the message rather than what it says. Neither moves a
+	// single cell: the star lives in the one column between the time and the
+	// rule that no message has ever used, and the edit is a mark on the time
+	// itself. See drawFlags.
+	starred bool
+	edited  bool
 }
 
 // run is everything one person said without being interrupted, and it is the
@@ -238,7 +245,14 @@ func (a *App) layoutEntry(it view.Item[proto.MessageRow], w int) entry {
 	if m.Centred() {
 		return entry{raw: it.Raw, centred: true, lines: a.wrap(m.Body(), w-4)}
 	}
-	return entry{raw: it.Raw, block: a.layoutMessage(m, w)}
+	// A message nobody can read any more carries neither flag: what was done
+	// to it before it went is no longer news.
+	return entry{
+		raw:     it.Raw,
+		block:   a.layoutMessage(m, w),
+		starred: m.Starred && !m.Revoked,
+		edited:  m.Edited && !m.Revoked,
+	}
 }
 
 // drawRun paints one run with its top at row, which may be off either end of
@@ -300,7 +314,8 @@ func (a *App) drawRun(pane vaxis.Window, c *conversation, r run, row, w int) {
 		if a.boxed {
 			a.drawBox(pane, r, words-1-bubblePadX, row, width+2*(1+bubblePadX), height)
 		}
-		a.drawStamp(pane, r, e.block.stamp, rule, row, ground)
+		a.drawStamp(pane, r, e, rule, row, ground)
+		a.drawFlags(pane, r, e, rule, row, height, ground)
 		a.drawBlock(pane, e.block, words, row, width, ground)
 		row += height
 	}
@@ -376,17 +391,87 @@ func (a *App) drawDay(pane vaxis.Window, label string, row, w int) {
 // hard against the rule: one rail of times down the outside of the transcript,
 // where it can be read as a column instead of hunted for at the end of every
 // sentence.
-func (a *App) drawStamp(pane vaxis.Window, r run, stamp string, rule, row int, ground vaxis.Color) {
+//
+// An edited message marks the time rather than the words. The time is when it
+// was said, and an edit is precisely the claim that what stands there now is
+// not what was said then, so the mark belongs on the time and nowhere else. A
+// terminal has had a way to strike through a claim like that since before any
+// of this: the underline, dotted where the terminal has styled ones and plain
+// where it does not, which is everywhere.
+func (a *App) drawStamp(pane vaxis.Window, r run, e entry, rule, row int, ground vaxis.Color) {
+	stamp := e.block.stamp
 	if stamp == "" {
 		return
 	}
 	style := vaxis.Style{Foreground: a.theme.TextFaint, Background: ground}
+	if e.edited {
+		style.UnderlineStyle = vaxis.UnderlineDotted
+		style.UnderlineColor = a.theme.Warning
+	}
 	if r.outgoing {
 		a.print(pane, rule+2, row, style, a.clip(stamp, runGutter))
 		return
 	}
 	stamp = a.clip(stamp, runGutterIn)
 	a.print(pane, rule-1-a.width(stamp), row, style, stamp)
+}
+
+// drawFlags marks what is true about a message in the one column that every
+// message already has and none has ever used: the gap between its time and its
+// rule. It is the same column on every row of every message, so a screenful of
+// them reads as a single straight edge with the flagged ones standing out of
+// it, and marking a message moves nothing, wraps nothing and costs no width.
+func (a *App) drawFlags(pane vaxis.Window, r run, e entry, rule, row, height int, ground vaxis.Color) {
+	if !e.starred {
+		return
+	}
+	col := rule - 1
+	if r.outgoing {
+		col = rule + 1
+	}
+	// Amber, which is where a star has been in every application that has ever
+	// had one, and the one accent in the palette that means "you asked for
+	// this to stand out" rather than naming a person or a state of delivery.
+	a.drawRibbon(pane, col, row, height, a.theme.Warning, ground)
+}
+
+// drawRibbon is the mark itself: a hairline down the whole height of the
+// message, beside its rule and in the flag's own colour.
+//
+// A line rather than a glyph, and the column is the reason. It is one cell
+// wide with the time hard against one side of it and the rule against the
+// other, so anything with the weight of a letter in there is a letter wedged
+// between two things, which is what a pencil in the time rail was. A hairline
+// cannot crowd anything: it is thinner than the cell it stands in, it lines up
+// with the rule beside it, and a page of them reads as a second straight edge
+// with the marked messages standing out of it. Shrinking a glyph instead was
+// the obvious answer and the wrong one: two thirds of a nine pixel cell is a
+// dot, and a dot says nothing at all.
+//
+// It degrades only in fidelity: real pixels where there are pixels, the
+// quarter block glyph where there are cells and colour, and an asterisk on the
+// first row at the plain tier, where a block glyph is not a given.
+func (a *App) drawRibbon(pane vaxis.Window, col, row, height int, colour, ground vaxis.Color) {
+	if height < 1 {
+		return
+	}
+	if ink, ok := theme.Paint(a.theme.Background, colour, 1); ok && a.painted() {
+		// Thinner than a speaker's rule on purpose. Who is talking is the
+		// louder fact, and two hairlines of the same weight two columns apart
+		// would read as one wide one.
+		a.paintRect(pane, col, row, 1, height, func(pw, ph int) paint.Spec {
+			return paint.Rule{W: pw, H: ph, Fill: ink, Thick: maxInt(pw/8, 1)}
+		})
+		return
+	}
+	style := vaxis.Style{Foreground: colour, Background: ground}
+	if a.caps.Tier <= term.TierPlain {
+		a.print(pane, col, row, style, "*")
+		return
+	}
+	for i := 0; i < height; i++ {
+		a.print(pane, col, row+i, style, "▏")
+	}
 }
 
 // drawRule marks who is talking down the side of what they said. A hairline

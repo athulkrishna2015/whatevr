@@ -252,8 +252,8 @@ func TestADeletedMessageIsDrawnQuietly(t *testing.T) {
 		t.Error("a deleted message is drawn like any other")
 	}
 	// And what was done to it before it went is no longer news.
-	if e.block.mark != "" {
-		t.Errorf("a deleted message still carries %q", e.block.mark)
+	if e.starred || e.edited {
+		t.Error("a deleted message still carries its flags")
 	}
 
 	style, ok := a.cellSaying(a.messages[0].at.Row, "T")
@@ -268,59 +268,96 @@ func TestADeletedMessageIsDrawnQuietly(t *testing.T) {
 	}
 }
 
-// The time rail is exactly as wide as a time and its ticks. Anything else put
-// in there is a glyph pressed against one of them, so what happened to a
-// message after it was said goes after the words instead.
-func TestWhatHappenedToAMessageGoesAfterTheWordsNotInTheRail(t *testing.T) {
+// A flag says something about a message without being part of it. It must cost
+// the message nothing: not a column of its width, not a row of its height, and
+// not a cell of the rail, which is exactly as wide as a time and its ticks.
+func TestFlagsCostAMessageNothing(t *testing.T) {
 	a := stubApp(100, 26, 4, 0)
-	e := oneMessage(t, a, proto.MessageRow{
+	plain := oneMessage(t, a, proto.MessageRow{
+		ID: "m", Kind: "text", Direction: "incoming", Text: "short",
+	})
+	flagged := oneMessage(t, a, proto.MessageRow{
 		ID: "m", Kind: "text", Direction: "incoming", Text: "short", Edited: true, Starred: true,
 	})
 
-	if e.block.mark != "★ edited" {
-		t.Errorf("the mark is %q, want the star and the edit", e.block.mark)
+	if !flagged.starred || !flagged.edited {
+		t.Fatal("the flags did not survive the layout")
 	}
-	if strings.ContainsAny(e.block.stamp, "✎★") {
-		t.Errorf("the rail says %q, want the time alone", e.block.stamp)
+	if flagged.block.width != plain.block.width || flagged.block.rows() != plain.block.rows() {
+		t.Errorf("a flagged message is %dx%d and the same message plain is %dx%d",
+			flagged.block.width, flagged.block.rows(), plain.block.width, plain.block.rows())
 	}
-	if got := a.width(e.block.stamp); got > runGutterIn {
+	if flagged.block.stamp != plain.block.stamp {
+		t.Errorf("the rail says %q when flagged and %q when not", flagged.block.stamp, plain.block.stamp)
+	}
+	if got := a.width(flagged.block.stamp); got > runGutterIn {
 		t.Errorf("the rail is %d cells wide, want no more than %d", got, runGutterIn)
-	}
-
-	// It sits after the last word rather than on a row of its own, and the
-	// message is no taller for it.
-	if e.block.markOwn {
-		t.Error("a mark that fits beside the words took a row of its own")
-	}
-	if got := e.block.rows(); got != 1 {
-		t.Errorf("a one line message with a mark is %d rows", got)
-	}
-	row := a.messages[0].at.Row
-	if style, ok := a.cellSaying(row, "★"); !ok {
-		t.Error("the star is not on the frame")
-	} else if style.Foreground != a.theme.TextFaint {
-		t.Errorf("the star is %v, want the faint ink", style.Foreground)
 	}
 }
 
-// A mark with no room beside the words takes a row, and the layout has to know
-// that before it draws, or the message below it starts a row too high.
-func TestAMarkWithNoRoomTakesARowOfItsOwn(t *testing.T) {
+// The star stands in the one column between the time and the rule, which every
+// message has and none of them uses, and it runs the height of the message it
+// marks.
+func TestTheStarMarksTheColumnBesideTheRule(t *testing.T) {
 	a := stubApp(100, 26, 4, 0)
-	// Two lines that fill the measure exactly, so there is nothing left of the
-	// last one to put a mark on.
 	room := a.runRoom(a.layout().Transcript.Width)
 	e := oneMessage(t, a, proto.MessageRow{
-		ID: "m", Kind: "text", Direction: "incoming", Text: strings.Repeat("a", room*2), Edited: true,
+		ID: "m", Kind: "text", Direction: "incoming", Text: strings.Repeat("a", room*2), Starred: true,
 	})
-	if !e.block.markOwn {
-		t.Fatalf("a mark after %d full columns still claimed to fit", room)
+	if got := e.block.rows(); got < 2 {
+		t.Fatalf("this message is %d rows, want one worth a ribbon", got)
 	}
-	if got, want := e.block.rows(), len(e.block.body)+1; got != want {
-		t.Fatalf("the block is %d rows, want %d with the mark under the words", got, want)
+
+	// Incoming, so the rule is on the left and the flag column is the cell
+	// before it.
+	at := a.messages[0].at
+	col := at.Col + runLead + runGutterIn
+	head := a.vx.Cell(col, at.Row)
+	if head.Grapheme != "▏" {
+		t.Fatalf("the column beside the rule says %q on the first row, want the mark", head.Grapheme)
 	}
-	if _, ok := a.cellSaying(a.messages[0].at.Row+len(e.block.body), "e"); !ok {
-		t.Error("the mark is not on the row the layout reserved for it")
+	if head.Style.Foreground != a.theme.Warning {
+		t.Errorf("the mark is %v, want the amber %v", head.Style.Foreground, a.theme.Warning)
+	}
+	// The ribbon under it, at the tier that has no pixels to draw one with.
+	if tail := a.vx.Cell(col, at.Row+1).Grapheme; tail != "▏" {
+		t.Errorf("the row under the star says %q, want the ribbon", tail)
+	}
+	// And the words are where they would be without it.
+	plain := oneMessage(t, a, proto.MessageRow{
+		ID: "m", Kind: "text", Direction: "incoming", Text: strings.Repeat("a", room*2),
+	})
+	if plain.block.width != e.block.width {
+		t.Error("the star took a column from the words")
+	}
+}
+
+// An edit is the claim that the words are not the words that were said at that
+// time, so the mark goes on the time. Every terminal can underline.
+func TestAnEditMarksTheTime(t *testing.T) {
+	a := stubApp(100, 26, 4, 0)
+	e := oneMessage(t, a, proto.MessageRow{
+		ID: "m", Kind: "text", Direction: "incoming", Text: "short", Edited: true,
+	})
+
+	digit := string([]rune(e.block.stamp)[0])
+	style, ok := a.cellSaying(a.messages[0].at.Row, digit)
+	if !ok {
+		t.Fatalf("no time on the frame to mark, wanted %q", e.block.stamp)
+	}
+	if style.UnderlineStyle != vaxis.UnderlineDotted {
+		t.Errorf("the time is underlined %v, want the dotted mark", style.UnderlineStyle)
+	}
+	if style.UnderlineColor != a.theme.Warning {
+		t.Errorf("the mark is %v, want the amber %v", style.UnderlineColor, a.theme.Warning)
+	}
+
+	// And an unedited message's time carries no mark at all.
+	oneMessage(t, a, proto.MessageRow{
+		ID: "m", Kind: "text", Direction: "incoming", Text: "short",
+	})
+	if style, ok := a.cellSaying(a.messages[0].at.Row, digit); ok && style.UnderlineStyle != vaxis.UnderlineOff {
+		t.Errorf("an unedited time is underlined %v", style.UnderlineStyle)
 	}
 }
 
