@@ -679,7 +679,8 @@ func (a *App) layoutMessage(m proto.MessageRow, paneWidth int) block {
 
 	// A message that is nothing but emoji draws big, the way it does in every
 	// other chat client, because the size is what the message means.
-	if n := emojiOnlyCount(m.Text); n > 0 && !m.Revoked && len(b.body) == 1 && a.caps.TextScale {
+	if n := emojiOnlyCount(m.Text); n > 0 && !m.Revoked && len(b.body) == 1 &&
+		a.caps.TextScale && bigEmojiWanted() {
 		// Clamped to the room the column can grow into, not the room it
 		// currently occupies: the message is sized by its content, and at
 		// this point the content is about to get three times bigger.
