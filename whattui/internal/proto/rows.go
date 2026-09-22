@@ -141,10 +141,13 @@ func (m MessageRow) Body() string {
 		return m.System.Text
 	case m.Kind == "text" && m.Text != "":
 		return m.Text
-	case m.Text != "":
+	case m.Text != "" && m.Fallback != "":
 		// A caption rides the item-level text for every kind, so a photo with
 		// words shows the words under whatever the fallback said it was.
 		return m.Fallback + "\n" + m.Text
+	case m.Text != "":
+		// A kind with nothing to say about itself: the caption is the message.
+		return m.Text
 	default:
 		return m.Fallback
 	}
