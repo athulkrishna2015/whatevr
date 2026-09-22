@@ -75,17 +75,29 @@ Kirigami.ScrollablePage {
             root.currentIndex += 1
             return
         }
+        // Rebuild the sender order first: statuses that arrived while viewing
+        // can move the current sender's position, and a stale index would
+        // skip contacts or repeat the same one.
+        root.collectSenders()
         if (root.senderIndex >= 0 && root.senderIndex < root.senderIds.length - 1) {
             root.senderIndex += 1
-            root.senderId = root.senderIds[root.senderIndex]
-            const next = root.currentItem
-            root.senderName = next && next.sender ? (next.sender.name || root.senderId) : root.senderId
-            root.currentIndex = -1
-            root.collectStatuses()
-            root.refreshCurrent()
+            switchSender(root.senderIds[root.senderIndex])
             return
         }
         applicationWindow().pageStack.layers.pop()
+    }
+
+    function switchSender(senderId) {
+        if (!senderId || senderId === root.senderId && root.statusIds.length > 0) {
+            return
+        }
+        root.senderId = senderId
+        root.senderIndex = Math.max(0, root.senderIds.indexOf(senderId))
+        const next = root.currentItem
+        root.senderName = next && next.sender ? (next.sender.name || senderId) : senderId
+        root.currentIndex = -1
+        root.collectStatuses()
+        root.refreshCurrent()
     }
 
     function markCurrentViewed() {
@@ -243,6 +255,18 @@ Kirigami.ScrollablePage {
         width: parent.width
 
         QQC2.ToolButton {
+            icon.name: "go-previous-person-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button previous contact's statuses", "Previous contact")
+            display: QQC2.AbstractButton.IconOnly
+            enabled: root.senderIndex > 0
+            onClicked: root.switchSender(root.senderIds[root.senderIndex - 1])
+
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.text: text
+            QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+        }
+
+        QQC2.ToolButton {
             icon.name: "go-previous-symbolic"
             text: Whatevr.I18n.i18nc("@action:button previous status", "Previous")
             display: QQC2.AbstractButton.IconOnly
@@ -268,6 +292,18 @@ Kirigami.ScrollablePage {
             display: QQC2.AbstractButton.IconOnly
             enabled: root.currentIndex >= 0 && root.currentIndex < root.statusIds.length - 1
             onClicked: root.currentIndex += 1
+
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.text: text
+            QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+        }
+
+        QQC2.ToolButton {
+            icon.name: "go-next-person-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button next contact's statuses", "Next contact")
+            display: QQC2.AbstractButton.IconOnly
+            enabled: root.senderIndex >= 0 && root.senderIndex < root.senderIds.length - 1
+            onClicked: root.switchSender(root.senderIds[root.senderIndex + 1])
 
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.text: text
@@ -510,5 +546,17 @@ Kirigami.ScrollablePage {
         sequences: [Qt.Key_Right]
         enabled: root.currentIndex >= 0 && root.currentIndex < root.statusIds.length - 1
         onActivated: root.currentIndex += 1
+    }
+
+    Shortcut {
+        sequences: [Qt.Key_Up]
+        enabled: root.senderIndex > 0
+        onActivated: root.switchSender(root.senderIds[root.senderIndex - 1])
+    }
+
+    Shortcut {
+        sequences: [Qt.Key_Down]
+        enabled: root.senderIndex >= 0 && root.senderIndex < root.senderIds.length - 1
+        onActivated: root.switchSender(root.senderIds[root.senderIndex + 1])
     }
 }

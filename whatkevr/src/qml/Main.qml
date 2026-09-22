@@ -69,6 +69,14 @@ Kirigami.ApplicationWindow {
     onClosing: closeEvent => {
         if (Whatevr.Settings.closeToTray && !quitting) {
             closeEvent.accepted = false
+            // Dismiss the tray popup first: a Qt.Popup holds the input grab,
+            // and a grab that survives the hide/show cycle leaves the restored
+            // window visible but dead to clicks.
+            trayMenuWindow.close()
+            // Park the left column back on chats: reopening lands on the
+            // conversation list, not on whatever tab was open when hiding.
+            if (chatListPageItem)
+                chatListPageItem.workspaceMode = "chats"
             root.hide()
         }
     }
@@ -145,7 +153,11 @@ Kirigami.ApplicationWindow {
     Window {
         id: trayMenuWindow
 
-        flags: Qt.Popup | Qt.FramelessWindowHint
+        // Do not use Qt.Popup here. Popup windows take a native pointer grab;
+        // after the main window is hidden to tray that grab can survive the
+        // restore on Wayland, leaving scrolling alive while swallowing every
+        // click on chat rows and buttons. A tool window stays non-modal.
+        flags: Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         color: "transparent"
         visible: false
 
@@ -531,9 +543,27 @@ Kirigami.ApplicationWindow {
     }
 
     function activateWindow() {
+        trayMenuWindow.close()
         root.show()
         root.raise()
         root.requestActivate()
+        // Single-column restores land on the chat list when no conversation
+        // is open, instead of a stale secondary tab left over from hiding.
+        if (currentMode === "chat" && chatSingleColumnLayout
+                && !Whatevr.ProtocolController.hasSelectedChat
+                && chatListPageItem) {
+            chatListPageItem.workspaceMode = "chats"
+            navTargetChatId = ""
+            navProgrammaticIndexChange = true
+            pageStack.currentIndex = 0
+            navProgrammaticIndexChange = false
+        }
+    }
+
+    onVisibleChanged: {
+        if (!visible) {
+            trayMenuWindow.close()
+        }
     }
 
     onChatWideLayoutChanged: {
