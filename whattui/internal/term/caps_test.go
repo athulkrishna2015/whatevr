@@ -110,3 +110,31 @@ func TestTextScalingCanBeTurnedOffOnItsOwn(t *testing.T) {
 		t.Error("an overridden capability is not reported as forced")
 	}
 }
+
+// The font is not the tier. What the terminal can do and what its font has in
+// it are two different questions, and the terminal that answers no to the
+// second is the kernel's own console, where whattui is the only chat client
+// there is.
+func TestTheConsoleFontIsItsOwnCapability(t *testing.T) {
+	for _, term := range []string{"linux", "linux-16color"} {
+		if !consoleFont(term) {
+			t.Errorf("TERM=%s is the console and was not read as one", term)
+		}
+	}
+	for _, term := range []string{"xterm-256color", "foot", "xterm-kitty", ""} {
+		if consoleFont(term) {
+			t.Errorf("TERM=%s was read as the console", term)
+		}
+	}
+
+	// And it is forceable, like every other capability, because nobody tests a
+	// virtual console every day.
+	t.Setenv("WHATTUI_PLAIN_FONT", "1")
+	got := applyEnv(Caps{Tier: TierShm, RGB: true})
+	if !got.PlainFont || !got.Forced {
+		t.Errorf("caps = %+v, want a forced plain font", got)
+	}
+	if got.Tier != TierShm {
+		t.Errorf("tier = %v, want the tier left alone: a font is not a tier", got.Tier)
+	}
+}
