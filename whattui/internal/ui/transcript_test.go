@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -212,6 +213,114 @@ func TestAModalTakesTheRunsUnderItWithIt(t *testing.T) {
 	}
 	if !crossed {
 		t.Error("no phrase was trimmed at the palette's edge, so the split was never exercised")
+	}
+}
+
+// oneMessage is a transcript holding exactly one row, for the tests about how
+// one message is drawn.
+func oneMessage(t *testing.T, a *App, m proto.MessageRow) entry {
+	t.Helper()
+	c := a.conversation
+	c.msgs.Reset()
+	m.Sender = proto.Sender{ID: "x", Name: "someone"}
+	c.msgs.Upsert("00000000000000000001", mustJSON(m))
+	c.msgs.Ready(true, true)
+	a.paint()
+	return c.cache[m.ID]
+}
+
+// cellSaying is the style of the first cell on a row holding a grapheme.
+func (a *App) cellSaying(row int, grapheme string) (vaxis.Style, bool) {
+	cols, _ := a.vx.Window().Size()
+	for col := 0; col < cols; col++ {
+		if c := a.vx.Cell(col, row); c.Grapheme == grapheme {
+			return c.Style, true
+		}
+	}
+	return vaxis.Style{}, false
+}
+
+// A message nobody can read any more is not something anybody said, and it has
+// to read that way rather than sitting there in full strength text.
+func TestADeletedMessageIsDrawnQuietly(t *testing.T) {
+	a := stubApp(100, 26, 4, 0)
+	e := oneMessage(t, a, proto.MessageRow{
+		ID: "m", Kind: "text", Direction: "incoming", Revoked: true, Edited: true, Starred: true,
+	})
+
+	if !e.block.muted {
+		t.Error("a deleted message is drawn like any other")
+	}
+	// And what was done to it before it went is no longer news.
+	if e.block.mark != "" {
+		t.Errorf("a deleted message still carries %q", e.block.mark)
+	}
+
+	style, ok := a.cellSaying(a.messages[0].at.Row, "T")
+	if !ok {
+		t.Fatal("the deleted placeholder is not on the frame")
+	}
+	if style.Foreground != a.theme.TextMuted {
+		t.Errorf("the placeholder is %v, want the muted ink %v", style.Foreground, a.theme.TextMuted)
+	}
+	if style.Attribute&vaxis.AttrItalic == 0 {
+		t.Error("the placeholder is not italic, so it reads as something somebody wrote")
+	}
+}
+
+// The time rail is exactly as wide as a time and its ticks. Anything else put
+// in there is a glyph pressed against one of them, so what happened to a
+// message after it was said goes after the words instead.
+func TestWhatHappenedToAMessageGoesAfterTheWordsNotInTheRail(t *testing.T) {
+	a := stubApp(100, 26, 4, 0)
+	e := oneMessage(t, a, proto.MessageRow{
+		ID: "m", Kind: "text", Direction: "incoming", Text: "short", Edited: true, Starred: true,
+	})
+
+	if e.block.mark != "★ edited" {
+		t.Errorf("the mark is %q, want the star and the edit", e.block.mark)
+	}
+	if strings.ContainsAny(e.block.stamp, "✎★") {
+		t.Errorf("the rail says %q, want the time alone", e.block.stamp)
+	}
+	if got := a.width(e.block.stamp); got > runGutterIn {
+		t.Errorf("the rail is %d cells wide, want no more than %d", got, runGutterIn)
+	}
+
+	// It sits after the last word rather than on a row of its own, and the
+	// message is no taller for it.
+	if e.block.markOwn {
+		t.Error("a mark that fits beside the words took a row of its own")
+	}
+	if got := e.block.rows(); got != 1 {
+		t.Errorf("a one line message with a mark is %d rows", got)
+	}
+	row := a.messages[0].at.Row
+	if style, ok := a.cellSaying(row, "★"); !ok {
+		t.Error("the star is not on the frame")
+	} else if style.Foreground != a.theme.TextFaint {
+		t.Errorf("the star is %v, want the faint ink", style.Foreground)
+	}
+}
+
+// A mark with no room beside the words takes a row, and the layout has to know
+// that before it draws, or the message below it starts a row too high.
+func TestAMarkWithNoRoomTakesARowOfItsOwn(t *testing.T) {
+	a := stubApp(100, 26, 4, 0)
+	// Two lines that fill the measure exactly, so there is nothing left of the
+	// last one to put a mark on.
+	room := a.runRoom(a.layout().Transcript.Width)
+	e := oneMessage(t, a, proto.MessageRow{
+		ID: "m", Kind: "text", Direction: "incoming", Text: strings.Repeat("a", room*2), Edited: true,
+	})
+	if !e.block.markOwn {
+		t.Fatalf("a mark after %d full columns still claimed to fit", room)
+	}
+	if got, want := e.block.rows(), len(e.block.body)+1; got != want {
+		t.Fatalf("the block is %d rows, want %d with the mark under the words", got, want)
+	}
+	if _, ok := a.cellSaying(a.messages[0].at.Row+len(e.block.body), "e"); !ok {
+		t.Error("the mark is not on the row the layout reserved for it")
 	}
 }
 

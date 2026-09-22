@@ -498,11 +498,15 @@ func (a *App) layoutMessage(m proto.MessageRow, paneWidth int) block {
 		}
 	}
 
-	b := a.layoutBlock(quote, m.Body(), a.messageStamp(m), a.runRoom(paneWidth))
+	b := a.layoutBlock(quote, m.Body(), a.messageStamp(m), messageMark(m), a.runRoom(paneWidth))
+	b.muted = m.Revoked
 
 	// A message that is nothing but emoji draws big, the way it does in every
 	// other chat client, because the size is what the message means.
 	if n := emojiOnlyCount(m.Text); n > 0 && !m.Revoked && len(b.body) == 1 && a.caps.TextScale {
+		// A scaled row is several rows tall, so there is no last line for a
+		// mark to sit on the end of.
+		b.markOwn = b.mark != ""
 		// Clamped to the room the column can grow into, not the room it
 		// currently occupies: the message is sized by its content, and at
 		// this point the content is about to get three times bigger.
@@ -518,27 +522,36 @@ func (a *App) layoutMessage(m proto.MessageRow, paneWidth int) block {
 	return b
 }
 
-// messageStamp is what stands in the gutter beside a message: when it was
-// sent, whether it has been edited, and where it got to.
+// messageStamp is what stands in the gutter beside a message: when it was sent
+// and where it got to, and nothing else. The gutter is exactly as wide as those
+// two, so anything else put in it is a glyph pressed against one of them.
 //
 // Every state is its own glyph, not just its own colour: one tick sent, two
 // delivered, two filled read. Colour reinforces it rather than carrying it, so
 // the state survives NO_COLOR, a colour-blind reader, and the plain tier.
 func (a *App) messageStamp(m proto.MessageRow) string {
 	stamp := time.Unix(m.Timestamp, 0).Format("15:04")
-	// The pencil takes the space the ticks would have had, so an edited
-	// message is no wider than any other and the gutter stays the width of
-	// what it actually holds.
-	switch {
-	case m.Edited:
-		stamp += "✎"
-	case m.Outgoing():
-		stamp += " "
-	}
 	if !m.Outgoing() {
 		return stamp
 	}
-	return stamp + statusGlyph(m.Status)
+	return stamp + " " + statusGlyph(m.Status)
+}
+
+// messageMark is what happened to a message after it was said, drawn after the
+// words: starred, edited, or both. A message nobody can read any more carries
+// neither, because what was done to it before it went is no longer news.
+func messageMark(m proto.MessageRow) string {
+	if m.Revoked {
+		return ""
+	}
+	marks := make([]string, 0, 2)
+	if m.Starred {
+		marks = append(marks, "★")
+	}
+	if m.Edited {
+		marks = append(marks, "edited")
+	}
+	return strings.Join(marks, " ")
 }
 
 func statusGlyph(status string) string {

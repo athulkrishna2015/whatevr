@@ -52,6 +52,18 @@ type block struct {
 	// time tucked after the words is a time that lands somewhere new on every
 	// message.
 	stamp string
+	// mark is what happened to the message after it was sent: a star, an edit.
+	// It goes after the words rather than into the gutter, because the gutter
+	// is the width of the time and the ticks and every glyph put in there is a
+	// glyph pressed against one of them.
+	mark string
+	// markCol is where the mark sits on the last row of the words, and markOwn
+	// says it did not fit there and has a row to itself.
+	markCol int
+	markOwn bool
+	// muted draws the words quietly. A message nobody can read any more is not
+	// a message anybody said.
+	muted bool
 	width int
 }
 
@@ -62,15 +74,18 @@ func (b block) rows() int {
 	if b.quote != "" {
 		n++
 	}
+	if b.mark != "" && b.markOwn {
+		n++
+	}
 	return n
 }
 
 // layoutBlock wraps a message into a column no wider than max.
-func (a *App) layoutBlock(quote, body, stamp string, max int) block {
+func (a *App) layoutBlock(quote, body, stamp, mark string, max int) block {
 	if max < 8 {
 		max = 8
 	}
-	b := block{stamp: stamp, scale: 1}
+	b := block{stamp: stamp, mark: mark, scale: 1}
 	if quote != "" {
 		b.quote = "│ " + quote
 	}
@@ -81,12 +96,39 @@ func (a *App) layoutBlock(quote, body, stamp string, max int) block {
 	}
 	b.width = minInt(maxInt(b.width, a.width(b.quote)), max)
 	b.quote = a.clip(b.quote, b.width)
+	a.placeMark(&b, max)
 	return b
+}
+
+// placeMark puts the mark a space after the last word, and on a row of its own
+// when there is no room for it there. A mark that pushed the column wider would
+// make a starred message a different shape from the same message unstarred.
+func (a *App) placeMark(b *block, max int) {
+	if b.mark == "" {
+		return
+	}
+	last := 0
+	if n := len(b.body); n > 0 {
+		last = a.lineWidth(b.body[n-1])
+	}
+	if at := last + 1; at+a.width(b.mark) <= max {
+		b.markCol = at
+		b.width = minInt(maxInt(b.width, at+a.width(b.mark)), max)
+		return
+	}
+	b.markOwn = true
+	b.markCol = 0
+	b.width = minInt(maxInt(b.width, a.width(b.mark)), max)
 }
 
 // drawBlock paints one message down a column, and answers the row after it.
 func (a *App) drawBlock(pane vaxis.Window, b block, col, row, width int, ground vaxis.Color) int {
 	text := vaxis.Style{Foreground: a.theme.Text, Background: ground}
+	if b.muted {
+		text = vaxis.Style{
+			Foreground: a.theme.TextMuted, Background: ground, Attribute: vaxis.AttrItalic,
+		}
+	}
 	faint := vaxis.Style{Foreground: a.theme.TextFaint, Background: ground}
 
 	if b.quote != "" {
@@ -106,12 +148,23 @@ func (a *App) drawBlock(pane vaxis.Window, b block, col, row, width int, ground 
 			})
 			row += b.scale
 		}
+		if b.mark != "" {
+			a.print(pane, col, row, faint, b.mark)
+			row++
+		}
 		return row
 	}
 
 	a.noteBlock(pane, col, row, width, len(b.body))
-	for _, l := range b.body {
+	for i, l := range b.body {
 		a.printLine(pane, col, row, text, l)
+		if b.mark != "" && !b.markOwn && i == len(b.body)-1 {
+			a.print(pane, col+b.markCol, row, faint, b.mark)
+		}
+		row++
+	}
+	if b.mark != "" && b.markOwn {
+		a.print(pane, col, row, faint, b.mark)
 		row++
 	}
 	return row
