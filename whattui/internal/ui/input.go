@@ -257,18 +257,11 @@ func (a *App) scrollTranscript(by int) {
 		return
 	}
 
-	c.scroll += by
-	if c.scroll < 0 {
-		c.scroll = 0
-	}
-	if max := c.maxScroll(viewport); c.scroll > max {
-		c.scroll = max
-	}
 	// Reaching for history the window does not hold yet is what asks for more
-	// of it. Asking a page early keeps the scroll from ever hitting a wall.
-	if c.scroll+viewport > c.contentRows-viewport {
-		a.loadOlder()
-	}
+	// of it, which clampScroll does a page early so the scroll never hits a
+	// wall.
+	c.scroll += by
+	a.clampScroll(c, viewport)
 }
 
 // wheelRows is how far one notch of the wheel moves the transcript. Three is

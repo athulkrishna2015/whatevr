@@ -184,6 +184,14 @@ func (a *App) moveCursor(by int) {
 			break
 		}
 	}
+	// A message can be taller than the pane it is in, and then stepping off it
+	// is stepping over the part that never fit. While the message the cursor is
+	// on runs past the edge the keys are heading for, the screen moves and the
+	// cursor stays: the way out of a long message is through it.
+	if at >= 0 && a.panCursor(c, by) {
+		return
+	}
+
 	next := 0
 	if at >= 0 {
 		next = at + by
@@ -199,6 +207,47 @@ func (a *App) moveCursor(by int) {
 	a.setCursor(ids[next])
 	a.setFocus(FocusTranscript)
 	a.revealCursor()
+}
+
+// panCursor moves the screen through a message too tall to show whole, and
+// reports whether it did. A page at a time, less a couple of rows, which is
+// what every pager has done since there were pages: the lines that stay are
+// what says where you were.
+func (a *App) panCursor(c *conversation, by int) bool {
+	above, height, ok := c.messageAbove(a.cursor())
+	if !ok {
+		return false
+	}
+	viewport := a.transcriptPage()
+	if height <= viewport || viewport < 2 {
+		return false
+	}
+	top := viewport + c.scroll - above
+	step := maxInt(viewport-2, 1)
+	switch {
+	case by > 0 && top < 0:
+		c.scroll += minInt(-top, step)
+	case by < 0 && top+height > viewport:
+		c.scroll -= minInt(top+height-viewport, step)
+	default:
+		return false
+	}
+	a.clampScroll(c, viewport)
+	return true
+}
+
+// clampScroll keeps the window inside the conversation, and asks for more of it
+// when the reader is near the end of what the daemon has sent.
+func (a *App) clampScroll(c *conversation, viewport int) {
+	if c.scroll < 0 {
+		c.scroll = 0
+	}
+	if max := c.maxScroll(viewport); c.scroll > max {
+		c.scroll = max
+	}
+	if c.scroll+viewport > c.contentRows-viewport {
+		a.loadOlder()
+	}
 }
 
 // revealCursor scrolls until the message the cursor is on is whole on the
@@ -224,17 +273,9 @@ func (a *App) revealCursor() {
 		// words are.
 		c.scroll -= minInt(top+height-viewport, top)
 	}
-	if c.scroll < 0 {
-		c.scroll = 0
-	}
-	if max := c.maxScroll(viewport); c.scroll > max {
-		c.scroll = max
-	}
 	// Same reach as scrolling by hand: the cursor walking back through the
 	// window is what asks for more of it.
-	if c.scroll+viewport > c.contentRows-viewport {
-		a.loadOlder()
-	}
+	a.clampScroll(c, viewport)
 }
 
 // messageGround is the colour under one message, and whether the cursor is on

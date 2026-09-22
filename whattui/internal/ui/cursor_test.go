@@ -1,9 +1,12 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	"go.rockorager.dev/vaxis"
+
+	"whattui/internal/proto"
 )
 
 func arrow(code rune) vaxis.Key { return vaxis.Key{Keycode: code} }
@@ -192,4 +195,72 @@ func TestACursorOnAMessageThatLeavesTheWindowLetsGo(t *testing.T) {
 	if got := a.cursor(); got != "" {
 		t.Fatalf("the cursor still points at %q, which the window no longer holds", got)
 	}
+}
+
+// A message can be taller than the pane it is in, and the arrows are the only
+// way through it. Stepping straight off it onto the next one leaves everything
+// that never fit unread, which is a message you cannot read in a message
+// reader, so the screen moves through it first and the cursor stays put.
+func TestALongMessageIsWalkedThroughRatherThanSteppedOver(t *testing.T) {
+	a := stubApp(90, 20, 4, 3)
+	c := a.conversation
+	c.msgs.Reset()
+	long := strings.Repeat("a long message that goes on and on and has to be read in pieces. ", 30)
+	c.msgs.Upsert("00000000000000000001", mustJSON(proto.MessageRow{
+		ID: "old", Kind: "text", Direction: "incoming", Text: "the one before it",
+		Sender: proto.Sender{ID: "x", Name: "someone"}, Timestamp: 1758000000,
+	}))
+	c.msgs.Upsert("00000000000000000002", mustJSON(proto.MessageRow{
+		ID: "tall", Kind: "text", Direction: "incoming", Text: long,
+		Sender: proto.Sender{ID: "x", Name: "someone"}, Timestamp: 1758000060,
+	}))
+	c.msgs.Ready(true, true)
+	a.paint()
+
+	page := a.transcriptPage()
+	if c.cache["tall"].block.rows() <= page {
+		t.Fatalf("the long message is %d rows in a pane of %d, want taller than the pane",
+			c.cache["tall"].block.rows(), page)
+	}
+
+	a.onKey(arrow(vaxis.KeyUp))
+	if got := a.cursor(); got != "tall" {
+		t.Fatalf("the first press points at %q, want the newest message", got)
+	}
+	// Its top is what the reveal showed, so the rest of it is below the pane.
+	top := page + c.scroll - above(t, c, "tall")
+	if top != 0 {
+		t.Fatalf("the long message starts %d rows into the pane, want the top of it", top)
+	}
+
+	// Down walks through what is left of it before it leaves.
+	was := c.scroll
+	a.onKey(arrow(vaxis.KeyDown))
+	if a.cursor() != "tall" {
+		t.Fatalf("down let go of the long message with %d rows of it unread", c.cache["tall"].block.rows()-page)
+	}
+	if c.scroll >= was {
+		t.Fatalf("scroll is %d, want further down than %d", c.scroll, was)
+	}
+
+	// And up walks back through it before reaching for the one before.
+	a.onKey(arrow(vaxis.KeyUp))
+	if a.cursor() != "tall" {
+		t.Fatal("up left the long message without showing the part it had scrolled past")
+	}
+	for i := 0; i < 10 && a.cursor() == "tall"; i++ {
+		a.onKey(arrow(vaxis.KeyUp))
+	}
+	if got := a.cursor(); got != "old" {
+		t.Fatalf("walking off the top of the long message points at %q, want the message before it", got)
+	}
+}
+
+func above(t *testing.T, c *conversation, id string) int {
+	t.Helper()
+	rows, _, ok := c.messageAbove(id)
+	if !ok {
+		t.Fatalf("no message %q in the window", id)
+	}
+	return rows
 }
