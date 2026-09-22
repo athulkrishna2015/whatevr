@@ -32,6 +32,7 @@ func stubApp(cols, rows, chats, msgs int) *App {
 		chats:   view.NewCollection[proto.ChatRow](),
 		conn:    view.NewObject[proto.Connection](),
 		focus:   FocusComposer,
+		focused: true,
 		hovered: -1,
 		images:  map[imgKey]*vaxis.KittyImage{},
 		seen:    map[imgKey]bool{},

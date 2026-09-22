@@ -111,9 +111,7 @@ func (a *App) openChat(chatID string) {
 	a.focus = FocusComposer
 	a.mu.Unlock()
 
-	// Telling the daemon which chat is open is what makes its notifier stay
-	// quiet about the one the reader is looking at.
-	a.client.Do("session.update", proto.Params{"focused": true, "active_chat_id": chatID}, nil)
+	a.updateSession()
 }
 
 const messagePageSize = 60

@@ -111,6 +111,10 @@ type App struct {
 	transport    proto.State
 	lastErr      error
 	quit         bool
+	// focused is whether the terminal is the window in front, as the terminal
+	// last reported it. It starts true because somebody just ran this, and the
+	// first focus event corrects it if they did something else since.
+	focused bool
 
 	composer      composer
 	commands      commandRegistry
@@ -132,6 +136,7 @@ func New(vx *vaxis.Vaxis, caps term.Caps, client *proto.Client) *App {
 		chats:   view.NewCollection[proto.ChatRow](),
 		conn:    view.NewObject[proto.Connection](),
 		focus:   FocusList,
+		focused: true,
 		hovered: -1,
 		shape:   vaxis.MouseShapeDefault,
 		images:  map[imgKey]*vaxis.KittyImage{},
@@ -293,6 +298,11 @@ func (a *App) onTransport(s proto.State, _ *proto.ServerInfo, err error) {
 		a.lastErr = nil
 	}
 	a.mu.Unlock()
+	// A reconnected daemon has never heard of this window: the session is the
+	// connection's, so it goes out again with the connection.
+	if s == proto.Ready {
+		a.updateSession()
+	}
 	a.vx.PostEvent(redraw{})
 }
 
@@ -365,6 +375,10 @@ func (a *App) handle(ev vaxis.Event) bool {
 		// A resize can also be a font size change, and every rasterised word
 		// is measured off the cell.
 		a.recell()
+	case vaxis.FocusIn:
+		return a.windowFocus(true)
+	case vaxis.FocusOut:
+		return a.windowFocus(false)
 	case vaxis.VisibilityUpdate:
 		// Nothing was drawn while the window was hidden, and a terminal is
 		// free to reflow or clear what is on it in the meantime. Coming back
