@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"go.rockorager.dev/vaxis"
 
@@ -245,25 +246,40 @@ func (a *App) messageCommand(k vaxis.Key) (commandID, bool) {
 	return "", false
 }
 
+// matchesBinding reads a command's own spelling of its key. The registry is
+// where a binding is written down, so the spelling is what has to be
+// understood here: a switch over the bindings that happened to exist when it
+// was written silently drops the next one somebody adds, which is a command
+// the palette offers, the help lists, the hint bar names, and the key does
+// nothing about.
 func matchesBinding(k vaxis.Key, binding string) bool {
 	switch binding {
-	case "^q":
-		return k.Matches('q', vaxis.ModCtrl)
-	case "^c":
-		return k.Matches('c', vaxis.ModCtrl)
-	case "^p":
-		return k.Matches('p', vaxis.ModCtrl)
+	case "":
+		return false
 	case "tab":
 		return k.Matches(vaxis.KeyTab)
 	case "s-tab":
 		return k.Matches(vaxis.KeyTab, vaxis.ModShift)
 	case "enter":
 		return k.Matches(vaxis.KeyEnter)
-	case "?":
-		return k.Matches('?')
-	default:
+	case "esc":
+		return k.Matches(vaxis.KeyEsc)
+	}
+	if ctrl, ok := strings.CutPrefix(binding, "^"); ok {
+		if r, ok := oneRune(ctrl); ok {
+			return k.Matches(r, vaxis.ModCtrl)
+		}
 		return false
 	}
+	if r, ok := oneRune(binding); ok {
+		return k.Matches(r)
+	}
+	return false
+}
+
+func oneRune(s string) (rune, bool) {
+	r, size := utf8.DecodeRuneInString(s)
+	return r, size == len(s) && r != utf8.RuneError
 }
 
 func (a *App) commandForDirect(binding string) (commandID, bool) {

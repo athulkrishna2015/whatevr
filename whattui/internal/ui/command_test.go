@@ -343,3 +343,48 @@ func TestEveryCommandHasASlashName(t *testing.T) {
 		t.Errorf("an empty slash query listed %d of %d commands", got, len(a.commands.ordered))
 	}
 }
+
+// A binding is written down once, in the registry, and every surface reads it
+// from there. So the thing that reads it has to understand what is written
+// rather than a list of what happened to be there when it was written: ^l was
+// in the palette, in the help and on the hint line, and the key did nothing.
+func TestEveryBindingTheRegistryWritesDownIsAKeyThatWorks(t *testing.T) {
+	a := stubApp(90, 26, 4, 0)
+	a.initCommands()
+	for _, c := range a.commands.ordered {
+		if c.Direct == "" {
+			continue
+		}
+		key, ok := keyNamed(c.Direct)
+		if !ok {
+			t.Errorf("%s binds %q, which nothing here knows how to press", c.ID, c.Direct)
+			continue
+		}
+		if !matchesBinding(key, c.Direct) {
+			t.Errorf("%s binds %q and pressing it does nothing", c.ID, c.Direct)
+		}
+	}
+}
+
+// keyNamed builds the key a binding names, the way a reader of the registry
+// would press it.
+func keyNamed(binding string) (vaxis.Key, bool) {
+	switch binding {
+	case "tab":
+		return vaxis.Key{Keycode: vaxis.KeyTab}, true
+	case "s-tab":
+		return vaxis.Key{Keycode: vaxis.KeyTab, Modifiers: vaxis.ModShift}, true
+	case "enter":
+		return vaxis.Key{Keycode: vaxis.KeyEnter}, true
+	case "esc":
+		return vaxis.Key{Keycode: vaxis.KeyEsc}, true
+	}
+	runes := []rune(binding)
+	if len(runes) == 2 && runes[0] == '^' {
+		return vaxis.Key{Keycode: runes[1], Modifiers: vaxis.ModCtrl}, true
+	}
+	if len(runes) == 1 {
+		return vaxis.Key{Keycode: runes[0], Text: binding}, true
+	}
+	return vaxis.Key{}, false
+}
