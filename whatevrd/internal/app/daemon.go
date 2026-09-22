@@ -74,6 +74,20 @@ func (d *Daemon) ResetAccountState() {
 	d.presenceByChatID = make(map[string]presenceState)
 	d.mediaDownloads = make(map[string]MediaDownloadEvent)
 	d.subMu.Unlock()
+
+	// And every open view has to hear that the store it is reading is empty
+	// now. Nothing else says so: a logout clears the tables in one go rather
+	// than deleting a chat at a time, so without this the frontends go on
+	// drawing the account that just left.
+	d.PublishResync()
+}
+
+// PublishResync tells every view to re-read the store from scratch. It is what
+// a view is sent when it has missed events, and a wipe is the same situation
+// arrived at from the other side: what is in the store no longer follows from
+// what the view has been told.
+func (d *Daemon) PublishResync() {
+	d.broadcastDaemonEvent(DaemonEvent{Kind: DaemonEventResync})
 }
 
 func (d *Daemon) SetState(state State) {
