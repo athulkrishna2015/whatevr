@@ -178,16 +178,97 @@ func (c *Client) handleStarEvent(ctx context.Context, evt *events.Star) {
 	chatJID := c.normalizeJIDForChat(ctx, evt.ChatJID)
 	internalID := internalMessageIDForChat(chatJID.String(), types.MessageID(messageID))
 
-	updated, changed, err := c.store.SetMessageStarred(ctx, internalID, evt.Action.GetStarred())
+	starred := evt.Action.GetStarred()
+	updated, changed, err := c.store.SetMessageStarred(ctx, internalID, starred)
 	if err != nil {
-		// The star may reference a message we have not synced yet; ignore quietly.
-		if !errors.Is(err, sql.ErrNoRows) {
-			c.log.Warnf("Failed to apply star to message %s: %v", internalID, err)
+		if errors.Is(err, sql.ErrNoRows) {
+			// The message has not been synced yet, which on a fresh pairing is
+			// every message in the account: app state arrives seconds after
+			// connecting and history sync takes minutes. Park it.
+			c.parkPendingStar(internalID, starred, false)
+			return
 		}
+		c.log.Warnf("Failed to apply star to message %s: %v", internalID, err)
 		return
 	}
 	if changed && !evt.FromFullSync {
 		c.daemon.PublishMessageUpdated(toDaemonMessage(updated))
+	}
+}
+
+// reconcileStarsFromEvents applies the stars in a full regular_high snapshot.
+//
+// A full app state sync emits nothing by itself, so every star an account
+// already had arrives only here, in the snapshot this fetches at connect. The
+// messages they mark are still on their way at that point, which is what the
+// parking below is for.
+func (c *Client) reconcileStarsFromEvents(ctx context.Context, eventsToDispatch []any) {
+	for _, raw := range eventsToDispatch {
+		evt, ok := raw.(*events.Star)
+		if !ok {
+			continue
+		}
+		c.handleStarEvent(ctx, evt)
+	}
+}
+
+// parkPendingStar holds a star until the message it marks exists. keepNewer
+// leaves a star that arrived while a reconcile pass was running in place, since
+// that one is the later word on the same message.
+func (c *Client) parkPendingStar(internalID string, starred, keepNewer bool) {
+	if internalID == "" {
+		return
+	}
+	c.pendingStarsMu.Lock()
+	defer c.pendingStarsMu.Unlock()
+	if c.pendingStars == nil {
+		c.pendingStars = make(map[string]bool)
+	}
+	if _, newer := c.pendingStars[internalID]; keepNewer && newer {
+		return
+	}
+	c.pendingStars[internalID] = starred
+}
+
+// reconcilePendingStars applies parked stars to the messages that have arrived
+// since, and runs wherever pending app state does: after every history sync
+// chunk, and once with final=true when the initial sync has settled.
+//
+// Without it a fresh pairing loses every star the account has. The star is not
+// resent: app state is a snapshot taken at connect, and a star dropped because
+// its message was still in the post is a star this device never sees again.
+func (c *Client) reconcilePendingStars(ctx context.Context, final bool) {
+	c.pendingStarsMu.Lock()
+	pending := c.pendingStars
+	c.pendingStars = nil
+	c.pendingStarsMu.Unlock()
+	if len(pending) == 0 {
+		return
+	}
+
+	for internalID, starred := range pending {
+		if ctx.Err() != nil {
+			return
+		}
+		updated, changed, err := c.store.SetMessageStarred(ctx, internalID, starred)
+		if err != nil {
+			if !errors.Is(err, sql.ErrNoRows) {
+				c.log.Warnf("Failed to apply star to message %s: %v", internalID, err)
+				continue
+			}
+			if final {
+				// The sync is over and the message never came: it is older
+				// than the history this device was given, and there is nothing
+				// here to star.
+				c.log.Debugf("Dropping star for message %s, which was never synced", internalID)
+				continue
+			}
+			c.parkPendingStar(internalID, starred, true)
+			continue
+		}
+		if changed {
+			c.daemon.PublishMessageUpdated(toDaemonMessage(updated))
+		}
 	}
 }
 
