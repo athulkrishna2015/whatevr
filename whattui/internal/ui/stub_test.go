@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"time"
 
 	"go.rockorager.dev/vaxis"
 
@@ -59,13 +60,18 @@ func stubApp(cols, rows, chats, msgs int) *App {
 	c.msgs.SetReverse(true)
 	for i := 0; i < msgs; i++ {
 		dir := "incoming"
+		// An edit window still open, which is what the daemon puts on a
+		// message you have just written. It is wall-clock rather than fixed
+		// because it is a deadline, and nothing draws it, so no frame moves.
+		editUntil := int64(0)
 		if i%2 == 0 {
 			dir = "outgoing"
+			editUntil = time.Now().Add(10 * time.Minute).Unix()
 		}
 		c.msgs.Upsert(fmt.Sprintf("%020d", i), mustJSON(proto.MessageRow{
 			ID: fmt.Sprintf("m%d", i), Kind: "text", Direction: dir, Status: "read",
-			Timestamp: 1758000000 + int64(i)*60,
-			Sender:    proto.Sender{ID: "910000000@s.whatsapp.net", Name: "contact 0"},
+			Timestamp: 1758000000 + int64(i)*60, EditUntil: editUntil,
+			Sender: proto.Sender{ID: "910000000@s.whatsapp.net", Name: "contact 0"},
 			Text: "PROTOCOL.md is the source of truth, the daemon implements the " +
 				"document and not the other way around, see https://example.com/spec",
 		}))

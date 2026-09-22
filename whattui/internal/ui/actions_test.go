@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"go.rockorager.dev/vaxis"
 
@@ -162,6 +163,49 @@ func TestEditingSomebodyElsesMessageIsRefused(t *testing.T) {
 	if msg, _, _ := a.toastNow(); msg == "" {
 		t.Error("the key did nothing and said nothing")
 	}
+}
+
+// WhatsApp stops taking an edit twenty minutes after the message went, and the
+// daemon says when that is on the row. The key has to answer before the
+// composer moves: loading a message into the draft, filling the field and then
+// bouncing off the daemon is three lies in a row.
+func TestAClosedEditWindowIsAnsweredBeforeTheComposerMoves(t *testing.T) {
+	a := stubApp(100, 26, 4, 6)
+	calls := records(a)
+	id, _ := pointAt(a, t, true)
+	closeEditWindow(a, id)
+
+	a.onKey(key('e'))
+	if a.composer.editing != "" || !a.composer.empty() {
+		t.Fatalf("the composer went into an edit it cannot finish: %q", a.composer.String())
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("an edit nobody can make still asked the daemon: %+v", *calls)
+	}
+	msg, refused, _ := a.toastNow()
+	if !strings.Contains(msg, "edit window") {
+		t.Fatalf("the key said %q, want the reason", msg)
+	}
+	if !refused {
+		t.Error("the answer is no, and it is not drawn as one")
+	}
+	// And the hint line stops offering a key that cannot work.
+	if _, why := a.commands.byID[cmdEditMessage].Enabled(a.commandState()); why == "" {
+		t.Error("edit is still offered on a message whose window has closed")
+	}
+}
+
+// closeEditWindow puts one message's deadline in the past, the way twenty
+// minutes passing would.
+func closeEditWindow(a *App, id string) {
+	item, ok := a.conv().msgs.Get(id)
+	if !ok {
+		return
+	}
+	row := item.Value
+	row.EditUntil = time.Now().Add(-time.Minute).Unix()
+	a.conv().msgs.Upsert(item.Sort, mustJSON(row))
+	a.paint()
 }
 
 // A refused send answers in the corner and hands the words back. The field is

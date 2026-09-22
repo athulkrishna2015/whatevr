@@ -105,13 +105,23 @@ type MessageRow struct {
 	Revoked   bool        `json:"revoked"`
 	Starred   bool        `json:"starred"`
 	Forwarded bool        `json:"forwarded"`
-	Media     *Media      `json:"media"`
-	System    *System     `json:"system"`
-	CallLog   *CallLog    `json:"call_log"`
+	// EditUntil is when WhatsApp stops taking an edit of this message, and 0
+	// for one that cannot be edited at all. The daemon works it out; the window
+	// is WhatsApp's and a frontend holding its own copy of it would be wrong
+	// the day it moves.
+	EditUntil int64    `json:"edit_until"`
+	Media     *Media   `json:"media"`
+	System    *System  `json:"system"`
+	CallLog   *CallLog `json:"call_log"`
 }
 
 // Outgoing reports whether we sent this.
 func (m MessageRow) Outgoing() bool { return m.Direction == "outgoing" }
+
+// Editable reports whether an edit would still be taken, at the unix second
+// given. Asked per keystroke and per frame, so the answer goes stale by itself
+// without anything having to be re-delivered.
+func (m MessageRow) Editable(now int64) bool { return m.EditUntil > 0 && now <= m.EditUntil }
 
 // Centred reports whether the row draws in the middle of the transcript with
 // no bubble and no author, which is what a message nobody wrote looks like.

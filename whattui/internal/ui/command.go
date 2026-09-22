@@ -3,6 +3,7 @@ package ui
 import (
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	"go.rockorager.dev/vaxis"
@@ -126,13 +127,18 @@ func (a *App) initCommands() {
 			if ok, why := hasMessage(state); !ok {
 				return false, why
 			}
+			// Asked before the composer ever loads the message, so a window
+			// that has closed is an answer in the corner rather than an edit
+			// that looks like it started and then bounces off the daemon.
 			switch {
 			case !state.message.Outgoing():
 				return false, "you can only edit your own messages"
 			case state.message.Revoked:
 				return false, "that message is already deleted"
-			case state.message.Kind != "text":
-				return false, "only a text message can be edited"
+			case state.message.EditUntil == 0:
+				return false, "this kind of message cannot be edited"
+			case !state.message.Editable(time.Now().Unix()):
+				return false, "too late, the edit window has closed"
 			}
 			return true, ""
 		}, Run: a.editSelected},
