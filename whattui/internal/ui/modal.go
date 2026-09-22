@@ -159,7 +159,7 @@ func (a *App) chatChoices() []modalChoice {
 	a.chats.Read(func(items []view.Item[proto.ChatRow], _ view.State) {
 		out = make([]modalChoice, 0, len(items))
 		for _, it := range items {
-			out = append(out, modalChoice{ChatID: it.ID, Label: it.Value.Name, Detail: it.Value.Preview})
+			out = append(out, modalChoice{ChatID: it.ID, Label: it.Value.Name, Detail: a.spelled(it.Value.Preview)})
 		}
 	})
 	return out
@@ -190,7 +190,7 @@ func (a *App) searchChats(query string, generation uint64) {
 		}
 		choices := make([]modalChoice, 0, len(result.Chats))
 		for _, chat := range result.Chats {
-			choices = append(choices, modalChoice{ChatID: chat.ID, Label: chat.Name, Detail: chat.Preview})
+			choices = append(choices, modalChoice{ChatID: chat.ID, Label: chat.Name, Detail: a.spelled(chat.Preview)})
 		}
 		a.showChats(choices, generation)
 		a.vx.PostEvent(redraw{})

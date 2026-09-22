@@ -38,7 +38,7 @@ func (a *App) replySelected() {
 	a.composer.replyTo = m.ID
 	a.composer.editing = ""
 	a.composer.targetName = replyName(m)
-	a.composer.targetText = oneLine(m.Body())
+	a.composer.targetText = oneLine(a.body(m))
 	a.composer.targetColour = colour
 	a.mu.Unlock()
 	a.clearCursor()
@@ -150,7 +150,7 @@ func (a *App) deleteSelected() {
 	})
 
 	a.mu.Lock()
-	a.modal = modalState{kind: modalConfirm, prompt: a.clip(oneLine(m.Body()), 60)}
+	a.modal = modalState{kind: modalConfirm, prompt: a.clip(oneLine(a.body(m)), 60)}
 	a.modal.selector.Set(choices)
 	a.mu.Unlock()
 }

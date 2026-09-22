@@ -243,7 +243,7 @@ const (
 func (a *App) layoutEntry(it view.Item[proto.MessageRow], w int) entry {
 	m := it.Value
 	if m.Centred() {
-		return entry{raw: it.Raw, centred: true, lines: a.wrap(m.Body(), w-4)}
+		return entry{raw: it.Raw, centred: true, lines: a.wrap(a.body(m), w-4)}
 	}
 	// A message nobody can read any more carries neither flag: what was done
 	// to it before it went is no longer news.

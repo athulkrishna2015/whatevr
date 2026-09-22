@@ -396,7 +396,7 @@ func (a *App) drawChatRow(pane vaxis.Window, row, w, height int, c proto.ChatRow
 	// The preview shares the name's left edge rather than the avatar's, so the
 	// two lines of a row line up as one block.
 	a.printLine(preview, col, 0, vaxis.Style{Foreground: a.theme.TextMuted, Background: bg},
-		a.clipLine(a.linkLine(c.Preview), room))
+		a.clipLine(a.linkLine(a.spelled(c.Preview)), room))
 	if badge != "" {
 		a.print(preview, w-badgeW-1, 0, vaxis.Style{
 			Foreground: a.theme.Accent, Background: bg, Attribute: vaxis.AttrBold,
@@ -649,11 +649,11 @@ func (a *App) layoutMessage(m proto.MessageRow, paneWidth int) block {
 	if m.ReplyTo != nil {
 		quote = m.ReplyTo.Text
 		if quote == "" {
-			quote = m.ReplyTo.Fallback
+			quote = a.spelled(m.ReplyTo.Fallback)
 		}
 	}
 
-	b := a.layoutBlock(quote, m.Body(), a.messageStamp(m), a.runRoom(paneWidth))
+	b := a.layoutBlock(quote, a.body(m), a.messageStamp(m), a.runRoom(paneWidth))
 	b.muted = m.Revoked
 
 	// A message nobody can read any more carries no reactions: WhatsApp drops
