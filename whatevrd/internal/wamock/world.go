@@ -293,6 +293,31 @@ func (m *Msg) Revoke(at time.Time) *Msg {
 	return m
 }
 
+// React puts an emoji on a message, from somebody. It travels as a message of
+// its own naming the one it is about, which every device then hangs off that
+// message rather than showing as a line in the chat. An empty emoji is a
+// reaction taken back, which is the same message with nothing in it.
+//
+// WhatsApp keeps one reaction per person, so reacting twice from the same
+// contact replaces the first rather than adding to it, exactly as it would on a
+// phone.
+func (m *Msg) React(from *Contact, emoji string, at time.Time) *Msg {
+	r := m.Chat.newMsg(from, "", at)
+	r.control = &waE2E.Message{ReactionMessage: &waE2E.ReactionMessage{
+		Key:               m.key(),
+		Text:              proto.String(emoji),
+		SenderTimestampMS: proto.Int64(at.UnixMilli()),
+	}}
+	m.Chat.deliver(r)
+	return m
+}
+
+// ReactFromMe is React by the account itself, which is the reaction a frontend
+// draws as its own and offers to take back.
+func (m *Msg) ReactFromMe(emoji string, at time.Time) *Msg {
+	return m.React(m.Chat.w.self, emoji, at)
+}
+
 // key is how another message refers to this one.
 func (m *Msg) key() *waCommon.MessageKey {
 	key := &waCommon.MessageKey{

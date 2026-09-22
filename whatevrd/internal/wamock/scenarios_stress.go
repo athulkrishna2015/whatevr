@@ -168,6 +168,37 @@ func buildTorture(w *World) {
 		Star()
 	second.Say(witness, "and one that is only starred", Ago(10*time.Hour)).Star()
 
+	// Reactions, which are the one thing in a chat that is content without
+	// being a message: they belong under the words they are about, several
+	// people can put the same one there, and one of them can be yours.
+	felt := w.Group("Reactions", victim, witness)
+	felt.Say(victim, "one reaction, from one person", Ago(20*time.Hour)).
+		React(witness, "👍", Ago(19*time.Hour))
+	felt.Say(victim, "the same emoji from three people, which is one thing to read",
+		Ago(18*time.Hour)).
+		React(witness, "😂", Ago(17*time.Hour)).
+		React(victim, "😂", Ago(17*time.Hour-time.Minute)).
+		ReactFromMe("😂", Ago(17*time.Hour-2*time.Minute))
+	felt.SayFromMe("a message of mine, reacted to by somebody else", Ago(16*time.Hour)).
+		React(victim, "❤️", Ago(15*time.Hour))
+	felt.Say(witness, "mine is in here, and it is the one that can be taken back",
+		Ago(14*time.Hour)).
+		React(victim, "👍", Ago(13*time.Hour)).
+		ReactFromMe("🔥", Ago(13*time.Hour-time.Minute))
+	felt.Say(victim, "more distinct emoji than a narrow column can hold, so the rest are counted",
+		Ago(12*time.Hour)).
+		React(witness, "👍", Ago(11*time.Hour)).
+		React(victim, "🎉", Ago(11*time.Hour-time.Minute)).
+		ReactFromMe("😮", Ago(11*time.Hour-2*time.Minute))
+	felt.Say(witness, "reacted to, then deleted for everyone, which takes the reactions with it",
+		Ago(10*time.Hour)).
+		React(victim, "😢", Ago(9*time.Hour)).
+		Revoke(Ago(8 * time.Hour))
+	felt.Say(victim, "reacted to and then taken back, which leaves nothing under it",
+		Ago(7*time.Hour)).
+		React(witness, "👎", Ago(6*time.Hour)).
+		React(witness, "", Ago(5*time.Hour))
+
 	edges := w.Group("Clock edges", victim)
 	edges.History(victim, "sent at the unix epoch", time.Unix(0, 0))
 	edges.History(victim, "sent in 1999", time.Date(1999, 12, 31, 23, 59, 59, 0, time.UTC))
