@@ -277,7 +277,7 @@ views.
 | `send.media` | `chat_id`, `path`, `caption`, `reply_to`, `mentions` | `{message_id}`: daemon copies the file into its cache immediately; the caller may delete its copy on return |
 | `send.sticker` | `chat_id`, `cache_key`, `reply_to` | `{message_id}` |
 | `message.react` | `message_id`, `emoji` ("" removes) | `{}` |
-| `message.edit` | `message_id`, `text` | `{}`: may fail `expired` |
+| `message.edit` | `message_id`, `text` | `{}`: may fail `expired`; the row's `edit_until` says when that starts |
 | `message.revoke` | `message_id` | `{}`: may fail `expired` |
 | `message.delete` | `message_id` | `{}`: local delete-for-me |
 | `message.star` | `message_id`, `starred` | `{}` |
@@ -334,6 +334,13 @@ A message item has a `kind`, kind-specific fields, and always:
   `failed`), and the interaction state that applies to any kind: `reply_to`
   quote, `reactions`, `mentions`, `edited`, `revoked`, `starred`,
   `pinned_until`, `kept` (somebody asked for a disappearing message to stay).
+- `edit_until`: the unix second WhatsApp stops accepting an edit of this
+  message, absent for one that cannot be edited at all (somebody else's, a
+  deleted one, a kind with nothing to rewrite). A frontend greys out its edit
+  action on it rather than offering an edit the daemon will answer `expired`.
+  It crosses as a deadline rather than a flag because the row would otherwise
+  have to be re-sent the moment the window closed, and because a frontend that
+  held the window itself would be holding a number WhatsApp owns.
 
 The kinds: `text`, `image`, `sticker`, `video`, `gif`, `voice`, `audio`,
 `document`, `video_note`, `location`, `live_location`, `contact`, `contacts`,

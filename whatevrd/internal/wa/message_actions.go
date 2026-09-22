@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 
 	"whatevrd/internal/app"
@@ -254,7 +253,7 @@ func (c *Client) RevokeMessage(ctx context.Context, messageID string) (appstore.
 
 // EditMessage edits one of our own sent messages in place: the body of a text
 // message or the caption of a media message. WhatsApp only allows editing for
-// a limited window after sending (whatsmeow.EditWindow); the server also
+// a limited window after sending (store.Message.EditableUntil); the server also
 // enforces this and its rejection is surfaced as the RPC error.
 func (c *Client) EditMessage(ctx context.Context, messageID, newText string) (appstore.Message, error) {
 	message, err := c.store.GetMessage(ctx, messageID)
@@ -267,7 +266,11 @@ func (c *Client) EditMessage(ctx context.Context, messageID, newText string) (ap
 	if message.IsRevoked {
 		return appstore.Message{}, app.NewCommandError(app.CommandErrorRejected, "a deleted message cannot be edited")
 	}
-	if time.Since(time.Unix(message.TimestampUnix, 0)) > whatsmeow.EditWindow {
+	// The same deadline the row carries as `edit_until`, so what a frontend
+	// greys out and what this refuses can never disagree. A kind that was never
+	// editable has no deadline and falls through to buildEditContent, which
+	// says so in better words than "expired".
+	if until := message.EditableUntil(); until > 0 && time.Now().Unix() > until {
 		return appstore.Message{}, app.NewCommandError(app.CommandErrorExpired, "the edit window for this message has expired")
 	}
 

@@ -572,6 +572,12 @@ type messageItem struct {
 	Starred     bool              `json:"starred,omitempty"`
 	Forwarded   bool              `json:"forwarded,omitempty"`
 	PinnedUntil int64             `json:"pinned_until,omitempty"`
+	// EditUntil is when WhatsApp stops accepting an edit of this row, absent
+	// for one that cannot be edited at all. A frontend gates its edit action on
+	// it and never has to know how long the window is, which is the whole
+	// reason it crosses: the alternative is every frontend holding its own copy
+	// of a number WhatsApp owns.
+	EditUntil int64 `json:"edit_until,omitempty"`
 	// Kept marks a disappearing message somebody asked to keep in the chat.
 	Kept  bool          `json:"kept,omitempty"`
 	Media *messageMedia `json:"media,omitempty"`
@@ -843,6 +849,7 @@ func messageItemFromStore(m store.Message) messageItem {
 		Starred:     m.IsStarred,
 		Forwarded:   m.IsForwarded,
 		PinnedUntil: m.PinnedUntil,
+		EditUntil:   m.EditableUntil(),
 		Reactions:   messageReactions(m.Reactions),
 		Mentions:    messageMentions(m.Mentions),
 		Media:       messageMediaFromStore(m),
