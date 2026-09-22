@@ -146,6 +146,28 @@ func buildTorture(w *World) {
 	}
 	ties.History(witness, "and one a second later", tie.Add(time.Second))
 
+	// What a message looks like after somebody changed their mind about it.
+	// Both are states a frontend has to draw without a word of the message
+	// itself moving: an edit rewrites the words under a timestamp that no
+	// longer describes them, and a revoke leaves a hole with a sentence in it.
+	// Said rather than synced, all of them: an edit or a revoke names a message
+	// the client is expected to already have, and the history it would be in is
+	// still arriving when the backlog goes out.
+	second := w.Group("Second thoughts", victim, witness)
+	second.Say(victim, "the original wording, before the edit", Ago(20*time.Hour)).
+		Edit("edited, and the time beside this is still when it was first said", Ago(19*time.Hour))
+	second.SayFromMe("a message of mine, about to be edited", Ago(18*time.Hour)).
+		Edit("edited by me, which is the case the ticks share a rail with", Ago(17*time.Hour))
+	second.Say(victim, "this one is about to be deleted for everyone", Ago(16*time.Hour)).
+		Revoke(Ago(15 * time.Hour))
+	second.SayFromMe("and one of mine, deleted the same way", Ago(14*time.Hour)).
+		Revoke(Ago(13 * time.Hour))
+	second.Say(witness, "starred and edited at once, which is two marks on one message",
+		Ago(12*time.Hour)).
+		Edit("starred and edited at once, in its second wording", Ago(11*time.Hour)).
+		Star()
+	second.Say(witness, "and one that is only starred", Ago(10*time.Hour)).Star()
+
 	edges := w.Group("Clock edges", victim)
 	edges.History(victim, "sent at the unix epoch", time.Unix(0, 0))
 	edges.History(victim, "sent in 1999", time.Date(1999, 12, 31, 23, 59, 59, 0, time.UTC))

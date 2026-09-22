@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"go.mau.fi/whatsmeow/appstate"
+	waCommon "go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
@@ -233,6 +234,11 @@ type Msg struct {
 	// moment the message was made. Nil for an ordinary text message.
 	media *waE2E.Message
 
+	// control is a payload that is not something anybody said: an edit or a
+	// revoke, which travel as protocol messages about another message and are
+	// swallowed by the client rather than shown.
+	control *waE2E.Message
+
 	// starred and the rest are app state the account already had, which the
 	// client can also change from a frontend.
 	starred bool
@@ -240,7 +246,10 @@ type Msg struct {
 
 // payload is what goes inside the Signal envelope.
 func (m *Msg) payload() *waE2E.Message {
-	if m.media != nil {
+	switch {
+	case m.control != nil:
+		return m.control
+	case m.media != nil:
 		return m.media
 	}
 	return &waE2E.Message{Conversation: proto.String(m.Text)}
@@ -253,6 +262,48 @@ func (m *Msg) stanzaType() string {
 		return "media"
 	}
 	return "text"
+}
+
+// Edit rewrites a message the way editing it on the phone does: a protocol
+// message pointing at the original, which every other device applies to what it
+// already has. The words on the wire are the new ones; what the original said
+// is only ever in the copy each device kept.
+func (m *Msg) Edit(text string, at time.Time) *Msg {
+	edit := m.Chat.newMsg(m.From, text, at)
+	edit.control = &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{
+		Key:           m.key(),
+		Type:          waE2E.ProtocolMessage_MESSAGE_EDIT.Enum(),
+		EditedMessage: &waE2E.Message{Conversation: proto.String(text)},
+		TimestampMS:   proto.Int64(at.UnixMilli()),
+	}}
+	m.Chat.deliver(edit)
+	return m
+}
+
+// Revoke deletes a message for everybody, which is a protocol message naming it
+// and nothing else: the words are gone and every device is expected to keep the
+// hole rather than the message.
+func (m *Msg) Revoke(at time.Time) *Msg {
+	gone := m.Chat.newMsg(m.From, "", at)
+	gone.control = &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{
+		Key:  m.key(),
+		Type: waE2E.ProtocolMessage_REVOKE.Enum(),
+	}}
+	m.Chat.deliver(gone)
+	return m
+}
+
+// key is how another message refers to this one.
+func (m *Msg) key() *waCommon.MessageKey {
+	key := &waCommon.MessageKey{
+		RemoteJID: proto.String(m.Chat.JID.String()),
+		FromMe:    proto.Bool(m.FromMe),
+		ID:        proto.String(m.ID),
+	}
+	if m.Chat.IsGroup && !m.FromMe {
+		key.Participant = proto.String(m.From.JID.String())
+	}
+	return key
 }
 
 // Star marks the message starred, the way it would be if somebody had starred
