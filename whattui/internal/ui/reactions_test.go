@@ -127,6 +127,77 @@ func TestAMessageIsWideEnoughForItsReactions(t *testing.T) {
 	}
 }
 
+// Every reaction is the same shape whatever it is: one of them, three of one
+// emoji, a row of different ones, yours among them. A chip is what tells the
+// reader where the message stopped and what people thought of it started, so a
+// reaction drawn without one, or drawn a size nothing else is, is a reaction
+// that reads as another line of the message.
+func TestEveryReactionIsTheSameChipWhateverIsInIt(t *testing.T) {
+	a := stubApp(90, 26, 4, 0)
+	c := a.conversation
+	c.msgs.Reset()
+	c.msgs.Upsert("00000000000000000001", mustJSON(proto.MessageRow{
+		ID: "m", Kind: "text", Direction: "incoming", Text: "chips",
+		Sender: proto.Sender{ID: "x", Name: "someone"},
+		Reactions: []proto.Reaction{
+			{Emoji: "👍", SenderName: "Asha"},
+			{Emoji: "👍", SenderName: "Ravi"},
+			{Emoji: "🔥", FromMe: true},
+		},
+	}))
+	c.msgs.Ready(true, true)
+	a.paint()
+
+	row, col := a.stripAt(t, "chips")
+	pills, _ := a.pillsFor(groupReactions([]proto.Reaction{
+		{Emoji: "👍"}, {Emoji: "👍"}, {Emoji: "🔥", FromMe: true},
+	}), 40)
+	if len(pills) != 2 {
+		t.Fatalf("three reactions of two kinds made %d pills", len(pills))
+	}
+
+	for _, p := range pills {
+		want := a.theme.BubbleIn
+		if p.mine {
+			want = a.theme.BubbleOut
+		}
+		// Every cell of the chip, the air at both ends included: a chip that
+		// stops at its glyphs is a chip with the page showing through it.
+		for i := 0; i < a.cells(p); i++ {
+			if got := a.vx.Cell(col+i, row).Style.Background; got != want {
+				t.Fatalf("cell %d of the %q chip is %v, want %v", i, p.text, got, want)
+			}
+		}
+		col += a.cells(p)
+		// And the air between two chips is the page, or they read as one chip.
+		if got := a.vx.Cell(col, row).Style.Background; got == want {
+			t.Errorf("the gap after the %q chip is part of it", p.text)
+		}
+		col += pillGap
+	}
+}
+
+// stripAt is where the reaction strip under a message landed: the row, and the
+// column its first chip starts in.
+func (a *App) stripAt(t *testing.T, saying string) (row, col int) {
+	t.Helper()
+	l := a.layout()
+	lines := strings.Split(a.transcriptRowsText(), "\n")
+	for i, line := range lines {
+		if !strings.Contains(line, saying) {
+			continue
+		}
+		// The words start where the strip does: a message's own lines share one
+		// left edge, and the strip is one of its lines. Counted in runes, which
+		// is columns here because everything left of the words is the time rail
+		// and the rule, one cell each.
+		at := len([]rune(line[:strings.Index(line, saying)]))
+		return l.Transcript.Row + i + 1, l.Transcript.Col + at
+	}
+	t.Fatalf("no message saying %q on screen:\n%s", saying, a.transcriptRowsText())
+	return 0, 0
+}
+
 // A narrow column runs out of room before a popular message runs out of
 // reactions. What is left over is counted rather than cut: half a pill is a lie
 // about who reacted, and how many are missing is the part worth the columns.
@@ -168,8 +239,8 @@ func TestTheReactionPickerLeadsWithWhatIsAlreadyOnTheMessage(t *testing.T) {
 	if len(choices) < 3 {
 		t.Fatalf("the picker offers %d rows", len(choices))
 	}
-	if !strings.Contains(choices[0].Detail, "Asha") || !strings.Contains(choices[0].Detail, "Ravi") {
-		t.Errorf("the first row says %q, want who put it there", choices[0].Detail)
+	if !strings.Contains(choices[0].Label, "Asha") || !strings.Contains(choices[0].Label, "Ravi") {
+		t.Errorf("the first row says %q, want who put it there", choices[0].Label)
 	}
 	if !choices[1].Mine || !strings.Contains(choices[1].Detail, "takes it back") {
 		t.Errorf("your own reaction reads %#v, want the row that takes it off", choices[1])

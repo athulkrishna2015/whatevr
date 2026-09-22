@@ -79,10 +79,20 @@ type pill struct {
 	mine bool
 }
 
-// pillGap is the air between two pills. The same two columns the hint line puts
-// between its words, so a strip of reactions reads as a row of separate things
-// rather than one run of glyphs.
-const pillGap = 2
+const (
+	// pillPad is the air inside a pill, per side. One column, because a shape
+	// with round ends pads its sides to its own height rather than to a flat
+	// unit, and a cell is half as wide as it is tall: one column is the least
+	// that keeps the curve off the glyph.
+	pillPad = 1
+	// pillGap is the air between two pills. One column, now that each of them
+	// carries its own edge: two would read as a gap in the row rather than
+	// between the things in it.
+	pillGap = 1
+)
+
+// cells is how wide one pill is drawn, its own air included.
+func (a *App) cells(p pill) int { return a.width(p.text) + 2*pillPad }
 
 // pillsFor lays a message's reactions out as a strip no wider than room, and
 // answers how wide it came out.
@@ -100,22 +110,23 @@ func (a *App) pillsFor(groups []reactionGroup, room int) ([]pill, int) {
 		if len(g.names) > 1 {
 			text += " " + itoa(len(g.names))
 		}
-		width := a.width(text)
+		next := pill{text: text, mine: g.mine}
+		width := a.cells(next)
 		if used > 0 {
 			width += pillGap
 		}
 		// The last of the room goes to saying how many are missing, which is
-		// only worth a column when there is something after this one.
-		rest := "+" + itoa(len(groups)-i)
-		if used+width > room || (i < len(groups)-1 && used+width+pillGap+a.width(rest) > room) {
+		// only worth the columns when there is something after this one.
+		rest := pill{text: "+" + itoa(len(groups)-i)}
+		if used+width > room || (i < len(groups)-1 && used+width+pillGap+a.cells(rest) > room) {
 			if used == 0 {
 				return nil, 0
 			}
-			pills = append(pills, pill{text: rest})
-			used += pillGap + a.width(rest)
+			pills = append(pills, rest)
+			used += pillGap + a.cells(rest)
 			break
 		}
-		pills = append(pills, pill{text: text, mine: g.mine})
+		pills = append(pills, next)
 		used += width
 	}
 	return pills, used
@@ -147,18 +158,18 @@ func (a *App) reactChoices(m proto.MessageRow, query string) []modalChoice {
 	on := map[string]bool{}
 	for _, g := range groups {
 		on[g.emoji] = true
-		detail := strings.Join(g.names, ", ")
+		// The same shape as a palette row: the emoji, then words about it. Who
+		// put it there rather than how many, because the names are what the
+		// strip under the message had no room for, and counting them is
+		// something the reader can do by looking.
+		detail := ""
 		if g.mine {
-			detail = "yours, enter takes it back"
+			detail = "enter takes it back"
 		}
-		// The emoji, and how many only when there is more than one of them: a
-		// row that says "1 reaction" beside the name of the one person who put
-		// it there is a row saying the same thing twice.
-		label := g.emoji
-		if len(g.names) > 1 {
-			label += "  " + itoa(len(g.names))
-		}
-		out = append(out, modalChoice{Emoji: g.emoji, Label: label, Detail: detail, Mine: g.mine})
+		out = append(out, modalChoice{
+			Emoji: g.emoji, Label: g.emoji + "  " + strings.Join(g.names, ", "),
+			Detail: detail, Mine: g.mine,
+		})
 	}
 	for _, e := range reactionPalette {
 		if on[e.emoji] {

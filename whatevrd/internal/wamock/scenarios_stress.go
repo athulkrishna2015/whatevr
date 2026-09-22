@@ -171,7 +171,17 @@ func buildTorture(w *World) {
 	// Reactions, which are the one thing in a chat that is content without
 	// being a message: they belong under the words they are about, several
 	// people can put the same one there, and one of them can be yours.
-	felt := w.Group("Reactions", victim, witness)
+	//
+	// One reaction per person, so more distinct emoji means more people. The
+	// crowd is here for the message below that has more of them than a narrow
+	// column can hold, which is also the only way anybody ever gets one.
+	reactors := []*Contact{
+		w.Contact("917770000021", "Nikhil"),
+		w.Contact("917770000022", "Priya"),
+		w.Contact("917770000023", "Sana"),
+		w.Contact("917770000024", "Dev"),
+	}
+	felt := w.Group("Reactions", append([]*Contact{victim, witness}, reactors...)...)
 	felt.Say(victim, "one reaction, from one person", Ago(20*time.Hour)).
 		React(witness, "👍", Ago(19*time.Hour))
 	felt.Say(victim, "the same emoji from three people, which is one thing to read",
@@ -185,11 +195,14 @@ func buildTorture(w *World) {
 		Ago(14*time.Hour)).
 		React(victim, "👍", Ago(13*time.Hour)).
 		ReactFromMe("🔥", Ago(13*time.Hour-time.Minute))
-	felt.Say(victim, "more distinct emoji than a narrow column can hold, so the rest are counted",
+	popular := felt.Say(victim, "more distinct emoji than a narrow column can hold, so the rest are counted",
 		Ago(12*time.Hour)).
 		React(witness, "👍", Ago(11*time.Hour)).
-		React(victim, "🎉", Ago(11*time.Hour-time.Minute)).
-		ReactFromMe("😮", Ago(11*time.Hour-2*time.Minute))
+		ReactFromMe("😮", Ago(11*time.Hour-time.Minute))
+	for i, person := range reactors {
+		popular.React(person, []string{"🎉", "❤️", "🔥", "👏"}[i],
+			Ago(11*time.Hour-time.Duration(i+2)*time.Minute))
+	}
 	felt.Say(witness, "reacted to, then deleted for everyone, which takes the reactions with it",
 		Ago(10*time.Hour)).
 		React(victim, "😢", Ago(9*time.Hour)).

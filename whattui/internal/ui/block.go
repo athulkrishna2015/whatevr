@@ -5,6 +5,7 @@ import (
 
 	"go.rockorager.dev/vaxis"
 
+	"whattui/internal/paint"
 	"whattui/internal/term"
 )
 
@@ -138,34 +139,80 @@ func (a *App) drawBlock(pane vaxis.Window, b block, col, row, width int, ground 
 // drawPills writes the reaction strip under a message, and answers the row
 // after it.
 //
-// Quieter than the words on purpose: a reaction is somebody agreeing, and a
-// screenful of them at full strength would read louder than the conversation
-// they are about.
+// Each reaction gets a shape of its own, because without one a strip of emoji
+// under a message is a line of the message: the same ground, the same column,
+// nothing saying where the words stop and what people thought of them starts. A
+// chip is the shape every other client uses for exactly that reason.
 //
-// The one this account put there is underlined, and the underline is doing the
-// work rather than helping. An emoji is drawn by the font in the font's own
-// colours: a foreground the accent and a weight bold say nothing at all about a
-// 🔥, and the count beside it is the only cell either of them reaches. A rule
-// under the cells is the one mark a terminal can put on a glyph it does not get
-// to colour.
+// The one this account put there wears the material an outgoing message wears
+// and is underlined besides. The underline is not decoration: an emoji is drawn
+// by the font in the font's own colours, so a foreground and a weight say
+// nothing at all about a 🔥, and a rule under the cells is the one mark a
+// terminal can put on a glyph it does not get to colour.
 func (a *App) drawPills(pane vaxis.Window, b block, col, row int, ground vaxis.Color) int {
 	if len(b.reacts) == 0 {
 		return row
 	}
-	for i, p := range b.reacts {
-		if i > 0 {
-			col = a.blank(pane, col, row, pillGap, vaxis.Style{Background: ground})
-		}
-		style := vaxis.Style{Foreground: a.theme.TextMuted, Background: ground}
+	for _, p := range b.reacts {
+		width := a.cells(p)
+		chip := a.drawChip(pane, col, row, width, p.mine, ground)
+		style := vaxis.Style{Foreground: a.theme.TextMuted, Background: chip}
 		if p.mine {
 			style = vaxis.Style{
-				Foreground: a.theme.Accent, Background: ground, Attribute: vaxis.AttrBold,
+				Foreground: a.theme.Accent, Background: chip, Attribute: vaxis.AttrBold,
 				UnderlineStyle: vaxis.UnderlineSingle, UnderlineColor: a.theme.Accent,
 			}
 		}
-		col = a.print(pane, col, row, style, p.text)
+		a.print(pane, col+pillPad, row, style, p.text)
+		col += width + pillGap
 	}
 	return row + 1
+}
+
+// drawChip is the rounded chrome behind one reaction, and answers the cell
+// colour its glyphs stand on.
+//
+// Where there are pixels the shape is drawn and the cells keep the page's own
+// ground, so what falls outside the curve is the page rather than a square
+// corner. Where there are not, the same cells are filled flat: the chip loses
+// its corners and keeps its size, its colour and its place, which is the whole
+// of the tier rule.
+func (a *App) drawChip(pane vaxis.Window, col, row, width int, mine bool, ground vaxis.Color) vaxis.Color {
+	fill, edge, cell := a.theme.PaintIn, a.theme.PaintInEdge, a.theme.BubbleIn
+	if mine {
+		fill, edge, cell = a.theme.PaintOut, a.theme.PaintOutEdge, a.theme.BubbleOut
+	}
+	if a.painted() {
+		a.blank(pane, col, row, width, vaxis.Style{Background: ground})
+		cw, _ := a.cellPix()
+		a.paintRect(pane, col, row, width, 1, func(pw, ph int) paint.Spec {
+			// Air enough to read as a chip and no more: most of a column back
+			// at the sides, so the glyph is not marooned in a box, and a
+			// sliver top and bottom so the shape keeps off the words above it
+			// and the message below. More off the top than the bottom, because
+			// the glyph it is drawn around stands on a baseline rather than in
+			// the middle of its cell.
+			// An emoji is drawn down to the bottom of its cell, so a chip with
+			// air under it is a chip the glyph hangs out of. It takes its air
+			// off the top instead, where the row above holds letters rather
+			// than pictures and their descenders stop well short of it, and
+			// stands on the bottom of its own row, where the next row's letters
+			// start well below.
+			x, top, bottom := maxInt(cw*3/4, 3), maxInt(ph/7, 2), 0
+			// A corner taken off, not a side rounded away. The radius every
+			// other shape here uses is most of this one's height, and a shape
+			// as round as it is tall is a lozenge: a quarter of the height is
+			// the same curve read at the size a chip actually is.
+			return paint.Chip{
+				W: pw, H: ph, InsetX: x, InsetTop: top, InsetBottom: bottom,
+				Fill: fill, Edge: edge,
+				Radius: maxInt(minInt(a.bubbleRadius(), (ph-top-bottom)/4), 2),
+			}
+		})
+		return ground
+	}
+	a.blank(pane, col, row, width, vaxis.Style{Background: cell})
+	return cell
 }
 
 func (a *App) pad(s string, width int) string {
