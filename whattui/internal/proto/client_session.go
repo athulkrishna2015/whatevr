@@ -97,6 +97,7 @@ func (c *Client) sendHello() error {
 		// back yet.
 		for _, sub := range subs {
 			sub.orphan()
+			sub.discard()
 			c.issue(sub)
 		}
 		for _, q := range queued {
