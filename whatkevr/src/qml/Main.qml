@@ -73,6 +73,10 @@ Kirigami.ApplicationWindow {
             // and a grab that survives the hide/show cycle leaves the restored
             // window visible but dead to clicks.
             trayMenuWindow.close()
+            // Park the left column back on chats: reopening lands on the
+            // conversation list, not on whatever tab was open when hiding.
+            if (chatListPageItem)
+                chatListPageItem.workspaceMode = "chats"
             root.hide()
         }
     }
@@ -543,6 +547,17 @@ Kirigami.ApplicationWindow {
         root.show()
         root.raise()
         root.requestActivate()
+        // Single-column restores land on the chat list when no conversation
+        // is open, instead of a stale secondary tab left over from hiding.
+        if (currentMode === "chat" && chatSingleColumnLayout
+                && !Whatevr.ProtocolController.hasSelectedChat
+                && chatListPageItem) {
+            chatListPageItem.workspaceMode = "chats"
+            navTargetChatId = ""
+            navProgrammaticIndexChange = true
+            pageStack.currentIndex = 0
+            navProgrammaticIndexChange = false
+        }
     }
 
     onVisibleChanged: {
