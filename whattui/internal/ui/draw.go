@@ -664,6 +664,7 @@ func (a *App) layoutMessage(m proto.MessageRow, paneWidth int) block {
 
 	b := a.layoutBlock(quote, a.body(m), a.messageStamp(m), a.runRoom(paneWidth))
 	b.muted = m.Revoked
+	b.outgoing = m.Outgoing()
 	b.mark, b.status = a.statusMark(m), m.Status
 
 	// A message nobody can read any more carries no reactions: WhatsApp drops

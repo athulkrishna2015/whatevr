@@ -63,6 +63,12 @@ type block struct {
 	// colour of its own.
 	mark   string
 	status string
+	// outgoing hangs the message off the rule on the right. Everything in it
+	// then lines up against that edge rather than against the left of the
+	// widest thing in it: a short answer under a long quote is part of the
+	// same message, and left where the quote starts it reads as adrift in the
+	// middle of the column.
+	outgoing bool
 	// reacts is what people put on the message, on a row of its own under the
 	// words. Under rather than after them, because a reaction is about the
 	// whole message: a strip that follows the last word moves every time the
@@ -116,8 +122,16 @@ func (a *App) drawBlock(pane vaxis.Window, b block, col, row, width int, ground 
 	faint := vaxis.Style{Foreground: a.theme.TextFaint, Background: ground}
 
 	if b.quote != "" {
-		a.print(pane, col, row, faint, b.quote)
+		a.print(pane, b.hang(col, width, a.width(b.quote)), row, faint, b.quote)
 		row++
+	}
+
+	// The words are one column, whatever the widest line in the message is.
+	// The quote and the reactions are measured separately, because each is a
+	// thing of its own hanging off the same edge.
+	words := 0
+	for _, l := range b.body {
+		words = maxInt(words, a.lineWidth(l))
 	}
 
 	if b.scale > 1 {
@@ -125,22 +139,34 @@ func (a *App) drawBlock(pane vaxis.Window, b block, col, row, width int, ground 
 		// scale key vaxis paints the reserved cells and draws the glyph small
 		// in the top left, so nothing moves.
 		for _, l := range b.body {
-			pane.New(col, row, width, b.scale).PrintScaled(0, vaxis.Segment{
+			at := b.hang(col, width, a.lineWidth(l)*b.scale)
+			pane.New(at, row, width-(at-col), b.scale).PrintScaled(0, vaxis.Segment{
 				Text:  lineText(l),
 				Style: text,
 				Size:  vaxis.Scaled(b.scale, 0),
 			})
 			row += b.scale
 		}
-		return a.drawPills(pane, b, col, row, ground)
+		return a.drawPills(pane, b, col, row, width, ground)
 	}
 
-	a.noteBlock(pane, col, row, width, len(b.body))
+	at := b.hang(col, width, words)
+	a.noteBlock(pane, at, row, words, len(b.body))
 	for _, l := range b.body {
-		a.printLine(pane, col, row, text, l)
+		a.printLine(pane, at, row, text, l)
 		row++
 	}
-	return a.drawPills(pane, b, col, row, ground)
+	return a.drawPills(pane, b, col, row, width, ground)
+}
+
+// hang is the column one part of a message starts in: the left of the block for
+// a message that came in, and flush against the right of it for one that went
+// out, which is the edge the rule stands on.
+func (b block) hang(col, width, part int) int {
+	if !b.outgoing || part >= width {
+		return col
+	}
+	return col + width - part
 }
 
 // drawPills writes the reaction strip under a message, and answers the row
@@ -156,10 +182,15 @@ func (a *App) drawBlock(pane vaxis.Window, b block, col, row, width int, ground 
 // by the font in the font's own colours, so a foreground and a weight say
 // nothing at all about a 🔥, and a rule under the cells is the one mark a
 // terminal can put on a glyph it does not get to colour.
-func (a *App) drawPills(pane vaxis.Window, b block, col, row int, ground vaxis.Color) int {
+func (a *App) drawPills(pane vaxis.Window, b block, col, row, width int, ground vaxis.Color) int {
 	if len(b.reacts) == 0 {
 		return row
 	}
+	strip := -pillGap
+	for _, p := range b.reacts {
+		strip += a.cells(p) + pillGap
+	}
+	col = b.hang(col, width, strip)
 	for _, p := range b.reacts {
 		width := a.cells(p)
 		chip := a.drawChip(pane, col, row, width, p.mine, ground)

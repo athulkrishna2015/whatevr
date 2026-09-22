@@ -407,3 +407,43 @@ func TestThePointerFindsTheMessageItIsOver(t *testing.T) {
 		t.Fatalf("pointer on the chat list found message %q", off)
 	}
 }
+
+// A message you sent hangs off the rule on the right, and everything in it
+// lines up against that edge. A short answer under a long quote, left where
+// the quote starts, reads as adrift in the middle of the column rather than as
+// the end of the conversation.
+func TestAnOutgoingMessageHangsOffTheRuleItStandsOn(t *testing.T) {
+	a := stubApp(90, 26, 4, 0)
+	c := a.conversation
+	c.msgs.Reset()
+	c.msgs.Upsert("00000000000000000001", mustJSON(proto.MessageRow{
+		ID: "m", Kind: "text", Direction: "outgoing", Status: "read", Text: "Haath mai",
+		Sender: proto.Sender{ID: "me", Name: "me"},
+		ReplyTo: &proto.ReplyQuote{
+			MessageID: "q", Sender: proto.Sender{ID: "x", Name: "someone"},
+			Text: "a quoted line long enough to set the width of the whole message",
+		},
+	}))
+	c.msgs.Ready(true, true)
+	a.paint()
+
+	words := ""
+	for _, line := range strings.Split(a.transcriptRowsText(), "\n") {
+		if strings.Contains(line, "Haath mai") {
+			words = line
+		}
+	}
+	if words == "" {
+		t.Fatalf("the message did not draw:\n%s", a.transcriptRowsText())
+	}
+	// The rule is the edge the message hangs off, so the last of the words is
+	// the cell before it.
+	rule := strings.Index(words, "\u258e")
+	end := strings.Index(words, "Haath mai") + len("Haath mai")
+	if rule < 0 {
+		t.Fatalf("the run drew no rule: %q", words)
+	}
+	if end != rule {
+		t.Errorf("the words end at column %d and the rule stands at %d: %q", end, rule, words)
+	}
+}
