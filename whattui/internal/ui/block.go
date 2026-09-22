@@ -158,10 +158,7 @@ func (a *App) drawPills(pane vaxis.Window, b block, col, row int, ground vaxis.C
 		chip := a.drawChip(pane, col, row, width, p.mine, ground)
 		style := vaxis.Style{Foreground: a.theme.TextMuted, Background: chip}
 		if p.mine {
-			style = vaxis.Style{
-				Foreground: a.theme.Accent, Background: chip, Attribute: vaxis.AttrBold,
-				UnderlineStyle: vaxis.UnderlineSingle, UnderlineColor: a.theme.Accent,
-			}
+			style = vaxis.Style{Foreground: a.theme.Text, Background: chip, Attribute: vaxis.AttrBold}
 		}
 		a.print(pane, col+pillPad, row, style, p.text)
 		col += width + pillGap
@@ -178,9 +175,9 @@ func (a *App) drawPills(pane vaxis.Window, b block, col, row int, ground vaxis.C
 // its corners and keeps its size, its colour and its place, which is the whole
 // of the tier rule.
 func (a *App) drawChip(pane vaxis.Window, col, row, width int, mine bool, ground vaxis.Color) vaxis.Color {
-	fill, edge, cell := a.theme.PaintIn, a.theme.PaintInEdge, a.theme.BubbleIn
+	fill, edge, cell := a.theme.PaintChip, a.theme.PaintChipEdge, a.theme.Chip
 	if mine {
-		fill, edge, cell = a.theme.PaintOut, a.theme.PaintOutEdge, a.theme.BubbleOut
+		fill, edge, cell = a.theme.PaintChipMine, a.theme.PaintChipMineEdge, a.theme.ChipMine
 	}
 	if a.painted() {
 		a.blank(pane, col, row, width, vaxis.Style{Background: ground})

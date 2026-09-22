@@ -44,6 +44,15 @@ type Theme struct {
 	BubbleIn  vaxis.Color
 	BubbleOut vaxis.Color
 
+	// The two chip grounds: what a reaction somebody else put there stands on,
+	// and what one of your own stands on. They are their own roles rather than
+	// the bubble grounds again because the chip is the only thing that can say
+	// whose a reaction is. An emoji is a picture the font draws: it takes no
+	// foreground, no weight and no ink of ours, so if these two are the same
+	// colour there is nothing left to tell them apart.
+	Chip     vaxis.Color
+	ChipMine vaxis.Color
+
 	// Identity is the curated hue ring participants are coloured from. A hash
 	// straight to RGB produces mud and clashes; a hand-picked ring does not,
 	// and the same person lands on the same colour forever.
@@ -67,6 +76,12 @@ type Theme struct {
 	PaintInEdge  color.NRGBA
 	PaintOut     color.NRGBA
 	PaintOutEdge color.NRGBA
+
+	// The two chip grounds and their edges, for the rasteriser.
+	PaintChip         color.NRGBA
+	PaintChipEdge     color.NRGBA
+	PaintChipMine     color.NRGBA
+	PaintChipMineEdge color.NRGBA
 }
 
 // Default is the indexed palette: correct at the plain tier, and whatever the
@@ -95,19 +110,27 @@ func Default() Theme {
 		Error:            vaxis.IndexColor(1),
 		BubbleIn:         vaxis.IndexColor(0),
 		BubbleOut:        vaxis.IndexColor(0),
+		// Two indices that are plainly not each other, because here they are
+		// the whole of the difference between your reaction and anybody else's.
+		Chip:     vaxis.IndexColor(8),
+		ChipMine: vaxis.IndexColor(4),
 		Identity: []vaxis.Color{
 			vaxis.IndexColor(1), vaxis.IndexColor(2), vaxis.IndexColor(3),
 			vaxis.IndexColor(4), vaxis.IndexColor(5), vaxis.IndexColor(6),
 			vaxis.IndexColor(9), vaxis.IndexColor(10), vaxis.IndexColor(11),
 			vaxis.IndexColor(12), vaxis.IndexColor(13), vaxis.IndexColor(14),
 		},
-		InkText:      [3]uint8{0xe6, 0xe6, 0xe6},
-		InkMuted:     [3]uint8{0x8a, 0x8f, 0x98},
-		InkGround:    darkGround,
-		PaintIn:      opaque(mix(darkGround, [3]uint8{0xe6, 0xe6, 0xe6}, bubbleMix)),
-		PaintInEdge:  opaque(mix(darkGround, [3]uint8{0xe6, 0xe6, 0xe6}, edgeMix)),
-		PaintOut:     opaque(mix(darkGround, hex(accentHue), bubbleMix)),
-		PaintOutEdge: opaque(mix(darkGround, hex(accentHue), edgeMix)),
+		InkText:           [3]uint8{0xe6, 0xe6, 0xe6},
+		InkMuted:          [3]uint8{0x8a, 0x8f, 0x98},
+		InkGround:         darkGround,
+		PaintIn:           opaque(mix(darkGround, [3]uint8{0xe6, 0xe6, 0xe6}, bubbleMix)),
+		PaintInEdge:       opaque(mix(darkGround, [3]uint8{0xe6, 0xe6, 0xe6}, edgeMix)),
+		PaintOut:          opaque(mix(darkGround, hex(accentHue), bubbleMix)),
+		PaintOutEdge:      opaque(mix(darkGround, hex(accentHue), edgeMix)),
+		PaintChip:         opaque(mix(darkGround, [3]uint8{0xe6, 0xe6, 0xe6}, chipMix)),
+		PaintChipEdge:     opaque(mix(darkGround, [3]uint8{0xe6, 0xe6, 0xe6}, chipEdgeMix)),
+		PaintChipMine:     opaque(mix(darkGround, hex(accentHue), chipMix)),
+		PaintChipMineEdge: opaque(mix(darkGround, hex(accentHue), chipEdgeMix)),
 	}
 }
 
@@ -125,6 +148,11 @@ var ring = [][3]uint8{
 const (
 	bubbleMix = 0.09
 	edgeMix   = 0.22
+	// A chip is a small thing with a picture in it, so it stands further off
+	// the ground than a bubble does: a bubble is found by the run it belongs
+	// to, and a chip has to be found on its own.
+	chipMix     = 0.14
+	chipEdgeMix = 0.30
 )
 
 // darkGround is what a terminal that will not say what it is wearing is
@@ -190,15 +218,24 @@ func Derive(bg, fg vaxis.Color) Theme {
 		// still express and the graphics tier will draw as real alpha.
 		BubbleIn:  step(bubbleMix),
 		BubbleOut: colorOf(mix(ground, accent, 0.20)),
+		// A reaction somebody else put there is a step further up the same
+		// ramp; one of your own is the accent, which is the colour this
+		// application already spends on the things that are yours.
+		Chip:      step(chipMix),
+		ChipMine:  colorOf(mix(ground, accent, 0.28)),
 		InkText:   ink,
 		InkMuted:  mix(ground, ink, 0.60),
 		InkGround: ground,
 		// The same two grounds a rasteriser can use, and the edge that reads
 		// as a hairline around them.
-		PaintIn:      opaque(mix(ground, ink, bubbleMix)),
-		PaintInEdge:  opaque(mix(ground, ink, edgeMix)),
-		PaintOut:     opaque(mix(ground, accent, 0.20)),
-		PaintOutEdge: opaque(mix(ground, accent, 0.45)),
+		PaintIn:           opaque(mix(ground, ink, bubbleMix)),
+		PaintInEdge:       opaque(mix(ground, ink, edgeMix)),
+		PaintOut:          opaque(mix(ground, accent, 0.20)),
+		PaintOutEdge:      opaque(mix(ground, accent, 0.45)),
+		PaintChip:         opaque(mix(ground, ink, chipMix)),
+		PaintChipEdge:     opaque(mix(ground, ink, chipEdgeMix)),
+		PaintChipMine:     opaque(mix(ground, accent, 0.28)),
+		PaintChipMineEdge: opaque(mix(ground, accent, 0.55)),
 	}
 	for _, c := range ring {
 		t.Identity = append(t.Identity, colorOf(readable(ground, c)))

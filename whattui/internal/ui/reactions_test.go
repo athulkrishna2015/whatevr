@@ -7,6 +7,7 @@ import (
 	"go.rockorager.dev/vaxis"
 
 	"whattui/internal/proto"
+	"whattui/internal/term"
 )
 
 // under finds a line of the transcript holding want and answers the line after
@@ -72,18 +73,28 @@ func TestYourOwnReactionIsMarkedApartFromEverybodyElses(t *testing.T) {
 		t.Fatalf("the strip reads %q, want both reactions", strip)
 	}
 
+	// The chip is the whole of it: an emoji is a picture the font draws, so a
+	// foreground, a weight and a rule under the cells are all marks on
+	// something that does not take them. The ground around it is what is left,
+	// which is why the two chips are two colours at every tier.
 	mine, theirs := a.styleOf(t, "🔥"), a.styleOf(t, "👍")
-	// The underline is the one that has to be there. An emoji is drawn by the
-	// font in the font's own colours, so a foreground and a weight are marks on
-	// a cell nobody can see.
-	if mine.UnderlineStyle != vaxis.UnderlineSingle {
-		t.Error("your own reaction is not underlined, so nothing visible marks it as yours")
+	if mine.Background != a.theme.ChipMine || theirs.Background != a.theme.Chip {
+		t.Errorf("your chip is %v and theirs is %v, want the two chip grounds",
+			mine.Background, theirs.Background)
 	}
-	if mine.Foreground != a.theme.Accent {
-		t.Errorf("your own reaction is drawn in %v, want the accent", mine.Foreground)
+	if mine.UnderlineStyle != vaxis.UnderlineOff || theirs.UnderlineStyle != vaxis.UnderlineOff {
+		t.Error("a chip was underlined as well, which draws a line through the glyph in it")
 	}
-	if theirs.UnderlineStyle == mine.UnderlineStyle || theirs.Foreground == mine.Foreground {
-		t.Error("somebody else's reaction is drawn the same way as your own")
+
+	// Including the tier with sixteen of them, where a tint is not available
+	// and two indices have to do.
+	plain := atTier(a, term.TierPlain)
+	plain.paint()
+	if plain.theme.Chip == plain.theme.ChipMine {
+		t.Error("at the plain tier both chips are the same colour, so nothing says whose is whose")
+	}
+	if got := plain.styleOf(t, "🔥").Background; got != plain.theme.ChipMine {
+		t.Errorf("at the plain tier your own chip is %v, want %v", got, plain.theme.ChipMine)
 	}
 }
 
@@ -157,9 +168,9 @@ func TestEveryReactionIsTheSameChipWhateverIsInIt(t *testing.T) {
 	}
 
 	for _, p := range pills {
-		want := a.theme.BubbleIn
+		want := a.theme.Chip
 		if p.mine {
-			want = a.theme.BubbleOut
+			want = a.theme.ChipMine
 		}
 		// Every cell of the chip, the air at both ends included: a chip that
 		// stops at its glyphs is a chip with the page showing through it.
