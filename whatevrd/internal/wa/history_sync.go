@@ -214,6 +214,9 @@ func (c *Client) processHistorySyncChunk(ctx context.Context, chunk appstore.His
 		// Each chunk brings LID→PN mappings with it; retry any pin/archive/mute
 		// state that was parked because its mapping hadn't landed yet.
 		c.reconcilePendingAppState(ctx, false)
+		// It also brings messages, which is what an edit or a revoke parked
+		// earlier was waiting for.
+		c.reconcilePendingRewrites(ctx, false)
 	} else {
 		if err := client.SendProtocolMessageReceipt(ctx, chunk.ID, types.ReceiptTypeHistorySync); err != nil {
 			c.log.Warnf("Failed to acknowledge processed history sync chunk %s: %v", chunk.ID, err)

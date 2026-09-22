@@ -35,6 +35,9 @@ func (c *Client) reconcileAfterHistorySync(ctx context.Context) {
 	}
 	c.migrateLIDChats(ctx)
 	c.reconcilePendingAppState(ctx, true)
+	// Last call for an edit or a revoke whose message never came: after this
+	// there is no more history to wait for.
+	c.reconcilePendingRewrites(ctx, true)
 }
 
 // pendingAppStateEntry parks pin/archive/mute state for a chat whose JID

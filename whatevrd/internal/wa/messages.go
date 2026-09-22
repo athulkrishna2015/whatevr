@@ -554,16 +554,15 @@ func (c *Client) handleRevokeMessage(ctx context.Context, evt *events.Message, o
 	}
 
 	internalID := internalMessageIDForChat(chatID, types.MessageID(targetID))
-	message, chat, changed, err := c.store.MarkMessageRevoked(ctx, internalID)
-	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			c.log.Warnf("Failed to mark message %s revoked: %v", internalID, err)
+	rewrite := pendingRewrite{revoke: true}
+	if err := c.applyRewrite(ctx, internalID, rewrite, offlineSync); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// The message this deletes has not been synced yet. Park it: the
+			// deletion is said once and the message is still on its way.
+			c.parkPendingRewrite(internalID, rewrite, false)
+			return true
 		}
-		return true
-	}
-	if changed && !offlineSync {
-		c.daemon.PublishMessageUpdated(toDaemonMessage(message))
-		c.daemon.PublishChatUpdated(toDaemonChat(chat))
+		c.log.Warnf("Failed to mark message %s revoked: %v", internalID, err)
 	}
 	return true
 }
@@ -644,16 +643,15 @@ func (c *Client) handleEditMessage(ctx context.Context, evt *events.Message, off
 	}
 
 	internalID := internalMessageIDForChat(chatID, types.MessageID(targetID))
-	message, chat, changed, err := c.store.UpdateMessageText(ctx, internalID, newText, mentions)
-	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			c.log.Warnf("Failed to apply edit to message %s: %v", internalID, err)
+	rewrite := pendingRewrite{text: newText, mentions: mentions}
+	if err := c.applyRewrite(ctx, internalID, rewrite, offlineSync); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// Same as a revoke: the words this replaces are still in the post,
+			// and the edit is never said twice.
+			c.parkPendingRewrite(internalID, rewrite, false)
+			return true
 		}
-		return true
-	}
-	if changed && !offlineSync {
-		c.daemon.PublishMessageUpdated(toDaemonMessage(message))
-		c.daemon.PublishChatUpdated(toDaemonChat(chat))
+		c.log.Warnf("Failed to apply edit to message %s: %v", internalID, err)
 	}
 	return true
 }

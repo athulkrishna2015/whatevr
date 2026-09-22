@@ -510,6 +510,10 @@ func (c *Client) resetInMemoryAccountState() {
 	c.pendingStars = nil
 	c.pendingStarsMu.Unlock()
 
+	c.pendingRewritesMu.Lock()
+	c.pendingRewrites = nil
+	c.pendingRewritesMu.Unlock()
+
 	c.clearHistorySyncStallWatch()
 	c.historySyncMu.Lock()
 	c.historySyncLastEvent = app.HistorySyncEvent{}

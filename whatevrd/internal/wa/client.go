@@ -51,6 +51,12 @@ type Client struct {
 	pendingStarsMu sync.Mutex
 	pendingStars   map[string]bool
 
+	// pendingRewrites parks edits and revokes whose target message has not been
+	// synced yet, by internal message id, for the same reason and on the same
+	// passes; see pending_rewrite.go.
+	pendingRewritesMu sync.Mutex
+	pendingRewrites   map[string]pendingRewrite
+
 	// lifecycleMu serializes start/logout/close; sessionMu guards the handle
 	// itself so any goroutine can ask which account it is working for.
 	lifecycleMu sync.Mutex
