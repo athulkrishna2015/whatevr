@@ -889,10 +889,22 @@ func mediaKindToWire(mediaKind string) string {
 }
 
 // messageFallback is the one-line human rendering a frontend shows for any kind
-// it does not implement (and the natural preview for the ones it does). It is
-// the same rendering the chat row's preview uses, from the same table.
+// it does not implement. It says what the message is, from the same table the
+// chat row's preview comes from, and it parts with that preview on one point: a
+// caption never stands in for the kind here. The row carries `text` as well, so
+// a frontend that draws both would otherwise draw the caption twice and never
+// say the thing was a video.
 func messageFallback(m store.Message) string {
-	return store.MessagePreviewLine(m)
+	return store.PreviewLine(store.PreviewFacts{
+		Text:           m.Text,
+		PayloadSummary: m.PayloadSummary,
+		MediaKind:      m.MediaKind,
+		MediaMimeType:  m.MediaMimeType,
+		MediaFileName:  m.MediaFileName,
+		DurationSecs:   m.MediaDurationSecs,
+		Revoked:        m.IsRevoked,
+		KindWins:       true,
+	})
 }
 
 // attachMessagePayload hangs the row's kind-specific object off the item. It is

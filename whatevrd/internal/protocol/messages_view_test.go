@@ -251,8 +251,14 @@ func TestMessagesViewImageItemShape(t *testing.T) {
 	if item["kind"] != "image" {
 		t.Fatalf("kind = %v, want image", item["kind"])
 	}
-	if item["fallback"] != "a caption" {
-		t.Fatalf("fallback = %v, want caption", item["fallback"])
+	// The fallback says what the message is, not what it says. The caption is
+	// already on the row as `text`, and a frontend that drew both would
+	// otherwise draw the caption twice and never say it was a photo.
+	if item["fallback"] != "\U0001F4F7 Photo" {
+		t.Fatalf("fallback = %v, want the kind", item["fallback"])
+	}
+	if item["text"] != "a caption" {
+		t.Fatalf("text = %v, want the caption", item["text"])
 	}
 	media, ok := item["media"].(map[string]any)
 	if !ok {

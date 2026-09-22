@@ -139,6 +139,12 @@ type PreviewFacts struct {
 	MediaFileName  string
 	DurationSecs   int32
 	Revoked        bool
+	// KindWins asks for the line to say what the message is rather than what
+	// it says. A caption stands in for the label everywhere a message is
+	// summarised in one line, because that is the line WhatsApp itself shows;
+	// it must not where the caller draws the caption underneath anyway, or the
+	// caption is the whole of both lines and nothing says it was a video.
+	KindWins bool
 }
 
 // PreviewLine renders a message as one human-readable line. It is the wire
@@ -166,7 +172,7 @@ func PreviewLine(f PreviewFacts) string {
 			return descriptor.prefix() + name
 		}
 	}
-	if descriptor.CaptionWins && caption != "" {
+	if descriptor.CaptionWins && caption != "" && !f.KindWins {
 		return caption
 	}
 
