@@ -138,8 +138,23 @@ func (a *App) drawBlock(pane vaxis.Window, b block, col, row, width int, ground 
 		// The block is claimed whatever the terminal can do: without the
 		// scale key vaxis paints the reserved cells and draws the glyph small
 		// in the top left, so nothing moves.
+		_, page := pane.Size()
 		for _, l := range b.body {
 			at := b.hang(col, width, a.lineWidth(l)*b.scale)
+			if row < 0 || row+b.scale > page {
+				// A scaled character is written once, at its top left, and
+				// owns every cell under it. Half of one is not half a glyph:
+				// the top left is off the pane, so nothing is ever written to
+				// the rows of it that are on the pane and whatever was there
+				// stays. A run scrolls a row at a time, and a message with a
+				// quote over it puts the block across that edge, so this is
+				// the common position and not the corner. Draw the small
+				// glyph in the space the layout already reserved, which is
+				// what a terminal that cannot scale shows anyway.
+				a.printLine(pane, b.hang(col, width, a.lineWidth(l)), row, text, l)
+				row += b.scale
+				continue
+			}
 			pane.New(at, row, width-(at-col), b.scale).PrintScaled(0, vaxis.Segment{
 				Text:  lineText(l),
 				Style: text,
