@@ -222,7 +222,7 @@ func (a *App) drawChatList(win vaxis.Window, l layout.Layout) {
 
 	a.mu.Lock()
 	selected, top, focus, active, hovered := a.selected, a.listTop, a.focus, a.activeChat, a.hovered
-	live := a.transport == proto.Ready
+	live := a.transport == proto.Ready && a.linkedLocked()
 	a.mu.Unlock()
 
 	rail := l.Shape == layout.ShapeRail && !l.ListFocused
@@ -240,11 +240,13 @@ func (a *App) drawChatList(win vaxis.Window, l layout.Layout) {
 		w--
 	}
 
-	// Nothing is drawn off a socket that is gone. Every row in the list is the
-	// daemon's claim about right now: who said what last, how much of it is
-	// unread, which order any of it is in. With nothing on the other end those
-	// are claims nobody is standing behind, and a list that cannot change is
-	// worse than no list, because it looks exactly like one that can.
+	// Nothing is drawn off a socket that is gone, and nothing off an account
+	// that is. Every row in the list is the daemon's claim about right now: who
+	// said what last, how much of it is unread, which order any of it is in.
+	// With nothing on the other end those are claims nobody is standing behind,
+	// and a list that cannot change is worse than no list, because it looks
+	// exactly like one that can. A phone somebody unpaired is the same thing
+	// from the other side: the rows are a stranger's now.
 	if !live {
 		fill(pane.New(0, 0, w, h), a.theme.BackgroundPanel)
 		a.drawEmptyList(pane, false)
@@ -284,10 +286,16 @@ func (a *App) drawChatList(win vaxis.Window, l layout.Layout) {
 func (a *App) drawEmptyList(pane vaxis.Window, ready bool) {
 	style := vaxis.Style{Foreground: a.theme.TextMuted, Background: a.theme.BackgroundPanel}
 	a.mu.Lock()
-	transport := a.transport
+	transport, linked := a.transport, a.linkedLocked()
 	a.mu.Unlock()
 	if transport != proto.Ready {
 		a.print(pane, 1, 1, style, "waiting for whatevrd")
+		return
+	}
+	// The same words the notice beside it uses, so the two halves of the screen
+	// are saying one thing.
+	if !linked {
+		a.print(pane, 1, 1, style, "not paired with a phone")
 		return
 	}
 	if !ready {
@@ -528,15 +536,16 @@ func (a *App) drawHeader(win vaxis.Window, r layout.Rect) {
 
 	a.mu.Lock()
 	active := a.activeChat
-	live := a.transport == proto.Ready
+	live := a.transport == proto.Ready && a.linkedLocked()
 	a.mu.Unlock()
 
 	style := vaxis.Style{
 		Foreground: a.theme.Text, Background: a.theme.BackgroundPanel,
 		Attribute: vaxis.AttrBold,
 	}
-	// Our own name while there is no socket, for the same reason the list is
-	// empty: the chat this was open on is a chat nothing is reading any more.
+	// Our own name while there is no socket and no account, for the same reason
+	// the list is empty: the chat this was open on is a chat nothing is reading
+	// any more.
 	// The name is the one thing on the frame saying a conversation is in front
 	// of you, and it says it long after it stopped being true.
 	title := "whattui"

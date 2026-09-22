@@ -503,6 +503,18 @@ func (a *App) hover(chat int) bool {
 	return true
 }
 
+// linkedLocked reports whether there is an account behind the socket. A daemon
+// waiting to be paired has emptied its store, so anything still on the screen
+// from the account that left is about somebody who is not there.
+//
+// The object view is its own lock and is never asked anything under App.mu
+// elsewhere; this one is safe because an object view answers from a field it
+// holds, with no collection to read and no callback to run.
+func (a *App) linkedLocked() bool {
+	c, ok := a.conn.Value()
+	return !ok || c.State != "need_login"
+}
+
 // notice is the panel that replaces the transcript when there is nothing to
 // show and a reason for it. It returns nothing at all when the reason is that
 // the reader has simply not picked a chat yet, which the transcript says in
