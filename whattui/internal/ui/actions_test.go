@@ -159,7 +159,7 @@ func TestEditingSomebodyElsesMessageIsRefused(t *testing.T) {
 	if len(*calls) != 0 {
 		t.Fatalf("a refused edit still made %d requests", len(*calls))
 	}
-	if a.toastNow() == "" {
+	if msg, _, _ := a.toastNow(); msg == "" {
 		t.Error("the key did nothing and said nothing")
 	}
 }
@@ -175,7 +175,7 @@ func TestCopyingAMessageNeverAsksTheDaemon(t *testing.T) {
 	if len(*calls) != 0 {
 		t.Fatalf("copy asked the daemon: %+v", *calls)
 	}
-	if got := a.toastNow(); !strings.Contains(got, "clipboard") {
+	if got, _, _ := a.toastNow(); !strings.Contains(got, "clipboard") {
 		t.Fatalf("copy said %q", got)
 	}
 }

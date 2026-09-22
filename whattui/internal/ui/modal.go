@@ -155,7 +155,7 @@ func (a *App) onModalKey(k vaxis.Key) bool {
 		}
 		if choice.Disabled != "" {
 			a.mu.Unlock()
-			a.toast(choice.Disabled)
+			a.refuse(choice.Disabled)
 			return true
 		}
 		a.modal = modalState{}
@@ -280,7 +280,7 @@ func (a *App) onModalMouse(m vaxis.Mouse) (bool, bool) {
 			if ok && choice.Disabled != "" {
 				reason := choice.Disabled
 				a.mu.Unlock()
-				a.toast(reason)
+				a.refuse(reason)
 				return true, true
 			}
 			if ok && choice.Disabled == "" {
@@ -503,6 +503,16 @@ func (a *App) dimCells(win vaxis.Window, from, to, row int) {
 // terminal's own and cannot be mixed, so those keep the attribute and nothing
 // else.
 func (a *App) faded(ink, ground vaxis.Color) vaxis.Color {
+	return a.mixInk(ink, ground, dimPercent)
+}
+
+// mixInk is percent of one colour over the rest of another. Indexed colours are
+// the terminal's own and cannot be mixed, so those come back untouched and
+// whatever they were carrying carries it alone.
+func (a *App) mixInk(ink, ground vaxis.Color, percent int) vaxis.Color {
+	if percent >= 100 {
+		return ink
+	}
 	fg, bg := ink.Params(), ground.Params()
 	if len(fg) != 3 {
 		return ink
@@ -513,7 +523,7 @@ func (a *App) faded(ink, ground vaxis.Color) vaxis.Color {
 		}
 	}
 	mix := func(f, b uint8) uint8 {
-		return uint8((uint32(f)*dimPercent + uint32(b)*(100-dimPercent)) / 100)
+		return uint8((uint32(f)*uint32(percent) + uint32(b)*uint32(100-percent)) / 100)
 	}
 	return vaxis.RGBColor(mix(fg[0], bg[0]), mix(fg[1], bg[1]), mix(fg[2], bg[2]))
 }

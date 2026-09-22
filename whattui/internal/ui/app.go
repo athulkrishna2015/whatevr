@@ -71,10 +71,12 @@ type App struct {
 	// it is over. A run is one shape; this is what tells its messages apart.
 	messages []messageAt
 
-	// toastText is the transient line that says what just happened, and
-	// toastUntil is when it stops being true.
-	toastText  string
-	toastUntil time.Time
+	// toastText is the transient line that says what just happened, toastUntil
+	// is when it stops being true, and toastRefused is whether what happened
+	// was nothing.
+	toastText    string
+	toastRefused bool
+	toastUntil   time.Time
 
 	// State the UI owns. Presentation only: scroll positions, what is
 	// selected, what is typed. Everything renderable lives in a view.
@@ -197,26 +199,48 @@ func itoa(n int) string { return strconv.Itoa(n) }
 
 // toast says what just happened, briefly, without taking the screen. It is
 // posted from wherever the thing happened, including off the event loop.
-func (a *App) toast(msg string) {
+func (a *App) toast(msg string) { a.say(msg, false) }
+
+// refuse is a toast for the answer "no": a key pressed where it does not
+// apply, a command run against nothing, a request the daemon turned down. The
+// same line in the same corner, in the ink that means it did not happen.
+func (a *App) refuse(msg string) { a.say(msg, true) }
+
+func (a *App) say(msg string, refused bool) {
 	a.mu.Lock()
 	a.toastText = msg
+	a.toastRefused = refused
 	a.toastUntil = time.Now().Add(toastLife)
 	a.mu.Unlock()
-	// One wake-up when it expires, so the line actually leaves rather than
+	// Nothing else here draws twice for one event, so the frames the fade needs
+	// are asked for here and nowhere else: one per step through the last of the
+	// toast's life, and one at the end so the line actually leaves rather than
 	// sitting there until the next keystroke.
-	time.AfterFunc(toastLife, func() { a.vx.PostEvent(redraw{}) })
+	for at := toastLife - toastFade; at <= toastLife; at += toastFade / toastSteps {
+		time.AfterFunc(at, func() { a.vx.PostEvent(redraw{}) })
+	}
 	a.vx.PostEvent(redraw{})
 }
 
-const toastLife = 2500 * time.Millisecond
+const (
+	toastLife = 2500 * time.Millisecond
+	// toastFade is how long it takes to go, and toastSteps is how many frames
+	// that is. Five is enough for a fade to read as one and few enough that the
+	// cost of it is nothing.
+	toastFade  = 500 * time.Millisecond
+	toastSteps = 5
+)
 
-func (a *App) toastNow() string {
+// toastNow is what the toast says, whether it is the answer "no", and how long
+// it has left.
+func (a *App) toastNow() (string, bool, time.Duration) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if time.Now().After(a.toastUntil) {
-		return ""
+	left := time.Until(a.toastUntil)
+	if left <= 0 {
+		return "", false, 0
 	}
-	return a.toastText
+	return a.toastText, a.toastRefused, left
 }
 
 func atoi(s string) int {

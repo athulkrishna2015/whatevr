@@ -2,6 +2,7 @@ package ui
 
 import (
 	"image"
+	"image/color"
 	"strconv"
 	"strings"
 	"time"
@@ -60,6 +61,129 @@ func (a *App) paint() {
 	}
 	a.paintSelection()
 	a.drawModal(win)
+	// Last, so it is over the panel as well. A toast is usually the answer to
+	// something pressed on a panel, and an answer behind the question is no
+	// answer.
+	a.drawToast(win, l)
+}
+
+// drawToast is the line that says what just happened, in the top right corner,
+// over whatever is there.
+//
+// A corner rather than a row of its own: it is gone in two seconds, and a strip
+// that appears and disappears would move every message on the screen twice for
+// every copied line. Over the top right because that is the one part of a chat
+// window nothing is ever being read in, and because the eye that just pressed a
+// key is at the bottom, where a toast would be in the way of the next thing
+// typed.
+func (a *App) drawToast(win vaxis.Window, l layout.Layout) {
+	msg, refused, life := a.toastNow()
+	if msg == "" {
+		return
+	}
+	w, h := win.Size()
+	// The bar takes the first column and the words keep a column of their own
+	// either side of themselves, which for a card one row tall is the padding
+	// its own height asks for.
+	width := minInt(a.width(msg)+3, w-2)
+	if width < 6 {
+		return
+	}
+	row := 0
+	if !l.Header.Empty() {
+		// Under the header, which is already saying something about the chat.
+		row = l.Header.Row + l.Header.Height
+	}
+	rect := layout.Rect{Col: w - width - 1, Row: row, Width: width, Height: 1}
+	if rect.Col < 0 || rect.Row+rect.Height > h {
+		return
+	}
+
+	// It leaves the way a thing that was never part of the page leaves: by
+	// going, rather than by being switched off. Everything it is made of mixes
+	// toward the ground over the last moment of its life, cells and pixels
+	// alike, which is the one piece of motion in the whole application and the
+	// only place one belongs.
+	fade := 100
+	if left := life; left < toastFade {
+		fade = int(left * 100 / toastFade)
+	}
+	if fade <= 0 {
+		return
+	}
+
+	ground := a.mixInk(a.theme.BackgroundPanel, a.theme.Background, fade)
+	accent := a.theme.Accent
+	ink := a.theme.Text
+	if refused {
+		accent, ink = a.theme.Warning, a.theme.Warning
+	}
+	ink = a.mixInk(ink, a.theme.Background, fade)
+
+	// A run and a bubble are both images over the cell background, so the
+	// toast has to take the ones it covers with it, exactly as a panel does.
+	// Only the row it writes in: the row under it keeps its words and gets the
+	// shadow across them, which is what a shadow is for.
+	a.occlude(rect)
+	a.occludeSurfaces(rect)
+
+	pane := sub(win, rect)
+	if !a.drawCard(win, rect, ground, accent, fade) {
+		// No pixels: the same cells, the panel colour, and the bar as a glyph.
+		fill(pane, ground)
+		a.print(pane, 0, 0, vaxis.Style{
+			Foreground: a.mixInk(accent, a.theme.Background, fade), Background: ground,
+		}, "▎")
+	}
+	a.print(pane, 2, 0, vaxis.Style{Foreground: ink, Background: ground}, a.clip(msg, width-3))
+}
+
+// drawCard is the panel a toast floats on, and it reports whether it drew one.
+// The shadow needs a row under the card to fall into, so it claims one and
+// writes no text in it: what is down there is the transcript, with the shadow
+// over it.
+func (a *App) drawCard(win vaxis.Window, r layout.Rect, ground, accent vaxis.Color, fade int) bool {
+	if !a.painted() {
+		return false
+	}
+	fill, ok := theme.Paint(a.theme.Background, ground, 1)
+	if !ok {
+		return false
+	}
+	edge, _ := theme.Paint(a.theme.Background, a.theme.Border, 1)
+	bar, _ := theme.Paint(a.theme.Background, accent, 1)
+	cw, ch := a.cellPix()
+
+	// One row for the card, one for the shadow, unless the screen has no row
+	// to spare, in which case the shadow goes and nothing else moves.
+	_, h := win.Size()
+	height := 2
+	if r.Row+height > h {
+		height = 1
+	}
+	spec := func(pw, ph int) paint.Spec {
+		card := paint.Card{
+			W: pw, H: ph,
+			Fill: fill, Edge: edge, Accent: bar,
+			// Half the row: a one row card is a pill, and a pill's corners are
+			// as round as it is tall.
+			Radius: ch / 2,
+			Bar:    maxInt(cw/4, 2),
+			Shadow: maxInt(ch/3, 3),
+			Drop:   maxInt(ch/6, 2),
+		}
+		if height == 1 {
+			card.Shadow, card.Drop = 0, 0
+		}
+		if fade < 100 {
+			ground := color.NRGBA{a.theme.InkGround[0], a.theme.InkGround[1], a.theme.InkGround[2], 0xff}
+			return paint.Fade{Spec: card, Toward: ground, Percent: fade}
+		}
+		return card
+	}
+	a.paintRect(sub(win, layout.Rect{Col: r.Col, Row: r.Row, Width: r.Width, Height: height}),
+		0, 0, r.Width, height, spec)
+	return true
 }
 
 // sub is a vaxis window for a layout rect.
@@ -724,13 +848,6 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 	// prefix nobody can see is a prefix nobody uses.
 	if leader {
 		a.drawLeaderHints(pane, r.Width)
-		return
-	}
-
-	if msg := a.toastNow(); msg != "" {
-		// A toast takes the hint line rather than a corner of its own: it is
-		// gone in a moment, and the hints are the thing worth its place.
-		a.print(pane, 1, 0, vaxis.Style{Foreground: a.theme.Success}, a.clip(msg, r.Width-2))
 		return
 	}
 

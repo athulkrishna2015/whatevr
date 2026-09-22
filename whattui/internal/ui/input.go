@@ -39,7 +39,7 @@ func (a *App) onKey(k vaxis.Key) {
 		if id, ok := a.leaderCommand(k); ok {
 			a.execute(id)
 		} else {
-			a.toast("unknown ^x command")
+			a.refuse("unknown ^x command")
 		}
 		return
 	}

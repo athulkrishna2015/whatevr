@@ -162,7 +162,7 @@ func (a *App) execute(id commandID) bool {
 	}
 	if c.Enabled != nil {
 		if ok, why := c.Enabled(a.commandState()); !ok {
-			a.toast(why)
+			a.refuse(why)
 			return true
 		}
 	}
