@@ -182,9 +182,12 @@ func (a *App) drawCard(win vaxis.Window, r layout.Rect, edge vaxis.Color, fade i
 			Top:  ch / 2,
 			Body: 2 * ch,
 			Fill: fill, Edge: rim,
-			// As round as it is tall, which is what makes it a pill rather than
-			// a panel with the corners taken off.
-			Radius: ch,
+			// The same curve every other corner in the application has, and
+			// the same one the palette's own frame draws with a box glyph: a
+			// corner taken off, not a semicircle. A card as round as it is
+			// tall is a lozenge, and a lozenge belongs to a different
+			// application than the one behind it.
+			Radius: a.bubbleRadius(),
 			Shadow: maxInt(ch/3, 3),
 			Drop:   maxInt(ch/6, 2),
 		}
