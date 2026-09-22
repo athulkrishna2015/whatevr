@@ -222,6 +222,7 @@ func (a *App) drawChatList(win vaxis.Window, l layout.Layout) {
 
 	a.mu.Lock()
 	selected, top, focus, active, hovered := a.selected, a.listTop, a.focus, a.activeChat, a.hovered
+	live := a.transport == proto.Ready
 	a.mu.Unlock()
 
 	rail := l.Shape == layout.ShapeRail && !l.ListFocused
@@ -237,6 +238,17 @@ func (a *App) drawChatList(win vaxis.Window, l layout.Layout) {
 			},
 		})
 		w--
+	}
+
+	// Nothing is drawn off a socket that is gone. Every row in the list is the
+	// daemon's claim about right now: who said what last, how much of it is
+	// unread, which order any of it is in. With nothing on the other end those
+	// are claims nobody is standing behind, and a list that cannot change is
+	// worse than no list, because it looks exactly like one that can.
+	if !live {
+		fill(pane.New(0, 0, w, h), a.theme.BackgroundPanel)
+		a.drawEmptyList(pane, false)
+		return
 	}
 
 	perRow := l.ChatRowHeight()
@@ -516,14 +528,19 @@ func (a *App) drawHeader(win vaxis.Window, r layout.Rect) {
 
 	a.mu.Lock()
 	active := a.activeChat
+	live := a.transport == proto.Ready
 	a.mu.Unlock()
 
 	style := vaxis.Style{
 		Foreground: a.theme.Text, Background: a.theme.BackgroundPanel,
 		Attribute: vaxis.AttrBold,
 	}
+	// Our own name while there is no socket, for the same reason the list is
+	// empty: the chat this was open on is a chat nothing is reading any more.
+	// The name is the one thing on the frame saying a conversation is in front
+	// of you, and it says it long after it stopped being true.
 	title := "whattui"
-	if active != "" {
+	if active != "" && live {
 		if it, ok := a.chats.Get(active); ok {
 			title = it.Value.Name
 		}
