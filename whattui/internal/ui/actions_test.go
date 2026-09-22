@@ -278,6 +278,31 @@ func TestWithoutACursorTheActionLettersAreLetters(t *testing.T) {
 	}
 }
 
+// A message can stay lit while the keyboard is somewhere else, but its letters
+// do not follow it there. At the chat list a letter is about a chat.
+func TestTheMessageLettersStopAtTheChatList(t *testing.T) {
+	a := stubApp(100, 26, 4, 6)
+	calls := records(a)
+	pointAt(a, t, false)
+	a.setFocus(FocusList)
+
+	a.onKey(key('s'))
+	if len(*calls) != 0 {
+		t.Fatalf("a letter at the chat list acted on the message: %+v", *calls)
+	}
+	if a.composer.targeted() {
+		t.Fatal("a letter at the chat list started a reply")
+	}
+
+	// And the hint line agrees, because it is the same rule read twice.
+	a.setFocus(FocusList)
+	a.setCursor(a.messages[0].id)
+	a.paint()
+	if hints := a.hintBarText(); strings.Contains(hints, "r reply") {
+		t.Errorf("the chat list hint line %q offers the message actions", hints)
+	}
+}
+
 // Every action is reachable three ways, and a letter that only works with a
 // cursor must still be in the palette with the reason it does not.
 func TestMessageActionsAreInThePaletteWithTheirReason(t *testing.T) {

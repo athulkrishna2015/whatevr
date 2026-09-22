@@ -53,16 +53,6 @@ func (a *App) onKey(k vaxis.Key) {
 		return
 	}
 
-	// The message actions are bare letters, which only works because a cursor
-	// and a draft are never both on screen: with a message lit, a letter acts
-	// on it, and with none it is a letter.
-	if a.cursor() != "" {
-		if id, ok := a.messageCommand(k); ok {
-			a.execute(id)
-			return
-		}
-	}
-
 	// Esc pops exactly one level, and a live selection is the outermost one.
 	if k.Matches(vaxis.KeyEsc) && a.clearSelection() {
 		return
@@ -71,6 +61,19 @@ func (a *App) onKey(k vaxis.Key) {
 	a.mu.Lock()
 	focus := a.focus
 	a.mu.Unlock()
+
+	// The message actions are bare letters, which only works because a cursor
+	// and a draft are never both on screen: with a message lit, a letter acts
+	// on it, and with none it is a letter.
+	//
+	// They belong to the panes the message is in. A letter pressed at the chat
+	// list is about a chat, whatever is still lit over in the transcript.
+	if focus != FocusList && a.cursor() != "" {
+		if id, ok := a.messageCommand(k); ok {
+			a.execute(id)
+			return
+		}
+	}
 	if k.Matches('?') && focus != FocusComposer {
 		if id, ok := a.commandForDirect("?"); ok {
 			a.execute(id)

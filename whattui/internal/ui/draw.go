@@ -766,8 +766,9 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 		hints = []hint{{"", "\u2191\u2193 move"}, {"", "\u23ce run"}, {"", "esc close"}}
 	// A lit message owns the letters, so the line is what those letters do to
 	// it. Only the ones that apply: an edit hint over somebody else's message
-	// is a key that answers with an excuse.
-	case pointing:
+	// is a key that answers with an excuse. Only in the panes the message is
+	// in, because at the chat list those letters are not live.
+	case pointing && focus != FocusList:
 		star := "star"
 		if message.Starred {
 			star = "unstar"
