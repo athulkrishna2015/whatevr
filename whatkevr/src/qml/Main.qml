@@ -69,9 +69,9 @@ Kirigami.ApplicationWindow {
     onClosing: closeEvent => {
         if (Whatevr.Settings.closeToTray && !quitting) {
             closeEvent.accepted = false
-            // Dismiss the tray popup first: a Qt.Popup holds the input grab,
-            // and a grab that survives the hide/show cycle leaves the restored
-            // window visible but dead to clicks.
+            if (Whatevr.ProtocolController.perfLogging) {
+                console.log("[perf] hide-to-tray mode=" + currentMode)
+            }
             trayMenuWindow.close()
             // Park the left column back on chats: reopening lands on the
             // conversation list, not on whatever tab was open when hiding.
@@ -409,6 +409,9 @@ Kirigami.ApplicationWindow {
     }
 
     function openWorkspace(tab) {
+        if (Whatevr.ProtocolController.perfLogging) {
+            console.log("[perf] openWorkspace", tab, "mode=" + currentMode)
+        }
         if (currentMode !== "chat") {
             return
         }
@@ -442,6 +445,10 @@ Kirigami.ApplicationWindow {
     }
 
     function showConversation(chatId) {
+        if (Whatevr.ProtocolController.perfLogging) {
+            console.log("[perf] showConversation", chatId, "mode=" + currentMode,
+                        "selected=" + Whatevr.ProtocolController.hasSelectedChat)
+        }
         if (currentMode !== "chat" || !Whatevr.ProtocolController.hasSelectedChat) {
             return
         }
@@ -514,6 +521,9 @@ Kirigami.ApplicationWindow {
 
     function rebuildPageStack() {
         const nextMode = appMode()
+        if (Whatevr.ProtocolController.perfLogging && nextMode !== currentMode) {
+            console.log("[perf] rebuildPageStack", currentMode, "->", nextMode)
+        }
         Whatevr.ProtocolController.setConversationVisible(nextMode === "chat")
         if (nextMode === currentMode) {
             return
@@ -543,6 +553,13 @@ Kirigami.ApplicationWindow {
     }
 
     function activateWindow() {
+        if (Whatevr.ProtocolController.perfLogging) {
+            console.log("[perf] activateWindow mode=" + currentMode,
+                        "visible=" + visible, "active=" + active,
+                        "index=" + pageStack.currentIndex,
+                        "moving=" + pageStack.columnView.moving,
+                        "selected=" + Whatevr.ProtocolController.hasSelectedChat)
+        }
         trayMenuWindow.close()
         root.show()
         root.raise()
