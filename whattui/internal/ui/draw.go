@@ -693,7 +693,7 @@ func (a *App) drawComposer(win vaxis.Window, r layout.Rect) {
 
 	a.mu.Lock()
 	active, focus := a.activeChat, a.focus
-	text, cursor, sendErr := a.composer.String(), a.composer.cursor, a.composer.sendErr
+	text, cursor := a.composer.String(), a.composer.cursor
 	editing, targetName, targetText := a.composer.editing != "", a.composer.targetName, a.composer.targetText
 	targetColour, targeted := a.composer.targetColour, a.composer.targeted()
 	a.mu.Unlock()
@@ -726,13 +726,6 @@ func (a *App) drawComposer(win vaxis.Window, r layout.Rect) {
 		marker = vaxis.Style{Foreground: a.theme.Accent, Background: ground}
 	}
 	a.print(pane, 2, top, marker, "\u203a")
-
-	if sendErr != "" {
-		a.print(pane, composerText, top, vaxis.Style{
-			Foreground: a.theme.Error, Background: ground,
-		}, a.clip("not sent: "+sendErr, w-composerGutter))
-		return
-	}
 
 	if text == "" {
 		a.print(pane, composerText, top, vaxis.Style{

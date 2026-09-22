@@ -164,6 +164,36 @@ func TestEditingSomebodyElsesMessageIsRefused(t *testing.T) {
 	}
 }
 
+// A refused send answers in the corner and hands the words back. The field is
+// where the draft lives, so a reason standing in it is a reason standing where
+// the thing it is about should be, and the reader cannot see what to fix.
+func TestARefusedSendGivesTheWordsBackAndAnswersInTheCorner(t *testing.T) {
+	a := stubApp(100, 26, 4, 6)
+	var reply proto.ResponseFunc
+	a.request = func(_ string, _ proto.Params, done proto.ResponseFunc) { reply = done }
+
+	for _, r := range "the socket blinked" {
+		a.onKey(key(r))
+	}
+	a.execute(cmdSend)
+	if reply == nil {
+		t.Fatal("the send never reached the daemon")
+	}
+	reply(nil, &proto.Error{Message: "not connected"})
+	a.paint()
+
+	if a.composer.String() != "the socket blinked" {
+		t.Fatalf("the draft came back as %q", a.composer.String())
+	}
+	msg, refused, _ := a.toastNow()
+	if !strings.Contains(msg, "not connected") || !refused {
+		t.Fatalf("the corner says %q (refused=%v)", msg, refused)
+	}
+	if got := a.composerRowText(0); !strings.Contains(got, "the socket blinked") {
+		t.Fatalf("the field shows %q, want the draft itself", got)
+	}
+}
+
 // Copy is the one action that never reaches the daemon: the message is already
 // here, and OSC 52 is what carries it out of a terminal over ssh.
 func TestCopyingAMessageNeverAsksTheDaemon(t *testing.T) {

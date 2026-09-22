@@ -26,9 +26,6 @@ type composer struct {
 	// kill is the last thing cut, for ctrl+y, because a kill with nothing to
 	// put it back into is a trap rather than an editor.
 	kill []rune
-	// sendErr is what the daemon said about the last send, cleared the moment
-	// the reader types again.
-	sendErr string
 
 	// What this draft is about, if it is about an existing message: replyTo is
 	// the message it answers and editing is the message it replaces. Never
@@ -274,7 +271,6 @@ func (a *App) onComposerKey(k vaxis.Key) {
 		// the cursor and a draft from ever being on screen at once, which is
 		// what makes both escape and a bare letter unambiguous.
 		a.clearCursor()
-		c.sendErr = ""
 		c.insert(k.Text)
 	}
 }
@@ -320,7 +316,6 @@ func (a *App) send() {
 	a.mu.Lock()
 	a.composer.clear()
 	a.composer.clearTarget()
-	a.composer.sendErr = ""
 	a.mu.Unlock()
 
 	request := a.request
@@ -345,6 +340,11 @@ func (a *App) send() {
 // sent puts the draft back when the daemon would not take it. Losing what
 // somebody typed because a socket blinked is the one unforgivable bug in a chat
 // client, and what it was an answer to is part of what they typed.
+//
+// Why it did not go is a toast rather than a line in the field: the field holds
+// the words, and a refusal that sits in it is a refusal standing where the
+// thing it is about should be. The draft comes back and is readable, and the
+// reason arrives in the corner every other answer arrives in.
 func (a *App) sent(draft composer, text string, err *proto.Error) {
 	if err == nil {
 		return
@@ -356,11 +356,11 @@ func (a *App) sent(draft composer, text string, err *proto.Error) {
 		if !a.composer.targeted() {
 			a.composer.replyTo, a.composer.editing = draft.replyTo, draft.editing
 			a.composer.targetName, a.composer.targetText = draft.targetName, draft.targetText
+			a.composer.targetColour = draft.targetColour
 		}
 	}
-	a.composer.sendErr = err.Message
 	a.mu.Unlock()
-	a.vx.PostEvent(redraw{})
+	a.refuse("not sent: " + err.Message)
 }
 
 // composerRows is how many rows the text needs, clamped to what the screen can

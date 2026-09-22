@@ -60,7 +60,6 @@ func (a *App) editSelected() {
 	a.composer.targetColour = a.theme.Warning
 	a.composer.text = []rune(m.Text)
 	a.composer.cursor = len(a.composer.text)
-	a.composer.sendErr = ""
 	a.mu.Unlock()
 	a.clearCursor()
 	a.setFocus(FocusComposer)
@@ -145,7 +144,7 @@ func (a *App) do(method string, params proto.Params, done func()) {
 	}
 	request(method, params, func(_ json.RawMessage, err *proto.Error) {
 		if err != nil {
-			a.toast(err.Message)
+			a.refuse(err.Message)
 			return
 		}
 		if done != nil {

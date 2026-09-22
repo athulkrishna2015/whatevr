@@ -102,7 +102,7 @@ func (a *App) searchChats(query string, generation uint64) {
 			return
 		}
 		if err != nil {
-			a.toast(err.Message)
+			a.refuse(err.Message)
 			return
 		}
 		var result struct {
