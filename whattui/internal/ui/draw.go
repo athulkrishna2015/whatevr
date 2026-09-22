@@ -82,19 +82,30 @@ func (a *App) drawToast(win vaxis.Window, l layout.Layout) {
 		return
 	}
 	w, h := win.Size()
-	// The bar takes the first column and the words keep a column of their own
-	// either side of themselves, which for a card one row tall is the padding
-	// its own height asks for.
-	width := minInt(a.width(msg)+3, w-2)
-	if width < 6 {
+	// The words sit in the middle of the card with the same air either side of
+	// them, and the air is a pill's own rule: a shape with fully round ends pads
+	// its sides to its height rather than to a flat unit.
+	room := w - 2*toastPad - 2
+	if room < 8 {
 		return
 	}
-	row := 0
+	msg = a.clip(msg, room)
+	width := a.width(msg) + 2*toastPad
+
+	// The card is taller than the row its words are on, so it claims the row
+	// above and the row below as well: half a row of air over the letters, half
+	// under them, and the shadow into what is left. Without pixels there is no
+	// card to give air to and the toast is the one row it writes in.
+	top := 0
 	if !l.Header.Empty() {
 		// Under the header, which is already saying something about the chat.
-		row = l.Header.Row + l.Header.Height
+		top = l.Header.Row + l.Header.Height
 	}
-	rect := layout.Rect{Col: w - width - 1, Row: row, Width: width, Height: 1}
+	claimed, textRow := 1, top
+	if a.painted() && top+toastRows <= h {
+		claimed, textRow = toastRows, top+1
+	}
+	rect := layout.Rect{Col: w - width - 1, Row: top, Width: width, Height: claimed}
 	if rect.Col < 0 || rect.Row+rect.Height > h {
 		return
 	}
@@ -105,75 +116,77 @@ func (a *App) drawToast(win vaxis.Window, l layout.Layout) {
 	// alike, which is the one piece of motion in the whole application and the
 	// only place one belongs.
 	fade := 100
-	if left := life; left < toastFade {
-		fade = int(left * 100 / toastFade)
+	if life < toastFade {
+		fade = int(life * 100 / toastFade)
 	}
 	if fade <= 0 {
 		return
 	}
 
-	ground := a.mixInk(a.theme.BackgroundPanel, a.theme.Background, fade)
-	accent := a.theme.Accent
+	// The edge and the words carry which kind of answer this is. Colour is the
+	// whole of it here and that is allowed: there is only ever one toast, it
+	// says what happened in words, and the words are the other signal.
+	edge := a.theme.Accent
 	ink := a.theme.Text
 	if refused {
-		accent, ink = a.theme.Warning, a.theme.Warning
+		edge, ink = a.theme.Warning, a.theme.Warning
 	}
 	ink = a.mixInk(ink, a.theme.Background, fade)
 
-	// A run and a bubble are both images over the cell background, so the
-	// toast has to take the ones it covers with it, exactly as a panel does.
-	// Only the row it writes in: the row under it keeps its words and gets the
-	// shadow across them, which is what a shadow is for.
+	// A run and a bubble are both images over the cell background, so the toast
+	// has to take the ones it covers with it, exactly as a panel does.
 	a.occlude(rect)
 	a.occludeSurfaces(rect)
 
-	pane := sub(win, rect)
-	if !a.drawCard(win, rect, ground, accent, fade) {
-		// No pixels: the same cells, the panel colour, and the bar as a glyph.
-		fill(pane, ground)
-		a.print(pane, 0, 0, vaxis.Style{
-			Foreground: a.mixInk(accent, a.theme.Background, fade), Background: ground,
-		}, "▎")
+	// The ground under the whole claim is the page's own, not the card's: what
+	// falls outside a rounded corner has to be the page or the corner is a
+	// square. The card's own colour is in the card.
+	ground := a.theme.Background
+	if claimed == 1 {
+		ground = a.mixInk(a.theme.BackgroundPanel, a.theme.Background, fade)
 	}
-	a.print(pane, 2, 0, vaxis.Style{Foreground: ink, Background: ground}, a.clip(msg, width-3))
+	fill(sub(win, rect), ground)
+	a.drawCard(win, rect, edge, fade)
+	a.print(sub(win, layout.Rect{Col: rect.Col, Row: textRow, Width: width, Height: 1}),
+		toastPad, 0, vaxis.Style{Foreground: ink, Background: ground}, msg)
 }
 
-// drawCard is the panel a toast floats on, and it reports whether it drew one.
-// The shadow needs a row under the card to fall into, so it claims one and
-// writes no text in it: what is down there is the transcript, with the shadow
-// over it.
-func (a *App) drawCard(win vaxis.Window, r layout.Rect, ground, accent vaxis.Color, fade int) bool {
-	if !a.painted() {
-		return false
-	}
-	fill, ok := theme.Paint(a.theme.Background, ground, 1)
-	if !ok {
-		return false
-	}
-	edge, _ := theme.Paint(a.theme.Background, a.theme.Border, 1)
-	bar, _ := theme.Paint(a.theme.Background, accent, 1)
-	cw, ch := a.cellPix()
+const (
+	// toastPad is the air either side of a toast's words, in columns.
+	toastPad = 2
+	// toastRows is what a toast claims where there are pixels: the row its
+	// words are on, a row of air above it, and the room its shadow falls into
+	// below.
+	toastRows = 3
+)
 
-	// One row for the card, one for the shadow, unless the screen has no row
-	// to spare, in which case the shadow goes and nothing else moves.
-	_, h := win.Size()
-	height := 2
-	if r.Row+height > h {
-		height = 1
+// drawCard is the pill a toast floats on, where there are pixels to draw one
+// with. Below that the cells it stands in are the whole of it, and the only
+// thing lost is the shape.
+func (a *App) drawCard(win vaxis.Window, r layout.Rect, edge vaxis.Color, fade int) {
+	if !a.painted() || r.Height < toastRows {
+		return
 	}
+	fill, ok := theme.Paint(a.theme.Background, a.theme.BackgroundPanel, 1)
+	if !ok {
+		return
+	}
+	rim, _ := theme.Paint(a.theme.Background, edge, 1)
+	_, ch := a.cellPix()
+
 	spec := func(pw, ph int) paint.Spec {
 		card := paint.Card{
 			W: pw, H: ph,
-			Fill: fill, Edge: edge, Accent: bar,
-			// Half the row: a one row card is a pill, and a pill's corners are
-			// as round as it is tall.
-			Radius: ch / 2,
-			Bar:    maxInt(cw/4, 2),
+			// Half a row above the words and half a row below, which puts the
+			// middle of the card on the middle of the row they are on.
+			Top:  ch / 2,
+			Body: 2 * ch,
+			Fill: fill, Edge: rim,
+			// As round as it is tall, which is what makes it a pill rather than
+			// a panel with the corners taken off.
+			Radius: ch,
 			Shadow: maxInt(ch/3, 3),
 			Drop:   maxInt(ch/6, 2),
-		}
-		if height == 1 {
-			card.Shadow, card.Drop = 0, 0
 		}
 		if fade < 100 {
 			ground := color.NRGBA{a.theme.InkGround[0], a.theme.InkGround[1], a.theme.InkGround[2], 0xff}
@@ -181,9 +194,7 @@ func (a *App) drawCard(win vaxis.Window, r layout.Rect, ground, accent vaxis.Col
 		}
 		return card
 	}
-	a.paintRect(sub(win, layout.Rect{Col: r.Col, Row: r.Row, Width: r.Width, Height: height}),
-		0, 0, r.Width, height, spec)
-	return true
+	a.paintRect(sub(win, r), 0, 0, r.Width, r.Height, spec)
 }
 
 // sub is a vaxis window for a layout rect.
