@@ -161,7 +161,6 @@ func (c *composer) multiline() bool {
 // enter and shift+enter split from every chat application. Nothing is a
 // whattui invention, which is the point.
 func (a *App) onComposerKey(k vaxis.Key) {
-	defer a.syncSlashModal()
 	a.mu.Lock()
 	c := &a.composer
 	a.mu.Unlock()
@@ -260,14 +259,23 @@ func (a *App) onComposerKey(k vaxis.Key) {
 	default:
 		// Anything that generated text is text. A control sequence generates
 		// none, so this needs no list of keys to exclude.
-		if k.Text != "" {
-			// Typing is not pointing at a message. Letting go here is what
-			// keeps the cursor and a draft from ever being on screen at once,
-			// which is what makes both escape and a bare letter unambiguous.
-			a.clearCursor()
-			c.sendErr = ""
-			c.insert(k.Text)
+		if k.Text == "" {
+			return
 		}
+		// A slash on an empty line opens the command menu, and from there the
+		// menu keeps what is typed into it: the draft is not a command line.
+		// Typed, though, never pasted: text off a clipboard is text, whatever
+		// it happens to start with.
+		if k.Text == "/" && c.empty() && k.EventType != vaxis.EventPaste {
+			a.openModal(modalSlash)
+			return
+		}
+		// Typing is not pointing at a message. Letting go here is what keeps
+		// the cursor and a draft from ever being on screen at once, which is
+		// what makes both escape and a bare letter unambiguous.
+		a.clearCursor()
+		c.sendErr = ""
+		c.insert(k.Text)
 	}
 }
 

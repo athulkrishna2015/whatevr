@@ -102,15 +102,12 @@ type App struct {
 	lastErr      error
 	quit         bool
 
-	composer composer
-	commands commandRegistry
-	modal    modalState
-	leader   bool
-	// slashDismissed prevents an escaped slash menu reopening until the draft
-	// changes. Escape closes UI, never text.
-	slashDismissed string
-	request        func(string, proto.Params, proto.ResponseFunc)
-	searchRequest  uint64
+	composer      composer
+	commands      commandRegistry
+	modal         modalState
+	leader        bool
+	request       func(string, proto.Params, proto.ResponseFunc)
+	searchRequest uint64
 
 	conversation *conversation
 }

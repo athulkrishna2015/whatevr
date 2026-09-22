@@ -206,7 +206,8 @@ func (a *App) directCommand(k vaxis.Key) (commandID, bool) {
 // safe to spend here.
 func (a *App) messageCommand(k vaxis.Key) (commandID, bool) {
 	a.initCommands()
-	if k.Modifiers != 0 || k.Text == "" {
+	// Pasted text is text, whatever letters are in it.
+	if k.Modifiers != 0 || k.Text == "" || k.EventType == vaxis.EventPaste {
 		return "", false
 	}
 	for _, c := range a.commands.ordered {

@@ -52,11 +52,6 @@ func (a *App) openModal(kind modalKind) {
 	a.initCommands()
 	a.mu.Lock()
 	a.modal = modalState{kind: kind}
-	if kind == modalSlash {
-		draft := a.composer.String()
-		a.modal.query = []rune(strings.TrimPrefix(draft, "/"))
-		a.modal.cursor = len(a.modal.query)
-	}
 	a.refreshModalLocked()
 	a.mu.Unlock()
 }
@@ -65,20 +60,11 @@ func (a *App) openModal(kind modalKind) {
 // be anything.
 const modalPage = 10
 
-// dismissModalLocked closes whatever is open without acting on it, and
-// remembers a slash draft so the menu does not spring straight back up.
-func (a *App) dismissModalLocked() {
-	if a.modal.kind == modalSlash {
-		a.slashDismissed = a.composer.String()
-	}
-	a.modal = modalState{}
-}
+// dismissModalLocked closes whatever is open without acting on it.
+func (a *App) dismissModalLocked() { a.modal = modalState{} }
 
 func (a *App) closeModal() {
 	a.mu.Lock()
-	if a.modal.kind == modalSlash {
-		a.slashDismissed = a.composer.String()
-	}
 	a.modal = modalState{}
 	a.mu.Unlock()
 }
@@ -172,11 +158,7 @@ func (a *App) onModalKey(k vaxis.Key) bool {
 			a.toast(choice.Disabled)
 			return true
 		}
-		kind := a.modal.kind
 		a.modal = modalState{}
-		if kind == modalSlash {
-			a.composer.clear()
-		}
 		a.mu.Unlock()
 		if choice.ChatID != "" {
 			a.openChat(choice.ChatID)
@@ -190,14 +172,17 @@ func (a *App) onModalKey(k vaxis.Key) bool {
 		a.mu.Unlock()
 		return true
 	case k.Matches(vaxis.KeyBackspace):
-		if a.modal.kind == modalSlash {
+		// Rubbing out the last of a slash query rubs out the slash that opened
+		// the menu, which is the menu closing.
+		if a.modal.kind == modalSlash && len(a.modal.query) == 0 {
+			a.dismissModalLocked()
 			a.mu.Unlock()
-			return false
+			return true
 		}
 		var search string
 		var generation uint64
 		var issue bool
-		if a.modal.kind != modalSlash && a.modal.cursor > 0 {
+		if a.modal.cursor > 0 {
 			a.modal.query = append(a.modal.query[:a.modal.cursor-1], a.modal.query[a.modal.cursor:]...)
 			a.modal.cursor--
 			search, generation, issue = a.refreshModalLocked()
@@ -208,34 +193,22 @@ func (a *App) onModalKey(k vaxis.Key) bool {
 		}
 		return true
 	case k.Matches(vaxis.KeyLeft):
-		if a.modal.kind == modalSlash {
-			a.mu.Unlock()
-			return false
-		}
 		if a.modal.cursor > 0 {
 			a.modal.cursor--
 		}
 		a.mu.Unlock()
 		return true
 	case k.Matches(vaxis.KeyRight):
-		if a.modal.kind == modalSlash {
-			a.mu.Unlock()
-			return false
-		}
 		if a.modal.cursor < len(a.modal.query) {
 			a.modal.cursor++
 		}
 		a.mu.Unlock()
 		return true
 	default:
-		if a.modal.kind == modalSlash {
-			a.mu.Unlock()
-			return false
-		}
 		var search string
 		var generation uint64
 		var issue bool
-		if a.modal.kind != modalSlash && k.Text != "" {
+		if k.Text != "" {
 			rs := []rune(k.Text)
 			a.modal.query = append(a.modal.query[:a.modal.cursor], append(rs, a.modal.query[a.modal.cursor:]...)...)
 			a.modal.cursor += len(rs)
@@ -247,38 +220,6 @@ func (a *App) onModalKey(k vaxis.Key) bool {
 		}
 		return true
 	}
-}
-
-func (a *App) syncSlashModal() {
-	a.mu.Lock()
-	draft := a.composer.String()
-	if a.focus != FocusComposer || !strings.HasPrefix(draft, "/") {
-		if a.modal.kind == modalSlash {
-			a.modal = modalState{}
-		}
-		if !strings.HasPrefix(draft, "/") {
-			a.slashDismissed = ""
-		}
-		a.mu.Unlock()
-		return
-	}
-	opened := false
-	if a.modal.kind == modalNone && draft != a.slashDismissed {
-		a.modal = modalState{kind: modalSlash}
-		opened = true
-	}
-	if a.modal.kind == modalSlash {
-		query := strings.TrimPrefix(draft, "/")
-		// A menu that just opened has no results yet, and a bare slash is the
-		// query that matches everything rather than the one that matches
-		// nothing.
-		if opened || string(a.modal.query) != query {
-			a.modal.query = []rune(query)
-			a.modal.cursor = len(a.modal.query)
-			a.refreshModalLocked()
-		}
-	}
-	a.mu.Unlock()
 }
 
 // modalShape is the pointer over an open panel: a hand on a row that will do
