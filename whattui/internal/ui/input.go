@@ -381,6 +381,30 @@ func (a *App) onMouse(m vaxis.Mouse) bool {
 			a.scrollTranscript(-wheelRows)
 		}
 		return true
+	case vaxis.MouseRightButton:
+		// The gesture every pointer has meant since pointers had two buttons:
+		// the things this one can do, here. It acts on the message under the
+		// pointer rather than the one the cursor was on, so right-clicking is
+		// one gesture and not two.
+		if m.EventType != vaxis.EventRelease {
+			return true
+		}
+		id := a.messageUnder(m)
+		if id == "" || !inRect(m, l.Transcript) {
+			return dirty
+		}
+		// Nothing opens over something there is nothing to do to. A message
+		// somebody deleted for everybody is a note saying one was here, and a
+		// menu over it would be a list of things that all answer no. The same
+		// goes for the lines nobody wrote: a day, a system notice or a call
+		// never lands in the pointer's list of messages to begin with.
+		if row, ok := a.messageRow(id); !ok || row.Revoked {
+			return dirty
+		}
+		a.setCursor(id)
+		a.setFocus(FocusTranscript)
+		a.openMessageModal(modalMenu, point{m.Col, m.Row})
+		return true
 	case vaxis.MouseLeftButton:
 		p := point{m.Col, m.Row}
 		switch m.EventType {

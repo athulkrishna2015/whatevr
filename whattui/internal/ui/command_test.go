@@ -210,10 +210,19 @@ func TestPaletteChatSearchPreservesDaemonOrderAndIgnoresStaleResponses(t *testin
 		calls = append(calls, call{params["query"].(string), cb})
 	}
 	a.openModal(modalPalette)
+	// The slash alone is not a search for nothing: the daemon answers an empty
+	// query with an empty list, and the chats we hold are already the chats.
 	a.onKey(key('/'))
+	if len(calls) != 0 {
+		t.Fatalf("an empty query asked the daemon: %#v", calls)
+	}
+	if len(a.modal.selector.Items()) != 2 {
+		t.Fatalf("the slash showed %d chats, want the list we hold", len(a.modal.selector.Items()))
+	}
 	a.onKey(key('a'))
-	if len(calls) != 2 || calls[1].query != "a" {
-		t.Fatalf("calls = %#v, want queries empty then a", calls)
+	a.onKey(key('b'))
+	if len(calls) != 2 || calls[0].query != "a" || calls[1].query != "ab" {
+		t.Fatalf("calls = %#v, want queries a then ab", calls)
 	}
 
 	respond := func(c call, chats ...proto.ChatRow) {
@@ -236,9 +245,11 @@ func TestPaletteIgnoresResponseFromPreviousOpen(t *testing.T) {
 	a.request = func(_ string, _ proto.Params, cb proto.ResponseFunc) { callbacks = append(callbacks, cb) }
 	a.openModal(modalPalette)
 	a.onKey(key('/'))
+	a.onKey(key('a'))
 	a.closeModal()
 	a.openModal(modalPalette)
 	a.onKey(key('/'))
+	a.onKey(key('a'))
 
 	raw, _ := json.Marshal(struct {
 		Chats []proto.ChatRow `json:"chats"`

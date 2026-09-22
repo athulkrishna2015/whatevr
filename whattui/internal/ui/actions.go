@@ -80,6 +80,42 @@ func (a *App) copySelected() {
 	a.toast("copied " + plural(utf8.RuneCountInString(text), "character") + " to the clipboard")
 }
 
+// reactSelected opens the emoji picker on the message the cursor is on. The
+// picker leads with what is already on it, because joining a reaction or taking
+// yours back is what most of them are.
+func (a *App) reactSelected() { a.openMessageModal(modalReact, point{}) }
+
+// forwardSelected opens the chat picker. The daemon does the forwarding: a
+// forward is not the same words sent again, it is WhatsApp's own forward, and
+// the row that lands in the other chat says where it came from.
+func (a *App) forwardSelected() { a.openMessageModal(modalForward, point{}) }
+
+func (a *App) forward(messageID string, chatIDs []string) {
+	if messageID == "" || len(chatIDs) == 0 {
+		return
+	}
+	a.do("message.forward", proto.Params{"message_id": messageID, "chat_ids": chatIDs}, func() {
+		a.toast("forwarded to " + plural(len(chatIDs), "chat"))
+	})
+}
+
+// menuSelected opens the context menu on the message the cursor is on. From the
+// keyboard there is no pointer to put it under, so it goes under the message
+// itself, which is the thing it is about.
+func (a *App) menuSelected() {
+	id := a.cursor()
+	at := point{}
+	a.mu.Lock()
+	for _, m := range a.messages {
+		if m.id == id {
+			at = point{col: m.at.Col + 2, row: m.at.Row}
+			break
+		}
+	}
+	a.mu.Unlock()
+	a.openMessageModal(modalMenu, at)
+}
+
 func (a *App) starSelected() {
 	m, ok := a.selectedMessage()
 	if !ok {

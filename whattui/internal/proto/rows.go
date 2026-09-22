@@ -51,12 +51,16 @@ type Media struct {
 	Played   bool  `json:"played"`
 }
 
-// Reaction is one emoji and who put it there.
+// Reaction is one person's reaction: one emoji and who put it there. A message
+// with three thumbs carries three of these, because who reacted is a fact the
+// daemon has and a count is not. Grouping them by emoji to draw is the
+// frontend's business, the same way wrapping a line is.
 type Reaction struct {
-	Emoji       string   `json:"emoji"`
-	Count       int      `json:"count"`
-	Senders     []string `json:"senders"`
-	SelfReacted bool     `json:"self_reacted"`
+	Emoji      string `json:"emoji"`
+	SenderID   string `json:"sender_id"`
+	SenderName string `json:"sender_name"`
+	Timestamp  int64  `json:"timestamp"`
+	FromMe     bool   `json:"from_me"`
 }
 
 // ReplyQuote is the message a message is answering.

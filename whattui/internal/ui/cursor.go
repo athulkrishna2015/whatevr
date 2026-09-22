@@ -99,6 +99,18 @@ func (a *App) setCursor(id string) {
 	a.mu.Unlock()
 }
 
+// messageRow is one row of the open transcript by id, for the callers that
+// have a message in their hand rather than the cursor. Asked of the collection
+// outside App.mu, like everything else.
+func (a *App) messageRow(id string) (proto.MessageRow, bool) {
+	c := a.conv()
+	if c == nil || id == "" {
+		return proto.MessageRow{}, false
+	}
+	it, ok := c.msgs.Get(id)
+	return it.Value, ok
+}
+
 // clearCursor stops pointing at anything and reports whether it was.
 func (a *App) clearCursor() bool {
 	a.mu.Lock()

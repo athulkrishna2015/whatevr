@@ -25,6 +25,9 @@ const (
 	cmdBoxes         commandID = "transcript.boxes"
 	cmdRedraw        commandID = "app.redraw"
 	cmdReply         commandID = "message.reply"
+	cmdReact         commandID = "message.react"
+	cmdForward       commandID = "message.forward"
+	cmdMenu          commandID = "message.menu"
 	cmdEditMessage   commandID = "message.edit"
 	cmdCopyMessage   commandID = "message.copy"
 	cmdStar          commandID = "message.star"
@@ -100,6 +103,19 @@ func (a *App) initCommands() {
 		}
 		return true, ""
 	}
+	// What is left of a message somebody deleted for everybody is a sentence
+	// saying one was here. There is nothing to answer, copy, star, react to or
+	// pass on, and the only thing anybody can still do to it is take the note
+	// off this device, which is what the delete command is for.
+	hasLiveMessage := func(state commandState) (bool, string) {
+		if ok, why := hasMessage(state); !ok {
+			return false, why
+		}
+		if state.message.Revoked {
+			return false, "that message is already deleted"
+		}
+		return true, ""
+	}
 	a.commands = newCommandRegistry([]command{
 		{ID: cmdPalette, Title: "Command palette", Description: "Find an action or /chat", Direct: "^p", Leader: "p", Slash: "palette", Run: func() { a.openModal(modalPalette) }},
 		{ID: cmdHelp, Title: "Keyboard help", Description: "Show every command and binding", Direct: "?", Leader: "?", Slash: "help", Run: func() { a.openModal(modalHelp) }},
@@ -122,7 +138,10 @@ func (a *App) initCommands() {
 		{ID: cmdFocusPrevious, Title: "Focus previous pane", Description: "Move focus anticlockwise", Direct: "s-tab", Slash: "focus-previous", Run: func() { a.cycleFocus(-1) }},
 		{ID: cmdBoxes, Title: "Toggle message boxes", Description: "Draw a panel per message instead of a rule per run", Leader: "b", Slash: "boxes", Run: a.toggleBoxes},
 		{ID: cmdRedraw, Title: "Redraw the screen", Description: "Throw away what the terminal is showing and draw it again", Direct: "^l", Slash: "redraw", Run: a.redraw},
-		{ID: cmdReply, Title: "Reply to message", Description: "Answer the message the cursor is on", Direct: "r", Scope: scopeMessage, Slash: "reply", Enabled: hasMessage, Run: a.replySelected},
+		{ID: cmdReply, Title: "Reply to message", Description: "Answer the message the cursor is on", Direct: "r", Scope: scopeMessage, Slash: "reply", Enabled: hasLiveMessage, Run: a.replySelected},
+		{ID: cmdReact, Title: "React to message", Description: "Put an emoji on the message, or take yours off", Direct: "+", Scope: scopeMessage, Slash: "react", Enabled: hasLiveMessage, Run: a.reactSelected},
+		{ID: cmdForward, Title: "Forward message", Description: "Send the message on to other chats", Direct: "f", Scope: scopeMessage, Slash: "forward", Enabled: hasLiveMessage, Run: a.forwardSelected},
+		{ID: cmdMenu, Title: "Actions on this message", Description: "Open the menu of everything the message can do", Direct: "m", Scope: scopeMessage, Slash: "menu", Enabled: hasLiveMessage, Run: a.menuSelected},
 		{ID: cmdEditMessage, Title: "Edit message", Description: "Rewrite a message you sent", Direct: "e", Scope: scopeMessage, Slash: "edit", Enabled: func(state commandState) (bool, string) {
 			if ok, why := hasMessage(state); !ok {
 				return false, why
@@ -142,8 +161,8 @@ func (a *App) initCommands() {
 			}
 			return true, ""
 		}, Run: a.editSelected},
-		{ID: cmdCopyMessage, Title: "Copy message", Description: "Put the message on the clipboard", Direct: "y", Scope: scopeMessage, Slash: "copy", Enabled: hasMessage, Run: a.copySelected},
-		{ID: cmdStar, Title: "Star message", Description: "Star the message, or take the star off", Direct: "s", Scope: scopeMessage, Slash: "star", Enabled: hasMessage, Run: a.starSelected},
+		{ID: cmdCopyMessage, Title: "Copy message", Description: "Put the message on the clipboard", Direct: "y", Scope: scopeMessage, Slash: "copy", Enabled: hasLiveMessage, Run: a.copySelected},
+		{ID: cmdStar, Title: "Star message", Description: "Star the message, or take the star off", Direct: "s", Scope: scopeMessage, Slash: "star", Enabled: hasLiveMessage, Run: a.starSelected},
 		{ID: cmdDelete, Title: "Delete message", Description: "Ask which kind of delete this is", Direct: "d", Scope: scopeMessage, Slash: "delete", Enabled: hasMessage, Run: a.deleteSelected},
 		{ID: cmdDeleteForMe, Title: "Delete for me", Description: "Take the message off this device only", Slash: "delete-for-me", Enabled: hasMessage, Run: a.deleteSelectedForMe},
 		{ID: cmdRevoke, Title: "Delete for everyone", Description: "Take the message away from everybody in the chat", Slash: "delete-for-everyone", Enabled: func(state commandState) (bool, string) {
@@ -212,8 +231,10 @@ func (a *App) directCommand(k vaxis.Key) (commandID, bool) {
 // safe to spend here.
 func (a *App) messageCommand(k vaxis.Key) (commandID, bool) {
 	a.initCommands()
-	// Pasted text is text, whatever letters are in it.
-	if k.Modifiers != 0 || k.Text == "" || k.EventType == vaxis.EventPaste {
+	// Pasted text is text, whatever letters are in it. Shift is allowed because
+	// the shifted glyph is already in the text: a binding on "+" is a binding
+	// on the key somebody actually pressed to get one.
+	if k.Modifiers&^vaxis.ModShift != 0 || k.Text == "" || k.EventType == vaxis.EventPaste {
 		return "", false
 	}
 	for _, c := range a.commands.ordered {
@@ -318,6 +339,34 @@ func (a *App) commandChoicesFor(query string, slashOnly, help bool, state comman
 	out := make([]modalChoice, len(matches))
 	for i := range matches {
 		out[i] = matches[i].choice
+	}
+	return out
+}
+
+// messageChoicesLocked is what a context menu holds: every action that applies
+// to the message the cursor is on, with the key that does it beside it.
+//
+// The registry again rather than a list of its own, so an action added anywhere
+// turns up here as well, and a menu can never offer something the key would
+// refuse. The menu itself is left out of it: a row that opens the menu you are
+// looking at is a row that does nothing.
+func (a *App) messageChoicesLocked() []modalChoice {
+	state := a.commandStateLocked()
+	var out []modalChoice
+	for _, c := range a.commands.ordered {
+		if c.Scope != scopeMessage || c.ID == cmdMenu {
+			continue
+		}
+		if c.Enabled != nil {
+			if ok, _ := c.Enabled(state); !ok {
+				continue
+			}
+		}
+		label := c.Title
+		if c.ID == cmdStar && state.message.Starred {
+			label = "Unstar message"
+		}
+		out = append(out, modalChoice{Command: c.ID, Label: label, Detail: c.Direct})
 	}
 	return out
 }

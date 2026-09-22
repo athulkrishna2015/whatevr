@@ -55,7 +55,13 @@ type block struct {
 	// muted draws the words quietly. A message nobody can read any more is not
 	// a message anybody said.
 	muted bool
-	width int
+	// reacts is what people put on the message, on a row of its own under the
+	// words. Under rather than after them, because a reaction is about the
+	// whole message: a strip that follows the last word moves every time the
+	// message is rewrapped, and lands in the middle of the column on a short
+	// last line.
+	reacts []pill
+	width  int
 }
 
 // rows is how tall the block is. The words and nothing else: the time is in
@@ -64,6 +70,9 @@ type block struct {
 func (b block) rows() int {
 	n := len(b.body) * b.scale
 	if b.quote != "" {
+		n++
+	}
+	if len(b.reacts) > 0 {
 		n++
 	}
 	return n
@@ -115,7 +124,7 @@ func (a *App) drawBlock(pane vaxis.Window, b block, col, row, width int, ground 
 			})
 			row += b.scale
 		}
-		return row
+		return a.drawPills(pane, b, col, row, ground)
 	}
 
 	a.noteBlock(pane, col, row, width, len(b.body))
@@ -123,7 +132,40 @@ func (a *App) drawBlock(pane vaxis.Window, b block, col, row, width int, ground 
 		a.printLine(pane, col, row, text, l)
 		row++
 	}
-	return row
+	return a.drawPills(pane, b, col, row, ground)
+}
+
+// drawPills writes the reaction strip under a message, and answers the row
+// after it.
+//
+// Quieter than the words on purpose: a reaction is somebody agreeing, and a
+// screenful of them at full strength would read louder than the conversation
+// they are about.
+//
+// The one this account put there is underlined, and the underline is doing the
+// work rather than helping. An emoji is drawn by the font in the font's own
+// colours: a foreground the accent and a weight bold say nothing at all about a
+// 🔥, and the count beside it is the only cell either of them reaches. A rule
+// under the cells is the one mark a terminal can put on a glyph it does not get
+// to colour.
+func (a *App) drawPills(pane vaxis.Window, b block, col, row int, ground vaxis.Color) int {
+	if len(b.reacts) == 0 {
+		return row
+	}
+	for i, p := range b.reacts {
+		if i > 0 {
+			col = a.blank(pane, col, row, pillGap, vaxis.Style{Background: ground})
+		}
+		style := vaxis.Style{Foreground: a.theme.TextMuted, Background: ground}
+		if p.mine {
+			style = vaxis.Style{
+				Foreground: a.theme.Accent, Background: ground, Attribute: vaxis.AttrBold,
+				UnderlineStyle: vaxis.UnderlineSingle, UnderlineColor: a.theme.Accent,
+			}
+		}
+		col = a.print(pane, col, row, style, p.text)
+	}
+	return row + 1
 }
 
 func (a *App) pad(s string, width int) string {

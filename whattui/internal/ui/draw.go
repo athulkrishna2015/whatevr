@@ -656,6 +656,16 @@ func (a *App) layoutMessage(m proto.MessageRow, paneWidth int) block {
 	b := a.layoutBlock(quote, m.Body(), a.messageStamp(m), a.runRoom(paneWidth))
 	b.muted = m.Revoked
 
+	// A message nobody can read any more carries no reactions: WhatsApp drops
+	// them when it goes, and a row of applause under a deleted message is
+	// applause for a sentence that is not there.
+	if !m.Revoked {
+		room := a.runRoom(paneWidth)
+		var strip int
+		b.reacts, strip = a.pillsFor(groupReactions(m.Reactions), room)
+		b.width = minInt(maxInt(b.width, strip), room)
+	}
+
 	// A message that is nothing but emoji draws big, the way it does in every
 	// other chat client, because the size is what the message means.
 	if n := emojiOnlyCount(m.Text); n > 0 && !m.Revoked && len(b.body) == 1 && a.caps.TextScale {
@@ -669,7 +679,9 @@ func (a *App) layoutMessage(m proto.MessageRow, paneWidth int) block {
 		room := a.runRoom(paneWidth)
 		glyphs := lineText(b.body[0])
 		b.scale = layout.Clamp(bigEmojiScale(n), a.width(glyphs), room, a.transcriptPage())
-		b.width = minInt(a.width(glyphs)*b.scale, room)
+		// Never narrower than the reaction strip under it, which is laid out
+		// against the same room and is not part of the words.
+		b.width = minInt(maxInt(a.width(glyphs)*b.scale, b.width), room)
 	}
 	return b
 }
@@ -849,6 +861,13 @@ func (a *App) cursorCell(text string, at, width, shown, height int) (int, int) {
 	return minInt(col, width-1), row
 }
 
+// hint is one thing the hint line offers: a registry command, which brings its
+// own key with it, or a bare phrase for the gestures no command owns.
+type hint struct {
+	id   commandID
+	text string
+}
+
 func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 	pane := sub(win, r)
 	fill(pane, a.theme.Background)
@@ -875,16 +894,20 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 		return
 	}
 
-	type hint struct {
-		id   commandID
-		text string
-	}
 	var hints []hint
 	switch {
 	// An open panel owns the keyboard, so the line says what the panel does
 	// rather than what the pane behind it would have done.
 	case modal != modalNone:
 		hints = []hint{{"", "\u2191\u2193 move"}, {"", "\u23ce run"}, {"", "esc close"}}
+		if modal == modalForward {
+			// The one panel that takes more than one answer has to say so:
+			// nothing else on the screen suggests a list can be marked.
+			hints = []hint{
+				{"", "\u2191\u2193 move"}, {"", "\u21e5 mark"},
+				{"", "\u23ce forward"}, {"", "esc close"},
+			}
+		}
 	// A lit message owns the letters, so the line is what those letters do to
 	// it. Only the ones that apply: an edit hint over somebody else's message
 	// is a key that answers with an excuse. Only in the panes the message is
@@ -902,8 +925,12 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 		}
 		state := a.commandState()
 		for _, h := range []hint{
-			{cmdReply, "reply"}, {cmdEditMessage, "edit"}, {cmdCopyMessage, "copy"},
+			{cmdReply, "reply"}, {cmdReact, "react"}, {cmdForward, "forward"},
+			{cmdEditMessage, "edit"}, {cmdCopyMessage, "copy"},
 			{cmdStar, star}, {cmdDelete, "delete"},
+			// Last, because what it opens is this same list with room for all
+			// of it, which is worth least on the line that already has room.
+			{cmdMenu, "more"},
 		} {
 			if a.enabled(h.id, state) {
 				hints = append(hints, h)
@@ -923,20 +950,44 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 
 	w, _ := pane.Size()
 	col := 1
-	for _, hint := range hints {
-		h := hint.text
-		if hint.id != "" {
-			a.initCommands()
-			if c := a.commands.byID[hint.id]; c != nil && c.Direct != "" {
-				h = c.Direct + " " + hint.text
+	style := vaxis.Style{Foreground: a.theme.TextFaint}
+	for i, h := range hints {
+		text := a.hintText(h)
+		if col+a.width(text) >= w {
+			// The line ran out mid-list. What is left of it goes to the menu if
+			// the menu fits, because one key that leads to everything still to
+			// come beats two words of the next action and silence about the
+			// rest.
+			if more, ok := a.hintMore(hints[i:]); ok && col+a.width(more) < w {
+				a.print(pane, col, 0, style, more)
 			}
-		}
-		if col+a.width(h) >= w {
 			break
 		}
-		col = a.print(pane, col, 0, vaxis.Style{Foreground: a.theme.TextFaint}, h)
-		col += 2
+		col = a.print(pane, col, 0, style, text) + 2
 	}
+}
+
+// hintText is one hint as it reads on the line: the key the registry gives it,
+// then what it does.
+func (a *App) hintText(h hint) string {
+	if h.id == "" {
+		return h.text
+	}
+	a.initCommands()
+	if c := a.commands.byID[h.id]; c != nil && c.Direct != "" {
+		return c.Direct + " " + h.text
+	}
+	return h.text
+}
+
+// hintMore is the menu's own hint, if it is among the ones that did not fit.
+func (a *App) hintMore(left []hint) (string, bool) {
+	for _, h := range left {
+		if h.id == cmdMenu {
+			return a.hintText(h), true
+		}
+	}
+	return "", false
 }
 
 // flagWords says what the transcript's marks mean, for the message the cursor
