@@ -84,6 +84,45 @@ QQC2.Popup {
     /// full-screen; it comes back on any pointer movement or key.
     property bool chromeVisible: true
 
+    /// Zoom on the photo, 1 being the fitted size. The wheel zooms,
+    /// double-click toggles between fitted and 2.5x, and dragging pans while
+    /// zoomed. Reset on every picture; video never uses it.
+    property real zoom: 1
+    property real panX: 0
+    property real panY: 0
+
+    function setZoom(next) {
+        zoom = Math.min(8, Math.max(1, next))
+        if (zoom <= 1) {
+            panX = 0
+            panY = 0
+        } else {
+            clampPan()
+        }
+    }
+
+    function toggleZoom() {
+        setZoom(zoom > 1 ? 1 : 2.5)
+    }
+
+    function panBy(dx, dy) {
+        if (zoom <= 1) {
+            return
+        }
+        panX += dx
+        panY += dy
+        clampPan()
+    }
+
+    /// Keeps a zoomed picture covering the viewport: no panning past the
+    /// point where an edge would leave a gap.
+    function clampPan() {
+        const maxX = Math.max(0, (photo.width - viewerContent.width) / 2)
+        const maxY = Math.max(0, (photo.height - viewerContent.height) / 2)
+        panX = Math.min(maxX, Math.max(-maxX, panX))
+        panY = Math.min(maxY, Math.max(-maxY, panY))
+    }
+
     function wakeChrome() {
         chromeVisible = true
         chromeTimer.restart()
@@ -100,6 +139,9 @@ QQC2.Popup {
         timestampUnix = sentAtUnix ?? 0
         startAt = 0
         stillRevision = 0
+        zoom = 1
+        panX = 0
+        panY = 0
         open()
     }
 
@@ -137,9 +179,9 @@ QQC2.Popup {
     /// Opens the set at one of its entries. Pictures sent together are looked
     /// at together: opening one of them and offering no way to reach the rest
     /// makes the reader close the viewer and tap the next tile.
-    function showGallery(items, index) {
+    function showGallery(items, index, at) {
         gallery = items ?? []
-        showGalleryEntry(index)
+        showGalleryEntry(index, at ?? 0)
     }
 
     function stepGallery(delta) {
@@ -149,7 +191,7 @@ QQC2.Popup {
         showGalleryEntry((galleryIndex + delta + gallery.length) % gallery.length)
     }
 
-    function showGalleryEntry(index) {
+    function showGalleryEntry(index, at) {
         const entry = gallery[index]
         if (!entry) {
             return
@@ -164,7 +206,7 @@ QQC2.Popup {
         const kind = String(entry.kind ?? "image")
         if (kind === "video" || kind === "gif" || kind === "video_note") {
             showVideo(String(entry.id ?? ""), String(entry.path ?? ""), "", "", kind,
-                      entry.durationSecs ?? 0, 0, String(entry.fileName ?? ""),
+                      entry.durationSecs ?? 0, at ?? 0, String(entry.fileName ?? ""),
                       entry.timestampUnix ?? 0, entry.width ?? 0, entry.height ?? 0)
         } else {
             showImage(String(entry.path ?? ""), String(entry.id ?? ""),
@@ -260,6 +302,9 @@ QQC2.Popup {
         timestampUnix = 0
         startAt = 0
         stillRevision = 0
+        zoom = 1
+        panX = 0
+        panY = 0
         gallery = []
         galleryIndex = -1
         surface.speed = 1.0
@@ -406,15 +451,51 @@ QQC2.Popup {
             fillMode: Image.PreserveAspectFit
             asynchronous: true
             cache: true
-            width: implicitWidth * fitScale
-            height: implicitHeight * fitScale
+            width: implicitWidth * fitScale * root.zoom
+            height: implicitHeight * fitScale * root.zoom
+            // Anchors keep the zoom centered; the translate carries the pan.
+            transform: Translate {
+                x: root.panX
+                y: root.panY
+            }
+            onWidthChanged: root.clampPan()
+            onHeightChanged: root.clampPan()
 
             // Takes the click that would otherwise reach the blocking area
             // below: a click on the photo itself must not dismiss the viewer.
             // It has to consume the press to do that, which a handler does not.
+            // A drag pans the zoomed picture; a double-click toggles zoom; the
+            // wheel zooms in place.
             MouseArea {
                 anchors.fill: parent
+                acceptedButtons: Qt.LeftButton
+                hoverEnabled: true
+
+                property real lastX: 0
+                property real lastY: 0
+
+                onPressed: mouse => {
+                    lastX = mouse.x
+                    lastY = mouse.y
+                }
+                onPositionChanged: mouse => {
+                    root.wakeChrome()
+                    if (!pressed || root.zoom <= 1) {
+                        return
+                    }
+                    root.panBy(mouse.x - lastX, mouse.y - lastY)
+                    lastX = mouse.x
+                    lastY = mouse.y
+                }
                 onClicked: root.wakeChrome()
+                onDoubleClicked: mouse => {
+                    root.toggleZoom()
+                    mouse.accepted = true
+                }
+                onWheel: wheel => {
+                    root.setZoom(root.zoom * (wheel.angleDelta.y > 0 ? 1.25 : 0.8))
+                    wheel.accepted = true
+                }
             }
         }
 
@@ -1117,6 +1198,26 @@ QQC2.Popup {
             case Qt.Key_M:
                 surface.muted = !surface.muted
                 event.accepted = true
+                break
+            // Zoom keys for the photo, mirroring the wheel and double-click.
+            case Qt.Key_Plus:
+            case Qt.Key_Equal:
+                if (!root.isVideo) {
+                    root.setZoom(root.zoom * 1.25)
+                    event.accepted = true
+                }
+                break
+            case Qt.Key_Minus:
+                if (!root.isVideo) {
+                    root.setZoom(root.zoom * 0.8)
+                    event.accepted = true
+                }
+                break
+            case Qt.Key_0:
+                if (!root.isVideo) {
+                    root.setZoom(1)
+                    event.accepted = true
+                }
                 break
             case Qt.Key_S:
                 if (event.modifiers & Qt.ControlModifier) {
