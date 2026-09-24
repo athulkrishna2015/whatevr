@@ -994,7 +994,50 @@ Kirigami.Page {
                     onEditMessageRequested: (messageId, text) => root.setEditTarget(messageId, text)
                     onMentionClicked: jid => contactInfoDialog.openFor({ isGroup: false, targetJid: jid })
                     onMentionAllClicked: root.openChatInfo()
+                    // Every downloaded photo/video in this conversation, oldest
+                    // first, so the full-screen viewer walks the whole chat
+                    // instead of stranding on one item. Undownloaded items are
+                    // skipped: stepping onto them would be a full-screen
+                    // nothing. Returns {entries, start}; start is -1 when the
+                    // opened item itself is not among them (e.g. a video that
+                    // is still streaming), in which case the caller opens it
+                    // lone the way it always did.
+                    function chatViewerEntries(openId) {
+                        const ids = (model && typeof model.allMessageIds === "function")
+                            ? model.allMessageIds() : []
+                        const entries = []
+                        let start = -1
+                        for (let i = 0; i < ids.length; ++i) {
+                            const snap = messageSnapshot(ids[i])
+                            if (!snap)
+                                continue
+                            const k = String(snap.mediaKind || "")
+                            if (k !== "image" && k !== "video" && k !== "gif" && k !== "video_note")
+                                continue
+                            const path = String(snap.mediaLocalPath || "")
+                            if (path.length === 0)
+                                continue
+                            if (ids[i] === openId)
+                                start = entries.length
+                            entries.push({
+                                id: String(ids[i]),
+                                kind: k,
+                                path: path,
+                                fileName: String(snap.mediaFileName || ""),
+                                timestampUnix: Number(snap.timestampUnix || 0),
+                                width: Number(snap.mediaWidth || 0),
+                                height: Number(snap.mediaHeight || 0),
+                                durationSecs: Number(snap.mediaDurationSecs || 0),
+                            })
+                        }
+                        return { entries: entries, start: start }
+                    }
                     onImageViewRequested: (messageId, localPath) => {
+                        const found = chatViewerEntries(messageId)
+                        if (found.start >= 0 && found.entries.length > 1) {
+                            messageImageViewer.showGallery(found.entries, found.start)
+                            return
+                        }
                         // The delegate only carries what it renders; the file name
                         // and send time come from the row snapshot so Save As can
                         // name and date the file after the message.
@@ -1035,6 +1078,11 @@ Kirigami.Page {
                             messageImageViewer.showGallery(entries, start)
                     }
                     onVideoViewRequested: (messageId, localPath, streamUrl, streamId, kind, durationSecs, startAt) => {
+                        const found = chatViewerEntries(messageId)
+                        if (found.start >= 0 && found.entries.length > 1) {
+                            messageImageViewer.showGallery(found.entries, found.start, startAt)
+                            return
+                        }
                         const snapshot = pane.messageSnapshot(messageId)
                         messageImageViewer.showVideo(messageId, localPath, streamUrl, streamId, kind, durationSecs, startAt,
                                                      snapshot ? String(snapshot.mediaFileName || "") : "",
