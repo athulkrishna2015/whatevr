@@ -29,6 +29,41 @@ just install prefix=/home/admin/.local         # release, user-writable prefix
 just install-dev prefix=/home/admin/.local     # debug, user-writable prefix
 ```
 
+### After install: restart both processes
+
+A new build takes effect only after both processes run the new binaries.
+Each time a new version is installed, fully close the app and relaunch both
+the daemon and the UI: quit the frontend via the tray menu → Quit (a window
+hidden via close-to-tray keeps the old binary alive), restart the user
+daemon, then launch the UI again.
+
+```sh
+systemctl --user restart whatevrd.service
+```
+
+Verifying against a stale daemon or a stale hidden UI produces misleading
+results — always restart both before testing an install.
+
+Full quit (tray icon included — the icon is daemon-owned, so quitting the UI
+alone leaves it behind):
+
+```sh
+pkill -f '/home/admin/.local/bin/whatkevr'
+systemctl --user stop whatevrd.service
+```
+
+Relaunch and verify:
+
+```sh
+systemctl --user start whatevrd.service
+setsid nohup /home/admin/.local/bin/whatkevr > /tmp/whatkevr-ui.log 2>&1 < /dev/null &
+ps -o pid,lstart,cmd -C whatkevr -C whatevrd
+qdbus org.kde.StatusNotifierWatcher /StatusNotifierWatcher org.kde.StatusNotifierWatcher.RegisteredStatusNotifierItems
+```
+
+`whatevrd.socket` stays active after a stop, so the daemon also
+socket-activates on the next UI launch.
+
 ## Updating the whatsmeow dependency
 
 WhatsMeow (`go.mau.fi/whatsmeow`) has no tagged releases; the daemon pins to a
