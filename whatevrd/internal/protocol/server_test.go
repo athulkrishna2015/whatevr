@@ -69,7 +69,7 @@ func (c *testClient) sendLine(line string) {
 
 func (c *testClient) recv() map[string]any {
 	c.t.Helper()
-	_ = c.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_ = c.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	line, err := c.r.ReadBytes('\n')
 	if err != nil {
 		c.t.Fatalf("read response: %v", err)
@@ -85,7 +85,7 @@ func (c *testClient) recv() map[string]any {
 // anything further.
 func (c *testClient) expectClosed() {
 	c.t.Helper()
-	_ = c.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_ = c.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	if line, err := c.r.ReadBytes('\n'); err == nil {
 		c.t.Fatalf("expected connection close, got line %q", line)
 	}

@@ -92,9 +92,19 @@ func (db *DB) AppendLiveLocationPoint(ctx context.Context, messageID string, poi
 	`, messageID).Scan(&lastSeq); err != nil {
 		return false, err
 	}
-	// Sequence 0 is what a sender that does not number its updates uses, so it
-	// can never be "already seen": fall back to the timestamp for those.
-	if point.Seq > 0 && point.Seq <= lastSeq {
+	sequenced := point.Seq > 0
+	if !sequenced {
+		var maxPointSeq int64
+		if err := tx.QueryRowContext(ctx, `
+			SELECT COALESCE(MAX(seq), 0) FROM live_location_points WHERE message_id = ?
+		`, messageID).Scan(&maxPointSeq); err != nil {
+			return false, err
+		}
+		point.Seq = point.TimestampUnix
+		if point.Seq <= 0 || point.Seq <= maxPointSeq {
+			point.Seq = maxPointSeq + 1
+		}
+	} else if point.Seq <= lastSeq {
 		return false, nil
 	}
 
@@ -109,12 +119,22 @@ func (db *DB) AppendLiveLocationPoint(ctx context.Context, messageID string, poi
 		return false, err
 	}
 
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE live_location_shares
-		SET last_seq = MAX(last_seq, ?), last_update_at = MAX(last_update_at, ?)
-		WHERE message_id = ?
-	`, point.Seq, point.TimestampUnix, messageID); err != nil {
-		return false, err
+	if sequenced {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE live_location_shares
+			SET last_seq = MAX(last_seq, ?), last_update_at = MAX(last_update_at, ?)
+			WHERE message_id = ?
+		`, point.Seq, point.TimestampUnix, messageID); err != nil {
+			return false, err
+		}
+	} else {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE live_location_shares
+			SET last_update_at = MAX(last_update_at, ?)
+			WHERE message_id = ?
+		`, point.TimestampUnix, messageID); err != nil {
+			return false, err
+		}
 	}
 
 	return true, tx.Commit()
@@ -131,7 +151,7 @@ func (db *DB) LiveLocationTrail(ctx context.Context, messageID string, limit int
 		SELECT seq, ts, lat, lng, accuracy_m, speed_mps, heading_deg
 		FROM live_location_points
 		WHERE message_id = ?
-		ORDER BY seq DESC, ts DESC
+		ORDER BY ts DESC, seq DESC
 		LIMIT ?
 	`, messageID, limit)
 	if err != nil {
@@ -229,9 +249,22 @@ func (db *DB) ExpireLiveLocationShares(ctx context.Context, now int64) ([]string
 	if len(expired) == 0 {
 		return nil, nil
 	}
-	if _, err := db.conn.ExecContext(ctx, `
+	tx, err := db.conn.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	for _, id := range expired {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM live_location_points WHERE message_id = ?`, id); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `
 		UPDATE live_location_shares SET ended = 1 WHERE ended = 0 AND expires_at != 0 AND expires_at <= ?
 	`, now); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return expired, nil

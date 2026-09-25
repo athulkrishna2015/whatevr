@@ -108,9 +108,9 @@ func (c *Client) savePollOptions(ctx context.Context, messageID string, poll *wa
 	c.drainPendingPollVotes(ctx, messageID)
 }
 
-// handlePollUpdate folds an incoming vote into its poll. Returns true when the
-// event was consumed and must not become a message row: a vote is a change to
-// the poll, not a message in the conversation.
+// handlePollUpdate folds an incoming vote into its poll. Returns false when a
+// store write fails; a vote is a change to the poll, not a message in the
+// conversation.
 func (c *Client) handlePollUpdate(ctx context.Context, evt *events.Message) bool {
 	if evt == nil || evt.Message == nil {
 		return false
@@ -138,14 +138,13 @@ func (c *Client) handlePollUpdate(ctx context.Context, evt *events.Message) bool
 		// Almost always because the poll itself has not arrived, so its message
 		// secret is not stored yet. Park the vote rather than losing it; it is
 		// replayed when the poll lands.
-		c.parkPollVote(ctx, chatJID.String(), pollID, voter, update, votedAt)
-		return true
+		return c.parkPollVote(ctx, chatJID.String(), pollID, voter, update, votedAt)
 	}
 
 	applied, err := c.store.ApplyPollVote(ctx, pollID, voter, selections.GetSelectedOptions(), votedAt)
 	if err != nil {
 		c.log.Warnf("Failed to apply poll vote on %s: %v", pollID, err)
-		return true
+		return false
 	}
 	// A vote the store judged stale changed nothing, so there is nothing to
 	// tell anybody about. Reconnects redeliver, so this is the common case.
@@ -155,7 +154,7 @@ func (c *Client) handlePollUpdate(ctx context.Context, evt *events.Message) bool
 	return true
 }
 
-func (c *Client) parkPollVote(ctx context.Context, chatID, pollID, voter string, update *waE2E.PollUpdateMessage, votedAt int64) {
+func (c *Client) parkPollVote(ctx context.Context, chatID, pollID, voter string, update *waE2E.PollUpdateMessage, votedAt int64) bool {
 	if err := c.store.ParkPollVote(ctx, appstore.PendingPollVote{
 		// Keyed by poll and voter, so a voter changing their mind before the
 		// poll arrives parks one row rather than a pile.
@@ -168,16 +167,18 @@ func (c *Client) parkPollVote(ctx context.Context, chatID, pollID, voter string,
 		SenderTSMS:    votedAt,
 	}); err != nil {
 		c.log.Warnf("Failed to park poll vote for %s: %v", pollID, err)
+		return false
 	}
+	return true
 }
 
 // drainPendingPollVotes replays the votes parked for a poll that has now
 // arrived. They are decrypted through the same path a live vote takes, by
 // reconstructing the event whatsmeow expects.
 func (c *Client) drainPendingPollVotes(ctx context.Context, pollID string) {
-	parked, err := c.store.TakePendingPollVotes(ctx, pollID)
+	parked, err := c.store.ListPendingPollVotes(ctx, pollID)
 	if err != nil {
-		c.log.Warnf("Failed to take pending poll votes for %s: %v", pollID, err)
+		c.log.Warnf("Failed to list pending poll votes for %s: %v", pollID, err)
 		return
 	}
 	if len(parked) == 0 {
@@ -242,6 +243,9 @@ func (c *Client) drainPendingPollVotes(ctx context.Context, pollID string) {
 		if ok {
 			applied++
 		}
+		if err := c.store.DeletePendingPollVote(ctx, vote.ID); err != nil {
+			c.log.Warnf("Failed to delete an applied poll vote for %s: %v", pollID, err)
+		}
 	}
 	if applied > 0 {
 		c.publishPollUpdated(ctx, pollID)
@@ -286,7 +290,7 @@ func (c *Client) handlePollAddOption(ctx context.Context, evt *events.Message) b
 	hashes := whatsmeow.HashPollOptions([]string{name})
 	if err := c.store.AddPollOption(ctx, pollID, name, hashes[0]); err != nil {
 		c.log.Warnf("Failed to add a poll option to %s: %v", pollID, err)
-		return true
+		return false
 	}
 	c.publishPollUpdated(ctx, pollID)
 	return true

@@ -430,6 +430,9 @@ func effectiveHistorySyncUnread(conv *waHistorySync.Conversation) uint32 {
 		// Mirror it with a one-count badge so linked-device state is visible.
 		return 1
 	}
+	if unread > 1<<31-1 {
+		return 1<<31 - 1
+	}
 	return unread
 }
 
@@ -545,7 +548,7 @@ func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offline
 
 // handleRevokeMessage intercepts "delete for everyone" protocol messages and
 // tombstones the referenced message instead of ingesting the protocol message
-// as a chat message. Returns true when the event was a revoke.
+// as a chat message. Returns false when the store write fails.
 func (c *Client) handleRevokeMessage(ctx context.Context, evt *events.Message, offlineSync bool) bool {
 	if evt == nil || evt.Message == nil {
 		return false
@@ -567,10 +570,11 @@ func (c *Client) handleRevokeMessage(ctx context.Context, evt *events.Message, o
 	internalID := internalMessageIDForChat(chatID, types.MessageID(targetID))
 	message, chat, changed, err := c.store.MarkMessageRevoked(ctx, internalID, c.appPreferences().AntiDelete)
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			c.log.Warnf("Failed to mark message %s revoked: %v", internalID, err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return true
 		}
-		return true
+		c.log.Warnf("Failed to mark message %s revoked: %v", internalID, err)
+		return false
 	}
 	if changed && !offlineSync {
 		c.daemon.PublishMessageUpdated(toDaemonMessage(message))
@@ -624,7 +628,7 @@ func (c *Client) editPayload(ctx context.Context, evt *events.Message) (string, 
 
 // handleEditMessage intercepts "edit message" events and replaces the
 // referenced message's body/caption in place instead of ingesting the edit as a
-// new chat message. Returns true when the event was an edit. The new content
+// new chat message. Returns false when the store write fails. The new content
 // carries the original message id, exactly as revokes do.
 func (c *Client) handleEditMessage(ctx context.Context, evt *events.Message, offlineSync bool) bool {
 	if evt == nil || evt.Message == nil {
@@ -657,10 +661,11 @@ func (c *Client) handleEditMessage(ctx context.Context, evt *events.Message, off
 	internalID := internalMessageIDForChat(chatID, types.MessageID(targetID))
 	message, chat, changed, err := c.store.UpdateMessageText(ctx, internalID, newText, mentions)
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			c.log.Warnf("Failed to apply edit to message %s: %v", internalID, err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return true
 		}
-		return true
+		c.log.Warnf("Failed to apply edit to message %s: %v", internalID, err)
+		return false
 	}
 	if changed && !offlineSync {
 		c.daemon.PublishMessageUpdated(toDaemonMessage(message))

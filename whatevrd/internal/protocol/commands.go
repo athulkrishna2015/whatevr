@@ -235,6 +235,7 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("status.reply", backgroundNet(cmd.statusReply, false))
 	s.RegisterCommand("status.keep_sender", cmd.statusKeepSender)
 	s.RegisterCommand("status.mute_sender", cmd.statusMuteSender)
+	s.RegisterCommand("status.viewers", backgroundNet(cmd.statusViewers, true))
 	s.RegisterCommand("status.delete", backgroundNet(cmd.statusDelete, false))
 	s.RegisterCommand("group.create", backgroundNet(cmd.groupCreate, false))
 	s.RegisterCommand("group.leave", backgroundNet(cmd.groupLeave, false))

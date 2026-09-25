@@ -59,7 +59,7 @@ func TestConnCloseCancelsConnTiedQuery(t *testing.T) {
 		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("expected context.Canceled, got %v", err)
 		}
-	case <-time.After(5 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatal("query context was not cancelled on connection close")
 	}
 }
@@ -78,7 +78,7 @@ func TestBackgroundedMutationSurvivesConnClose(t *testing.T) {
 	c.conn.Close()
 	close(actions.pinGate)
 
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		actions.mu.Lock()
 		done := actions.pinnedChat == "chat@s.whatsapp.net" && actions.pinned

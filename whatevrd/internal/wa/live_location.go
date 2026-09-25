@@ -38,8 +38,8 @@ const liveLocationDefaultWindow = 8 * time.Hour
 const liveLocationStaleAfter = 15 * time.Minute
 
 // handleLiveLocationUpdate folds a LiveLocationMessage into the share it
-// belongs to. Returns true when the event was consumed and must not become a
-// message row of its own.
+// belongs to. Returns false when a store write fails; an unknown target is
+// consumed.
 func (c *Client) handleLiveLocationUpdate(ctx context.Context, evt *events.Message) bool {
 	if evt == nil || evt.Message == nil {
 		return false
@@ -64,7 +64,7 @@ func (c *Client) handleLiveLocationUpdate(ctx context.Context, evt *events.Messa
 	}
 	if err != nil {
 		c.log.Warnf("Failed to find live-location share for %s: %v", chatID, err)
-		return true
+		return false
 	}
 
 	point := appstore.LiveLocationPoint{
@@ -78,16 +78,18 @@ func (c *Client) handleLiveLocationUpdate(ctx context.Context, evt *events.Messa
 	}
 	applied, err := c.store.AppendLiveLocationPoint(ctx, share.MessageID, point)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return true
+		}
 		c.log.Warnf("Failed to append live-location point to %s: %v", share.MessageID, err)
-		return true
+		return false
 	}
 	if !applied {
 		// A replayed or out-of-order update. Consumed, but nothing moved.
 		return true
 	}
 
-	c.applyLivePositionToRow(ctx, share.MessageID, point)
-	return true
+	return c.applyLivePositionToRow(ctx, share.MessageID, point)
 }
 
 // openShareFromUpdate turns an orphan update into a share of its own, so a
@@ -123,7 +125,7 @@ func (c *Client) openShareFromUpdate(ctx context.Context, evt *events.Message, c
 	})
 	if err != nil {
 		c.log.Warnf("Failed to store orphan live-location update: %v", err)
-		return true
+		return false
 	}
 	c.registerLiveShare(ctx, saved.Message, evt.Info.Timestamp, 0)
 	if saved.Inserted {
@@ -212,11 +214,14 @@ func (c *Client) writeLiveShareState(ctx context.Context, messageID string) (app
 
 // applyLivePositionToRow moves the share's message row to a new position and
 // redraws its map, then publishes both the row and the live view.
-func (c *Client) applyLivePositionToRow(ctx context.Context, messageID string, point appstore.LiveLocationPoint) {
+func (c *Client) applyLivePositionToRow(ctx context.Context, messageID string, point appstore.LiveLocationPoint) bool {
 	message, err := c.store.GetMessage(ctx, messageID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return true
+		}
 		c.log.Warnf("Failed to read live-location row %s: %v", messageID, err)
-		return
+		return false
 	}
 	payload := appstore.DecodePayload(message.PayloadJSON)
 	if payload.Location == nil {
@@ -230,18 +235,24 @@ func (c *Client) applyLivePositionToRow(ctx context.Context, messageID string, p
 	encoded, err := appstore.EncodePayload(payload)
 	if err != nil {
 		c.log.Warnf("Failed to encode moved live-location payload for %s: %v", messageID, err)
-		return
+		return true
 	}
 	if _, err := c.store.UpdateMessagePayload(ctx, messageID, encoded, locationSummary(payload.Location)); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return true
+		}
 		c.log.Warnf("Failed to persist live-location move for %s: %v", messageID, err)
-		return
+		return false
 	}
 	// Refresh the share block from the tables so `live.updated_at` and the
 	// trail length on the row match what just landed.
 	updated, err := c.writeLiveShareState(ctx, messageID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return true
+		}
 		c.log.Warnf("Failed to refresh live-share state for %s: %v", messageID, err)
-		return
+		return false
 	}
 
 	c.daemon.PublishMessageUpdated(toDaemonMessage(updated))
@@ -251,6 +262,7 @@ func (c *Client) applyLivePositionToRow(ctx context.Context, messageID string, p
 	// handler: whatsmeow dispatches events serially and a stalled handler stalls
 	// every message behind it.
 	c.spawn(func(ctx context.Context) { c.redrawLiveLocationMap(ctx, updated) })
+	return true
 }
 
 // redrawLiveLocationMap re-stitches a moving share's map. It runs only when the

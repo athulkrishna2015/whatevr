@@ -1019,6 +1019,9 @@ func (db *DB) OverwriteChatUnreadCount(ctx context.Context, chatID string, unrea
 	if chatID == "" {
 		return Chat{}, false, nil
 	}
+	if unread > 1<<31-1 {
+		unread = 1<<31 - 1
+	}
 
 	tx, err := db.conn.BeginTx(ctx, nil)
 	if err != nil {

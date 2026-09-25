@@ -129,10 +129,20 @@ func TestAppendLiveLocationPointKeepsUnsequencedUpdates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LiveLocationTrail() error = %v", err)
 	}
-	// They collapse onto one row by primary key, which is the honest outcome:
-	// without sequence numbers there is no trail, only a current position.
-	if len(trail) != 1 || trail[0].Latitude != 2 {
-		t.Fatalf("trail = %+v, want one point holding the newest position", trail)
+	// Each unnumbered update is a real position and is kept, keyed by its
+	// timestamp so it cannot collide with another unnumbered one. Collapsing
+	// them onto a single seq=0 row silently dropped every position but the
+	// last.
+	if len(trail) != 3 {
+		t.Fatalf("trail = %+v, want all 3 positions kept", trail)
+	}
+	for i, point := range trail {
+		if point.Latitude != float64(i) || point.Longitude != float64(i) {
+			t.Fatalf("trail[%d] = %+v, want position %d", i, point, i)
+		}
+	}
+	if trail[2].Seq != now+2 {
+		t.Fatalf("newest point seq = %d, want the timestamp tie-breaker %d", trail[2].Seq, now+2)
 	}
 }
 

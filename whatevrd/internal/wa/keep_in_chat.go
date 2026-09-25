@@ -36,9 +36,8 @@ func keepFlagFromType(keepType waE2E.KeepType) (bool, bool) {
 }
 
 // handleKeepInChat intercepts keep / undo-keep control messages and flags the
-// message they name instead of ingesting them as chat messages. Returns true
-// when the event was a keep action, whether or not it landed: a control message
-// we cannot apply is still not a message anyone sent.
+// message they name instead of ingesting them as chat messages. Returns false
+// when the store write fails; an unknown target is consumed.
 func (c *Client) handleKeepInChat(ctx context.Context, evt *events.Message, offlineSync bool) bool {
 	if evt == nil || evt.Message == nil {
 		return false
@@ -60,24 +59,25 @@ func (c *Client) handleKeepInChat(ctx context.Context, evt *events.Message, offl
 		return true
 	}
 
-	c.applyKeepInChat(ctx, internalMessageIDForChat(chatID, types.MessageID(targetID)), kept, offlineSync)
-	return true
+	return c.applyKeepInChat(ctx, internalMessageIDForChat(chatID, types.MessageID(targetID)), kept, offlineSync)
 }
 
 // applyKeepInChat sets the flag on one row and publishes the change. The target
 // may be a message we never synced, which is ordinary rather than an error: the
 // keep arrived, the message it names did not.
-func (c *Client) applyKeepInChat(ctx context.Context, internalID string, kept bool, quiet bool) {
+func (c *Client) applyKeepInChat(ctx context.Context, internalID string, kept bool, quiet bool) bool {
 	updated, changed, err := c.store.SetMessageKept(ctx, internalID, kept)
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			c.log.Warnf("Failed to apply keep-in-chat to message %s: %v", internalID, err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return true
 		}
-		return
+		c.log.Warnf("Failed to apply keep-in-chat to message %s: %v", internalID, err)
+		return false
 	}
 	if changed && !quiet {
 		c.daemon.PublishMessageUpdated(toDaemonMessage(updated))
 	}
+	return true
 }
 
 // historyKeepState reads the keep flag a backfilled message carries. History

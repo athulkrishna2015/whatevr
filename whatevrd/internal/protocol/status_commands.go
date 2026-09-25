@@ -70,8 +70,9 @@ func (h commandHandlers) statusMuteSender(_ *conn, req request) (any, *Error) {
 	return nil, mapCommandError(err)
 }
 
-// status.viewers lists who viewed one of our statuses, most recent first,
-// with display names resolved. Only our own statuses ever have viewers.
+// status.viewers lists who viewed one of our statuses, most recent first.
+// Only our own statuses ever have viewers. Display names are left to the
+// frontend, which already has the contact directory.
 func (h commandHandlers) statusViewers(ctx context.Context, _ *conn, req request) (any, *Error) {
 	if err := h.requireActions(); err != nil {
 		return nil, err

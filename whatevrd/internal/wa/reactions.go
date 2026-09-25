@@ -18,7 +18,7 @@ import (
 
 // handleReaction intercepts emoji-reaction messages (plain or encrypted) and
 // records them against their target message instead of ingesting them as chat
-// messages. Returns true when the event was a reaction.
+// messages. Returns false only when the store write fails.
 func (c *Client) handleReaction(ctx context.Context, evt *events.Message, offlineSync bool) bool {
 	if evt == nil || evt.Message == nil {
 		return false
@@ -62,25 +62,25 @@ func (c *Client) handleReaction(ctx context.Context, evt *events.Message, offlin
 		timestamp = time.UnixMilli(ms)
 	}
 
-	c.applyReaction(ctx, internalID, senderID(evt.Info), reactorName, reaction.GetText(), timestamp, evt.Info.IsFromMe, offlineSync)
-	return true
+	return c.applyReaction(ctx, internalID, senderID(evt.Info), reactorName, reaction.GetText(), timestamp, evt.Info.IsFromMe, offlineSync)
 }
 
 // applyReaction persists one reactor's reaction (empty emoji removes it),
 // publishes the updated message for live events, and notifies when someone else
 // reacts to one of our own messages.
-func (c *Client) applyReaction(ctx context.Context, internalID, reactorID, reactorName, emoji string, timestamp time.Time, fromMe, silent bool) {
+func (c *Client) applyReaction(ctx context.Context, internalID, reactorID, reactorName, emoji string, timestamp time.Time, fromMe, silent bool) bool {
 	message, chat, changed, err := c.store.SaveReaction(ctx, internalID, reactorID, reactorName, emoji, timestamp.Unix(), fromMe)
 	if err != nil {
 		// A reaction can arrive for a message we have not synced yet; drop it
 		// quietly (it ships with the message during history sync).
-		if !errors.Is(err, sql.ErrNoRows) {
-			c.log.Warnf("Failed to save reaction on %s: %v", internalID, err)
+		if errors.Is(err, sql.ErrNoRows) {
+			return true
 		}
-		return
+		c.log.Warnf("Failed to save reaction on %s: %v", internalID, err)
+		return false
 	}
 	if !changed || silent {
-		return
+		return true
 	}
 
 	c.daemon.PublishMessageUpdated(toDaemonMessage(message))
@@ -93,6 +93,7 @@ func (c *Client) applyReaction(ctx context.Context, internalID, reactorID, react
 			c.notifyWithAvatar(ctx, reactionNotification(message, reactorID, reactorName, emoji), toDaemonChat(chat), opts)
 		}
 	}
+	return true
 }
 
 // reactionNotification builds a synthetic incoming message so the existing

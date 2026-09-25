@@ -211,9 +211,9 @@ func (db *DB) ParkPollVote(ctx context.Context, vote PendingPollVote) error {
 	return err
 }
 
-// TakePendingPollVotes removes and returns the votes parked for one poll, so
-// they can be decrypted now that it has arrived.
-func (db *DB) TakePendingPollVotes(ctx context.Context, pollMessageID string) ([]PendingPollVote, error) {
+// ListPendingPollVotes returns the votes parked for one poll without removing
+// them, so a failed replay can be retried.
+func (db *DB) ListPendingPollVotes(ctx context.Context, pollMessageID string) ([]PendingPollVote, error) {
 	rows, err := db.reader().QueryContext(ctx, `
 		SELECT id, chat_id, poll_message_id, voter_jid, enc_payload, enc_iv, sender_ts
 		FROM poll_votes_pending WHERE poll_message_id = ?
@@ -236,8 +236,20 @@ func (db *DB) TakePendingPollVotes(ctx context.Context, pollMessageID string) ([
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	if len(votes) == 0 {
-		return nil, nil
+	return votes, nil
+}
+
+// DeletePendingPollVote removes one parked vote after it has been applied.
+func (db *DB) DeletePendingPollVote(ctx context.Context, id string) error {
+	_, err := db.conn.ExecContext(ctx, `DELETE FROM poll_votes_pending WHERE id = ?`, id)
+	return err
+}
+
+// TakePendingPollVotes removes and returns the votes parked for one poll.
+func (db *DB) TakePendingPollVotes(ctx context.Context, pollMessageID string) ([]PendingPollVote, error) {
+	votes, err := db.ListPendingPollVotes(ctx, pollMessageID)
+	if err != nil || len(votes) == 0 {
+		return votes, err
 	}
 	if _, err := db.conn.ExecContext(ctx, `
 		DELETE FROM poll_votes_pending WHERE poll_message_id = ?
