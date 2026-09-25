@@ -8,28 +8,39 @@ import org.kde.kirigami as Kirigami
 
 import Whatevr as Whatevr
 
-// Every photo, video, voice note and document in one chat, newest first.
+// Every photo, video, voice note, link and document in one chat, newest first.
 //
 // The rows are the same `messages` items the conversation renders, delivered
-// through the `chat_media` view, so a thumbnail here is the same file the
-// bubble shows and a download landing updates both at once.
+// through the `chat_media` and `chat_links` views, so a thumbnail here is the
+// same file the bubble shows and a download landing updates both at once.
 Kirigami.ScrollablePage {
     id: root
 
     required property string chatId
     property string chatName: ""
     property string mediaFilter: ""
+    property bool linksVisible: false
 
     title: chatName.length > 0
-        ? Whatevr.I18n.i18nc("@title:window", "Media in %1", chatName)
-        : Whatevr.I18n.i18nc("@title:window", "Media")
+        ? Whatevr.I18n.i18nc("@title:window", "Media, links and documents in %1", chatName)
+        : Whatevr.I18n.i18nc("@title:window", "Media, links and documents")
 
-    Component.onCompleted: Whatevr.ProtocolController.openChatMedia(chatId)
+    Component.onCompleted: {
+        Whatevr.ProtocolController.openChatMedia(chatId)
+        Whatevr.ProtocolController.openChatLinks(chatId)
+    }
     // Guarded: at engine teardown the singleton may already be null.
-    Component.onDestruction: { const c = Whatevr.ProtocolController; if (c) c.closeChatMedia() }
+    Component.onDestruction: {
+        const c = Whatevr.ProtocolController
+        if (c) {
+            c.closeChatMedia()
+            c.closeChatLinks()
+        }
+    }
 
     function applyFilter(kind) {
         mediaFilter = kind
+        linksVisible = false
         Whatevr.ProtocolController.closeChatMedia()
         Whatevr.ProtocolController.openChatMedia(chatId, kind)
     }
@@ -46,27 +57,34 @@ Kirigami.ScrollablePage {
                 { label: Whatevr.I18n.i18nc("@action:button gallery filter", "Videos"), kind: "video" },
                 { label: Whatevr.I18n.i18nc("@action:button gallery filter", "Voice"),  kind: "voice" },
                 { label: Whatevr.I18n.i18nc("@action:button gallery filter", "Audio"),  kind: "audio" },
-                { label: Whatevr.I18n.i18nc("@action:button gallery filter", "Docs"),   kind: "document" },
-                { label: Whatevr.I18n.i18nc("@action:button gallery filter", "Polls"),   kind: "poll" },
-                { label: Whatevr.I18n.i18nc("@action:button gallery filter", "Contacts"), kind: "contact" },
-                { label: Whatevr.I18n.i18nc("@action:button gallery filter", "Locations"), kind: "location" }
+                { label: Whatevr.I18n.i18nc("@action:button gallery filter", "Docs"),   kind: "document" }
             ]
 
             delegate: QQC2.ToolButton {
                 required property var modelData
                 text: modelData.label
-                checked: root.mediaFilter === modelData.kind
+                checked: !root.linksVisible && root.mediaFilter === modelData.kind
                 checkable: true
                 autoExclusive: true
                 onClicked: root.applyFilter(modelData.kind)
                 font.weight: checked ? Font.DemiBold : Font.Normal
             }
         }
+
+        QQC2.ToolButton {
+            text: Whatevr.I18n.i18nc("@action:button gallery links", "Links")
+            checked: root.linksVisible
+            checkable: true
+            autoExclusive: true
+            onClicked: root.linksVisible = !root.linksVisible
+            font.weight: checked ? Font.DemiBold : Font.Normal
+        }
     }
 
     GridView {
         id: grid
 
+        visible: !root.linksVisible
         readonly property int columns: Math.max(2, Math.floor(width / (Kirigami.Units.gridUnit * 7)))
 
         model: Whatevr.ProtocolController.chatMediaModel
@@ -91,7 +109,7 @@ Kirigami.ScrollablePage {
         // The window grows into older media as the grid nears its end, the
         // same "extend older" a live-edge window always uses.
         onContentYChanged: {
-            if (contentHeight <= 0 || Whatevr.ProtocolController.chatMediaExhausted)
+            if (root.linksVisible || contentHeight <= 0 || Whatevr.ProtocolController.chatMediaExhausted)
                 return
             if (contentY + height > contentHeight - cellHeight * 2)
                 Whatevr.ProtocolController.extendChatMedia(60)
@@ -100,6 +118,7 @@ Kirigami.ScrollablePage {
         delegate: Item {
             id: cell
 
+            required property int index
             required property var model
 
             readonly property var item: model.item ?? ({})
@@ -243,7 +262,7 @@ Kirigami.ScrollablePage {
                         // Move the keyboard's idea of "current" to whatever was
                         // clicked, so arrowing on from here starts in the right
                         // place.
-                        grid.currentIndex = cell.model.index
+                        grid.currentIndex = cell.index
                         cell.activate()
                     }
                 }
@@ -268,20 +287,113 @@ Kirigami.ScrollablePage {
         }
     }
 
+    ListView {
+        id: linksList
+
+        visible: root.linksVisible
+        model: Whatevr.ProtocolController.chatLinksModel
+        currentIndex: -1
+        reuseItems: true
+        spacing: Kirigami.Units.smallSpacing
+
+        onContentYChanged: {
+            if (!root.linksVisible || contentHeight <= 0 || Whatevr.ProtocolController.chatLinksExhausted)
+                return
+            if (contentY + height > contentHeight - Kirigami.Units.gridUnit * 2)
+                Whatevr.ProtocolController.extendChatLinks(60)
+        }
+
+        Component.onDestruction: linksList.model = null
+
+        QQC2.BusyIndicator {
+            anchors.centerIn: parent
+            running: Whatevr.ProtocolController.chatLinksLoading && linksList.count === 0
+            visible: running
+        }
+
+        Kirigami.PlaceholderMessage {
+            anchors.centerIn: parent
+            width: parent.width - Kirigami.Units.gridUnit * 4
+            visible: linksList.count === 0 && !Whatevr.ProtocolController.chatLinksLoading
+            icon.name: "applications-internet-symbolic"
+            text: Whatevr.I18n.i18nc("@info:placeholder", "No links in this chat yet")
+        }
+
+        delegate: QQC2.ItemDelegate {
+            id: linkDelegate
+
+            required property var item
+            readonly property var row: Whatevr.ProtocolController.messageRowDisplay(item)
+            readonly property var preview: item.link_preview ?? ({})
+            readonly property string url: String(preview.url ?? "")
+
+            width: ListView.view.width
+            padding: Kirigami.Units.largeSpacing
+
+            contentItem: ColumnLayout {
+                spacing: Kirigami.Units.smallSpacing / 2
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Kirigami.Units.smallSpacing
+
+                    QQC2.Label {
+                        Layout.fillWidth: true
+                        text: linkDelegate.row.senderName
+                        font.weight: Font.DemiBold
+                        elide: Text.ElideRight
+                    }
+
+                    QQC2.Label {
+                        text: linkDelegate.row.timeText
+                        color: Kirigami.Theme.disabledTextColor
+                        font: Kirigami.Theme.smallFont
+                    }
+                }
+
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    text: linkDelegate.row.preview
+                    wrapMode: Text.Wrap
+                    maximumLineCount: 3
+                    elide: Text.ElideRight
+                }
+
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    text: linkDelegate.url
+                    visible: linkDelegate.url.length > 0
+                    color: Kirigami.Theme.linkColor
+                    elide: Text.ElideRight
+                }
+            }
+
+            Accessible.role: Accessible.Button
+            Accessible.name: linkDelegate.row.preview
+
+            onClicked: {
+                if (linkDelegate.url.length > 0)
+                    Qt.openUrlExternally(linkDelegate.url)
+                else
+                    Whatevr.ProtocolController.showMessageInChat(root.chatId, linkDelegate.item.id)
+            }
+        }
+    }
+
     MediaViewer {
         id: galleryViewer
     }
 
     QQC2.BusyIndicator {
         anchors.centerIn: parent
-        running: Whatevr.ProtocolController.chatMediaLoading
+        running: !root.linksVisible && Whatevr.ProtocolController.chatMediaLoading
         visible: running
     }
 
     Kirigami.PlaceholderMessage {
         anchors.centerIn: parent
         width: parent.width - Kirigami.Units.gridUnit * 4
-        visible: !Whatevr.ProtocolController.chatMediaLoading && grid.count === 0
+        visible: !root.linksVisible && !Whatevr.ProtocolController.chatMediaLoading && grid.count === 0
         icon.name: "folder-images-symbolic"
         text: Whatevr.I18n.i18nc("@info:placeholder", "No media in this chat yet")
     }

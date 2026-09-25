@@ -35,6 +35,7 @@ Frame {
     // daemon rejects it for kinds with no view-once form (documents etc.).
     property bool viewOnceSend: false
     property var recorder: null
+    property string recordingChatId: ""
 
     // Inline suggestion state, shared by the `:keyword` emoji bar and the `@`
     // mention bar. suggestionMode selects which kind the current results are.
@@ -516,10 +517,42 @@ Frame {
         pauseTimer.restart()
     }
 
+    function cancelRecording() {
+        if (root.recorder && (root.recorder.recording || root.recordingChatId.length > 0))
+            root.recorder.cancel()
+        root.recordingChatId = ""
+    }
+
+    /// Hands a finished recording to the send path. The recorder is only reset
+    /// once the controller has actually taken the note: a rejected send leaves
+    /// it on disk so it can be tried again instead of being silently lost.
+    function trySendVoice() {
+        if (!root.recorder || root.recorder.recording || root.recordingChatId.length === 0
+                || root.recordingChatId !== Whatevr.ProtocolController.selectedChatId
+                || !root.enabledForChat) {
+            return false
+        }
+        const path = String(root.recorder.outputPath || "")
+        if (path.length === 0) {
+            return false
+        }
+        if (!Whatevr.ProtocolController.sendMedia(
+                    Whatevr.ProtocolController.localFileUrl(path), "",
+                    root.replyToMessageId, "voice", false)) {
+            return false
+        }
+        root.recorder.resetAfterSend()
+        root.recordingChatId = ""
+        return true
+    }
+
     onEnabledForChatChanged: {
         if (!enabledForChat) {
-            if (root.recorder && root.recorder.recording)
-                root.recorder.cancel()
+            if ((root.recorder && root.recorder.recording)
+                    || (root.recordingChatId.length > 0
+                        && root.recordingChatId !== Whatevr.ProtocolController.selectedChatId)) {
+                root.cancelRecording()
+            }
             root.setComposing(false)
             emojiPicker.close()
             root.hideSuggestions()
@@ -725,8 +758,10 @@ Frame {
                         root.recorder = recorderComponent.createObject(root)
                     if (root.recorder.recording) {
                         root.recorder.stop()
-                    } else {
-                        root.recorder.start()
+                    } else if (root.recordingChatId.length > 0) {
+                        root.trySendVoice()
+                    } else if (root.recorder.start()) {
+                        root.recordingChatId = Whatevr.ProtocolController.selectedChatId
                     }
                 }
                 Layout.alignment: Qt.AlignVCenter
@@ -992,18 +1027,17 @@ Frame {
         target: root.recorder
         ignoreUnknownSignals: true
         function onRecordingFinished(path) {
-            if (path.length > 0 && root.enabledForChat) {
-                Whatevr.ProtocolController.sendMedia(
-                    Whatevr.ProtocolController.localFileUrl(path), "", root.replyToMessageId, "voice", false)
-                root.recorder.resetAfterSend()
-            } else if (root.recorder) {
-                root.recorder.cancel()
+            if (path.length > 0 && root.recordingChatId.length > 0
+                    && root.recordingChatId === Whatevr.ProtocolController.selectedChatId) {
+                root.trySendVoice()
+            } else if (path.length === 0 || root.recordingChatId.length === 0
+                       || root.recordingChatId !== Whatevr.ProtocolController.selectedChatId) {
+                root.cancelRecording()
             }
         }
         function onErrorOccurred(message) {
             console.warn("Voice recording failed:", message)
-            if (root.recorder)
-                root.recorder.cancel()
+            root.cancelRecording()
         }
     }
 
@@ -1039,6 +1073,10 @@ Frame {
 
         function onSelectionChanged() {
             root.pendingMentions = []
+            if (root.recordingChatId.length > 0
+                    && root.recordingChatId !== Whatevr.ProtocolController.selectedChatId) {
+                root.cancelRecording()
+            }
         }
     }
 

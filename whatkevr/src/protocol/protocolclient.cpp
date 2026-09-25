@@ -226,8 +226,13 @@ void ProtocolClient::scheduleReconnect()
 void ProtocolClient::onReadyRead()
 {
     m_readBuffer += m_socket->readAll();
+    bool oversized = false;
     int newline = m_readBuffer.indexOf('\n');
     while (newline >= 0) {
+        if (newline > kMaxLineBytes) {
+            oversized = true;
+            break;
+        }
         const QByteArray line = m_readBuffer.left(newline);
         m_readBuffer.remove(0, newline + 1);
         if (!line.isEmpty()) {
@@ -235,9 +240,9 @@ void ProtocolClient::onReadyRead()
         }
         newline = m_readBuffer.indexOf('\n');
     }
-    // Close the batch for every sink this drain touched. A fill arrives as one
-    // frame per item, and the daemon flushes a burst in one write, so this is
-    // where a whole window becomes a single model transaction.
+    if (!oversized && m_readBuffer.size() > kMaxLineBytes) {
+        oversized = true;
+    }
     const QList<BatchedSink> touched = std::move(m_batchedSinks);
     m_batchedSinks.clear();
     for (const BatchedSink &entry : touched) {
@@ -251,7 +256,7 @@ void ProtocolClient::onReadyRead()
         }
         entry.sink->onBatchEnd();
     }
-    if (m_readBuffer.size() > kMaxLineBytes) {
+    if (oversized) {
         Q_EMIT errorOccurred(QStringLiteral("oversized protocol frame; dropping connection"));
         m_socket->abort();
         onSocketDisconnected();
@@ -381,10 +386,21 @@ void ProtocolClient::handleHelloReply(const QJsonObject &result, const ProtocolE
 
 void ProtocolClient::sendObject(const QJsonObject &obj)
 {
+    const auto failWrite = [this](const QString &message) {
+        Q_EMIT errorOccurred(message);
+        m_socket->abort();
+        onSocketDisconnected();
+        failAllPending(QStringLiteral("io"), message);
+    };
     if (m_socket->state() != QLocalSocket::ConnectedState) {
+        failWrite(QStringLiteral("protocol write failed: socket is not connected"));
         return;
     }
-    m_socket->write(QJsonDocument(obj).toJson(QJsonDocument::Compact) + '\n');
+    const QByteArray payload = QJsonDocument(obj).toJson(QJsonDocument::Compact) + '\n';
+    const qint64 written = m_socket->write(payload);
+    if (written < 0 || written == 0) {
+        failWrite(QStringLiteral("protocol write failed: %1").arg(m_socket->errorString()));
+    }
 }
 
 int ProtocolClient::sendRequest(const QString &method, const QJsonObject &params, ResponseCallback callback)
@@ -443,11 +459,16 @@ void ProtocolClient::flushPending()
         if (req.callback) {
             m_pending.insert(req.id, req.callback);
         }
+    }
+    for (const QueuedRequest &req : queue) {
         sendObject(QJsonObject{
             {QStringLiteral("id"), req.id},
             {QStringLiteral("method"), req.method},
             {QStringLiteral("params"), req.params},
         });
+        if (m_state != State::Ready) {
+            break;
+        }
     }
 }
 

@@ -97,6 +97,8 @@ Item {
         } else {
             next = at >= 0 ? [] : [index]
         }
+        if (next.length > root.selectableCount)
+            return
         Whatevr.ProtocolController.votePoll(row.messageId, next)
     }
 
@@ -181,7 +183,7 @@ Item {
                 leadingCount: root.leadingCount
                 totalVoters: root.totalVoters
                 multipleAllowed: root.multipleAllowed
-                interactive: !root.row.selectionModeActive && !root.ended
+                interactive: !root.row.selectionModeActive && !root.ended && !root.voteInFlight
                 bodyPointSize: root.row.bodyPointSize
                 onToggled: root.toggle(modelData.index)
                 onVotersRequested: root.row.pollVotersRequested(modelData.index)

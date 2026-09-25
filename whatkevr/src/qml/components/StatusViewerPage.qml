@@ -26,11 +26,24 @@ Kirigami.ScrollablePage {
     property int currentIndex: -1
     property var senderIds: []
     property int senderIndex: -1
+    property var inFlightDownloads: ({})
     readonly property int stillDurationMs: 30 * 1000
 
     readonly property var currentItem: currentIndex >= 0 && currentIndex < statusIds.length
         ? Whatevr.ProtocolController.statusModel.itemById(statusIds[currentIndex])
         : null
+    readonly property string currentStatusId: currentItem && currentItem.id ? currentItem.id : ""
+    readonly property bool currentItemIsOwn: currentItem !== null
+        && currentItem.sender && currentItem.sender.id === "me"
+    readonly property bool currentItemIsStill: currentItem !== null
+        && (currentItem.kind === "text" || currentItem.kind === "image" || currentItem.kind === "gif")
+    property var viewers: []
+    property bool viewersLoading: false
+    property string viewersError: ""
+    property string viewerStatusId: ""
+    property string deletingStatusId: ""
+    property int deletingIndex: -1
+    property int deletingSenderIndex: -1
 
     function collectStatuses() {
         const model = Whatevr.ProtocolController.statusModel
@@ -93,11 +106,10 @@ Kirigami.ScrollablePage {
         }
         root.senderId = senderId
         root.senderIndex = Math.max(0, root.senderIds.indexOf(senderId))
+        root.currentIndex = -1
+        root.refreshCurrent()
         const next = root.currentItem
         root.senderName = next && next.sender ? (next.sender.name || senderId) : senderId
-        root.currentIndex = -1
-        root.collectStatuses()
-        root.refreshCurrent()
     }
 
     function markCurrentViewed() {
@@ -107,10 +119,79 @@ Kirigami.ScrollablePage {
         }
     }
 
-    function ensureDownloaded() {
+    function loadViewers(force) {
+        const id = root.currentStatusId
+        if (!root.currentItemIsOwn || id.length === 0) {
+            root.viewers = []
+            root.viewersError = ""
+            root.viewersLoading = false
+            root.viewerStatusId = ""
+            return
+        }
+        if (!force && root.viewerStatusId === id) {
+            return
+        }
+        root.viewerStatusId = id
+        root.viewers = []
+        root.viewersError = ""
+        root.viewersLoading = true
+        Whatevr.ProtocolController.requestStatusViewers(id)
+    }
+
+    function deleteCurrent() {
+        const item = root.currentItem
+        if (!item || !root.currentItemIsOwn || !item.id) {
+            return
+        }
+        root.deletingStatusId = String(item.id)
+        root.deletingIndex = root.currentIndex
+        root.deletingSenderIndex = root.senderIndex
+        Whatevr.ProtocolController.deleteStatus(root.deletingStatusId)
+    }
+
+    function finishDeletedStatus() {
+        const deletedId = root.deletingStatusId
+        if (deletedId.length === 0 || root.statusIds.indexOf(deletedId) >= 0) {
+            return
+        }
+        const statusIndex = root.deletingIndex
+        const senderIndex = root.deletingSenderIndex
+        root.deletingStatusId = ""
+        if (root.statusIds.length > 0) {
+            root.currentIndex = Math.max(0, Math.min(statusIndex - 1, root.statusIds.length - 1))
+            return
+        }
+        if (root.senderIds.length > 0) {
+            const fallbackIndex = Math.min(Math.max(0, senderIndex - 1), root.senderIds.length - 1)
+            root.switchSender(root.senderIds[fallbackIndex])
+            return
+        }
+        applicationWindow().pageStack.layers.pop()
+    }
+
+    function viewerName(viewer) {
+        const name = String(viewer.name ?? viewer.display_name ?? "")
+        if (name.length > 0) {
+            return name
+        }
+        const jid = String(viewer.jid ?? "")
+        return jid.length > 0
+            ? jid
+            : Whatevr.I18n.i18nc("@label status viewer with no identity", "Unknown viewer")
+    }
+
+    function ensureDownloaded(retry) {
         const item = root.currentItem
         const media = item ? item.media : null
-        if (item && media && !media.path) {
+        if (item && media && media.path && root.inFlightDownloads[item.id]) {
+            const downloads = Object.assign({}, root.inFlightDownloads)
+            delete downloads[item.id]
+            root.inFlightDownloads = downloads
+        }
+        if (item && media && !media.path && (retry || !root.inFlightDownloads[item.id])) {
+            const downloads = Object.assign({}, root.inFlightDownloads)
+            downloads[item.id] = true
+            root.inFlightDownloads = downloads
             Whatevr.ProtocolController.downloadStatus(item.id)
         }
     }
@@ -201,6 +282,7 @@ Kirigami.ScrollablePage {
 
     Component.onCompleted: {
         root.refreshCurrent()
+        root.loadViewers()
     }
 
     Component.onDestruction: {
@@ -217,19 +299,31 @@ Kirigami.ScrollablePage {
 
         function onStatusChanged() {
             root.refreshCurrent()
+            root.finishDeletedStatus()
+            root.loadViewers(true)
+        }
+
+        function onStatusViewersReady(id, list) {
+            if (id !== root.currentStatusId || !root.currentItemIsOwn) {
+                return
+            }
+            root.viewers = list || []
+            root.viewersLoading = false
+            root.viewersError = ""
+        }
+
+        function onStatusViewersFailed(id, message) {
+            if (id !== root.currentStatusId || !root.currentItemIsOwn) {
+                return
+            }
+            root.viewersLoading = false
+            root.viewersError = message
         }
     }
 
-    // A download landing (or a viewed flag) is an in-place row update: only
-    // dataChanged fires, not count/ready. Without this the viewer keeps
-    // showing Load after the bytes arrive.
-    Connections {
-        target: Whatevr.ProtocolController.statusModel
-        ignoreUnknownSignals: true
-
-        function onDataChanged() {
-            root.refreshCurrent()
-        }
+    onCurrentStatusIdChanged: {
+        replyField.clear()
+        root.loadViewers()
     }
 
     onCurrentIndexChanged: {
@@ -237,17 +331,14 @@ Kirigami.ScrollablePage {
         root.markCurrentViewed()
         root.ensureDownloaded()
         root.maybeAutoplay()
-        stillTimer.restart()
+        root.loadViewers()
     }
 
     Timer {
         id: stillTimer
         interval: root.stillDurationMs
         repeat: false
-        running: root.currentItem !== null
-                 && root.currentItem.kind !== "video"
-                 && root.currentItem.kind !== "voice"
-                 && root.currentItem.kind !== "audio"
+        running: root.currentItemIsStill
         onTriggered: root.advanceStatus()
     }
 
@@ -304,6 +395,18 @@ Kirigami.ScrollablePage {
             display: QQC2.AbstractButton.IconOnly
             enabled: root.senderIndex >= 0 && root.senderIndex < root.senderIds.length - 1
             onClicked: root.switchSender(root.senderIds[root.senderIndex + 1])
+
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.text: text
+            QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+        }
+
+        QQC2.ToolButton {
+            visible: root.currentItemIsOwn
+            icon.name: "edit-delete-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button delete this status", "Delete status")
+            display: QQC2.AbstractButton.IconOnly
+            onClicked: deleteStatusDialog.openFor()
 
             QQC2.ToolTip.visible: hovered
             QQC2.ToolTip.text: text
@@ -390,7 +493,7 @@ Kirigami.ScrollablePage {
             visible: root.currentItem && root.currentItem.media && !root.currentItem.media.path
             text: Whatevr.I18n.i18nc("@action:button download the status media", "Load")
             icon.name: "cloud-download-symbolic"
-            onClicked: root.ensureDownloaded()
+            onClicked: root.ensureDownloaded(true)
         }
 
         // Video status: thumbnail-first poster with a play button; the full
@@ -475,10 +578,8 @@ Kirigami.ScrollablePage {
 
             Connections {
                 target: Whatevr.AudioPlayer
-                function onPlayingChanged() {
-                    if (!Whatevr.AudioPlayer.playing
-                            && Whatevr.AudioPlayer.messageId === root.currentItem?.id
-                            && Whatevr.AudioPlayer.position > 0) {
+                function onFinished(messageId) {
+                    if (messageId === root.currentItem?.id) {
                         root.advanceStatus()
                     }
                 }
@@ -504,7 +605,26 @@ Kirigami.ScrollablePage {
             visible: root.currentItem && root.currentItem.kind !== "text"
             text: Whatevr.I18n.i18nc("@action:button save the status media", "Save…")
             icon.name: "document-save-symbolic"
-            onClicked: saveDialog.open()
+            onClicked: {
+                const item = root.currentItem
+                if (item) {
+                    const media = item.media ?? {}
+                    saveDialog.openFor(item.id, media.path ?? "", item.kind, media.filename ?? "")
+                }
+            }
+        }
+
+        QQC2.Button {
+            Layout.alignment: Qt.AlignHCenter
+            visible: root.currentItemIsOwn
+            enabled: !root.viewersLoading
+            flat: true
+            text: root.viewersError.length > 0
+                ? Whatevr.I18n.i18nc("@action:button retry loading status viewers", "Retry views")
+                : root.viewersLoading
+                    ? Whatevr.I18n.i18nc("@info loading status viewers", "Loading views…")
+                    : Whatevr.I18n.i18ncp("@info status viewer count", "%1 view", "%1 views", root.viewers.length)
+            onClicked: viewersDialog.openFor()
         }
 
         Kirigami.PlaceholderMessage {
@@ -516,14 +636,147 @@ Kirigami.ScrollablePage {
         }
     }
 
+    CenteredDialog {
+        id: viewersDialog
+
+        title: Whatevr.I18n.i18nc("@title:dialog status viewers", "Status viewers")
+        standardButtons: Kirigami.Dialog.Close
+        padding: Kirigami.Units.largeSpacing
+        preferredWidth: Kirigami.Units.gridUnit * 22
+        maximumHeight: Kirigami.Units.gridUnit * 26
+
+        function openFor() {
+            root.loadViewers(true)
+            open()
+        }
+
+        ColumnLayout {
+            implicitWidth: viewersDialog.preferredWidth
+            spacing: Kirigami.Units.smallSpacing
+
+            QQC2.BusyIndicator {
+                Layout.alignment: Qt.AlignHCenter
+                visible: root.viewersLoading
+                running: visible
+            }
+
+            QQC2.Label {
+                Layout.fillWidth: true
+                visible: root.viewersError.length > 0 || (!root.viewersLoading && root.viewers.length === 0)
+                text: root.viewersError.length > 0
+                    ? root.viewersError
+                    : Whatevr.I18n.i18nc("@info no status viewers", "No viewers yet")
+                color: root.viewersError.length > 0
+                    ? Kirigami.Theme.negativeTextColor
+                    : Kirigami.Theme.disabledTextColor
+                wrapMode: Text.WordWrap
+            }
+
+            ListView {
+                Layout.fillWidth: true
+                Layout.preferredHeight: Math.min(contentHeight, Kirigami.Units.gridUnit * 16)
+                visible: !root.viewersLoading && root.viewersError.length === 0 && root.viewers.length > 0
+                model: root.viewers
+                clip: true
+
+                delegate: QQC2.ItemDelegate {
+                    id: viewerDelegate
+
+                    required property var modelData
+                    width: ListView.view.width
+
+                    contentItem: RowLayout {
+                        spacing: Kirigami.Units.smallSpacing
+
+                        QQC2.Label {
+                            Layout.fillWidth: true
+                            text: root.viewerName(viewerDelegate.modelData)
+                            elide: Text.ElideRight
+                        }
+
+                        QQC2.Label {
+                            text: String(viewerDelegate.modelData.jid ?? "")
+                            color: Kirigami.Theme.disabledTextColor
+                            font.pointSize: Kirigami.Theme.smallFont.pointSize
+                            visible: String(viewerDelegate.modelData.name ?? viewerDelegate.modelData.display_name ?? "").length > 0
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Kirigami.PromptDialog {
+        id: deleteStatusDialog
+
+        y: parent ? Math.round((parent.height - implicitHeight) / 2) : 0
+        property string statusId: ""
+
+        function openFor() {
+            statusId = root.currentStatusId
+            open()
+        }
+
+        title: Whatevr.I18n.i18nc("@title:dialog delete status", "Delete status?")
+        subtitle: Whatevr.I18n.i18nc("@info delete status confirmation",
+                                   "This status will be deleted for everyone.")
+        standardButtons: Kirigami.Dialog.Cancel
+        showCloseButton: false
+
+        customFooterActions: [
+            Kirigami.Action {
+                text: Whatevr.I18n.i18nc("@action:button confirm deleting a status", "Delete")
+                icon.name: "edit-delete-symbolic"
+                onTriggered: {
+                    if (root.currentStatusId === deleteStatusDialog.statusId) {
+                        root.deleteCurrent()
+                    }
+                    deleteStatusDialog.close()
+                }
+            }
+        ]
+    }
+
     Platform.FileDialog {
         id: saveDialog
+
+        property string statusId: ""
+        property string sourcePath: ""
+        property string sourceKind: ""
+        property string sourceFileName: ""
+
+        function openFor(id, path, kind, fileName) {
+            statusId = String(id ?? "")
+            sourcePath = String(path ?? "")
+            sourceKind = String(kind ?? "")
+            sourceFileName = String(fileName ?? "")
+            const cacheName = sourcePath.substring(sourcePath.lastIndexOf("/") + 1)
+            const dot = cacheName.lastIndexOf(".")
+            const extension = dot > 0 ? cacheName.substring(dot) : ""
+            const base = sourceFileName.length > 0 ? sourceFileName : (extension.length > 0 ? "status" + extension : "")
+            if (base.length > 0) {
+                let location = Platform.StandardPaths.PicturesLocation
+                if (sourceKind === "video" || sourceKind === "gif") {
+                    location = Platform.StandardPaths.MoviesLocation
+                } else if (sourceKind === "voice" || sourceKind === "audio") {
+                    location = Platform.StandardPaths.MusicLocation
+                }
+                const preferred = Whatevr.Settings.mediaSaveDirectory
+                const directory = preferred.length > 0
+                    ? preferred
+                    : Platform.StandardPaths.writableLocation(location)
+                currentFile = directory + "/" + base
+            }
+            open()
+        }
 
         title: Whatevr.I18n.i18nc("@title:window save a status", "Save status")
         fileMode: Platform.FileDialog.SaveFile
         onAccepted: {
-            if (root.currentItem) {
-                Whatevr.ProtocolController.saveRemoteMedia("", root.currentItem.id, "", file)
+            if (sourcePath.length > 0) {
+                Whatevr.ProtocolController.saveMediaAs(sourcePath, file)
+            } else if (statusId.length > 0) {
+                Whatevr.ProtocolController.saveRemoteMedia("", statusId, "", file)
             }
         }
     }
@@ -533,30 +786,33 @@ Kirigami.ScrollablePage {
     MediaViewer {
         id: statusMediaViewer
 
-        onSaveRequested: (localPath, kind, fileName, timestampUnix) => saveDialog.open()
+        onSaveRequested: (localPath, kind, fileName, timestampUnix) =>
+            saveDialog.openFor(statusMediaViewer.messageId, localPath, kind, fileName)
     }
 
     Shortcut {
         sequences: [Qt.Key_Left]
-        enabled: root.currentIndex > 0
+        enabled: !replyField.activeFocus && root.currentIndex > 0
         onActivated: root.currentIndex -= 1
     }
 
     Shortcut {
         sequences: [Qt.Key_Right]
-        enabled: root.currentIndex >= 0 && root.currentIndex < root.statusIds.length - 1
+        enabled: !replyField.activeFocus
+                 && root.currentIndex >= 0 && root.currentIndex < root.statusIds.length - 1
         onActivated: root.currentIndex += 1
     }
 
     Shortcut {
         sequences: [Qt.Key_Up]
-        enabled: root.senderIndex > 0
+        enabled: !replyField.activeFocus && root.senderIndex > 0
         onActivated: root.switchSender(root.senderIds[root.senderIndex - 1])
     }
 
     Shortcut {
         sequences: [Qt.Key_Down]
-        enabled: root.senderIndex >= 0 && root.senderIndex < root.senderIds.length - 1
+        enabled: !replyField.activeFocus
+                 && root.senderIndex >= 0 && root.senderIndex < root.senderIds.length - 1
         onActivated: root.switchSender(root.senderIds[root.senderIndex + 1])
     }
 }

@@ -16,6 +16,7 @@
 #include <QProcess>
 #include <QQmlEngine>
 #include <QRegularExpression>
+#include <QSaveFile>
 #include <QSet>
 #include <QSettings>
 #include <QStandardPaths>
@@ -394,12 +395,16 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
 
     // Starred page (D5): a windowed `starred` collection the page binds
     // directly; loading/exhausted drive its spinner and scroll-extend.
-    m_starredModel = new CollectionViewModel(this);
-    m_chatMediaModel = new CollectionViewModel(this);
-    connect(m_chatMediaModel, &CollectionViewModel::countChanged, this, &ProtocolController::chatMediaChanged);
-    connect(m_chatMediaModel, &CollectionViewModel::readyChanged, this, &ProtocolController::chatMediaChanged);
-    connect(m_chatMediaModel, &CollectionViewModel::modelReset, this, &ProtocolController::chatMediaChanged);
-    connect(m_starredModel, &CollectionViewModel::countChanged, this, &ProtocolController::starredMessagesChanged);
+     m_starredModel = new CollectionViewModel(this);
+     m_chatMediaModel = new CollectionViewModel(this);
+     connect(m_chatMediaModel, &CollectionViewModel::countChanged, this, &ProtocolController::chatMediaChanged);
+     connect(m_chatMediaModel, &CollectionViewModel::readyChanged, this, &ProtocolController::chatMediaChanged);
+     connect(m_chatMediaModel, &CollectionViewModel::modelReset, this, &ProtocolController::chatMediaChanged);
+     m_chatLinksModel = new CollectionViewModel(this);
+     connect(m_chatLinksModel, &CollectionViewModel::countChanged, this, &ProtocolController::chatLinksChanged);
+     connect(m_chatLinksModel, &CollectionViewModel::readyChanged, this, &ProtocolController::chatLinksChanged);
+     connect(m_chatLinksModel, &CollectionViewModel::modelReset, this, &ProtocolController::chatLinksChanged);
+     connect(m_starredModel, &CollectionViewModel::countChanged, this, &ProtocolController::starredMessagesChanged);
     connect(m_starredModel, &CollectionViewModel::readyChanged, this, &ProtocolController::starredMessagesChanged);
     connect(m_starredModel, &CollectionViewModel::modelReset, this, &ProtocolController::starredMessagesChanged);
 
@@ -589,6 +594,7 @@ ProtocolController::~ProtocolController()
     delete m_forwardTargetsSub;
     delete m_transfersSub;
     delete m_chatMediaSub;
+    delete m_chatLinksSub;
     delete m_starredSub;
     delete m_infoCardSub;
     delete m_groupMembersSub;
@@ -601,9 +607,10 @@ ProtocolController::~ProtocolController()
     delete m_channelsSub;
     delete m_channelMessagesSub;
     m_chatMembersSub = nullptr;
-    m_starredSub = nullptr;
-    m_chatMediaSub = nullptr;
-    m_infoCardSub = nullptr;
+     m_starredSub = nullptr;
+     m_chatMediaSub = nullptr;
+     m_chatLinksSub = nullptr;
+     m_infoCardSub = nullptr;
     m_groupMembersSub = nullptr;
     m_blocklistSub = nullptr;
     m_privacySub = nullptr;
@@ -2100,16 +2107,16 @@ void ProtocolController::cancelScheduledMessage(qlonglong id, const QString &cha
                       });
 }
 
-void ProtocolController::sendMedia(const QString &fileUrl, const QString &caption, const QString &replyToMessageId, const QString &kind, bool viewOnce)
+bool ProtocolController::sendMedia(const QString &fileUrl, const QString &caption, const QString &replyToMessageId, const QString &kind, bool viewOnce)
 {
     if (m_selectedChatId.isEmpty() || fileUrl.isEmpty() || m_sendInFlight || !selectedChatCanSend()) {
-        return;
+        return false;
     }
 
     const QUrl url(fileUrl);
     const QString filePath = url.isLocalFile() ? url.toLocalFile() : fileUrl;
     if (filePath.isEmpty()) {
-        return;
+        return false;
     }
 
     setSelectedChatComposing(false);
@@ -2140,6 +2147,7 @@ void ProtocolController::sendMedia(const QString &fileUrl, const QString &captio
             : QString();
         Q_EMIT composerChanged();
     });
+    return true;
 }
 
 // Batch twin of sendMedia: the daemon serializes the files, so a multi-pick
@@ -2579,29 +2587,52 @@ void ProtocolController::votePoll(const QString &messageId, const QVariantList &
     }
 
     QJsonArray ids;
+    QSet<int> unique;
     for (const QVariant &index : optionIndexes) {
         bool ok = false;
         const int value = index.toInt(&ok);
-        if (ok && value >= 0) {
+        if (ok && value >= 0 && !unique.contains(value)) {
+            unique.insert(value);
             ids.append(value);
         }
     }
 
-    // The tap is answered here rather than one round trip later. The daemon
-    // publishes its own version of the tally within a few milliseconds, but the
-    // send behind it takes a couple of hundred, and holding the row still for
-    // either of those makes the poll feel like it did not hear the tap.
-    m_pendingPollVotes.insert(messageId, optionIndexes);
+    if (m_messagePresentationModel) {
+        const int row = m_messagePresentationModel->indexOf(messageId);
+        if (row >= 0) {
+            const QVariantMap poll = m_messagePresentationModel
+                                         ->data(m_messagePresentationModel->index(row), ProtocolMessageModel::PollRole)
+                                         .toMap();
+            const int limit = qMax(1, poll.value(QStringLiteral("selectable_count")).toInt());
+            if (ids.size() > limit) {
+                Q_EMIT messageActionFailed(i18ncp("@info", "Select no more than %1 option",
+                                                 "Select no more than %1 options", limit)
+                                               .arg(limit));
+                return;
+            }
+        }
+    }
+
+    // A vote already in flight for this poll is not replaced by another vote:
+    // the daemon's answer would land out of order and the chips would jump. An
+    // empty selection is the exception — that is the voter taking the vote
+    // back, which must work while the original request is still open.
+    if (m_pendingPollVotes.contains(messageId) && !ids.isEmpty()) {
+        return;
+    }
+
+    const QVariantList pendingSelection = optionIndexes;
+    m_pendingPollVotes.insert(messageId, pendingSelection);
     Q_EMIT pollVotesChanged();
 
     m_client->request(QStringLiteral("poll.vote"),
                       {{QStringLiteral("message_id"), messageId}, {QStringLiteral("option_ids"), ids}},
-                      [this, messageId](const QJsonObject &, const ProtocolError &error) {
-                          // Whether it worked or not, the daemon's tally is now
-                          // the truth: on success it already carries this vote,
-                          // and on failure it has put the previous one back.
-                          m_pendingPollVotes.remove(messageId);
-                          Q_EMIT pollVotesChanged();
+                      [this, messageId, pendingSelection](const QJsonObject &, const ProtocolError &error) {
+                          if (m_pendingPollVotes.contains(messageId)
+                              && m_pendingPollVotes.value(messageId).toList() == pendingSelection) {
+                              m_pendingPollVotes.remove(messageId);
+                              Q_EMIT pollVotesChanged();
+                          }
                           if (error.isError()) {
                               Q_EMIT messageActionFailed(error.message.isEmpty()
                                                              ? i18nc("@info", "Unable to vote in the poll")
@@ -3084,21 +3115,18 @@ void ProtocolController::setSearchQuery(const QString &query)
         return;
     }
     m_searchQuery = query;
-    Q_EMIT searchChanged();
+    ++m_searchGeneration;
+    m_searchPending = 0;
+    m_searchDebounceTimer->stop();
+    m_searchResultsModel->clear();
 
     if (query.trimmed().isEmpty()) {
-        // Abandon whatever is in flight: bumping the generation makes every
-        // pending reply a no-op, since the protocol client always answers.
-        ++m_searchGeneration;
-        m_searchPending = 0;
-        m_searchDebounceTimer->stop();
-        m_searchResultsModel->clear();
-        if (m_searchBusy) {
-            m_searchBusy = false;
-            Q_EMIT searchChanged();
-        }
+        m_searchBusy = false;
+        Q_EMIT searchChanged();
         return;
     }
+    m_searchBusy = true;
+    Q_EMIT searchChanged();
     m_searchDebounceTimer->start();
 }
 
@@ -3115,7 +3143,7 @@ void ProtocolController::runSearch()
         return;
     }
 
-    const int generation = ++m_searchGeneration;
+    const int generation = m_searchGeneration;
     m_searchPending = 2;
     m_searchBusy = true;
     Q_EMIT searchChanged();
@@ -3217,17 +3245,14 @@ void ProtocolController::setChatSearchQuery(const QString &query)
         return;
     }
     m_chatSearchQuery = query;
+    ++m_chatSearchGeneration;
+    m_chatSearchDebounceTimer->stop();
+    m_chatSearchMatchIds.clear();
+    m_chatSearchIndex = -1;
     Q_EMIT chatSearchChanged();
-
-    if (query.trimmed().isEmpty()) {
-        ++m_chatSearchGeneration;
-        m_chatSearchDebounceTimer->stop();
-        m_chatSearchMatchIds.clear();
-        m_chatSearchIndex = -1;
-        Q_EMIT chatSearchChanged();
-        return;
+    if (!query.trimmed().isEmpty()) {
+        m_chatSearchDebounceTimer->start();
     }
-    m_chatSearchDebounceTimer->start();
 }
 
 void ProtocolController::runChatSearch()
@@ -3241,7 +3266,7 @@ void ProtocolController::runChatSearch()
         return;
     }
 
-    const int generation = ++m_chatSearchGeneration;
+    const int generation = m_chatSearchGeneration;
     m_client->request(QStringLiteral("search.messages"),
                       {{QStringLiteral("query"), query},
                        {QStringLiteral("chat_id"), chatId},
@@ -3463,6 +3488,25 @@ void ProtocolController::markStatusViewed(const QString &statusId)
                        i18nc("@info", "Unable to mark the status viewed"));
 }
 
+void ProtocolController::requestStatusViewers(const QString &statusId)
+{
+    if (statusId.isEmpty()) {
+        return;
+    }
+    m_client->request(QStringLiteral("status.viewers"), {{QStringLiteral("status_id"), statusId}},
+                      [this, statusId](const QJsonObject &result, const ProtocolError &error) {
+                          if (error.isError()) {
+                              Q_EMIT statusViewersFailed(
+                                  statusId, error.message.isEmpty()
+                                                ? i18nc("@info", "Unable to load status viewers")
+                                                : error.message);
+                              return;
+                          }
+                          Q_EMIT statusViewersReady(
+                              statusId, result.value(QStringLiteral("viewers")).toArray().toVariantList());
+                      });
+}
+
 void ProtocolController::postStatusText(const QString &text, int background, int font)
 {
     if (text.trimmed().isEmpty()) {
@@ -3513,6 +3557,15 @@ void ProtocolController::replyToStatus(const QString &statusId, const QString &t
                       });
 }
 
+void ProtocolController::deleteStatus(const QString &statusId)
+{
+    if (statusId.isEmpty()) {
+        return;
+    }
+    sendMessageCommand(QStringLiteral("status.delete"), {{QStringLiteral("status_id"), statusId}},
+                       i18nc("@info", "Unable to delete the status"));
+}
+
 void ProtocolController::downloadStatus(const QString &statusId)
 {
     if (statusId.isEmpty()) {
@@ -3529,11 +3582,6 @@ void ProtocolController::saveRemoteMedia(const QString &messageId, const QString
     }
     const QString destination = destUrl.toLocalFile();
     if (destination.isEmpty()) {
-        return;
-    }
-    // The dialog already confirmed overwriting; QFile::copy refuses to.
-    if (QFile::exists(destination) && !QFile::remove(destination)) {
-        Q_EMIT messageActionFailed(i18nc("@info", "Unable to overwrite the existing file"));
         return;
     }
     QJsonObject params{{QStringLiteral("path"), destination}};
@@ -3564,11 +3612,6 @@ void ProtocolController::exportChat(const QString &chatId, const QUrl &destUrl)
     }
     const QString destination = destUrl.toLocalFile();
     if (destination.isEmpty()) {
-        return;
-    }
-    // The dialog already confirmed overwriting; QFile::copy refuses to.
-    if (QFile::exists(destination) && !QFile::remove(destination)) {
-        Q_EMIT messageActionFailed(i18nc("@info", "Unable to overwrite the existing file"));
         return;
     }
     QJsonObject params{{QStringLiteral("chat_id"), chatId},
@@ -3905,7 +3948,7 @@ void ProtocolController::copyGroupInviteLink(const QString &chatId)
                       });
 }
 
-// --- per-chat media gallery -------------------------------------------------
+// --- per-chat media and links gallery --------------------------------------
 
 QAbstractItemModel *ProtocolController::chatMediaModel() const
 {
@@ -3960,6 +4003,57 @@ void ProtocolController::extendChatMedia(int count)
         return;
     }
     m_chatMediaSub->extend(count > 0 ? count : kChatMediaPageSize, QStringLiteral("older"));
+}
+
+QAbstractItemModel *ProtocolController::chatLinksModel() const
+{
+    return m_chatLinksModel;
+}
+
+bool ProtocolController::chatLinksLoading() const
+{
+    return m_chatLinksSub != nullptr && !m_chatLinksModel->isReady();
+}
+
+bool ProtocolController::chatLinksExhausted() const
+{
+    return m_chatLinksSub == nullptr || m_chatLinksModel->isExhausted();
+}
+
+void ProtocolController::openChatLinks(const QString &chatId)
+{
+    delete m_chatLinksSub;
+    m_chatLinksSub = nullptr;
+    m_chatLinksModel->onReset();
+    if (chatId.isEmpty()) {
+        Q_EMIT chatLinksChanged();
+        return;
+    }
+
+    m_chatLinksSub = m_client->subscribe(
+        QStringLiteral("chat_links"),
+        {{QStringLiteral("chat_id"), chatId}, {QStringLiteral("limit"), kChatMediaPageSize}},
+        m_chatLinksModel);
+    Q_EMIT chatLinksChanged();
+}
+
+void ProtocolController::closeChatLinks()
+{
+    if (!m_chatLinksSub) {
+        return;
+    }
+    delete m_chatLinksSub;
+    m_chatLinksSub = nullptr;
+    m_chatLinksModel->onReset();
+    Q_EMIT chatLinksChanged();
+}
+
+void ProtocolController::extendChatLinks(int count)
+{
+    if (!m_chatLinksSub || m_chatLinksModel->isExhausted() || !m_chatLinksModel->isReady()) {
+        return;
+    }
+    m_chatLinksSub->extend(count > 0 ? count : kChatMediaPageSize, QStringLiteral("older"));
 }
 
 QVariantMap ProtocolController::messageRowDisplay(const QVariantMap &item) const
@@ -4962,12 +5056,45 @@ bool ProtocolController::saveMediaAs(const QString &localPath, const QUrl &destU
     if (destination.isEmpty()) {
         return false;
     }
-    // The save dialog already confirmed overwriting; QFile::copy refuses to.
-    if (QFile::exists(destination) && !QFile::remove(destination)) {
-        Q_EMIT messageActionFailed(i18nc("@info", "Unable to overwrite the existing file"));
+    const QFileInfo sourceInfo(localPath);
+    const QFileInfo destinationInfo(destination);
+    if (sourceInfo.absoluteFilePath() == destinationInfo.absoluteFilePath()
+        || (!sourceInfo.canonicalFilePath().isEmpty()
+            && sourceInfo.canonicalFilePath() == destinationInfo.canonicalFilePath())) {
         return false;
     }
-    if (!QFile::copy(localPath, destination)) {
+    QFile source(localPath);
+    if (!source.open(QIODevice::ReadOnly)) {
+        Q_EMIT messageActionFailed(i18nc("@info", "Unable to save the file"));
+        return false;
+    }
+    QSaveFile output(destination);
+    if (!output.open(QIODevice::WriteOnly)) {
+        Q_EMIT messageActionFailed(i18nc("@info", "Unable to save the file"));
+        return false;
+    }
+    while (!source.atEnd()) {
+        const QByteArray chunk = source.read(64 * 1024);
+        if (chunk.isEmpty()) {
+            if (source.error() != QFileDevice::NoError) {
+                output.cancelWriting();
+                Q_EMIT messageActionFailed(i18nc("@info", "Unable to save the file"));
+                return false;
+            }
+            break;
+        }
+        if (output.write(chunk) != chunk.size()) {
+            output.cancelWriting();
+            Q_EMIT messageActionFailed(i18nc("@info", "Unable to save the file"));
+            return false;
+        }
+    }
+    if (source.error() != QFileDevice::NoError) {
+        output.cancelWriting();
+        Q_EMIT messageActionFailed(i18nc("@info", "Unable to save the file"));
+        return false;
+    }
+    if (!output.commit()) {
         Q_EMIT messageActionFailed(i18nc("@info", "Unable to save the file"));
         return false;
     }

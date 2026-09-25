@@ -77,6 +77,8 @@ Kirigami.ApplicationWindow {
             // conversation list, not on whatever tab was open when hiding.
             if (chatListPageItem)
                 chatListPageItem.workspaceMode = "chats"
+            if (workspacePageItem)
+                workspacePageItem.openConversation()
             root.hide()
         }
     }
@@ -421,9 +423,10 @@ Kirigami.ApplicationWindow {
         // directly in the right column.
         if (tab === "status" || tab === "channels") {
             chatListPageItem.workspaceMode = tab
+            navTargetChatId = chatSingleColumnLayout ? "" : Whatevr.ProtocolController.selectedChatId
             navProgrammaticIndexChange = true
             workspacePageItem.openConversation()
-            pageStack.currentIndex = 1
+            pageStack.currentIndex = chatSingleColumnLayout ? 0 : 1
             navProgrammaticIndexChange = false
             return
         }

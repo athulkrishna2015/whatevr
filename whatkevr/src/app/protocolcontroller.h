@@ -257,12 +257,15 @@ class ProtocolController final : public QObject
     Q_PROPERTY(QString selectedChannelJid READ selectedChannelJid NOTIFY channelMessagesChanged FINAL)
     Q_PROPERTY(QString selectedChannelName READ selectedChannelName NOTIFY channelMessagesChanged FINAL)
 
-    // Per-chat media gallery: the `chat_media` view, subscribed while the
-    // gallery page is open. Rows are ordinary `messages` items, so the gallery
-    // renders the same thumbnails and paths the conversation does.
+    // Per-chat media and links gallery: the `chat_media` and `chat_links` views,
+    // subscribed while the gallery page is open. Rows are ordinary `messages`
+    // items, so both sections render the same data the conversation does.
     Q_PROPERTY(QAbstractItemModel *chatMediaModel READ chatMediaModel CONSTANT FINAL)
     Q_PROPERTY(bool chatMediaLoading READ chatMediaLoading NOTIFY chatMediaChanged FINAL)
     Q_PROPERTY(bool chatMediaExhausted READ chatMediaExhausted NOTIFY chatMediaChanged FINAL)
+    Q_PROPERTY(QAbstractItemModel *chatLinksModel READ chatLinksModel CONSTANT FINAL)
+    Q_PROPERTY(bool chatLinksLoading READ chatLinksLoading NOTIFY chatLinksChanged FINAL)
+    Q_PROPERTY(bool chatLinksExhausted READ chatLinksExhausted NOTIFY chatLinksChanged FINAL)
 
     // Contact/group info card (D5): the `contact` object view, or the `group`
     // object view plus its `group_members` roster, subscribed for the lifetime
@@ -489,6 +492,9 @@ public:
     [[nodiscard]] QAbstractItemModel *chatMediaModel() const;
     [[nodiscard]] bool chatMediaLoading() const;
     [[nodiscard]] bool chatMediaExhausted() const;
+    [[nodiscard]] QAbstractItemModel *chatLinksModel() const;
+    [[nodiscard]] bool chatLinksLoading() const;
+    [[nodiscard]] bool chatLinksExhausted() const;
     // Subscribe/drop the `starred` view; chatId empty spans every chat. The
     // page's lifetime is the subscription's lifetime.
     Q_INVOKABLE void openStarredMessages(const QString &chatId);
@@ -501,10 +507,12 @@ public:
     Q_INVOKABLE void loadMoreStatus();
     // Maps to `status.mark_viewed`; the row upserts viewed through the view.
     Q_INVOKABLE void markStatusViewed(const QString &statusId);
+    Q_INVOKABLE void requestStatusViewers(const QString &statusId);
     // Maps to `status.post` (text or a media file with an optional caption).
     Q_INVOKABLE void postStatusText(const QString &text, int background = 0, int font = 0);
     Q_INVOKABLE void postStatusMedia(const QString &fileUrl, const QString &caption, int background = 0, int font = 0);
     Q_INVOKABLE void replyToStatus(const QString &statusId, const QString &text);
+    Q_INVOKABLE void deleteStatus(const QString &statusId);
     // Maps to `status.download`; the row upserts with media.path on success.
     Q_INVOKABLE void downloadStatus(const QString &statusId);
     // Maps to `status.keep_sender`; kept contacts grow an archived section.
@@ -524,8 +532,11 @@ public:
     Q_INVOKABLE void openChatMedia(const QString &chatId, const QString &kind = QString());
     Q_INVOKABLE void closeChatMedia();
     Q_INVOKABLE void extendChatMedia(int count = 60);
+    Q_INVOKABLE void openChatLinks(const QString &chatId);
+    Q_INVOKABLE void closeChatLinks();
+    Q_INVOKABLE void extendChatLinks(int count = 60);
 
-    // Signals for logs and chat media.
+    // Signals for logs, media, and links.
     void logsChanged();
 
     // Maps to `call.reject` for the latest ringing call in the chat.
@@ -636,7 +647,7 @@ public:
     // kind is "", "image", "video", "audio", "voice" or "document" ("" classifies
     // from the file); viewOnce sends photo/video/audio view-once. QML may keep
     // calling with three arguments — the defaults preserve the old behavior.
-    Q_INVOKABLE void sendMedia(const QString &fileUrl, const QString &caption, const QString &replyToMessageId, const QString &kind = {}, bool viewOnce = false);
+    Q_INVOKABLE bool sendMedia(const QString &fileUrl, const QString &caption, const QString &replyToMessageId, const QString &kind = {}, bool viewOnce = false);
     Q_INVOKABLE void sendMediaBatch(const QVariantList &fileUrls, const QString &caption, const QString &replyToMessageId, const QString &kind = {}, bool viewOnce = false);
     // Sends whatever image the clipboard currently holds (pasted bitmap or a
     // local image file URL), same as sendMedia. Returns false when the
@@ -859,7 +870,10 @@ public:
     void chatSearchChanged();
     void starredMessagesChanged();
     void chatMediaChanged();
+    void chatLinksChanged();
     void statusChanged();
+    void statusViewersReady(const QString &statusId, const QVariantList &viewers);
+    void statusViewersFailed(const QString &statusId, const QString &message);
     void callsChanged();
     void channelsChanged();
     void channelMessagesChanged();
@@ -1065,6 +1079,7 @@ private:
     whatevr::proto::CollectionViewModel *m_transfersModel = nullptr;
     whatevr::proto::CollectionViewModel *m_starredModel = nullptr;
     whatevr::proto::CollectionViewModel *m_chatMediaModel = nullptr;
+    whatevr::proto::CollectionViewModel *m_chatLinksModel = nullptr;
     whatevr::proto::CollectionViewModel *m_statusModel = nullptr;
     whatevr::proto::CollectionViewModel *m_keptStatusModel = nullptr;
     whatevr::proto::CollectionViewModel *m_mutedStatusModel = nullptr;
@@ -1100,6 +1115,7 @@ private:
     whatevr::proto::Subscription *m_transfersSub = nullptr;
     whatevr::proto::Subscription *m_starredSub = nullptr;
     whatevr::proto::Subscription *m_chatMediaSub = nullptr;
+    whatevr::proto::Subscription *m_chatLinksSub = nullptr;
     whatevr::proto::Subscription *m_statusSub = nullptr;
     whatevr::proto::Subscription *m_keptStatusSub = nullptr;
     whatevr::proto::Subscription *m_mutedStatusSub = nullptr;

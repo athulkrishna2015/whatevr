@@ -18,28 +18,52 @@ Kirigami.ScrollablePage {
 
     Kirigami.Theme.colorSet: Kirigami.Theme.View
 
-    Component.onCompleted: Whatevr.ProtocolController.openChannelMessages(root.channelJid, root.channelName)
+    Component.onCompleted: {
+        Whatevr.ProtocolController.openChannelMessages(root.channelJid, root.channelName)
+        Qt.callLater(root.markVisibleViewed)
+    }
     // Guarded: at engine teardown the singleton may already be null.
     Component.onDestruction: { const c = Whatevr.ProtocolController; if (c) c.closeChannelMessages() }
 
     property string lastMarkedKey: ""
 
+    onChannelJidChanged: root.lastMarkedKey = ""
+
     function markVisibleViewed() {
         if (!root.channelJid || root.channelJid.length === 0)
             return
         const model = Whatevr.ProtocolController.channelMessagesModel
-        const ids = []
         if (!model)
             return
-        for (let i = 0; i < model.count; ++i) {
-            const item = model.itemById(model.idAt(i))
-            if (item && Number(item.server_id) > 0)
-                ids.push(Number(item.server_id))
+        // ListView has no first/lastVisibleIndex, so the rendered range is
+        // anchored on the two ends of the viewport and then widened to cover
+        // every delegate that exists, which is the visible rows plus whatever
+        // the cache buffer already built.
+        const top = messagesList.indexAt(0, 0)
+        const bottom = messagesList.indexAt(0, messagesList.height)
+        if (top < 0 && bottom < 0)
+            return
+        let first = Math.min(top, bottom)
+        let last = Math.max(top, bottom)
+        if (first < 0)
+            first = last
+        if (last < 0)
+            last = first
+        while (messagesList.itemAtIndex(first - 1) !== null)
+            first--
+        while (messagesList.itemAtIndex(last + 1) !== null)
+            last++
+        const ids = []
+        for (let i = first; i <= last; ++i) {
+            const delegate = messagesList.itemAtIndex(i)
+            if (delegate) {
+                const id = Number(delegate.item.server_id)
+                if (id > 0)
+                    ids.push(id)
+            }
         }
         if (ids.length === 0)
             return
-        // Break the viewed→invalidate→countChanged→viewed feedback loop:
-        // only send when the held id set actually grew.
         const key = root.channelJid + ":" + ids.join(",")
         if (key === root.lastMarkedKey)
             return
@@ -91,6 +115,9 @@ Kirigami.ScrollablePage {
         model: Whatevr.ProtocolController.channelMessagesModel
         currentIndex: -1
         reuseItems: true
+        onContentYChanged: root.markVisibleViewed()
+        onCountChanged: root.markVisibleViewed()
+
         verticalLayoutDirection: ListView.BottomToTop
         Component.onDestruction: messagesList.model = null
 

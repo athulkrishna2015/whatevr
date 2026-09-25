@@ -5,8 +5,10 @@
 #include <QAbstractItemModel>
 #include <QDir>
 #include <QDirIterator>
+#include <QFile>
 #include <QFileInfo>
 #include <QLocale>
+#include <QSaveFile>
 #include <QQmlEngine>
 #include <QSettings>
 #include <QStandardPaths>
@@ -774,15 +776,44 @@ QString Settings::importWallpaperSvg(const QString &sourceUrl)
 
     const QString destDir =
         QStandardPaths::writableLocation(QStandardPaths::AppDataLocation) + QStringLiteral("/wallpapers");
+    const QString dest = destDir + QStringLiteral("/") + info.fileName();
+    const QFileInfo destinationInfo(dest);
+    if (info.absoluteFilePath() == destinationInfo.absoluteFilePath()
+        || (!info.canonicalFilePath().isEmpty()
+            && info.canonicalFilePath() == destinationInfo.canonicalFilePath())) {
+        return QString();
+    }
     if (!QDir().mkpath(destDir)) {
         return QString();
     }
 
-    // Use a stable name so re-importing the same file overwrites in place rather
-    // than accumulating copies; suffix-prefixed by base name keeps it recognisable.
-    const QString dest = destDir + QStringLiteral("/") + info.fileName();
-    QFile::remove(dest); // QFile::copy won't overwrite an existing file
-    if (!QFile::copy(source, dest)) {
+    QFile input(source);
+    if (!input.open(QIODevice::ReadOnly)) {
+        return QString();
+    }
+    QSaveFile output(dest);
+    if (!output.open(QIODevice::WriteOnly)) {
+        return QString();
+    }
+    while (!input.atEnd()) {
+        const QByteArray chunk = input.read(64 * 1024);
+        if (chunk.isEmpty()) {
+            if (input.error() != QFileDevice::NoError) {
+                output.cancelWriting();
+                return QString();
+            }
+            break;
+        }
+        if (output.write(chunk) != chunk.size()) {
+            output.cancelWriting();
+            return QString();
+        }
+    }
+    if (input.error() != QFileDevice::NoError) {
+        output.cancelWriting();
+        return QString();
+    }
+    if (!output.commit()) {
         return QString();
     }
     return dest;

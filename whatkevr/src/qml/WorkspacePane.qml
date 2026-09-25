@@ -21,6 +21,17 @@ Kirigami.Page {
     title: stack.currentIndex === 0
         ? (Whatevr.ProtocolController.hasSelectedChat ? Whatevr.ProtocolController.selectedChatName : "")
         : (stack.currentItem && stack.currentItem.item ? (stack.currentItem.item.title || "") : "")
+    readonly property bool detailPageOpen: workspaceIndex === 4 || workspaceIndex === 5
+
+    Kirigami.Action {
+        id: closeDetailAction
+
+        icon.name: "dialog-close-symbolic"
+        text: Whatevr.I18n.i18nc("@action:button close detail page", "Close")
+        onTriggered: root.openConversation()
+    }
+
+    actions: root.detailPageOpen ? [closeDetailAction] : []
 
     // Lazy secondary pages: only the visible index instantiates its page,
     // so hidden tabs hold no daemon subscriptions and cannot thrash the

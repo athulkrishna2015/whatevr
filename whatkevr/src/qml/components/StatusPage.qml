@@ -43,6 +43,22 @@ Kirigami.ScrollablePage {
     // WhatsApp statuses live 24 hours; older rows are archive material.
     readonly property int statusExpirySecs: 24 * 60 * 60
 
+    QtObject {
+        id: clock
+
+        property int now: Math.floor(Date.now() / 1000)
+    }
+
+    Timer {
+        interval: 60000
+        running: root.visible
+        repeat: true
+        onTriggered: {
+            clock.now = Math.floor(Date.now() / 1000)
+            root.rebuildGroups()
+        }
+    }
+
     function rebuildGroups() {
         const kept = {}
         const kmodel = Whatevr.ProtocolController.keptStatusModel
@@ -107,7 +123,7 @@ Kirigami.ScrollablePage {
                 group.latest = item.timestamp
             }
         }
-        const now = Math.floor(Date.now() / 1000)
+        const now = clock.now
         const recentUnviewed = []
         const recentViewed = []
         const archived = []

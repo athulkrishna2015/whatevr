@@ -572,7 +572,7 @@ QVariant ProtocolMessageModel::data(const QModelIndex &index, int role) const
     case HasLinksRole:
         return !textPresentation().links.isEmpty();
     case MediaCacheKeyRole:
-        return QString();
+        return item.value(QStringLiteral("media_cache_key")).toString();
     case IsRevokedRole:
         return item.value(QStringLiteral("revoked")).toBool();
     case IsEditedRole:
@@ -1208,7 +1208,9 @@ QVariantMap ProtocolMessageModel::snapshotOfItem(const QVariantMap &item, const 
         // tell the picture apart from the letterbox around it.
         {QStringLiteral("mediaWidth"), mediaData.value(QStringLiteral("width"))},
         {QStringLiteral("mediaHeight"), mediaData.value(QStringLiteral("height"))},
-        {QStringLiteral("mediaCacheKey"), QString()},
+        {QStringLiteral("mediaCacheKey"), item.value(QStringLiteral("media_cache_key")).toString()},
+        {QStringLiteral("status"), statusValue(item.value(QStringLiteral("status")).toString())},
+        {QStringLiteral("senderDevice"), sender(item).value(QStringLiteral("device")).toInt()},
         // Download state, so the context menu can offer Download, Cancel and
         // Retry rather than being blind to anything that is not on disk yet.
         // Both are derived from the item rather than from the row, because an
