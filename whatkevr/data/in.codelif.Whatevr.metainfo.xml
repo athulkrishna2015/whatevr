@@ -19,6 +19,37 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.9.0" date="2026-09-26">
+      <description>
+        <p>Groups become writable, and the Calls tab grows a history.</p>
+        <ul>
+          <li><em>Create a group</em> from the chat-list header, with a multi-select member picker.</li>
+          <li><em>Group admin controls</em> on the group card: edit subject and description, change or clear the photo, toggle admins-only sending and admins-only info editing, add participants, and per-member make admin, dismiss admin, remove.</li>
+          <li>The <em>composer is disabled with an explanation</em> in an admins-only group, instead of letting the send fail server-side.</li>
+          <li><em>Call history</em>: a new <code>call_history</code> view lists every logged call across chats, and the Calls tab renders it under the ringing section with direction, video/voice, duration and timestamp. Tapping a row opens the chat.</li>
+          <li><em>Communities</em>: the group card shows the community's linked groups, with link and unlink for admins.</li>
+          <li><em>Chat lists</em> ("Lists") can be created, renamed and deleted, not only assigned. The Archived header carries an unread badge and shows the "these chats stay archived when new messages are received" notice.</li>
+          <li>An <em>Accessibility page</em>: increase contrast (applied to the palette) and reduce motion, which really stops GIF, animated-sticker and GIF-status autoplay.</li>
+          <li><em>Status audience</em> privacy row, a <em>default disappearing-message timer</em> (off / 24 hours / 7 days / 90 days), and a <em>keep chats archived</em> preference so archived chats stop resurfacing on a new message.</li>
+          <li>The status viewer gets a <em>clickable contact-name strip</em>, so moving to another person's statuses needs no close button.</li>
+        </ul>
+        <p><em>Fixes</em></p>
+        <ul>
+          <li>Backup, keyring and app-lock <em>passphrases were echoed in cleartext</em>: the <code>echoMode</code> binding named a type that does not exist, so the binding threw and the fields fell back to plain text.</li>
+          <li>The status viewer could <em>hang on a second still status</em>, because the auto-advance timer hung off a boolean that does not change between two stills.</li>
+          <li>The <code>chat_folders</code> view <em>rejected the <code>view</code> parameter every client sends</em>, so the list rail could never subscribe and folders were permanently invisible.</li>
+          <li><em>Thirteen list views turned one transient store read failure into an empty answer</em>, which made the client delete every row it was holding.</li>
+          <li><code>chat.mark_all_read</code> cleared badges for archived and badge-only chats <em>without publishing the change</em>, so those badges never cleared.</li>
+          <li>The notification worker <em>blocked its whole queue on an unbounded WhatsApp round trip</em>, and <code>send.media</code> ran inline on the protocol read loop, stalling every other request behind a 2 GiB read.</li>
+          <li>A <em>call left ringing survived logout</em> and came back as a phantom incoming call after the next login.</li>
+          <li>Hidden album children <em>counted toward the unread badge but not toward the unread anchor</em>, so opening at "unread" could land on already-read history.</li>
+          <li>Sticker bubbles <em>never drew their in-progress placeholder</em>; switching settings categories never collapsed a drill-in page; the secondary workspace tabs had no title; the app-lock PIN was not focused when the lock screen appeared after startup.</li>
+        </ul>
+        <p><em>Merged</em></p>
+        <p>Upstream <code>codelif/whatevr</code>: the <code>whattui</code> terminal frontend, the <code>wamock</code> fake WhatsApp server for frontend development, and six daemon fixes (seconds-not-milliseconds message timestamps, unread messages arriving mid history-sync, the no-session-bus crash, whitespace-only text, an avatar-refresh race, and push-name precedence over address book names), plus a whatsmeow bump.</p>
+        <p>The protocol stays at version 1: every addition is new, nothing changed shape.</p>
+      </description>
+    </release>
     <release version="0.8.8" date="2026-09-20">
       <description>
         <p>Forwarded-message header borrowed from Telegram Desktop (bubbles show a Forwarded header; doc/tdesktop-notes.md adds the full whatkevr-vs-tdesktop verdict table). Inbound stickers now enter Recents, and the sticker picker stays open for multi-send like WhatsApp mobile (plain click sends and keeps it open, Ctrl+click closes).</p>
