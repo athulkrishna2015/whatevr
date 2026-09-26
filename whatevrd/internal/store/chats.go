@@ -106,6 +106,33 @@ func normalizeChatNameSource(source string) string {
 	}
 }
 
+// Sender names climb the same kind of ladder as chat names, but with a
+// different rung order: in a group "~Asha" beats "+91 77700 00001", while a
+// chat titled with the number beats one titled with a push name.
+const (
+	SenderNameSourceRaw      = "raw"
+	SenderNameSourcePhone    = "phone"
+	SenderNameSourceWhatsApp = "whatsapp"
+	SenderNameSourceContact  = "contact"
+)
+
+func senderNameSourcePriority(source string) int {
+	switch strings.TrimSpace(source) {
+	case SenderNameSourceRaw:
+		return 1
+	case SenderNameSourcePhone:
+		return 2
+	case SenderNameSourceWhatsApp:
+		return 3
+	case SenderNameSourceContact:
+		return 4
+	default:
+		// an unsourced write is the weakest claim there is, but it still beats
+		// having no name at all
+		return 0
+	}
+}
+
 func chatNameSourcePriority(source string) int {
 	switch normalizeChatNameSource(source) {
 	case ChatNameSourceRaw:
@@ -1016,6 +1043,21 @@ func (db *DB) listTables(ctx context.Context) (regular, virtual []string, err er
 //
 // Returns the chat row (post-update) and whether anything actually changed.
 func (db *DB) OverwriteChatUnreadCount(ctx context.Context, chatID string, unread uint32) (Chat, bool, error) {
+	return db.overwriteChatUnreadCount(ctx, chatID, unread, 0)
+}
+
+// OverwriteChatUnreadCountSince is the history sync's version of the same
+// thing. The phone's count describes the chat as of newestHistoryMS, the newest
+// message the blob carried. Anything still unread that arrived after that
+// moment is newer than the snapshot and is added to the count rather than
+// thrown away: linking a device takes minutes, messages arrive throughout, and
+// a badge that vanishes because a history chunk landed afterwards is a message
+// the reader never learns about.
+func (db *DB) OverwriteChatUnreadCountSince(ctx context.Context, chatID string, unread uint32, newestHistoryMS int64) (Chat, bool, error) {
+	return db.overwriteChatUnreadCount(ctx, chatID, unread, newestHistoryMS)
+}
+
+func (db *DB) overwriteChatUnreadCount(ctx context.Context, chatID string, unread uint32, newestHistoryMS int64) (Chat, bool, error) {
 	if chatID == "" {
 		return Chat{}, false, nil
 	}
@@ -1032,6 +1074,17 @@ func (db *DB) OverwriteChatUnreadCount(ctx context.Context, chatID string, unrea
 	current, err := getChatTx(ctx, tx, chatID)
 	if err != nil {
 		return Chat{}, false, err
+	}
+
+	if newestHistoryMS > 0 {
+		var live uint32
+		if err := tx.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM messages
+			WHERE chat_id = ? AND direction = ? AND is_read = 0 AND is_revoked = 0 AND sort_ms > ?
+		`, chatID, DirectionIncoming, newestHistoryMS).Scan(&live); err != nil {
+			return Chat{}, false, err
+		}
+		unread += live
 	}
 
 	changed := int32(unread) != current.UnreadCount
@@ -1327,16 +1380,18 @@ func (db *DB) ClearSenderAvatar(ctx context.Context, senderID, status string) er
 	return err
 }
 
-func (db *DB) UpdateSenderName(ctx context.Context, senderID, name string) error {
+func (db *DB) UpdateSenderName(ctx context.Context, senderID, name, source string) error {
 	name = strings.TrimSpace(name)
 	if senderID == "" || name == "" || senderID == "me" {
 		return nil
 	}
 	_, err := db.conn.ExecContext(ctx, `
-		INSERT INTO senders (id, name)
-		VALUES (?, ?)
-		ON CONFLICT(id) DO UPDATE SET name = excluded.name
-	`, senderID, name)
+		INSERT INTO senders (id, name, name_source)
+		VALUES (?, ?, ?)
+		ON CONFLICT(id) DO UPDATE SET
+			name = CASE WHEN sender_name_source_priority(excluded.name_source) >= sender_name_source_priority(senders.name_source) THEN excluded.name ELSE senders.name END,
+			name_source = CASE WHEN sender_name_source_priority(excluded.name_source) >= sender_name_source_priority(senders.name_source) THEN excluded.name_source ELSE senders.name_source END
+	`, senderID, name, strings.TrimSpace(source))
 	return err
 }
 

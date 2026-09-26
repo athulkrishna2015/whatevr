@@ -324,7 +324,8 @@ public:
     // own second controller — one main() never start()s, leaving the shell stuck
     // on the splash forever.
     explicit ProtocolController(QObject *parent);
-    // Test seam: connect to an explicit socket path instead of the XDG default.
+    // Connect to an explicit socket path instead of the XDG default: --socket,
+    // and the tests.
     ProtocolController(QString socketPath, QObject *parent);
     ~ProtocolController() override;
 

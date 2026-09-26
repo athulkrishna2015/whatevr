@@ -646,7 +646,7 @@ func TestListMessagesReflectsUpdatedSenderPushName(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("save message: %v", err)
 	}
-	if err := db.UpdateSenderName(ctx, senderID, "~Alice"); err != nil {
+	if err := db.UpdateSenderName(ctx, senderID, "~Alice", SenderNameSourceWhatsApp); err != nil {
 		t.Fatalf("update sender name: %v", err)
 	}
 
@@ -660,6 +660,56 @@ func TestListMessagesReflectsUpdatedSenderPushName(t *testing.T) {
 	if messages[0].SenderName != "~Alice" {
 		t.Fatalf("sender name = %q, want ~Alice", messages[0].SenderName)
 	}
+}
+
+// A push name must not bury an address book name. History sync hands the two
+// over in separate chunks and the push name chunk is always processed last, so
+// without the ladder every saved contact ends up rendered as "~Asha".
+func TestSenderNameSourceLadder(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	const senderID = "919000000001@s.whatsapp.net"
+
+	if err := db.UpdateSenderName(ctx, senderID, "Asha", SenderNameSourceContact); err != nil {
+		t.Fatalf("contact name: %v", err)
+	}
+	if err := db.UpdateSenderName(ctx, senderID, "~Asha", SenderNameSourceWhatsApp); err != nil {
+		t.Fatalf("push name: %v", err)
+	}
+	if name := senderNameFor(t, db, senderID); name != "Asha" {
+		t.Fatalf("push name overwrote the contact name: got %q", name)
+	}
+
+	// The other order, and an unsourced write, must both leave it alone too.
+	const other = "919000000002@s.whatsapp.net"
+	if err := db.UpdateSenderName(ctx, other, "~Ravi", SenderNameSourceWhatsApp); err != nil {
+		t.Fatalf("push name: %v", err)
+	}
+	if name := senderNameFor(t, db, other); name != "~Ravi" {
+		t.Fatalf("push name did not land: got %q", name)
+	}
+	if err := db.UpdateSenderName(ctx, other, "+91 90000 00002", SenderNameSourcePhone); err != nil {
+		t.Fatalf("phone name: %v", err)
+	}
+	if name := senderNameFor(t, db, other); name != "~Ravi" {
+		t.Fatalf("phone number overwrote the push name: got %q", name)
+	}
+	if err := db.UpdateSenderName(ctx, other, "Ravi", SenderNameSourceContact); err != nil {
+		t.Fatalf("contact name: %v", err)
+	}
+	if name := senderNameFor(t, db, other); name != "Ravi" {
+		t.Fatalf("contact name did not win: got %q", name)
+	}
+}
+
+func senderNameFor(t *testing.T, db *DB, senderID string) string {
+	t.Helper()
+	var name string
+	if err := db.reader().QueryRowContext(context.Background(),
+		`SELECT name FROM senders WHERE id = ?`, senderID).Scan(&name); err != nil {
+		t.Fatalf("read sender name: %v", err)
+	}
+	return name
 }
 
 func TestListSenderProfilesByChatIDOrdersRecentGroupSenders(t *testing.T) {
@@ -2383,5 +2433,60 @@ func TestUpdateMessagesStatusAppliesOneReceiptAtOnce(t *testing.T) {
 	}
 	if chat.LastMessageStatus != StatusRead {
 		t.Fatalf("chat summary status is %q, want %q", chat.LastMessageStatus, StatusRead)
+	}
+}
+
+// Linking a device takes minutes and messages keep arriving throughout. The
+// phone's unread count describes the chat as of the newest message the history
+// blob carried; anything unread after that is newer than the snapshot and has
+// to survive the overwrite, or the badge for it disappears and nobody ever
+// learns the message is there.
+func TestOverwriteChatUnreadCountKeepsLiveMessages(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	chatID := "chat-live-unread"
+	historyAt := time.Unix(1000, 0)
+	// What the blob carried: stored the way history sync stores it, read.
+	if _, err := db.SaveTextMessage(ctx, TextMessageInput{
+		ID: chatID + ":history", ChatID: chatID, ChatName: "Test", SenderID: "sender-1",
+		Text: "from the blob", Timestamp: historyAt,
+		Direction: DirectionIncoming, Status: StatusDelivered,
+	}); err != nil {
+		t.Fatalf("save history: %v", err)
+	}
+	// What arrived on the wire while the blob was in flight.
+	for i, at := range []time.Time{historyAt.Add(time.Minute), historyAt.Add(2 * time.Minute)} {
+		if _, err := db.SaveTextMessage(ctx, TextMessageInput{
+			ID: fmt.Sprintf("%s:live%d", chatID, i), ChatID: chatID, ChatName: "Test", SenderID: "sender-1",
+			Text: "live", Timestamp: at,
+			Direction: DirectionIncoming, Status: StatusDelivered, CountUnread: true,
+		}); err != nil {
+			t.Fatalf("save live %d: %v", i, err)
+		}
+	}
+
+	// The phone says the chat is read. The two that arrived after the snapshot
+	// are not.
+	chat, _, err := db.OverwriteChatUnreadCountSince(ctx, chatID, 0, historyAt.UnixMilli())
+	if err != nil {
+		t.Fatalf("overwrite since: %v", err)
+	}
+	if chat.UnreadCount != 2 {
+		t.Fatalf("unread = %d, want the two that arrived after the snapshot", chat.UnreadCount)
+	}
+
+	// Without a boundary it is still an exact overwrite, which is what the
+	// app-state mark-unread path needs.
+	chat, _, err = db.OverwriteChatUnreadCount(ctx, chatID, 0)
+	if err != nil {
+		t.Fatalf("overwrite exact: %v", err)
+	}
+	if chat.UnreadCount != 0 {
+		t.Fatalf("unread = %d, want an exact overwrite", chat.UnreadCount)
 	}
 }

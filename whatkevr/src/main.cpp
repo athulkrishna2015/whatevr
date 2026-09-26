@@ -1,8 +1,9 @@
 #include <QApplication>
+#include <QCommandLineOption>
+#include <QCommandLineParser>
 #include <QLoggingCategory>
 #include <QPixmapCache>
 #include <QQmlApplicationEngine>
-#include <QQmlContext>
 #include <QQuickStyle>
 #include <QQuickWindow>
 #include <QSGRendererInterface>
@@ -10,7 +11,7 @@
 
 #include <KAboutData>
 #include <KDBusService>
-#include <KLocalizedContext>
+#include <KLocalizedQmlContext>
 #include <KLocalizedString>
 
 #include "app/protocolcontroller.h"
@@ -132,8 +133,21 @@ int main(int argc, char *argv[])
 
     KAboutData::setApplicationData(aboutData);
 
+    QCommandLineParser parser;
+    QCommandLineOption socketOption(
+        {QStringLiteral("s"), QStringLiteral("socket")},
+        i18nc("@info:shell", "Talk to the daemon on this socket instead of the one under XDG_RUNTIME_DIR. This is how you point the app at `whatevrd --mock`."),
+        i18nc("@info:shell", "path"));
+    aboutData.setupCommandLine(&parser);
+    parser.addOption(socketOption);
+    parser.addPositionalArgument(QStringLiteral("url"),
+                                 i18nc("@info:shell", "A whatevr://chat/<id> link to open."));
+    parser.process(app);
+    aboutData.processCommandLine(&parser);
+    const QString socketPath = parser.value(socketOption);
+
     QQmlApplicationEngine engine;
-    engine.rootContext()->setContextObject(new KLocalizedContext(&engine));
+    KLocalization::setupLocalizedContext(&engine);
     // The last frame a video decoder was showing when it let go, so a clip
     // moving between an inline bubble and the full-screen viewer keeps its
     // picture instead of falling back to the poster (see VideoPlaybackArbiter).
@@ -147,7 +161,8 @@ int main(int argc, char *argv[])
 
     // The one controller: it owns the socket to whatevrd and every view the UI
     // renders (PROTOCOL.md).
-    ProtocolController protocolController(nullptr);
+    ProtocolController protocolController(
+        socketPath.isEmpty() ? ProtocolController::daemonSocketPath() : socketPath, nullptr);
     ProtocolController::setInstance(&protocolController);
 
     // A stream that finishes downloading mid-playback is swapped onto its
@@ -173,13 +188,19 @@ int main(int argc, char *argv[])
     });
     QObject::connect(VideoPlaybackArbiter::instance(), &VideoPlaybackArbiter::audiblePlaybackStarted, AudioPlayer::instance(), &AudioPlayer::pause);
 
-    // Pop-out conversation windows (ctrl+click a chat) run as a second
+    // Single-instance: a second launch (e.g. clicking a notification, which runs
+    // `whatkevr whatevr://chat/<id>` via the desktop scheme handler) forwards its
+    // command line to the running instance through activateRequested instead of
+    // starting a new window.
+    // --socket is a second daemon, normally a mock, so that instance has to be
+    // allowed to run beside the real one. Unique would hand the arguments to
+    // whatever is already on the bus and raise its window instead.
+    // Pop-out conversation windows (ctrl+click a chat) likewise run as a second
     // process sharing the daemon socket: each process owns its singleton
-    // controller and protocol connection, so the window needs no shared
-    // state. Unique stays the default so notification clicks and deep links
-    // keep landing in the running instance.
+    // controller and protocol connection, so the window needs no shared state,
+    // and forwarding its arguments would open somebody else's window instead.
     const bool newWindow = app.arguments().contains(QStringLiteral("--new-window"));
-    KDBusService service(newWindow ? KDBusService::Multiple : KDBusService::Unique);
+    KDBusService service((newWindow || !socketPath.isEmpty()) ? KDBusService::Multiple : KDBusService::Unique);
     if (!newWindow) {
         QObject::connect(&service,
                          &KDBusService::activateRequested,

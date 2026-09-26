@@ -244,6 +244,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 					reactions:     webMsg.GetReactions(),
 					keptKnown:     keptKnown,
 					kept:          kept,
+					timestamp:     parsedEvt.Info.Timestamp,
 				})
 			} else if mediaInput, ok := c.mediaMessageInput(ctx, parsedEvt, opts); ok {
 				input := mediaInput
@@ -265,6 +266,18 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 
 		// Phase 2: persist the whole conversation in one transaction.
 		messagesAdded := uint32(0)
+		// The newest message this conversation carried is the moment the
+		// phone's unread count describes. Anything unread after it is live
+		// traffic the snapshot never saw.
+		newestHistoryMS := int64(0)
+		for _, entry := range pending {
+			if entry.timestamp.IsZero() {
+				continue
+			}
+			if ms := entry.timestamp.UnixMilli(); ms > newestHistoryMS {
+				newestHistoryMS = ms
+			}
+		}
 		var lastSavedChat appstore.Chat
 		items := make([]appstore.MessageSaveItem, len(pending))
 		for i := range pending {
@@ -324,7 +337,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		if ctx.Err() != nil {
 			return false
 		}
-		updatedChat, unreadChanged, err := c.store.OverwriteChatUnreadCount(ctx, chatID, convUnread)
+		updatedChat, unreadChanged, err := c.store.OverwriteChatUnreadCountSince(ctx, chatID, convUnread, newestHistoryMS)
 		if err != nil {
 			c.log.Warnf("Failed to overwrite unread count for %s: %v", chatID, err)
 		} else if updatedChat.ID != "" {
@@ -1004,19 +1017,20 @@ func (c *Client) mediaInputBase(ctx context.Context, evt *events.Message, opts i
 
 	direction, status := messageDirectionAndStatus(info, opts)
 	return appstore.TextMessageInput{
-		ID:             internalMessageIDForChat(chatID, info.ID),
-		ChatID:         chatID,
-		ChatName:       c.chatName(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
-		ChatNameSource: c.chatNameSource(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
-		SenderID:       senderID(info),
-		SenderName:     c.senderName(ctx, senderJID(info)),
-		Text:           text,
-		Timestamp:      c.messageTimestamp(info, opts, evt.SourceWebMsg),
-		Direction:      direction,
-		Status:         status,
-		IsGroup:        info.IsGroup,
-		CountUnread:    shouldCountUnread(evt, opts),
-		ReplyTo:        c.replyFromContextInfo(ctx, chatID, contextInfo),
+		ID:               internalMessageIDForChat(chatID, info.ID),
+		ChatID:           chatID,
+		ChatName:         c.chatName(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
+		ChatNameSource:   c.chatNameSource(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
+		SenderID:         senderID(info),
+		SenderName:       c.senderName(ctx, senderJID(info)),
+		SenderNameSource: c.senderNameSource(ctx, senderJID(info)),
+		Text:             text,
+		Timestamp:        c.messageTimestamp(info, opts, evt.SourceWebMsg),
+		Direction:        direction,
+		Status:           status,
+		IsGroup:          info.IsGroup,
+		CountUnread:      shouldCountUnread(evt, opts),
+		ReplyTo:          c.replyFromContextInfo(ctx, chatID, contextInfo),
 		// Mentions come from the context info the caller already picked out for
 		// this kind, not from re-deriving it: a captioned photo or video can
 		// @-mention people, and until now the media path dropped every one.
@@ -1242,20 +1256,21 @@ func (c *Client) imageMessageInput(ctx context.Context, evt *events.Message, opt
 	caption := imgMsg.GetCaption()
 	return appstore.MediaMessageInput{
 		TextMessageInput: appstore.TextMessageInput{
-			ID:             internalMessageIDForChat(chatID, info.ID),
-			ChatID:         chatID,
-			ChatName:       c.chatName(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
-			ChatNameSource: c.chatNameSource(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
-			SenderID:       senderID(info),
-			SenderName:     c.senderName(ctx, senderJID(info)),
-			Text:           caption,
-			Timestamp:      c.messageTimestamp(info, opts, evt.SourceWebMsg),
-			Direction:      direction,
-			Status:         status,
-			IsGroup:        info.IsGroup,
-			CountUnread:    shouldCountUnread(evt, opts),
-			ReplyTo:        c.replyFromContextInfo(ctx, chatID, imgMsg.GetContextInfo()),
-			IsForwarded:    imgMsg.GetContextInfo().GetIsForwarded(),
+			ID:               internalMessageIDForChat(chatID, info.ID),
+			ChatID:           chatID,
+			ChatName:         c.chatName(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
+			ChatNameSource:   c.chatNameSource(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
+			SenderID:         senderID(info),
+			SenderName:       c.senderName(ctx, senderJID(info)),
+			SenderNameSource: c.senderNameSource(ctx, senderJID(info)),
+			Text:             caption,
+			Timestamp:        c.messageTimestamp(info, opts, evt.SourceWebMsg),
+			Direction:        direction,
+			Status:           status,
+			IsGroup:          info.IsGroup,
+			CountUnread:      shouldCountUnread(evt, opts),
+			ReplyTo:          c.replyFromContextInfo(ctx, chatID, imgMsg.GetContextInfo()),
+			IsForwarded:      imgMsg.GetContextInfo().GetIsForwarded(),
 		},
 		MediaKind:               appstore.MediaKindImage,
 		MediaMimeType:           mimeType,
@@ -1297,19 +1312,20 @@ func (c *Client) stickerMessageInput(ctx context.Context, evt *events.Message, o
 
 	return appstore.MediaMessageInput{
 		TextMessageInput: appstore.TextMessageInput{
-			ID:             internalMessageIDForChat(chatID, info.ID),
-			ChatID:         chatID,
-			ChatName:       c.chatName(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
-			ChatNameSource: c.chatNameSource(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
-			SenderID:       senderID(info),
-			SenderName:     c.senderName(ctx, senderJID(info)),
-			Timestamp:      c.messageTimestamp(info, opts, evt.SourceWebMsg),
-			Direction:      direction,
-			Status:         status,
-			IsGroup:        info.IsGroup,
-			CountUnread:    shouldCountUnread(evt, opts),
-			ReplyTo:        c.replyFromContextInfo(ctx, chatID, stickerMsg.GetContextInfo()),
-			IsForwarded:    stickerMsg.GetContextInfo().GetIsForwarded(),
+			ID:               internalMessageIDForChat(chatID, info.ID),
+			ChatID:           chatID,
+			ChatName:         c.chatName(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
+			ChatNameSource:   c.chatNameSource(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
+			SenderID:         senderID(info),
+			SenderName:       c.senderName(ctx, senderJID(info)),
+			SenderNameSource: c.senderNameSource(ctx, senderJID(info)),
+			Timestamp:        c.messageTimestamp(info, opts, evt.SourceWebMsg),
+			Direction:        direction,
+			Status:           status,
+			IsGroup:          info.IsGroup,
+			CountUnread:      shouldCountUnread(evt, opts),
+			ReplyTo:          c.replyFromContextInfo(ctx, chatID, stickerMsg.GetContextInfo()),
+			IsForwarded:      stickerMsg.GetContextInfo().GetIsForwarded(),
 		},
 		MediaKind:               appstore.MediaKindSticker,
 		MediaMimeType:           mimeType,
@@ -1338,6 +1354,12 @@ func (c *Client) unsupportedMessageInput(ctx context.Context, evt *events.Messag
 	}
 	label, ok := unsupportedMessageLabel(evt)
 	if !ok {
+		// A text payload that got this far is an empty envelope, not a kind
+		// nobody has written code for. The text path owned it and declined, so
+		// there is no row and nothing to warn about.
+		if evt.Message.Conversation != nil || evt.Message.ExtendedTextMessage != nil {
+			return appstore.MediaMessageInput{}, false
+		}
 		field, unknown := unrecognizedPayloadField(evt.Message)
 		if !unknown {
 			return appstore.MediaMessageInput{}, false
@@ -1686,7 +1708,10 @@ func (c *Client) textMessageInput(ctx context.Context, evt *events.Message, opts
 	}
 
 	text := textFromMessage(evt.Message)
-	if strings.TrimSpace(text) == "" {
+	// Only a message with nothing in it is declined. Spaces and tabs are
+	// content: somebody sent them, and rendering an empty bubble is honest,
+	// where dropping the row loses a message that is really there.
+	if text == "" {
 		return appstore.TextMessageInput{}, false
 	}
 
@@ -1703,21 +1728,22 @@ func (c *Client) textMessageInput(ctx context.Context, evt *events.Message, opts
 	direction, status := messageDirectionAndStatus(info, opts)
 
 	input := appstore.TextMessageInput{
-		ID:             internalMessageIDForChat(chatID, info.ID),
-		ChatID:         chatID,
-		ChatName:       c.chatName(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
-		ChatNameSource: c.chatNameSource(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
-		SenderID:       senderID(info),
-		SenderName:     c.senderName(ctx, senderJID(info)),
-		Text:           text,
-		Timestamp:      c.messageTimestamp(info, opts, evt.SourceWebMsg),
-		Direction:      direction,
-		Status:         status,
-		IsGroup:        info.IsGroup,
-		CountUnread:    shouldCountUnread(evt, opts),
-		ReplyTo:        c.replyFromContextInfo(ctx, chatID, contextInfoFromMessage(evt.Message)),
-		Mentions:       c.mentionsFromMessage(ctx, evt.Message),
-		IsForwarded:    contextInfoFromMessage(evt.Message).GetIsForwarded(),
+		ID:               internalMessageIDForChat(chatID, info.ID),
+		ChatID:           chatID,
+		ChatName:         c.chatName(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
+		ChatNameSource:   c.chatNameSource(ctx, chatJID, info.IsGroup, opts.chatNameOverride, opts.chatNameSource),
+		SenderID:         senderID(info),
+		SenderName:       c.senderName(ctx, senderJID(info)),
+		SenderNameSource: c.senderNameSource(ctx, senderJID(info)),
+		Text:             text,
+		Timestamp:        c.messageTimestamp(info, opts, evt.SourceWebMsg),
+		Direction:        direction,
+		Status:           status,
+		IsGroup:          info.IsGroup,
+		CountUnread:      shouldCountUnread(evt, opts),
+		ReplyTo:          c.replyFromContextInfo(ctx, chatID, contextInfoFromMessage(evt.Message)),
+		Mentions:         c.mentionsFromMessage(ctx, evt.Message),
+		IsForwarded:      contextInfoFromMessage(evt.Message).GetIsForwarded(),
 	}
 
 	// A link preview attaches to the row rather than replacing it: the message
@@ -2267,7 +2293,7 @@ func (c *Client) updateChatNamesFromHistorySync(ctx context.Context, evt *events
 					c.log.Warnf("Failed to store contact name for %s: %v", jid, err)
 				}
 			}
-			if err := c.store.UpdateSenderName(ctx, jid.String(), name); err != nil {
+			if err := c.store.UpdateSenderName(ctx, jid.String(), name, appstore.SenderNameSourceContact); err != nil {
 				c.log.Warnf("Failed to store sender name for %s: %v", jid, err)
 			}
 			c.updateChatName(ctx, jid.String(), name, appstore.ChatNameSourceContact)
@@ -2289,7 +2315,7 @@ func (c *Client) updateChatNamesFromHistorySync(ctx context.Context, evt *events
 				c.log.Warnf("Failed to store push name for %s: %v", jid, err)
 			}
 		}
-		if err := c.store.UpdateSenderName(ctx, jid.String(), whatsAppDisplayName(name)); err != nil {
+		if err := c.store.UpdateSenderName(ctx, jid.String(), whatsAppDisplayName(name), appstore.SenderNameSourceWhatsApp); err != nil {
 			c.log.Warnf("Failed to store sender push name for %s: %v", jid, err)
 		}
 		chatIDs, err := c.store.ListChatIDsBySenderID(ctx, jid.String())
@@ -2335,11 +2361,26 @@ func (c *Client) whatsAppNameForJID(ctx context.Context, jid types.JID) string {
 }
 
 func (c *Client) senderName(ctx context.Context, jid types.JID) string {
+	name, _ := c.senderNameWithSource(ctx, jid)
+	return name
+}
+
+func (c *Client) senderNameSource(ctx context.Context, jid types.JID) string {
+	_, source := c.senderNameWithSource(ctx, jid)
+	return source
+}
+
+// senderNameWithSource returns the best name it can find for a sender along
+// with where that name came from. The source is what stops a later, weaker
+// answer from overwriting a stronger one: history sync hands the address book
+// and the push names over in separate chunks, and nothing says which arrives
+// first.
+func (c *Client) senderNameWithSource(ctx context.Context, jid types.JID) (string, string) {
 	if jid.IsEmpty() {
-		return ""
+		return "", ""
 	}
 	if name := c.contactNameForJID(ctx, jid); name != "" {
-		return name
+		return name, appstore.SenderNameSourceContact
 	}
 	// LID JIDs can't be looked up by phone display or contact store directly;
 	// resolve to PN first, then retry.
@@ -2347,27 +2388,27 @@ func (c *Client) senderName(ctx context.Context, jid types.JID) string {
 		pn := c.normalizeJIDForChat(ctx, jid)
 		if !pn.IsEmpty() && pn.String() != jid.String() {
 			if name := c.contactNameForJID(ctx, pn); name != "" {
-				return name
+				return name, appstore.SenderNameSourceContact
 			}
 			if name := c.whatsAppNameForJID(ctx, pn); name != "" {
-				return name
+				return name, appstore.SenderNameSourceWhatsApp
 			}
 			if phone := formatPhoneDisplayName(pn); phone != "" {
-				return phone
+				return phone, appstore.SenderNameSourcePhone
 			}
 		}
 		if name := c.whatsAppNameForJID(ctx, jid); name != "" {
-			return name
+			return name, appstore.SenderNameSourceWhatsApp
 		}
-		return ""
+		return "", ""
 	}
 	if name := c.whatsAppNameForJID(ctx, jid); name != "" {
-		return name
+		return name, appstore.SenderNameSourceWhatsApp
 	}
 	if phone := formatPhoneDisplayName(jid); phone != "" {
-		return phone
+		return phone, appstore.SenderNameSourcePhone
 	}
-	return jid.User
+	return jid.User, appstore.SenderNameSourceRaw
 }
 
 func whatsAppDisplayName(name string) string {

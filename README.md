@@ -15,6 +15,13 @@ talk over a documented protocol on a unix socket, and writing one is a fun weeke
 ![whatkevr](https://github.com/user-attachments/assets/46f96ee9-32a7-4e1d-8cae-1d0e82371f8f)
 
 
+<details>
+    <summary>Other Frontends</summary>
+    
+### WhatGevr
+![whatgevr](https://github.com/user-attachments/assets/785ed14e-77e5-48c2-a7da-ba2f61b1f951)
+</details>
+
 ## Getting it
 On Arch-based systems, Whatevr is available on the AUR:
 ```sh
@@ -29,13 +36,18 @@ For other systems, for now you can follow the build instructions below:
     <summary>
       Build Instructions</summary>
     
-whatevr builds through a single top-level `justfile` that compiles **both** the
-daemon (`whatevrd`) and the Qt/Kirigami frontend (`whatkevr`). The daemon must be
-running for any frontend to work.
+whatevr builds through a single top-level `justfile` that compiles the daemon
+(`whatevrd`), the Qt/Kirigami frontend (`whatkevr`) and the terminal frontend
+(`whattui`). The daemon must be running for any frontend to work.
+
+`whattui` builds against a fork of vaxis carried as a git submodule, so clone
+with `git clone --recursive`, or run
+`git submodule update --init --recursive` in an existing checkout.
 
 #### 1. Install dependencies
 
 **Daemon:** Go 1.26+, just, a C compiler, SQLite dev files, pkg-config.
+**Terminal frontend:** the same Go toolchain, nothing else.
 **Frontend:** C++20 compiler, CMake 3.21+, Ninja, Qt 6.8+, KDE Frameworks 6.5+
 (KCoreAddons, KDBusAddons, KI18n, Kirigami, Prison, QQC2 Desktop Style),
 Kirigami Addons 1.0+, rlottie, Vulkan headers.
@@ -72,7 +84,7 @@ just install "$HOME/.local"           # user-local release install
 sudo just install /usr
 ```
 
-`just install` places the `whatevrd` and `whatkevr` binaries, desktop entry,
+`just install` places the `whatevrd`, `whatkevr` and `whattui` binaries, desktop entry,
 icon, AppStream metainfo and the systemd user units under the selected prefix.
 Make sure the chosen `bin` directory is on your `PATH` (e.g. `~/.local/bin`).
 
@@ -85,8 +97,15 @@ Start the daemon, then the frontend:
 
 ```sh
 whatevrd      # or run it via systemd (below)
-whatkevr
+whatkevr      # desktop
+whattui       # terminal
 ```
+
+`whattui` is keyboard and mouse driven and needs nothing memorised: `ctrl+p`
+opens the command palette, `/` in the composer opens the same commands inline,
+and `?` lists every binding. It looks best in a terminal with the kitty
+graphics protocol, and degrades by tier down to 16 colours without moving a
+single glyph. `whattui --caps` prints what it found.
 
 #### Run the daemon via systemd (optional)
 
@@ -129,6 +148,18 @@ update-desktop-database ~/.local/share/applications
 xdg-mime default in.codelif.Whatevr.desktop x-scheme-handler/whatevr
 ```
 
+#### Other frontends: whatgevr (unmaintained)
+
+The GTK4/libadwaita frontend is not actively maintained and is excluded from the
+main build and packaging. Build it manually if you want to hack on it:
+
+```sh
+# deps: rust, gtk4, libadwaita, pkg-config
+cd whatgevr
+cargo build --release
+install -Dm755 target/release/whatevr ~/.local/bin/whatevr
+```
+
 </details>
 
 
@@ -169,48 +200,30 @@ Now with that, here is the current feature map, this is for whatevrd+whatkevr.
 | Message search | ✅ | |
 | Chat search | ✅ | |
 | Contact search/new chat | ✅ | |
-| Voice messages | ✅ | Receive, playback, file sending and desktop microphone recording |
-| Audio playback | ✅ | |
-| Video playback | ✅ | |
-| View-once messages sending | ✅ | Photo, video and voice notes |
-| Document/file sending | ✅ | Any file type; GIF→video transcode still TODO |
-| Save message media | ✅ | Chat media, statuses, profile photos and inbound view-once (explicit per-item save) |
+| Voice messages | ❌ | |
+| Audio playback | ❌ | |
+| Video playback | ❌ | |
+| View-once messages sending | ❌ | |
+| Document/file sending | ❌ | Images/media path exists, general file UX missing |
 | Stickers | ✅ | Receive and send stickers |
 | Message reactions | ✅ | |
 | Composer emoji inline search | ✅ | |
 | Edit sent messages | ✅ | Received message edits are handled too |
 | Delete messages | ✅ | |
-| Forward messages | ✅ | Bubbles show a Forwarded header (Telegram Desktop pattern) |
+| Forward messages | ✅ | |
 | Star/bookmark messages | ✅ | |
 | Archive chats | ✅ | |
 | Mute chats | ✅ | |
 | Pinned messages | ✅ | |
-| Group management | ✅ | Create/leave/rename/photo/members/invite links via the group card; join-request approvals pending |
-| Community management | ✅ | Sub-group directory + link/unlink (daemon + protocol; UI pending) |
-| Calls | ✅ | Ringing tab with reject + missed-call log; answering impossible upstream (no media stack in whatsmeow) |
-| Status/stories | ✅ | Per-contact tab with viewer, post/save, text styling, media links, replies, archive/hidden sections and mute |
+| Group management | ❌ | No create/invite/admin UI |
+| Community management | ❌ |  |
+| Calls | ❌ | Voice/video calls unsupported |
+| Status/stories | ❌ | |
 | Settings UI | ✅ | |
 | Account/profile editing | ✅ | Includes privacy settings |
-| Import/export backups | ✅ | Encrypted bundles + offline restore via commands/CLI; export and keyring controls in Storage settings |
-| Backup encryption + OS keyring | ✅ | AES-256-GCM bundles, passphrase in Secret Service |
-| Live DB encryption at rest | ❌ | SQLCipher TODO |
-| Daemon SNI (Tray) | ✅ | Connection state + unread indicator |
-| Debug logs | ✅ | Rotated log file + `daemon.logs` query |
-| Channels | ✅ | Followed-channel list, live message loading, older-history paging, viewed receipts, mute, right-click actions and channel reactions |
-| Clickable links | ✅ | Chat text, media captions and status text/captions open external URLs |
-| Context menus | ✅ | Chats, messages, statuses, channels, calls, logs, stickers, gallery, starred and search rows |
-| Persistent two-column workspace | ✅ | Chat list remains mounted while channels, status, calls, logs and starred views switch in the second column |
-| Group announcement permissions | ✅ | Non-admin composers are disabled when only admins may send |
-| Message info | ✅ | Sent/delivered/read/played times plus group participant lists |
-| Frontend app lock | ✅ | Salted PIN lock for the frontend; daemon/database encryption remains separate |
-| Mobile-style status viewer | ✅ | Auto-downloads on open, embedded video playback, 30-second stills, and automatic next-status/next-person progression |
-| Desktop voice recording | ✅ | Qt Multimedia Ogg/Opus recording through the existing voice send path |
-| Scheduled messages | ✅ | Durable one-shot text scheduling with composer time picker and daemon queue worker |
-| Custom chat folders/favorites | ✅ | Local daemon-owned favorite flag, folder assignment/filtering and folder CRUD protocol |
-| GIF search/provider | ❌ | Requires a provider/privacy configuration and GIF-to-MP4 send path |
-| Notification actions | ✅ | Open chat, mark as read, and inline reply when the desktop notification server advertises support |
-| Chat export | ✅ | Official `.txt` transcript export through the conversation menu |
-| Sticker sync | ✅ | Phone favorite synchronization, recent usage persistence and lazy pack/media hydration |
+| Import/export backups | ❌ | |
+| DB encryption and keyring integration | ❌ | |
+| Daemon SNI (Tray) | ❌ | |
   
 </details>
 
@@ -224,12 +237,14 @@ and never keep durable state of their own; several can run at once against the
 same daemon, and each sees the same rows in the same order because the daemon
 computed that order.
 
-The daemon is Go (`whatevrd/`); the frontend is `whatkevr`, in
-C++20/QML on Qt 6 and Kirigami. A TUI and a scriptable
-CLI are wanted and unclaimed (see *Write a frontend* above); that work needs no
-changes to the daemon.
+The daemon is Go (`whatevrd/`); the flagship frontend is `whatkevr`, in
+C++20/QML on Qt 6 and Kirigami; the terminal frontend is `whattui`, in Go on a
+fork of vaxis (`whattui/`). `whatgevr`, a primitive GTK4/libadwaita frontend, is
+unmaintained and excluded from the build. A scriptable CLI is wanted and
+unclaimed (see *Write a frontend* above); that work needs no changes to the
+daemon.
 
-Whatevr will be Linux-first for now until it is stable. I am open to contributions for porting functionality to other platforms as long as they do not significantly affect existing performance and Linux functionality.
+Whatevr will be Linux-first for now until its stable. I am open to contributions for porting functionality to other platforms as long as they don't affect existing performance and Linux functionality significantly. 
 
 
 ## The protocol is the point

@@ -1,0 +1,769 @@
+package ui
+
+import (
+	"image"
+	"strconv"
+	"strings"
+	"time"
+
+	"go.rockorager.dev/vaxis"
+
+	"whattui/internal/layout"
+	"whattui/internal/paint"
+	"whattui/internal/proto"
+	"whattui/internal/theme"
+	"whattui/internal/view"
+)
+
+func (a *App) draw() {
+	a.paint()
+	a.flushImages()
+	a.vx.Render()
+}
+
+// paint lays the whole frame into the cell buffer and stops there. Split out
+// from draw because it is the half worth measuring and the half a test can
+// run: an offscreen window has cells but no terminal to render to.
+func (a *App) paint() {
+	a.vx.BeginGraphicsFrame()
+	// Asked once, before anything is measured: a frame that measures in cells
+	// and draws in pixels is a frame with a hole in it.
+	a.shaping = a.shaper.Begin()
+	// All of these are where the last frame put things, and this is a new one.
+	a.blocks = a.blocks[:0]
+	a.messages = a.messages[:0]
+	a.placements = a.placements[:0]
+	a.surfaces = a.surfaces[:0]
+
+	// No clear: the panes tile the screen between them, so clearing first is a
+	// write to every cell that every one of them is about to write again.
+	win := a.vx.Window()
+	l := a.layout()
+
+	a.drawChatList(win, l)
+	if !l.Header.Empty() {
+		a.drawHeader(win, l.Header)
+	}
+	if !l.Transcript.Empty() {
+		if title, colour, body, ok := a.notice(); ok {
+			a.drawNotice(sub(win, l.Transcript), title, colour, body)
+		} else {
+			a.drawTranscript(win, l.Transcript)
+		}
+	}
+	if !l.Composer.Empty() {
+		a.drawComposer(win, l.Composer)
+	}
+	if !l.HintBar.Empty() {
+		a.drawHintBar(win, l.HintBar)
+	}
+	a.paintSelection()
+	a.drawModal(win)
+}
+
+// sub is a vaxis window for a layout rect.
+func sub(win vaxis.Window, r layout.Rect) vaxis.Window {
+	return win.New(r.Col, r.Row, r.Width, r.Height)
+}
+
+// fill paints a rectangle with a background.
+func fill(win vaxis.Window, bg vaxis.Color) {
+	win.Fill(vaxis.Cell{
+		Character: vaxis.Character{Grapheme: " ", Width: 1},
+		Style:     vaxis.Style{Background: bg},
+	})
+}
+
+func (a *App) drawChatList(win vaxis.Window, l layout.Layout) {
+	if l.ChatList.Empty() {
+		return
+	}
+	pane := sub(win, l.ChatList)
+	w, h := pane.Size()
+
+	a.mu.Lock()
+	selected, top, focus, active, hovered := a.selected, a.listTop, a.focus, a.activeChat, a.hovered
+	a.mu.Unlock()
+
+	rail := l.Shape == layout.ShapeRail && !l.ListFocused
+
+	// The rule is the list's own last column, so the two panes read as two
+	// panes without the layout having to reserve a third.
+	if l.Shape == layout.ShapeWide || l.Shape == layout.ShapeCompact {
+		bx := boxFor(a.caps)
+		pane.New(w-1, 0, 1, h).Fill(vaxis.Cell{
+			Character: vaxis.Character{Grapheme: bx.vertical, Width: 1},
+			Style: vaxis.Style{
+				Foreground: a.theme.Border, Background: a.theme.BackgroundPanel,
+			},
+		})
+		w--
+	}
+
+	perRow := l.ChatRowHeight()
+	drawn := 0
+	a.chats.Read(func(items []view.Item[proto.ChatRow], state view.State) {
+		if len(items) == 0 {
+			fill(pane.New(0, 0, w, h), a.theme.BackgroundPanel)
+			a.drawEmptyList(pane, state.Ready)
+			return
+		}
+		for i := 0; ; i++ {
+			row := i * perRow
+			if row+perRow > h || top+i >= len(items) {
+				break
+			}
+			drawn = row + perRow
+			it := items[top+i]
+			a.drawChatRow(pane, row, w, perRow, it.Value, rowState{
+				selected: top+i == selected && focus == FocusList,
+				active:   it.ID == active,
+				hovered:  top+i == hovered,
+				rail:     rail,
+			})
+		}
+	})
+	// Only the ground the rows did not cover, rather than the whole pane
+	// before they did.
+	if drawn < h {
+		fill(pane.New(0, drawn, w, h-drawn), a.theme.BackgroundPanel)
+	}
+}
+
+func (a *App) drawEmptyList(pane vaxis.Window, ready bool) {
+	style := vaxis.Style{Foreground: a.theme.TextMuted, Background: a.theme.BackgroundPanel}
+	a.mu.Lock()
+	transport := a.transport
+	a.mu.Unlock()
+	if transport != proto.Ready {
+		a.print(pane, 1, 1, style, "waiting for whatevrd")
+		return
+	}
+	if !ready {
+		a.print(pane, 1, 1, style, "loading chats")
+		return
+	}
+	a.print(pane, 1, 1, style, "no chats yet")
+}
+
+// rowState is everything about a chat row that is not the chat.
+type rowState struct {
+	selected, active, hovered, rail bool
+}
+
+// ground is the row's background. Three states, three steps up the same ramp,
+// in the order of how much they mean: where the keyboard is beats where the
+// pointer is beats which chat is open.
+func (a *App) ground(st rowState) vaxis.Color {
+	switch {
+	case st.selected:
+		return a.theme.BackgroundActive
+	case st.hovered:
+		return a.theme.BackgroundHover
+	case st.active:
+		return a.theme.BackgroundHover
+	default:
+		return a.theme.BackgroundPanel
+	}
+}
+
+func (a *App) drawChatRow(pane vaxis.Window, row, w, height int, c proto.ChatRow, st rowState) {
+	bg := a.ground(st)
+	fill(pane.New(0, row, w, height), bg)
+	a.noteBlock(pane, 1, row, w-1, height)
+	line := pane.New(0, row, w, 1)
+
+	unread := c.Unread > 0
+	nameStyle := vaxis.Style{Foreground: a.theme.Text, Background: bg}
+	if unread {
+		// Weight as well as colour: at the plain tier and for anyone who
+		// cannot tell the accent from the text, bold is what carries it.
+		nameStyle.Attribute |= vaxis.AttrBold
+	}
+
+	if st.rail {
+		a.drawRailRow(line, c, bg, unread)
+		return
+	}
+
+	// A bar in the first column, for the chat the transcript is showing. It
+	// runs the whole height of the row: half a bar down the side of a two row
+	// entry marks the name rather than the chat.
+	if st.active || st.selected {
+		pane.New(0, row, 1, height).Fill(vaxis.Cell{
+			Character: vaxis.Character{Grapheme: "▎", Width: 1},
+			Style:     vaxis.Style{Foreground: a.theme.Accent, Background: bg},
+		})
+	}
+
+	col := a.drawAvatar(pane, row, height, c, bg) + 1
+
+	badge := ""
+	if unread {
+		badge = strconv.Itoa(int(c.Unread))
+	}
+
+	// The time goes on the name's line and the badge on the preview's, which
+	// is where every chat application in the world puts them. With no preview
+	// line the badge is worth more than the time, so it takes the slot.
+	right, rightStyle := "", vaxis.Style{Foreground: a.theme.TextMuted, Background: bg}
+	switch {
+	case height < 2 && badge != "":
+		right = badge
+		rightStyle = vaxis.Style{Foreground: a.theme.Accent, Background: bg, Attribute: vaxis.AttrBold}
+	case c.LastMessageTime > 0:
+		right = relTime(time.Unix(c.LastMessageTime, 0))
+	}
+	rightW := a.width(right)
+	nameRoom := w - col - rightW - 2
+	if nameRoom < 1 {
+		nameRoom = 1
+	}
+	a.print(line.New(col, 0, nameRoom, 1), 0, 0, nameStyle, c.Name)
+	if right != "" && w-rightW-1 > col {
+		a.print(line, w-rightW-1, 0, rightStyle, right)
+	}
+
+	if height < 2 {
+		return
+	}
+	// The preview is always the muted step of the ramp, unread or not.
+	// Brightening it for unread looked like two kinds of row rather than one
+	// kind in two states, and a preview that opens with an emoji does not
+	// dim anyway, so the contrast it was supposed to carry was never there.
+	// Unread is the bold name and the badge, both of which are reliable.
+	preview := pane.New(0, row+1, w, 1)
+	badgeW := a.width(badge)
+	room := w - col - badgeW - 1
+	if badge != "" {
+		// A preview that runs into the badge reads as one word, so the count
+		// keeps a column of its own the way the timestamp does.
+		room--
+	}
+	if room < 1 {
+		room = 1
+	}
+	// The preview shares the name's left edge rather than the avatar's, so the
+	// two lines of a row line up as one block.
+	a.printLine(preview, col, 0, vaxis.Style{Foreground: a.theme.TextMuted, Background: bg},
+		a.clipLine(a.linkLine(c.Preview), room))
+	if badge != "" {
+		a.print(preview, w-badgeW-1, 0, vaxis.Style{
+			Foreground: a.theme.Accent, Background: bg, Attribute: vaxis.AttrBold,
+		}, badge)
+	}
+}
+
+// relTime is the short form a chat list uses: a time today, a weekday this
+// week, a date before that.
+func relTime(t time.Time) string {
+	now := time.Now()
+	switch d := now.Sub(t); {
+	case d < 0 || d < 12*time.Hour && t.Day() == now.Day():
+		return t.Format("15:04")
+	case d < 6*24*time.Hour:
+		return t.Format("Mon")
+	default:
+		return t.Format("02/01")
+	}
+}
+
+func (a *App) drawRailRow(line vaxis.Window, c proto.ChatRow, bg vaxis.Color, unread bool) {
+	a.avatar(line, 0, 0, 3, 1, c.ID, c.Name, bg)
+	if unread {
+		a.print(line, 3, 0, vaxis.Style{Foreground: a.theme.Accent, Background: bg}, "\u2022")
+	}
+}
+
+// drawAvatar draws the disc a chat is known by, and answers the column after
+// it. A row with the room draws it two rows tall with the initial at twice the
+// size, which is the size an avatar is in every chat application there is.
+func (a *App) drawAvatar(pane vaxis.Window, row, height int, c proto.ChatRow, bg vaxis.Color) int {
+	width, scale := a.avatarBox(height)
+	a.avatar(pane, 1, row, width, scale, c.ID, c.Name, bg)
+	return 1 + width
+}
+
+// avatarBox is how many cells a disc takes and how big the initial in it is.
+//
+// The letter has to land on the middle of the circle, which is an even number
+// of columns and two rows at twice the size and an odd number and one row at
+// natural size. A terminal with graphics but without OSC 66 scaling gets the
+// smaller disc: the alternative is vaxis doing what it correctly does with a
+// scale it cannot emit, which is to draw the letter unscaled in the top left
+// of the block, and a big circle with a small letter in the corner of it is
+// worse than a small circle with the letter in the middle.
+func (a *App) avatarBox(rows int) (width, scale int) {
+	if rows >= 2 && (a.painted() || a.caps.TextScale) {
+		return 4, 2
+	}
+	return 3, 1
+}
+
+// avatar is the disc and the letter in the middle of it. The disc is an even
+// number of cells around a scaled initial and an odd number around a plain
+// one, for the same reason either way: the letter has to land on the centre
+// of the circle rather than beside it.
+func (a *App) avatar(win vaxis.Window, col, row, width, rows int, id, name string, bg vaxis.Color) {
+	ident := a.theme.IdentityFor(id)
+	letter := initial(name)
+	if fill, ok := theme.Paint(bg, ident, discMix); ok && a.painted() {
+		// The letter is drawn into the disc, not typed on top of it. Then the
+		// circle and the thing in the middle of it are one image, centred on
+		// each other exactly, at a size that has nothing to do with the cell.
+		glyph, key := a.glyph(letter, a.avatarEm(width, rows), ident)
+		a.paintRect(win, col, row, width, rows, func(pw, ph int) paint.Spec {
+			return paint.Disc{W: pw, H: ph, Fill: fill, Glyph: glyph, GlyphKey: key}
+		})
+		if glyph != nil {
+			return
+		}
+	}
+	// No pixels, or no font yet: the terminal draws the letter. The block is
+	// claimed either way, so nothing moves when the font arrives.
+	win.New(col+(width-rows)/2, row, rows, rows).PrintScaled(0, vaxis.Segment{
+		Text:  letter,
+		Style: vaxis.Style{Foreground: ident, Background: bg},
+		Size:  vaxis.Scaled(rows, 0),
+	})
+}
+
+// avatarEm is how big the initial is drawn, in pixels: a little over half the
+// circle it sits in, which is where a letter stops being a dot and stops
+// touching the edge.
+func (a *App) avatarEm(width, rows int) int {
+	cw, ch := a.cellPix()
+	return minInt(width*cw, rows*ch) * 3 / 5
+}
+
+// glyph is one rasterised letter, and the key that identifies it. Cached
+// because the spec that carries it is rebuilt on every frame and rasterising
+// is not a per-frame price.
+func (a *App) glyph(text string, em int, ink vaxis.Color) (*image.NRGBA, string) {
+	rgb, ok := theme.Paint(a.theme.Background, ink, 1)
+	if !ok || text == "" {
+		return nil, ""
+	}
+	k := glyphKey{text: text, em: em, ink: rgb}
+	if img, ok := a.glyphs[k]; ok {
+		return img, k.String()
+	}
+	img := a.shaper.Glyph(text, em, rgb)
+	if img == nil {
+		return nil, ""
+	}
+	a.glyphs[k] = img
+	return img, k.String()
+}
+
+// discMix is how far an avatar's disc is from the row it sits on, toward the
+// colour that chat is known by. Far enough to find, near enough that a list of
+// them is not a bag of sweets.
+const discMix = 0.22
+
+// initial is the letter to stand in for a picture until there are pictures.
+func initial(name string) string {
+	// Sanitised first, or the letter in the disc is whatever control character
+	// the name happened to start with.
+	name = strings.TrimSpace(safe(name))
+	for _, r := range name {
+		return strings.ToUpper(string(r))
+	}
+	return "?"
+}
+
+func (a *App) drawHeader(win vaxis.Window, r layout.Rect) {
+	pane := sub(win, r)
+	fill(pane, a.theme.BackgroundPanel)
+
+	a.mu.Lock()
+	active := a.activeChat
+	a.mu.Unlock()
+
+	style := vaxis.Style{
+		Foreground: a.theme.Text, Background: a.theme.BackgroundPanel,
+		Attribute: vaxis.AttrBold,
+	}
+	title := "whattui"
+	if active != "" {
+		if it, ok := a.chats.Get(active); ok {
+			title = it.Value.Name
+		}
+	}
+	a.noteBlock(pane, 1, 0, maxInt(a.width(title), 1), 1)
+	a.print(pane, 1, 0, style, title)
+
+	if msg, colour, show := a.status(); show {
+		w, _ := pane.Size()
+		if len(msg) < w-2 {
+			a.print(pane, w-len(msg)-1, 0, vaxis.Style{
+				Foreground: colour, Background: a.theme.BackgroundPanel,
+			}, msg)
+		}
+	}
+}
+
+// drawNotice is the centred panel a reader gets instead of an empty pane: what
+// is wrong, and the line that fixes it. Left-aligned as a block and centred as
+// a block, so the command in it is still a command somebody can read.
+func (a *App) drawNotice(pane vaxis.Window, title string, colour vaxis.Color, body []string) {
+	fill(pane, a.theme.Background)
+	w, h := pane.Size()
+	block := make([]string, 0, len(body)+2)
+	block = append(block, title, "")
+	block = append(block, body...)
+
+	widest := 0
+	for _, line := range block {
+		widest = maxInt(widest, a.width(line))
+	}
+	left := maxInt((w-widest)/2, 1)
+	top := maxInt((h-len(block))/2, 0)
+
+	a.noteBlock(pane, left, top, widest, minInt(len(block), h-top))
+	for i, line := range block {
+		if top+i >= h {
+			break
+		}
+		style := vaxis.Style{Foreground: a.theme.TextMuted}
+		if i == 0 {
+			style = vaxis.Style{Foreground: colour, Attribute: vaxis.AttrBold}
+		} else if strings.HasPrefix(line, "  ") {
+			// A command is the one thing on the panel worth the reader's
+			// full attention, so it gets the full-strength ink.
+			style = vaxis.Style{Foreground: a.theme.Text}
+		}
+		a.print(pane, left, top+i, style, a.clip(line, w-left))
+	}
+}
+
+func (a *App) drawTranscript(win vaxis.Window, r layout.Rect) {
+	pane := sub(win, r)
+	fill(pane, a.theme.Background)
+	w, h := pane.Size()
+
+	a.mu.Lock()
+	c := a.conversation
+	a.mu.Unlock()
+
+	if c == nil {
+		a.print(pane, 2, h/2, vaxis.Style{Foreground: a.theme.TextMuted},
+			"pick a chat on the left, or press ctrl+p")
+		return
+	}
+
+	c.msgs.Read(func(items []view.Item[proto.MessageRow], state view.State) {
+		if len(items) == 0 {
+			msg := "loading messages"
+			if state.Ready {
+				msg = "no messages yet, say something"
+			}
+			a.print(pane, 2, h/2, vaxis.Style{
+				Foreground: a.theme.TextMuted, Background: a.theme.Background,
+			}, msg)
+			return
+		}
+		a.refreshTranscript(c, items, state, w, h)
+		if c.scroll > c.maxScroll(h) {
+			c.scroll = c.maxScroll(h)
+		}
+		scroll := c.scroll
+
+		// Laid out from the bottom up, because the live edge is where the
+		// reader already is and a message arriving must not shift what they
+		// are reading. The scroll pushes the first message below the pane,
+		// and everything above it follows.
+		bottom := h + scroll
+		for i := 0; i < len(c.runs) && bottom > 0; i++ {
+			r := c.runs[i]
+			bottom -= r.height
+			if bottom < h {
+				a.drawRun(pane, c, r, bottom, w)
+			}
+			bottom--
+		}
+		a.drawScrollbar(pane, w, h, c.contentRows, scroll)
+	})
+}
+
+// layoutMessage turns one row into a bubble. Every kind ends up here, and a
+// kind whattui does not draw itself renders the daemon's fallback, so the
+// transcript is never blank because of a message nobody taught it.
+func (a *App) layoutMessage(m proto.MessageRow, paneWidth int) block {
+	quote := ""
+	if m.ReplyTo != nil {
+		quote = m.ReplyTo.Text
+		if quote == "" {
+			quote = m.ReplyTo.Fallback
+		}
+	}
+
+	b := a.layoutBlock(quote, m.Body(), a.messageStamp(m), a.runRoom(paneWidth))
+
+	// A message that is nothing but emoji draws big, the way it does in every
+	// other chat client, because the size is what the message means.
+	if n := emojiOnlyCount(m.Text); n > 0 && !m.Revoked && len(b.body) == 1 && a.caps.TextScale {
+		// Clamped to the room the column can grow into, not the room it
+		// currently occupies: the message is sized by its content, and at
+		// this point the content is about to get three times bigger.
+		//
+		// Clamping at all is not politeness. A terminal discards a multicell
+		// character that does not fit, so an unclamped scale is not a big
+		// emoji, it is a missing one.
+		room := a.runRoom(paneWidth)
+		glyphs := lineText(b.body[0])
+		b.scale = layout.Clamp(bigEmojiScale(n), a.width(glyphs), room, a.transcriptPage())
+		b.width = minInt(a.width(glyphs)*b.scale, room)
+	}
+	return b
+}
+
+// messageStamp is what stands in the gutter beside a message: when it was
+// sent, whether it has been edited, and where it got to.
+//
+// Every state is its own glyph, not just its own colour: one tick sent, two
+// delivered, two filled read. Colour reinforces it rather than carrying it, so
+// the state survives NO_COLOR, a colour-blind reader, and the plain tier.
+func (a *App) messageStamp(m proto.MessageRow) string {
+	stamp := time.Unix(m.Timestamp, 0).Format("15:04")
+	// The pencil takes the space the ticks would have had, so an edited
+	// message is no wider than any other and the gutter stays the width of
+	// what it actually holds.
+	switch {
+	case m.Edited:
+		stamp += "✎"
+	case m.Outgoing():
+		stamp += " "
+	}
+	if !m.Outgoing() {
+		return stamp
+	}
+	return stamp + statusGlyph(m.Status)
+}
+
+func statusGlyph(status string) string {
+	switch status {
+	case "read":
+		return "✔✔"
+	case "delivered":
+		return "✓✓"
+	case "sent":
+		return "✓"
+	case "failed":
+		return "!"
+	default:
+		return "·"
+	}
+}
+
+func (a *App) drawComposer(win vaxis.Window, r layout.Rect) {
+	pane := sub(win, r)
+	w, h := pane.Size()
+
+	a.mu.Lock()
+	active, focus := a.activeChat, a.focus
+	text, cursor, sendErr := a.composer.String(), a.composer.cursor, a.composer.sendErr
+	a.mu.Unlock()
+
+	// The field carries its own ground where there is something to draw it
+	// with, and the cells inside it keep the pane's so the image is not
+	// tinted twice. Below the graphics tiers the cells are the field.
+	ground := a.theme.BackgroundPanel
+	if a.painted() && active != "" {
+		ground = a.theme.Background
+	}
+	fill(pane, ground)
+	if active == "" {
+		return
+	}
+	a.drawField(pane, 1, 0, w-2, h, focus == FocusComposer)
+
+	marker := vaxis.Style{Foreground: a.theme.Border, Background: ground}
+	if focus == FocusComposer {
+		marker = vaxis.Style{Foreground: a.theme.Accent, Background: ground}
+	}
+	a.print(pane, 2, 0, marker, "\u203a")
+
+	if sendErr != "" {
+		a.print(pane, composerText, 0, vaxis.Style{
+			Foreground: a.theme.Error, Background: ground,
+		}, a.clip("not sent: "+sendErr, w-composerGutter))
+		return
+	}
+
+	if text == "" {
+		a.print(pane, composerText, 0, vaxis.Style{
+			Foreground: a.theme.TextFaint, Background: ground,
+		}, "type a message")
+		if focus == FocusComposer {
+			win.ShowCursor(r.Col+composerText, r.Row, vaxis.CursorBeam)
+		}
+		return
+	}
+
+	style := vaxis.Style{Foreground: a.theme.Text, Background: ground}
+	lines := a.wrap(text, w-composerGutter)
+	a.noteBlock(pane, composerText, 0, w-composerGutter, h)
+	// The tail is what is being written, so that is the end that stays on
+	// screen when the draft outgrows the rows it has.
+	if len(lines) > h {
+		lines = lines[len(lines)-h:]
+	}
+	for i, line := range lines {
+		a.print(pane, composerText, i, style, line)
+	}
+
+	if focus == FocusComposer {
+		col, row := a.cursorCell(text, cursor, w-composerGutter, len(lines), h)
+		win.ShowCursor(r.Col+composerText+col, r.Row+row, vaxis.CursorBeam)
+	}
+}
+
+// drawField is the rounded box a draft is typed into. A terminal cannot set a
+// rounded background, so below the graphics tiers the panel colour fills the
+// same cells and the shape is the only thing lost.
+func (a *App) drawField(pane vaxis.Window, col, row, width, height int, focused bool) {
+	if !a.painted() {
+		return
+	}
+	fill, ok := theme.Paint(a.theme.Background, a.theme.BackgroundPanel, 1)
+	if !ok {
+		return
+	}
+	edge, _ := theme.Paint(a.theme.Background, a.theme.Border, 1)
+	if focused {
+		edge, _ = theme.Paint(a.theme.Background, a.theme.BorderActive, 1)
+	}
+	_, ch := a.cellPix()
+	a.paintRect(pane, col, row, width, height, func(pw, ph int) paint.Spec {
+		return paint.Bubble{W: pw, H: ph, Fill: fill, Edge: edge, Radius: ch / 2}
+	})
+}
+
+// cursorCell is where the caret sits once the draft has been wrapped: the
+// same wrap the drawing used, walked until it has passed as many runes as the
+// caret is after.
+func (a *App) cursorCell(text string, at, width, shown, height int) (int, int) {
+	if width < 1 {
+		return 0, 0
+	}
+	head := string([]rune(text)[:at])
+	lines := a.wrap(head, width)
+	if len(lines) == 0 {
+		return 0, 0
+	}
+	// A caret just past a space that wrapping ate belongs at the end of the
+	// text before it, which is exactly where the wrapped head puts it.
+	row := len(lines) - 1
+	col := a.width(lines[row])
+	if strings.HasSuffix(head, " ") && col < width {
+		col++
+	}
+	if row >= shown {
+		row = shown - 1
+	}
+	if off := shown - height; off > 0 {
+		row -= off
+	}
+	if row < 0 {
+		row = 0
+	}
+	return minInt(col, width-1), row
+}
+
+func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
+	pane := sub(win, r)
+	fill(pane, a.theme.Background)
+
+	a.mu.Lock()
+	focus := a.focus
+	typed := !a.composer.empty()
+	leader := a.leader
+	modal := a.modal.kind
+	a.mu.Unlock()
+
+	newline := "s-\u23ce"
+	if !a.caps.KittyKeyboard {
+		// Without the kitty keyboard protocol the terminal cannot tell
+		// shift+enter from enter, so the hint has to name the one that works.
+		newline = "^j"
+	}
+
+	// An armed leader takes the line and says what it can still become. A
+	// prefix nobody can see is a prefix nobody uses.
+	if leader {
+		a.drawLeaderHints(pane, r.Width)
+		return
+	}
+
+	if msg := a.toastNow(); msg != "" {
+		// A toast takes the hint line rather than a corner of its own: it is
+		// gone in a moment, and the hints are the thing worth its place.
+		a.print(pane, 1, 0, vaxis.Style{Foreground: a.theme.Success}, a.clip(msg, r.Width-2))
+		return
+	}
+
+	type hint struct {
+		id   commandID
+		text string
+	}
+	var hints []hint
+	switch {
+	// An open panel owns the keyboard, so the line says what the panel does
+	// rather than what the pane behind it would have done.
+	case modal != modalNone:
+		hints = []hint{{"", "\u2191\u2193 move"}, {"", "\u23ce run"}, {"", "esc close"}}
+	case focus == FocusList:
+		hints = []hint{{cmdOpenChat, "open"}, {"", "\u2191\u2193 move"}, {cmdFocusNext, "chat"}, {cmdQuit, "quit"}}
+	case focus == FocusTranscript:
+		hints = []hint{{"", "\u2191\u2193 scroll"}, {"", "esc composer"}, {cmdFocusNext, "chats"}}
+	default:
+		hints = []hint{{cmdSend, "send"}, {"", newline + " newline"}, {"", "esc chats"}, {cmdFocusNext, "list"}}
+		if !typed {
+			hints = []hint{{cmdSend, "send"}, {"", "\u2191 scroll back"}, {"", "esc chats"}, {cmdFocusNext, "list"}}
+		}
+	}
+
+	w, _ := pane.Size()
+	col := 1
+	for _, hint := range hints {
+		h := hint.text
+		if hint.id != "" {
+			a.initCommands()
+			if c := a.commands.byID[hint.id]; c != nil && c.Direct != "" {
+				h = c.Direct + " " + hint.text
+			}
+		}
+		if col+a.width(h) >= w {
+			break
+		}
+		col = a.print(pane, col, 0, vaxis.Style{Foreground: a.theme.TextFaint}, h)
+		col += 2
+	}
+}
+
+// drawLeaderHints projects the registry's leader bindings onto the hint line,
+// so ctrl+x is a menu rather than a thing you had to read about.
+func (a *App) drawLeaderHints(pane vaxis.Window, width int) {
+	a.initCommands()
+	col := a.print(pane, 1, 0, vaxis.Style{Foreground: a.theme.Accent, Attribute: vaxis.AttrBold}, "^x")
+	col += 2
+	state := a.commandState()
+	for _, c := range a.commands.ordered {
+		if c.Leader == "" {
+			continue
+		}
+		style := vaxis.Style{Foreground: a.theme.TextFaint}
+		if c.Enabled != nil {
+			if ok, _ := c.Enabled(state); !ok {
+				continue
+			}
+		}
+		h := c.Leader + " " + strings.ToLower(c.Title)
+		if col+a.width(h) >= width {
+			break
+		}
+		col = a.print(pane, col, 0, style, h)
+		col += 2
+	}
+}

@@ -72,13 +72,11 @@ func (db *DB) reader() *sql.DB {
 
 func init() {
 	sql.Register(SQLiteDriverName, &sqlite3.SQLiteDriver{
-		ConnectHook: func(conn *sqlite3.SQLiteConn) error {
-			return conn.RegisterFunc("chat_name_source_priority", sqliteChatNameSourcePriority, true)
-		},
+		ConnectHook: registerNamePriorityFuncs,
 	})
 	sql.Register(SQLiteReadDriverName, &sqlite3.SQLiteDriver{
 		ConnectHook: func(conn *sqlite3.SQLiteConn) error {
-			if err := conn.RegisterFunc("chat_name_source_priority", sqliteChatNameSourcePriority, true); err != nil {
+			if err := registerNamePriorityFuncs(conn); err != nil {
 				return err
 			}
 			// query_only guards the pool against accidental writes; the rest
@@ -96,6 +94,24 @@ func init() {
 			return nil
 		},
 	})
+}
+
+func registerNamePriorityFuncs(conn *sqlite3.SQLiteConn) error {
+	if err := conn.RegisterFunc("chat_name_source_priority", sqliteChatNameSourcePriority, true); err != nil {
+		return err
+	}
+	return conn.RegisterFunc("sender_name_source_priority", sqliteSenderNameSourcePriority, true)
+}
+
+func sqliteSenderNameSourcePriority(value any) int64 {
+	switch value := value.(type) {
+	case string:
+		return int64(senderNameSourcePriority(value))
+	case []byte:
+		return int64(senderNameSourcePriority(string(value)))
+	default:
+		return int64(senderNameSourcePriority(""))
+	}
 }
 
 func sqliteChatNameSourcePriority(value any) int64 {
@@ -273,6 +289,7 @@ func (db *DB) migrate(ctx context.Context) error {
 		`CREATE TABLE IF NOT EXISTS senders (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL DEFAULT '',
+			name_source TEXT NOT NULL DEFAULT '',
 			avatar_local_path TEXT NOT NULL DEFAULT '',
 			avatar_picture_id TEXT NOT NULL DEFAULT ''
 		)`,
@@ -404,7 +421,7 @@ func (db *DB) migrate(ctx context.Context) error {
 	if err := db.ensureChatsAvatarColumns(ctx); err != nil {
 		return err
 	}
-	if err := db.ensureSendersAvatarColumns(ctx); err != nil {
+	if err := db.ensureSendersColumns(ctx); err != nil {
 		return err
 	}
 	if err := db.ensureAvatarTable(ctx); err != nil {
@@ -999,7 +1016,7 @@ func (db *DB) ensureChatsAvatarColumns(ctx context.Context) error {
 	return nil
 }
 
-func (db *DB) ensureSendersAvatarColumns(ctx context.Context) error {
+func (db *DB) ensureSendersColumns(ctx context.Context) error {
 	rows, err := db.conn.QueryContext(ctx, `PRAGMA table_info(senders)`)
 	if err != nil {
 		return err
@@ -1027,6 +1044,7 @@ func (db *DB) ensureSendersAvatarColumns(ctx context.Context) error {
 	}{
 		{"avatar_status", `ALTER TABLE senders ADD COLUMN avatar_status TEXT NOT NULL DEFAULT ''`},
 		{"avatar_checked_at", `ALTER TABLE senders ADD COLUMN avatar_checked_at INTEGER NOT NULL DEFAULT 0`},
+		{"name_source", `ALTER TABLE senders ADD COLUMN name_source TEXT NOT NULL DEFAULT ''`},
 	}
 	for _, a := range alterations {
 		if existing[a.col] {

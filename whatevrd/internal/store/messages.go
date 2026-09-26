@@ -286,15 +286,19 @@ type TextMessageInput struct {
 	SenderName     string
 	// SenderDevice is the sender's device id (see Message).
 	SenderDevice uint16
-	Text         string
-	Timestamp    time.Time
-	Direction    string
-	Status       string
-	IsGroup      bool
-	CountUnread  bool
-	IsForwarded  bool
-	ReplyTo      MessageReply
-	Mentions     []MessageMention
+	// SenderNameSource ranks the claim SenderName makes on the senders row, so
+	// a push name never overwrites an address book name. See
+	// SenderNameSourceContact and friends.
+	SenderNameSource string
+	Text             string
+	Timestamp        time.Time
+	Direction        string
+	Status           string
+	IsGroup          bool
+	CountUnread      bool
+	IsForwarded      bool
+	ReplyTo          MessageReply
+	Mentions         []MessageMention
 	// PayloadJSON is the row's structured payload. It sits here rather than on
 	// MediaMessageInput because a payload belongs to the message, not to its
 	// media: a link preview rides an ordinary text row, whose kind stays
@@ -431,7 +435,7 @@ func saveTextMessageTx(ctx context.Context, tx *sql.Tx, input TextMessageInput) 
 	if err := upsertChat(ctx, tx, input); err != nil {
 		return SavedTextMessage{}, err
 	}
-	if err := upsertSender(ctx, tx, input.SenderID, input.SenderName); err != nil {
+	if err := upsertSender(ctx, tx, input.SenderID, input.SenderName, input.SenderNameSource); err != nil {
 		return SavedTextMessage{}, err
 	}
 
@@ -546,17 +550,18 @@ func upsertChat(ctx context.Context, tx *sql.Tx, input TextMessageInput) error {
 	return err
 }
 
-func upsertSender(ctx context.Context, tx *sql.Tx, senderID, senderName string) error {
+func upsertSender(ctx context.Context, tx *sql.Tx, senderID, senderName, nameSource string) error {
 	if senderID == "" || senderID == "me" {
 		return nil
 	}
 	senderName = strings.TrimSpace(senderName)
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO senders (id, name)
-		VALUES (?, ?)
+		INSERT INTO senders (id, name, name_source)
+		VALUES (?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
-			name = CASE WHEN excluded.name != '' THEN excluded.name ELSE senders.name END
-	`, senderID, senderName)
+			name = CASE WHEN excluded.name != '' AND sender_name_source_priority(excluded.name_source) >= sender_name_source_priority(senders.name_source) THEN excluded.name ELSE senders.name END,
+			name_source = CASE WHEN excluded.name != '' AND sender_name_source_priority(excluded.name_source) >= sender_name_source_priority(senders.name_source) THEN excluded.name_source ELSE senders.name_source END
+	`, senderID, senderName, strings.TrimSpace(nameSource))
 	return err
 }
 
@@ -634,7 +639,7 @@ func saveMediaMessageTx(ctx context.Context, tx *sql.Tx, input MediaMessageInput
 	if err := upsertChat(ctx, tx, input.TextMessageInput); err != nil {
 		return SavedTextMessage{}, err
 	}
-	if err := upsertSender(ctx, tx, input.SenderID, input.SenderName); err != nil {
+	if err := upsertSender(ctx, tx, input.SenderID, input.SenderName, input.SenderNameSource); err != nil {
 		return SavedTextMessage{}, err
 	}
 

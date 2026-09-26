@@ -1,0 +1,398 @@
+//go:build whatevr_mock
+
+package wamock
+
+import (
+	"context"
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/coder/websocket"
+	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/util/keys"
+
+	"whatevrd/internal/app"
+)
+
+const (
+	defaultAccountPhone = "911000000001"
+	defaultAccountName  = "whatevr mock"
+	qrWait              = 30 * time.Second
+)
+
+// Options configures a mock server. Seed pins every key and identifier the
+// server generates, so two runs of the same scenario produce the same bytes.
+type Options struct {
+	Seed     int64
+	Logger   *log.Logger
+	Scenario string
+
+	// AccountPhone is the number the mock account answers as, in plain digits.
+	AccountPhone string
+	// AccountName is the push name the account presents.
+	AccountName string
+
+	// ScanDelay is how long a published QR sits unscanned before the mock
+	// phone picks it up. Zero pairs as soon as the code appears; a few seconds
+	// is what you want when the QR screen itself is the thing being looked at.
+	ScanDelay time.Duration
+
+	// HistoryDelay spreads the history sync out, one chunk every this long. It
+	// overrides whatever the scenario asked for, so a sync that normally
+	// finishes before the first frame can be watched.
+	HistoryDelay time.Duration
+
+	// Now pins the clock every relative scenario timestamp hangs off. Zero
+	// means the real one, which is what you want when looking at the thing; a
+	// fixed instant is what you want when comparing frames byte for byte.
+	Now time.Time
+
+	// Control is where the quiescence socket is bound. Empty means no control
+	// socket, which is the normal case for a human running a scenario.
+	Control string
+
+	// Login is the daemon's login event stream. The mock needs it to read the
+	// QR it is meant to scan, because the adv secret exists nowhere else.
+	Login LoginWatcher
+}
+
+// LoginWatcher is the slice of app.Daemon the mock depends on. Keeping it an
+// interface means the fake server never reaches further into the daemon than
+// the QR it has to scan.
+type LoginWatcher interface {
+	SubscribeLoginEvents() (<-chan app.LoginEvent, func())
+}
+
+// Server is the fake WhatsApp Web endpoint. It binds loopback TLS, points the
+// process's HTTP transport at itself, and speaks the Noise + binary XMPP
+// protocol whatsmeow expects. The daemon above it is unmodified.
+type Server struct {
+	opts  Options
+	log   *log.Logger
+	ident *serverIdentity
+	tlsID *tlsIdentity
+	rng   *seededRand
+
+	ln   net.Listener
+	http *http.Server
+
+	// account is the primary device's identity keypair: the "phone" that signs
+	// a companion device into the account during pairing.
+	account *keys.KeyPair
+	keys    *clientKeys
+
+	// world is what the scenario built: contacts, chats and the messages that
+	// are meant to already be there.
+	world *World
+
+	// media is everything the mock is hosting over http: history sync blobs,
+	// avatars, and later the attachments themselves.
+	media *mediaStore
+
+	// settings is the account state that is not conversation: privacy, blocks,
+	// the about line.
+	settings *accountSettings
+
+	// avatars are the generated profile pictures, kept so a re-fetch is
+	// answered with the same id.
+	avatars *avatarCache
+
+	// stickers is the sticker store: packs, their contents and tray images,
+	// built on the first request rather than at boot.
+	stickers *stickerCatalogue
+
+	// appState is the server half of the app state sync: the key and the
+	// patches the client validates against.
+	appState *mockAppState
+
+	// quiet counts what is still in flight, so a test can ask whether the mock
+	// has finished talking rather than guessing with a sleep.
+	quiet *quiescence
+
+	// control is the quiescence socket, bound only when a harness asks for it.
+	control net.Listener
+
+	// keysReady closes once the client has uploaded the identity and signed
+	// prekey the mock needs before it can encrypt anything.
+	keysReady chan struct{}
+	keysOnce  sync.Once
+
+	mu          sync.Mutex
+	sessions    map[*session]struct{}
+	peers       map[string]*peer
+	closed      bool
+	paired      *pairedDevice
+	liveSession *session
+}
+
+func New(opts Options) (*Server, error) {
+	if opts.Logger == nil {
+		opts.Logger = log.New(log.Writer(), "wamock: ", log.LstdFlags)
+	}
+	if !opts.Now.IsZero() {
+		SetBootTime(opts.Now)
+	}
+	now := time.Now()
+	rng := newSeededRand(opts.Seed)
+	ident, err := newServerIdentity(rng, now)
+	if err != nil {
+		return nil, fmt.Errorf("build server identity: %w", err)
+	}
+	tlsID, err := newTLSIdentity(rng, now)
+	if err != nil {
+		return nil, fmt.Errorf("build tls identity: %w", err)
+	}
+	account, err := genKeyPair(rng)
+	if err != nil {
+		return nil, fmt.Errorf("build account identity: %w", err)
+	}
+	if opts.AccountPhone == "" {
+		opts.AccountPhone = defaultAccountPhone
+	}
+	if opts.AccountName == "" {
+		opts.AccountName = defaultAccountName
+	}
+	srv := &Server{
+		opts:      opts,
+		log:       opts.Logger,
+		ident:     ident,
+		tlsID:     tlsID,
+		rng:       rng,
+		account:   account,
+		keys:      &clientKeys{},
+		keysReady: make(chan struct{}),
+		sessions:  make(map[*session]struct{}),
+		peers:     make(map[string]*peer),
+		media:     newMediaStore(),
+		settings:  newAccountSettings(),
+		avatars:   newAvatarCache(),
+		stickers:  newStickerCatalogue(),
+		appState:  newMockAppState(rng),
+		quiet:     newQuiescence(),
+	}
+	srv.world = newWorld(srv)
+	if scenario, ok := Lookup(opts.Scenario); ok && scenario.Build != nil {
+		scenario.Build(srv.world)
+	}
+	return srv, nil
+}
+
+// Start binds the listener and redirects the process at it. It must run before
+// the daemon constructs its whatsmeow client, because whatsmeow snapshots
+// http.DefaultTransport in NewClient.
+func (s *Server) Start(ctx context.Context) error {
+	ln, err := tls.Listen("tcp", "127.0.0.1:0", &tls.Config{
+		Certificates: []tls.Certificate{s.tlsID.server},
+	})
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
+	}
+	s.ln = ln
+
+	mux := http.NewServeMux()
+	mux.HandleFunc(websocketPath, s.handleWS)
+	mux.HandleFunc(mediaPathPrefix, s.handleMedia)
+	mux.HandleFunc(avatarPathPrefix, s.handleMedia)
+	mux.HandleFunc("/mms/", s.handleMMS)
+	mux.HandleFunc("/sticker", s.handleStickerStore)
+	// whatsmeow scrapes a client_revision out of the web.whatsapp.com landing
+	// page to decide the version it advertises. Serving it keeps the daemon
+	// from retrying a 404 on every connect.
+	mux.HandleFunc("/", s.handleRoot)
+	s.http = &http.Server{Handler: s.countHTTP(mux)}
+
+	installCertPubKey(s.ident)
+	installTransport(s.tlsID, ln.Addr().String())
+
+	go func() {
+		if err := s.http.Serve(ln); err != nil && !s.isClosed() {
+			s.log.Printf("serve: %v", err)
+		}
+	}()
+	go func() {
+		<-ctx.Done()
+		_ = s.Close()
+	}()
+	s.log.Printf("fake WhatsApp server on %s (scenario %q, seed %d)", ln.Addr(), s.opts.Scenario, s.opts.Seed)
+	return nil
+}
+
+// countHTTP keeps the quiescence tracker honest about downloads. A history
+// chunk or an attachment the daemon is still fetching is work in flight, and a
+// frame taken while it lands is not the frame a rerun would take.
+func (s *Server) countHTTP(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The websocket is a request that never returns, so counting it would
+		// mean the mock is busy for as long as anybody is connected.
+		if r.URL.Path == websocketPath {
+			next.ServeHTTP(w, r)
+			return
+		}
+		s.quiet.addHTTP(1)
+		defer s.quiet.addHTTP(-1)
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) isClosed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closed
+}
+
+func (s *Server) Close() error {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil
+	}
+	s.closed = true
+	sessions := make([]*session, 0, len(s.sessions))
+	for sess := range s.sessions {
+		sessions = append(sessions, sess)
+	}
+	s.mu.Unlock()
+
+	for _, sess := range sessions {
+		sess.close(websocket.StatusGoingAway, "server shutting down")
+	}
+	if s.control != nil {
+		_ = s.control.Close()
+	}
+	if s.http != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = s.http.Shutdown(ctx)
+	}
+	return nil
+}
+
+func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
+	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+		// The client sends Origin: https://web.whatsapp.com, which is not the
+		// Host we are actually serving.
+		InsecureSkipVerify: true,
+		CompressionMode:    websocket.CompressionContextTakeover,
+	})
+	if err != nil {
+		s.log.Printf("websocket accept: %v", err)
+		return
+	}
+	conn.SetReadLimit(frameMaxSize)
+
+	sess := newSession(s, conn)
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		sess.close(websocket.StatusGoingAway, "server shutting down")
+		return
+	}
+	s.sessions[sess] = struct{}{}
+	s.mu.Unlock()
+
+	defer func() {
+		s.clearLive(sess)
+		s.mu.Lock()
+		delete(s.sessions, sess)
+		s.mu.Unlock()
+	}()
+
+	sess.run(r.Context())
+}
+
+// accountJID is the address the mock account is reachable at.
+func (s *Server) accountJID() types.JID {
+	return types.JID{User: s.opts.AccountPhone, Server: types.DefaultUserServer}
+}
+
+// waitForQR blocks until the daemon publishes a pairing code. The mock plays
+// the phone, and a phone cannot pair without seeing the QR.
+func (s *Server) waitForQR(ctx context.Context) (string, error) {
+	if s.opts.Login == nil {
+		return "", errors.New("no login watcher wired, cannot read the qr")
+	}
+	events, cancel := s.opts.Login.SubscribeLoginEvents()
+	defer cancel()
+
+	deadline := time.NewTimer(qrWait)
+	defer deadline.Stop()
+	for {
+		select {
+		case evt, ok := <-events:
+			if !ok {
+				return "", errNoQR
+			}
+			if evt.Kind == app.LoginEventQR && evt.QRCode != "" {
+				return evt.QRCode, nil
+			}
+		case <-deadline.C:
+			return "", errNoQR
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+}
+
+func (s *Server) notePaired(dev pairedDevice) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.paired = &dev
+}
+
+// forgetPairing drops the linked device and everything that belonged to it.
+// A logout wipes the daemon's database, so the account it comes back to has to
+// be a fresh one: the old Signal sessions are keyed to a client that no longer
+// exists, and the world's backlog was already spent on the previous link.
+func (s *Server) forgetPairing() {
+	s.mu.Lock()
+	s.paired = nil
+	s.peers = make(map[string]*peer)
+	s.keys = &clientKeys{}
+	s.keysReady = make(chan struct{})
+	s.keysOnce = sync.Once{}
+	s.appState = newMockAppState(s.rng)
+	s.avatars = newAvatarCache()
+	s.stickers = newStickerCatalogue()
+	world := newWorld(s)
+	s.world = world
+	s.mu.Unlock()
+
+	if scenario, ok := Lookup(s.opts.Scenario); ok && scenario.Build != nil {
+		scenario.Build(world)
+	}
+}
+
+// Paired reports the device a completed pairing produced, if any.
+func (s *Server) Paired() (pairedDevice, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.paired == nil {
+		return pairedDevice{}, false
+	}
+	return *s.paired, true
+}
+
+// mockClientRevision is the build number the mock claims to be. It is pinned
+// rather than current: a scenario should not change behaviour because the real
+// WhatsApp shipped a release.
+const mockClientRevision = 1023000000
+
+// websocketPath is where the client connects. socket.URL is a const in
+// whatsmeow, so the path is fixed too.
+const websocketPath = "/ws/chat"
+
+func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path != "/" {
+		s.log.Printf("unhandled http %s %s", r.Method, r.URL.Path)
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	fmt.Fprintf(w, `<!doctype html><html><body><script>{"client_revision":%d,}</script></body></html>`, mockClientRevision)
+}

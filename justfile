@@ -7,7 +7,7 @@ version_numeric := `scripts/version.py numeric`
 default:
     @just --list
 
-# Debug build for local testing.
+# Debug build. Includes the fake WhatsApp server.
 build dir=build_dir:
     @just _build debug "{{dir}}"
 
@@ -29,56 +29,52 @@ artifacts arch=`uname -m`:
     @just _binary-tarball "{{arch}}"
     @just _checksums
 
-# Build and run the frontend tests that can carry sanitizers, under ASan+UBSan.
-#
-# Not the whole suite: the mpv and QML-render tests want a GPU, and a software
-# fallback tells you nothing about memory safety. These three are where the
-# transport, the models and the window ownership live, which is where the bugs
-# this catches actually are.
-sanitize dir=build_dir:
-    @cmake -S whatkevr -B "{{dir}}/asan/whatkevr" -G Ninja \
-        -DCMAKE_BUILD_TYPE=Debug \
-        -DWHATEVR_BUILD_TESTS=ON \
-        -DWHATEVR_VERSION={{version_numeric}} \
-        -DWHATEVR_VERSION_FULL={{version}} \
-        -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g" \
-        -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" \
-        -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=address,undefined"
-    @cmake --build "{{dir}}/asan/whatkevr" --target tst_protocolcore tst_protocolmessagemodel tst_protocolcontroller
-    @for t in tst_protocolcore tst_protocolmessagemodel tst_protocolcontroller; do \
-        printf '\n== %s ==\n' "$t"; \
-        QT_QPA_PLATFORM=offscreen \
-        ASAN_OPTIONS=detect_leaks=0:abort_on_error=1 \
-        UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1 \
-        "{{dir}}/asan/whatkevr/bin/$t"; \
-    done
+# Run tests. Target: all, daemon, whattui, frontend, protocol, asan.
+test target="all" dir=build_dir:
+    @case "{{target}}" in \
+        all) just _test-daemon && just _test-whattui && just _test-frontend "{{dir}}" && scripts/conformance ;; \
+        daemon) just _test-daemon ;; \
+        whattui) just _test-whattui ;; \
+        frontend) just _test-frontend "{{dir}}" ;; \
+        protocol) scripts/conformance ;; \
+        asan) scripts/asan "{{dir}}" ;; \
+        *) printf 'unknown target: %s\n' "{{target}}" >&2; exit 1 ;; \
+    esac
 
-
-# The whole suite: daemon, frontend, and the protocol grammar.
-test dir=build_dir:
+_test-daemon:
     @cd whatevrd && go test -tags sqlite_fts5 ./...
+    @cd whatevrd && go test -tags "sqlite_fts5 whatevr_mock" ./internal/wamock/...
+    @scripts/check-mock-gate
+
+# Race is not optional: the protocol client, the view models and the render
+# loop are three goroutines over one model.
+_test-whattui:
+    @just _require-vaxis
+    @cd whattui && files="$(gofmt -l . | grep -v '^vaxis/' || true)"; \
+        if [ -n "$files" ]; then printf '%s\n' "$files"; exit 1; fi
+    @cd whattui && go vet ./...
+    @cd whattui && go test ./...
+    @cd whattui && go test -race ./...
+
+# The tests are off in a plain build so it does not need Qt6::Test; asking for
+# them here turns them on for good in this tree.
+_test-frontend dir=build_dir:
+    @just _build-frontend debug "{{dir}}" --tests
     @just build "{{dir}}"
     @ctest --test-dir "{{dir}}/debug/whatkevr" --output-on-failure
-    @just conformance
 
-# Protocol conformance. With no stream it checks the handshake and the view
-# grammar; with one it replays real frames and holds the window invariants
-# after every one of them.
+# Photograph whattui at any size and state, in kitty on a dummy monitor.
+# Needs a compositor, so it is not in `just test`.
 #
-# Record a stream first with `scripts/record-stream --out stream.ndjson`
-# against a running daemon. A recording is real conversation data, so keep it
-# out of the repository.
-conformance stream="":
-    @if [ -n "{{stream}}" ]; then \
-        scripts/conformance --replay "{{stream}}"; \
-    else \
-        scripts/conformance; \
-    fi
+#   just screenshot --list
+#   just screenshot --size 100x30 --scenario palette
+#   just screenshot --size 72x20 --keys ctrl+p,/,a,n --wait "> /an"
+#   just screenshot --env WHATTUI_NO_TEXT_SCALE=1
+#   just screenshot --account torture --size 120x40
 
-# Replay a recorded stream repeatedly with faults armed. Not part of `just
-# test`: it is minutes, not seconds, and it belongs on a schedule.
-soak stream seconds="300" fault="all:7":
-    @scripts/conformance --replay "{{stream}}" --soak "{{seconds}}" --fault "{{fault}}"
+# Take a picture of whattui.
+screenshot *args:
+    @scripts/whattui-screenshot {{args}}
 
 validate:
     @desktop-file-validate whatkevr/data/in.codelif.Whatevr.desktop
@@ -100,6 +96,7 @@ uninstall prefix="/usr/local" destdir="":
     @prefix="{{prefix}}"; \
     destdir="{{destdir}}"; \
     rm -f "$destdir$prefix/bin/whatevrd"; \
+    rm -f "$destdir$prefix/bin/whattui"; \
     rm -f "$destdir$prefix/bin/whatkevr"; \
     rm -f "$destdir$prefix/lib/systemd/user/whatevrd.service"; \
     rm -f "$destdir$prefix/lib/systemd/user/whatevrd.socket"; \
@@ -114,7 +111,38 @@ clean:
 _build profile dir=build_dir:
     @test "{{profile}}" = debug -o "{{profile}}" = release
     @just _build-daemon "{{profile}}" "{{dir}}"
+    @just _build-whattui "{{profile}}" "{{dir}}"
     @just _build-frontend "{{profile}}" "{{dir}}"
+
+# whattui builds against the vaxis fork in whattui/vaxis, which is a submodule.
+# A release tarball is `git archive`, which carries no submodule, so a build
+# from one skips whattui rather than failing.
+_require-vaxis:
+    @if [ ! -f whattui/vaxis/go.mod ]; then \
+        printf 'whattui/vaxis is empty: run git submodule update --init --recursive\n' >&2; \
+        exit 1; \
+    fi
+
+_build-whattui profile dir=build_dir:
+    @if [ ! -f whattui/vaxis/go.mod ]; then \
+        printf 'skipping whattui: whattui/vaxis is not checked out\n' >&2; \
+        exit 0; \
+    fi; \
+    profile="{{profile}}"; \
+    build_root="{{dir}}"; \
+    case "$build_root" in \
+        /*) out_dir="$build_root/$profile" ;; \
+        *) out_dir="$(pwd)/$build_root/$profile" ;; \
+    esac; \
+    go_flags=(-buildvcs=false); \
+    ldflags=""; \
+    if [ "$profile" = release ]; then \
+        go_flags=(-trimpath "${go_flags[@]}"); \
+        ldflags="-s -w"; \
+    fi; \
+    mkdir -p "$out_dir"; \
+    go -C whattui build "${go_flags[@]}" -ldflags "$ldflags" \
+        -o "$out_dir/whattui" ./cmd/whattui
 
 _build-daemon profile dir=build_dir:
     @profile="{{profile}}"; \
@@ -124,23 +152,27 @@ _build-daemon profile dir=build_dir:
         *) out_dir="$(pwd)/$build_root/$profile" ;; \
     esac; \
     ldflags="-X whatevrd/internal/protocol.Version={{version}}"; \
-    go_flags=(-buildvcs=false -tags sqlite_fts5); \
+    tags="sqlite_fts5"; \
     if [ "$profile" = release ]; then \
-        go_flags=(-trimpath "${go_flags[@]}"); \
+        go_flags=(-trimpath -buildvcs=false); \
         ldflags="$ldflags -s -w"; \
+    else \
+        tags="$tags whatevr_mock"; \
+        go_flags=(-buildvcs=false); \
     fi; \
+    go_flags+=(-tags "$tags"); \
     mkdir -p "$out_dir"; \
     CGO_ENABLED=1 go -C whatevrd build "${go_flags[@]}" -ldflags "$ldflags" \
         -o "$out_dir/whatevrd" ./cmd/whatevrd
 
-_build-frontend profile dir=build_dir:
+_build-frontend profile dir=build_dir tests="":
     @profile="{{profile}}"; \
     if [ "$profile" = release ]; then build_type=Release; else build_type=Debug; fi; \
     scripts/configure-frontend \
         --build "{{dir}}/$profile/whatkevr" \
         --build-type "$build_type" \
         --version {{version_numeric}} \
-        --version-full {{version}}; \
+        --version-full {{version}} {{tests}}; \
     cmake --build "{{dir}}/$profile/whatkevr"
 
 _install profile prefix destdir:
@@ -152,6 +184,9 @@ _install profile prefix destdir:
     bindir="$prefix/bin"; \
     user_unit_dir="$prefix/lib/systemd/user"; \
     install -Dm755 "$build_root/whatevrd" "$destdir$bindir/whatevrd"; \
+    if [ -f "$build_root/whattui" ]; then \
+        install -Dm755 "$build_root/whattui" "$destdir$bindir/whattui"; \
+    fi; \
     DESTDIR="$destdir" cmake --install "$build_root/whatkevr" --prefix "$prefix"; \
     sed "s|@BINDIR@|$bindir|g" packaging/systemd/whatevrd.service.in \
         > "$build_root/whatevrd.service"; \
@@ -179,6 +214,9 @@ _binary-tarball arch:
     rm -rf "$root" "$dist_dir" "$(pwd)/{{build_dir}}/$name.tar.zst"; \
     just _install release /usr "$root"; \
     strip --strip-unneeded "$root/usr/bin/whatevrd"; \
+    if [ -f "$root/usr/bin/whattui" ]; then \
+        strip --strip-unneeded "$root/usr/bin/whattui"; \
+    fi; \
     strip --strip-unneeded "$root/usr/bin/whatkevr"; \
     install -Dm644 LICENSE "$root/usr/share/licenses/whatevr/LICENSE"; \
     mkdir -p "$dist_dir"; \

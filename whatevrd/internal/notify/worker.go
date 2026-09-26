@@ -95,6 +95,13 @@ func (w *Worker) Start(ctx context.Context) {
 }
 
 func (w *Worker) NotifyMessage(ctx context.Context, message app.Message, chat app.Chat, opts Options) {
+	// A daemon with no session bus has no worker, and a nil *Worker put into
+	// an interface is not a nil interface: the caller's nil check passes and
+	// the call lands here. Saying so once is cheaper than every caller
+	// remembering, and the alternative is a segfault on the first message.
+	if w == nil {
+		return
+	}
 	select {
 	case <-ctx.Done():
 	case w.queue <- queuedMessage{message: message, chat: chat, opts: opts}:

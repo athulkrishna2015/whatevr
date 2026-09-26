@@ -245,3 +245,7 @@ poetry.toml
 pyrightconfig.json
 
 # End of https://www.toptal.com/developers/gitignore/api/python
+
+# agent instruction files, local only
+CLAUDE.md
+AGENTS.md

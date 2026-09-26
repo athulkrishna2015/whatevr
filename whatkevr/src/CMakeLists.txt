@@ -67,6 +67,7 @@ set(WHATKEVR_LINK_LIBRARIES
     KF6::CoreAddons
     KF6::DBusAddons
     KF6::I18n
+    KF6::I18nQml
     KF6::Kirigami
     KF6::Prison
     PkgConfig::RLottie

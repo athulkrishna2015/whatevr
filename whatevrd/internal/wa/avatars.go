@@ -606,7 +606,16 @@ func (c *Client) fetchAndCacheAvatar(ctx context.Context, jid types.JID, existin
 	}
 
 	safeID := strings.NewReplacer("/", "_", ":", "_", "@", "_").Replace(jid.String())
-	tmpPath := filepath.Join(avatarDir, safeID+".tmp")
+	// One temp name per attempt. Two refreshes of the same person overlap all
+	// the time (a message and a chat-row fetch race each other), and a shared
+	// name means one of them renames the other's half-written file into a
+	// content addressed path that claims the bytes are whole.
+	tmp, err := os.CreateTemp(avatarDir, safeID+".*.tmp")
+	if err != nil {
+		return "", "", err
+	}
+	tmpPath := tmp.Name()
+	_ = tmp.Close()
 	ext, err := downloadAvatarFile(ctx, info.URL, tmpPath)
 	if err != nil {
 		_ = os.Remove(tmpPath)

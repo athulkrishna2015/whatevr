@@ -26,7 +26,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 # The cache entries this script owns. A change in any of them needs a configure;
 # anything else a caller wants to set, it sets by running cmake itself.
-OWNED = ("CMAKE_BUILD_TYPE", "WHATEVR_VERSION", "WHATEVR_VERSION_FULL")
+OWNED = ("CMAKE_BUILD_TYPE", "WHATEVR_VERSION", "WHATEVR_VERSION_FULL",
+         "WHATEVR_BUILD_TESTS")
 
 
 def cached(build: Path) -> dict[str, str]:
@@ -58,17 +59,24 @@ def main() -> int:
     parser.add_argument("--build-type", required=True)
     parser.add_argument("--version", required=True, help="numeric x.y.z")
     parser.add_argument("--version-full", required=True)
+    parser.add_argument("--tests", action="store_true",
+                        help="build the unit tests (needs Qt6::Test)")
     parser.add_argument("--force", action="store_true",
                         help="configure even when nothing changed")
     args = parser.parse_args()
 
     build = Path(args.build)
+    have = cached(build)
     want = {
         "CMAKE_BUILD_TYPE": args.build_type,
         "WHATEVR_VERSION": args.version,
         "WHATEVR_VERSION_FULL": args.version_full,
+        # --tests turns the unit tests on and they stay on: a plain `just build`
+        # against the same tree keeps whatever is there, so the two do not take
+        # turns reconfiguring and rebuilding each other.
+        "WHATEVR_BUILD_TESTS": "ON" if args.tests else have.get("WHATEVR_BUILD_TESTS", "OFF"),
     }
-    if not args.force and build.joinpath("CMakeCache.txt").exists() and cached(build) == want:
+    if not args.force and build.joinpath("CMakeCache.txt").exists() and have == want:
         return 0
 
     before = {path: (digest(path), path.stat().st_mtime_ns) for path in generated_qrcs(build)}
@@ -77,7 +85,8 @@ def main() -> int:
         ["cmake", "-S", str(ROOT / "whatkevr"), "-B", str(build), "-G", "Ninja",
          f"-DCMAKE_BUILD_TYPE={args.build_type}",
          f"-DWHATEVR_VERSION={args.version}",
-         f"-DWHATEVR_VERSION_FULL={args.version_full}"],
+         f"-DWHATEVR_VERSION_FULL={args.version_full}",
+         f"-DWHATEVR_BUILD_TESTS={want['WHATEVR_BUILD_TESTS']}"],
         cwd=ROOT,
         check=False,
     )

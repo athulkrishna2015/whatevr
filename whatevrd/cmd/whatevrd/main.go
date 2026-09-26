@@ -26,6 +26,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Mock mode repoints the XDG directories at a scratch tree, so it has to
+	// settle before anything resolves a path. In a release build this parses
+	// no flags and returns nil.
+	mock := mockPrepare()
+
 	paths, err := app.ResolvePaths()
 	if err != nil {
 		log.Fatalf("resolve paths: %v", err)
@@ -76,6 +81,15 @@ func main() {
 	defer db.Close()
 
 	daemon := app.NewDaemon(paths)
+
+	// The fake WhatsApp server has to bind before wa.New, because whatsmeow
+	// snapshots http.DefaultTransport when it constructs its client.
+	stopMock, err := mockStart(ctx, mock, daemon)
+	if err != nil {
+		log.Fatalf("start mock server: %v", err)
+	}
+	defer stopMock()
+
 	// The whatevr protocol server (PROTOCOL.md) is the daemon's only frontend
 	// interface.
 	protocolServer, err := protocol.New(paths.SocketPath, activatedListener, daemon)
@@ -85,9 +99,18 @@ func main() {
 
 	// The protocol server routes daemon→frontend pushes (open_chat on a
 	// notification click) as connection-directed events.
-	notificationWorker, err := notify.NewWorker(protocolServer)
-	if err != nil {
+	var notificationWorker *notify.Worker
+	if mockSilencesNotifications(mock) {
+		log.Print("notifications disabled: mock mode")
+	} else if notificationWorker, err = notify.NewWorker(protocolServer); err != nil {
 		log.Printf("notifications disabled: %v", err)
+	}
+	// Built separately rather than passed straight in: a nil *notify.Worker
+	// inside an interface is not a nil interface, and wa.Client checks for a
+	// nil interface before it notifies.
+	var notifier wa.MessageNotifier
+	if notificationWorker != nil {
+		notifier = notificationWorker
 	}
 	if notificationWorker != nil {
 		notificationWorker.Start(ctx)
@@ -97,7 +120,7 @@ func main() {
 	// Best-effort — a missing session bus or watcher only logs.
 	go tray.Start(ctx, daemon, db, protocolServer)
 
-	waClient, err := wa.New(ctx, paths, daemon, db, notificationWorker)
+	waClient, err := wa.New(ctx, paths, daemon, db, notifier)
 	if err != nil {
 		log.Fatalf("initialize WhatsApp client: %v", err)
 	}
