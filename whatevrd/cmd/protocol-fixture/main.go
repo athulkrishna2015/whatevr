@@ -222,6 +222,7 @@ func (fixtureCommands) ReactToChannelMessage(context.Context, string, int64, str
 func (fixtureCommands) SetPrivacySetting(context.Context, string, string, bool) (app.PrivacySettings, error) {
 	return app.PrivacySettings{}, nil
 }
+func (fixtureCommands) SetDefaultDisappearingTimer(context.Context, time.Duration) error { return nil }
 func (fixtureCommands) UpdateAppPreferences(_ context.Context, apply func(*app.AppPreferences)) (app.AppPreferences, error) {
 	prefs := app.DefaultAppPreferences()
 	apply(&prefs)

@@ -391,6 +391,7 @@ Item {
                                                && (!isLottieSticker || mediaLocalPath.endsWith(".json"))
     readonly property bool mediaSourceActive: !pooled
     readonly property bool animationActive: mediaSourceActive && activeInViewport
+                                             && !Whatevr.Settings.reduceMotion
     readonly property real imageSourceScale: Math.max(1, Screen.devicePixelRatio)
 
     // ---- Visibility-based media auto-download ----

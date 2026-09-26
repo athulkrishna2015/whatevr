@@ -289,6 +289,14 @@ func (c *Client) handleArchiveEvent(ctx context.Context, evt *events.Archive) {
 	if evt == nil || evt.JID.IsEmpty() || evt.Action == nil {
 		return
 	}
+	// "Keep chats archived" holds this device on archived chats: an unarchive
+	// arriving from WhatsApp (the phone letting a new message surface an
+	// archived chat, say) is dropped instead of mirrored. Archives still apply,
+	// and a chat unarchived from this app is already written locally before its
+	// own patch comes back around.
+	if !evt.Action.GetArchived() && c.appPreferences().KeepChatsArchived {
+		return
+	}
 
 	chatJID, resolved := c.resolveAppStateChatJID(ctx, evt.JID)
 	if !resolved {

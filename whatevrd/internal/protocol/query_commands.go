@@ -104,10 +104,11 @@ func (h commandHandlers) searchStickers(_ *conn, req request) (any, *Error) {
 	if query == "" {
 		return nil, errorf(CodeInvalidParams, "query is required")
 	}
-	if p.Limit == nil || *p.Limit <= 0 {
-		return nil, errorf(CodeInvalidParams, "limit must be positive")
+	limit, err := normalizeQueryLimit(p.Limit)
+	if err != nil {
+		return nil, err
 	}
-	stickers, qerr := h.actions.SearchStickers(context.Background(), query, *p.Limit)
+	stickers, qerr := h.actions.SearchStickers(context.Background(), query, limit)
 	if perr := mapCommandError(qerr); perr != nil {
 		return nil, perr
 	}

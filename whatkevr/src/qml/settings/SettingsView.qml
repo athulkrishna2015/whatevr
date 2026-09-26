@@ -22,8 +22,7 @@ QtObject {
     // Open the settings window, optionally preselecting a category moduleId.
     function open(defaultModule = "") {
         if (root.configViewItem) {
-            if (typeof root.configViewItem.requestActivate === "function")
-                Qt.callLater(root.configViewItem.requestActivate)
+            root.openAt(defaultModule, "")
             return
         }
 
@@ -122,6 +121,10 @@ QtObject {
           description: "",
           keywords: ["font", "text", "size", "exact", "point", "pixel", "zoom"] },
 
+        { moduleId: "chats", category: Whatevr.I18n.i18nc("@title settings category", "Chats"),
+          rowId: "chats.keepArchived", label: Whatevr.I18n.i18nc("@label", "Keep chats archived"),
+          description: Whatevr.I18n.i18nc("@info", "Archived chats stay archived here when a new message arrives."),
+          keywords: ["archive", "archived", "unarchive", "chat list", "message"] },
         { moduleId: "chats", category: Whatevr.I18n.i18nc("@title settings category", "Chats"),
           rowId: "chats.enterToSend", label: Whatevr.I18n.i18nc("@label", "Press Enter to send"),
           description: Whatevr.I18n.i18nc("@info", "Enter sends the message; Shift+Enter inserts a new line."),
@@ -253,6 +256,14 @@ QtObject {
           description: "",
           keywords: ["privacy", "calls", "call"] },
         { moduleId: "privacy", category: Whatevr.I18n.i18nc("@title settings category", "Privacy"),
+          rowId: "privacy.status", label: Whatevr.I18n.i18nc("@label", "Status updates"),
+          description: Whatevr.I18n.i18nc("@info", "Who can see the status updates you post."),
+          keywords: ["privacy", "status", "story", "stories", "updates", "audience"] },
+        { moduleId: "privacy", category: Whatevr.I18n.i18nc("@title settings category", "Privacy"),
+          rowId: "privacy.defaultTimer", label: Whatevr.I18n.i18nc("@label", "Default message timer"),
+          description: Whatevr.I18n.i18nc("@info", "Chats you start from now disappear after this long."),
+          keywords: ["privacy", "disappearing", "timer", "ephemeral", "message", "default", "24 hours", "7 days", "90 days"] },
+        { moduleId: "privacy", category: Whatevr.I18n.i18nc("@title settings category", "Privacy"),
           rowId: "privacy.blocked", label: Whatevr.I18n.i18nc("@label", "Blocked contacts"),
           description: Whatevr.I18n.i18nc("@info", "Manage the contacts you have blocked."),
           keywords: ["privacy", "blocked", "block", "unblock", "contacts"] },
@@ -286,6 +297,15 @@ QtObject {
           rowId: "window.rememberColumnWidth", label: Whatevr.I18n.i18nc("@label", "Remember chat list width"),
           description: Whatevr.I18n.i18nc("@info", "Restore the width you set for the chat list column."),
           keywords: ["column", "width", "chat list", "sidebar", "remember"] },
+
+        { moduleId: "accessibility", category: Whatevr.I18n.i18nc("@title settings category", "Accessibility"),
+          rowId: "accessibility.increaseContrast", label: Whatevr.I18n.i18nc("@label", "Increase contrast"),
+          description: Whatevr.I18n.i18nc("@info", "Use full-strength text for secondary and disabled labels instead of faded ones."),
+          keywords: ["accessibility", "contrast", "readable", "readability", "vision", "low vision", "text"] },
+        { moduleId: "accessibility", category: Whatevr.I18n.i18nc("@title settings category", "Accessibility"),
+          rowId: "accessibility.reduceMotion", label: Whatevr.I18n.i18nc("@label", "Reduce motion"),
+          description: Whatevr.I18n.i18nc("@info", "Prefer still content over animated movement."),
+          keywords: ["accessibility", "motion", "animation", "animate", "movement", "vestibular", "dizzy"] },
 
         { moduleId: "storage", category: Whatevr.I18n.i18nc("@title settings category", "Storage & Cache"),
           rowId: "storage.cacheSize", label: Whatevr.I18n.i18nc("@label", "Cache size"),
@@ -383,6 +403,12 @@ QtObject {
             text: Whatevr.I18n.i18nc("@title settings category", "Window & Layout")
             icon.name: "preferences-system-windows-symbolic"
             page: () => Qt.createComponent("Whatevr", "WindowLayoutPage")
+        },
+        KirigamiSettings.ConfigurationModule {
+            moduleId: "accessibility"
+            text: Whatevr.I18n.i18nc("@title settings category", "Accessibility")
+            icon.name: "preferences-desktop-accessibility-symbolic"
+            page: () => Qt.createComponent("Whatevr", "AccessibilityPage")
         },
         KirigamiSettings.ConfigurationModule {
             moduleId: "storage"

@@ -20,7 +20,7 @@ Kirigami.Page {
     padding: 0
     title: stack.currentIndex === 0
         ? (Whatevr.ProtocolController.hasSelectedChat ? Whatevr.ProtocolController.selectedChatName : "")
-        : (stack.currentItem && stack.currentItem.item ? (stack.currentItem.item.title || "") : "")
+        : (stack.children[stack.currentIndex]?.item?.title ?? "")
     readonly property bool detailPageOpen: workspaceIndex === 4 || workspaceIndex === 5
 
     Kirigami.Action {

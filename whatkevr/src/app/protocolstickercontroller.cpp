@@ -26,6 +26,7 @@ using whatevr::proto::Subscription;
 namespace
 {
 constexpr int kStickerLimit = 200;
+constexpr int kStickerSearchLimit = 100;
 constexpr int kSearchDebounceMs = 180;
 constexpr int kMaxInFlightDownloads = 6;
 
@@ -575,7 +576,7 @@ void ProtocolStickerController::runSearch()
     const QString query = m_pendingSearchQuery;
     const QPointer<ProtocolStickerController> self(this);
     m_client->request(QStringLiteral("search.stickers"),
-                      {{QStringLiteral("query"), query}, {QStringLiteral("limit"), kStickerLimit}},
+                      {{QStringLiteral("query"), query}, {QStringLiteral("limit"), kStickerSearchLimit}},
                       [self, generation](const QJsonObject &result, const ProtocolError &error) {
                           if (!self || generation != self->m_searchGeneration || self->m_source != Source::Search) {
                               return;

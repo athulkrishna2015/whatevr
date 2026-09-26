@@ -102,15 +102,20 @@ func (s *logsSession) tail() {
 // the caller's page size and the view's limit both describe the same bound,
 // and the ring caps the real size anyway.
 func (s *logsSession) Items(int) []Item {
+	items, _ := s.ItemsErr(0)
+	return items
+}
+
+func (s *logsSession) ItemsErr(_ int) ([]Item, error) {
 	lines, err := s.tailer.RecentLogs(context.Background(), s.limit)
 	if err != nil {
 		log.Printf("protocol: daemon_logs view: %v", err)
-		lines = nil
+		return nil, err
 	}
 	if len(lines) > s.limit {
 		lines = lines[len(lines)-s.limit:]
 	}
-	return s.assign(lines)
+	return s.assign(lines), nil
 }
 
 // assign maps the refresh's lines to stable (id, sort) pairs, retiring keys

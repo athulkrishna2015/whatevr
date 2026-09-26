@@ -29,10 +29,11 @@ type MediaBatchError struct {
 
 // CommunityGroup is one sub-group linked under a community: its JID plus the
 // best-effort display name. Shared between wa and protocol for the same
-// import-cycle reason as MediaSendOptions.
+// import-cycle reason as MediaSendOptions; the tags are the shape it takes on
+// the wire as `group.linked_groups`.
 type CommunityGroup struct {
-	ID   string
-	Name string
+	ID   string `json:"id"`
+	Name string `json:"name,omitempty"`
 }
 
 // StatusViewer is one recorded view of our status, with a resolved display

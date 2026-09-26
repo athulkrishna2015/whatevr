@@ -18,6 +18,7 @@ SettingsPage {
         stickersSwitch.checked = Qt.binding(() => Whatevr.ProtocolController.appPreferences.auto_download_stickers ?? false)
         antiDeleteSwitch.checked = Qt.binding(() => Whatevr.ProtocolController.appPreferences.anti_delete ?? true)
         typingSwitch.checked = Qt.binding(() => Whatevr.ProtocolController.appPreferences.send_typing_indicators ?? true)
+        keepArchivedSwitch.checked = Qt.binding(() => Whatevr.ProtocolController.appPreferences.keep_chats_archived ?? false)
     }
 
     Connections {
@@ -86,6 +87,21 @@ SettingsPage {
             description: Whatevr.I18n.i18nc("@info", "Let others see when you are typing. Turning it off only omits the announcement.")
             checked: Whatevr.ProtocolController.appPreferences.send_typing_indicators ?? true
             onToggled: Whatevr.ProtocolController.setAppPreference("send_typing_indicators", checked)
+        }
+    }
+
+    FormCard.FormHeader {
+        title: Whatevr.I18n.i18nc("@title:group", "Archived chats")
+    }
+
+    FormCard.FormCard {
+        FormCard.FormSwitchDelegate {
+            id: keepArchivedSwitch
+            objectName: "chats.keepArchived"
+            text: Whatevr.I18n.i18nc("@option:check", "Keep chats archived")
+            description: Whatevr.I18n.i18nc("@info", "Archived chats stay archived here when a new message arrives. This app only — your phone keeps its own setting.")
+            checked: Whatevr.ProtocolController.appPreferences.keep_chats_archived ?? false
+            onToggled: Whatevr.ProtocolController.setAppPreference("keep_chats_archived", checked)
         }
     }
 

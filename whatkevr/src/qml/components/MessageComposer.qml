@@ -12,6 +12,10 @@ Frame {
     id: root
 
     property bool enabledForChat: false
+    // The chat is open but closed to us (announce mode and we are not an
+    // admin): the inputs are already off through enabledForChat, this only
+    // says why instead of letting the composer look merely unselected.
+    property bool announceLocked: false
     property bool sending: false
     property string errorText: ""
     property real composerOverlayX: 0
@@ -576,6 +580,15 @@ Frame {
             text: root.errorText
         }
 
+        Kirigami.InlineMessage {
+            Layout.fillWidth: true
+            visible: root.announceLocked
+            type: Kirigami.MessageType.Information
+            showCloseButton: false
+            text: Whatevr.I18n.i18nc("@info announce-only group the viewer cannot post in",
+                                     "Only admins can send messages in this group")
+        }
+
         ReplyPreview {
             Layout.fillWidth: true
             visible: root.replying
@@ -819,9 +832,12 @@ Frame {
                     id: input
 
                     enabled: root.enabledForChat && !root.sending
-                    placeholderText: root.enabledForChat
-                                     ? Whatevr.I18n.i18nc("@info:placeholder", "Message")
-                                     : Whatevr.I18n.i18nc("@info:placeholder", "Select a chat to message")
+                    placeholderText: root.announceLocked
+                                     ? Whatevr.I18n.i18nc("@info:placeholder announce-only group",
+                                                          "Only admins can send messages")
+                                     : root.enabledForChat
+                                       ? Whatevr.I18n.i18nc("@info:placeholder", "Message")
+                                       : Whatevr.I18n.i18nc("@info:placeholder", "Select a chat to message")
                     textFormat: TextEdit.PlainText
                     wrapMode: TextArea.Wrap
                     background: null

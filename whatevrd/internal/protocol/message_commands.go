@@ -154,7 +154,7 @@ type sendMediaParams struct {
 	Quality string `json:"quality"`
 }
 
-func (h commandHandlers) sendMedia(_ *conn, req request) (any, *Error) {
+func (h commandHandlers) sendMedia(ctx context.Context, _ *conn, req request) (any, *Error) {
 	if err := h.requireActions(); err != nil {
 		return nil, err
 	}
@@ -174,7 +174,7 @@ func (h commandHandlers) sendMedia(_ *conn, req request) (any, *Error) {
 	if utf8.RuneCountInString(p.Caption) > maxCommandCaptionRunes {
 		return nil, errorf(CodeInvalidParams, "caption must be <= %d characters", maxCommandCaptionRunes)
 	}
-	saved, err := h.actions.SendMediaWithOptions(context.Background(), strings.TrimSpace(p.ChatID), path, p.Caption, strings.TrimSpace(p.ReplyTo), trimStringSlice(p.Mentions), mediaSendOptions(p))
+	saved, err := h.actions.SendMediaWithOptions(ctx, strings.TrimSpace(p.ChatID), path, p.Caption, strings.TrimSpace(p.ReplyTo), trimStringSlice(p.Mentions), mediaSendOptions(p))
 	if perr := mapCommandError(err); perr != nil {
 		return nil, perr
 	}
@@ -197,7 +197,7 @@ type sendMediaBatchParams struct {
 // send, so looping send.media client-side drops every file after the first.
 // Per-file failures come back as {index, error} entries without stopping the
 // rest.
-func (h commandHandlers) sendMediaBatch(_ *conn, req request) (any, *Error) {
+func (h commandHandlers) sendMediaBatch(ctx context.Context, _ *conn, req request) (any, *Error) {
 	if err := h.requireActions(); err != nil {
 		return nil, err
 	}
@@ -226,7 +226,7 @@ func (h commandHandlers) sendMediaBatch(_ *conn, req request) (any, *Error) {
 		Kind:     strings.TrimSpace(p.Kind),
 		ViewOnce: p.ViewOnce,
 	}
-	saved, failed := h.actions.SendMediaBatch(context.Background(), strings.TrimSpace(p.ChatID), files, strings.TrimSpace(p.ReplyTo), opts)
+	saved, failed := h.actions.SendMediaBatch(ctx, strings.TrimSpace(p.ChatID), files, strings.TrimSpace(p.ReplyTo), opts)
 	ids := make([]string, 0, len(saved))
 	for _, s := range saved {
 		ids = append(ids, s.Message.ID)

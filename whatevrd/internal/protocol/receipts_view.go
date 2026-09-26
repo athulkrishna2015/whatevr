@@ -138,15 +138,23 @@ func (s *receiptsSession) relevant(evt app.DaemonEvent) bool {
 }
 
 // Items re-derives the current receipt breakdown. The view is unwindowed, so max
-// is ignored; a deleted (or otherwise unreadable) message yields no items, so
-// the engine emits removes and the dialog empties.
+// is ignored; a deleted message yields no items, so the engine emits removes and
+// the dialog empties.
 func (s *receiptsSession) Items(_ int) []Item {
+	items, _ := s.ItemsErr(0)
+	return items
+}
+
+func (s *receiptsSession) ItemsErr(_ int) ([]Item, error) {
 	info, err := s.actions.GetMessageInfo(s.ctx, s.messageID)
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			log.Printf("protocol: receipts re-derive %s: %v", s.messageID, err)
+		// The message is gone: an empty dialog is the truth. A transient
+		// read failure is not, and must not remove the rows already shown.
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
 		}
-		return nil
+		log.Printf("protocol: receipts re-derive %s: %v", s.messageID, err)
+		return nil, err
 	}
 
 	if info.IsGroup {
@@ -165,13 +173,13 @@ func (s *receiptsSession) Items(_ int) []Item {
 				},
 			})
 		}
-		return items
+		return items, nil
 	}
 
 	// Direct chat: the sole recipient, represented by the aggregate
 	// delivered/read. Nothing to show until delivery begins.
 	if info.DeliveredTsUnix == 0 && info.ReadTsUnix == 0 {
-		return nil
+		return nil, nil
 	}
 	return []Item{{
 		ID:   directReceiptID,
@@ -181,7 +189,7 @@ func (s *receiptsSession) Items(_ int) []Item {
 			DeliveredTsUnix: info.DeliveredTsUnix,
 			ReadTsUnix:      info.ReadTsUnix,
 		},
-	}}
+	}}, nil
 }
 
 func (s *receiptsSession) Close() {

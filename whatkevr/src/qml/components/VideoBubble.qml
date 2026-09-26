@@ -153,6 +153,7 @@ Item {
     /// A GIF runs on its own; nothing else does. Videos and video notes carry
     /// sound and wait to be asked.
     readonly property bool autoWants: isGif && Whatevr.Settings.autoplayInlineMedia
+                                      && !Whatevr.Settings.reduceMotion
 
     /// Playback of every kind stops when the bubble leaves the viewport, not
     /// just autoplay: a clip the user started used to keep its decoder and keep

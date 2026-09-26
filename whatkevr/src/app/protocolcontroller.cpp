@@ -70,6 +70,8 @@ constexpr int kChatPageSize = 24;
 // Starred rows are a windowed view like any other collection; the page extends
 // as it scrolls instead of asking the daemon for every star at once.
 constexpr int kStarredPageSize = 50;
+// Recent calls are windowed the same way; the page extends as it scrolls.
+constexpr int kCallHistoryPageSize = 50;
 // A gallery page is a grid, so it shows more per screen than the starred list.
 constexpr int kChatMediaPageSize = 60;
 // The status feed is windowed like any other collection; statuses expire after
@@ -393,6 +395,17 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
     connect(m_forwardTargetsModel, &CollectionViewModel::dataChanged, this, bumpForwardTargets);
     connect(m_forwardTargetsModel, &CollectionViewModel::modelReset, this, bumpForwardTargets);
 
+    // Group-member picker: the same shape over the daemon's direct chats (the
+    // synced contact list) rather than every chat.
+    m_contactTargetsModel = new CollectionViewModel(this);
+    const auto bumpContactTargets = [this] {
+        ++m_contactTargetsRevision;
+        Q_EMIT contactTargetsChanged();
+    };
+    connect(m_contactTargetsModel, &CollectionViewModel::countChanged, this, bumpContactTargets);
+    connect(m_contactTargetsModel, &CollectionViewModel::dataChanged, this, bumpContactTargets);
+    connect(m_contactTargetsModel, &CollectionViewModel::modelReset, this, bumpContactTargets);
+
     // Starred page (D5): a windowed `starred` collection the page binds
     // directly; loading/exhausted drive its spinner and scroll-extend.
      m_starredModel = new CollectionViewModel(this);
@@ -435,6 +448,12 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
     connect(m_callsModel, &CollectionViewModel::countChanged, this, &ProtocolController::callsChanged);
     connect(m_callsModel, &CollectionViewModel::readyChanged, this, &ProtocolController::callsChanged);
     connect(m_callsModel, &CollectionViewModel::modelReset, this, &ProtocolController::callsChanged);
+
+    // The recent section under the ringing one: same lifetime, same tab.
+    m_callHistoryModel = new CollectionViewModel(this);
+    connect(m_callHistoryModel, &CollectionViewModel::countChanged, this, &ProtocolController::callHistoryChanged);
+    connect(m_callHistoryModel, &CollectionViewModel::readyChanged, this, &ProtocolController::callHistoryChanged);
+    connect(m_callHistoryModel, &CollectionViewModel::modelReset, this, &ProtocolController::callHistoryChanged);
 
     m_channelsModel = new CollectionViewModel(this);
     connect(m_channelsModel, &CollectionViewModel::countChanged, this, &ProtocolController::channelsChanged);
@@ -592,6 +611,7 @@ ProtocolController::~ProtocolController()
     delete m_pinnedSub;
     delete m_liveLocationsSub;
     delete m_forwardTargetsSub;
+    delete m_contactTargetsSub;
     delete m_transfersSub;
     delete m_chatMediaSub;
     delete m_chatLinksSub;
@@ -639,6 +659,7 @@ ProtocolController::~ProtocolController()
     m_liveLocationsSub = nullptr;
     m_liveLocationsChatId.clear();
     m_forwardTargetsSub = nullptr;
+    m_contactTargetsSub = nullptr;
     m_transfersSub = nullptr;
     if (m_client) {
         m_client->stop();
@@ -1331,6 +1352,7 @@ void ProtocolController::detachVisibleMessageWindow()
     m_messagesModel = m_idleMessagesModel;
     m_messagePresentationModel = m_idleMessagePresentation;
     m_messagesSub = nullptr;
+    Q_EMIT warmWindowsChanged();
 }
 
 void ProtocolController::subscribeMessages(const QString &anchor, const QString &jumpMessageId)
@@ -2412,6 +2434,29 @@ void ProtocolController::sendMessageCommand(const QString &method, const QJsonOb
     });
 }
 
+void ProtocolController::sendGroupCardCommand(const QString &chatId, const QString &method,
+                                              const QJsonObject &params, const QString &failureText)
+{
+    // The stale error clears before the command goes out: a retry must not
+    // leave the previous failure sitting on the card it just fixed.
+    if (m_infoCardSubject == chatId && !m_infoCardError.isEmpty()) {
+        m_infoCardError.clear();
+        Q_EMIT infoCardChanged();
+    }
+    m_client->request(method, params, [this, chatId, failureText](const QJsonObject &, const ProtocolError &error) {
+        if (!error.isError()) {
+            return;
+        }
+        const QString message = error.message.isEmpty() ? failureText : error.message;
+        if (m_infoCardSubject == chatId) {
+            m_infoCardError = message;
+            Q_EMIT infoCardChanged();
+            return;
+        }
+        Q_EMIT messageActionFailed(message);
+    });
+}
+
 void ProtocolController::sendReaction(const QString &messageId, const QString &emoji)
 {
     if (messageId.isEmpty()) {
@@ -3102,6 +3147,45 @@ QVariantList ProtocolController::forwardChatTargets(const QString &query) const
     return rows;
 }
 
+// --- group-member picker -----------------------------------------------------
+
+void ProtocolController::openContactTargets()
+{
+    if (m_contactTargetsSub) {
+        return;
+    }
+    // Direct chats only: the picker offers the synced contact list, not groups.
+    m_contactTargetsSub = m_client->subscribe(
+        QStringLiteral("chats"),
+        {{QStringLiteral("filter"), QStringLiteral("direct")}, {QStringLiteral("archived"), false}},
+        m_contactTargetsModel);
+}
+
+void ProtocolController::closeContactTargets()
+{
+    delete m_contactTargetsSub;
+    m_contactTargetsSub = nullptr;
+    m_contactTargetsModel->onReset();
+}
+
+QVariantList ProtocolController::contactTargets(const QString &query) const
+{
+    const QString needle = query.trimmed();
+    QVariantList rows;
+    rows.reserve(m_contactTargetsModel->count());
+    for (int row = 0; row < m_contactTargetsModel->count(); ++row) {
+        const QVariantMap item = m_contactTargetsModel
+                                     ->data(m_contactTargetsModel->index(row, 0), CollectionViewModel::ItemRole)
+                                     .toMap();
+        if (!needle.isEmpty()
+            && !item.value(QStringLiteral("name")).toString().contains(needle, Qt::CaseInsensitive)) {
+            continue;
+        }
+        rows.append(item);
+    }
+    return rows;
+}
+
 // --- unified search (D5) ----------------------------------------------------
 
 QAbstractItemModel *ProtocolController::searchResultsModel() const
@@ -3708,6 +3792,54 @@ void ProtocolController::closeCalls()
     Q_EMIT callsChanged();
 }
 
+QAbstractItemModel *ProtocolController::callHistoryModel() const
+{
+    return m_callHistoryModel;
+}
+
+bool ProtocolController::callHistoryLoading() const
+{
+    return m_callHistorySub != nullptr && !m_callHistoryModel->isReady();
+}
+
+bool ProtocolController::callHistoryExhausted() const
+{
+    return m_callHistorySub == nullptr || m_callHistoryModel->isExhausted();
+}
+
+void ProtocolController::openCallHistory()
+{
+    delete m_callHistorySub;
+    m_callHistorySub = nullptr;
+    m_callHistoryModel->onReset();
+
+    m_callHistorySub = m_client->subscribe(QStringLiteral("call_history"),
+                                           QJsonObject{{QStringLiteral("limit"), kCallHistoryPageSize}},
+                                           m_callHistoryModel);
+    Q_EMIT callHistoryChanged();
+}
+
+void ProtocolController::closeCallHistory()
+{
+    if (!m_callHistorySub) {
+        return;
+    }
+    delete m_callHistorySub;
+    m_callHistorySub = nullptr;
+    m_callHistoryModel->onReset();
+    Q_EMIT callHistoryChanged();
+}
+
+void ProtocolController::loadMoreCallHistory()
+{
+    // A live-edge window only ever grows away from the edge (PROTOCOL.md
+    // "Windows"), so the page's scroll-extend is always `older`.
+    if (!m_callHistorySub || m_callHistoryModel->isExhausted() || !m_callHistoryModel->isReady()) {
+        return;
+    }
+    m_callHistorySub->extend(kCallHistoryPageSize, QStringLiteral("older"));
+}
+
 void ProtocolController::openLogs()
 {
     if (m_logsSub) {
@@ -3946,6 +4078,126 @@ void ProtocolController::copyGroupInviteLink(const QString &chatId)
                           }
                           copyToClipboard(result.value(QStringLiteral("link")).toString());
                       });
+}
+
+void ProtocolController::createGroup(const QString &name, const QStringList &members)
+{
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty()) {
+        return;
+    }
+    m_client->request(QStringLiteral("group.create"),
+                      {{QStringLiteral("name"), trimmed},
+                       {QStringLiteral("members"), QJsonArray::fromStringList(members)},
+                       {QStringLiteral("photo_path"), QString()}},
+                      [this](const QJsonObject &result, const ProtocolError &error) {
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(error.message.isEmpty()
+                                                             ? i18nc("@info", "Unable to create the group")
+                                                             : error.message);
+                              return;
+                          }
+                          const QString chatId = result.value(QStringLiteral("chat_id")).toString();
+                          if (chatId.isEmpty()) {
+                              Q_EMIT messageActionFailed(i18nc("@info", "Unable to create the group"));
+                              return;
+                          }
+                          // Same landing as joining: the row arrives through the
+                          // `chats` view, this selects it and drives navigation.
+                          clearSearch();
+                          selectChat(chatId);
+                          Q_EMIT openChatRequested(chatId);
+                      });
+}
+
+void ProtocolController::setGroupName(const QString &chatId, const QString &name)
+{
+    const QString trimmed = name.trimmed();
+    if (chatId.isEmpty() || trimmed.isEmpty()) {
+        return;
+    }
+    sendGroupCardCommand(chatId, QStringLiteral("group.set_name"),
+                         {{QStringLiteral("chat_id"), chatId}, {QStringLiteral("name"), trimmed}},
+                         i18nc("@info", "Unable to rename the group"));
+}
+
+void ProtocolController::setGroupDescription(const QString &chatId, const QString &description)
+{
+    if (chatId.isEmpty()) {
+        return;
+    }
+    sendGroupCardCommand(chatId, QStringLiteral("group.set_topic"),
+                         {{QStringLiteral("chat_id"), chatId}, {QStringLiteral("description"), description.trimmed()}},
+                         i18nc("@info", "Unable to update the group description"));
+}
+
+void ProtocolController::setGroupPhoto(const QString &chatId, const QUrl &path)
+{
+    if (chatId.isEmpty()) {
+        return;
+    }
+    // An empty path clears the photo; anything else is a local file to upload.
+    const QString localPath = path.isLocalFile() ? path.toLocalFile() : path.toString();
+    sendGroupCardCommand(chatId, QStringLiteral("group.set_photo"),
+                         {{QStringLiteral("chat_id"), chatId}, {QStringLiteral("path"), localPath}},
+                         i18nc("@info", "Unable to update the group photo"));
+}
+
+void ProtocolController::setGroupAnnounce(const QString &chatId, bool enabled)
+{
+    if (chatId.isEmpty()) {
+        return;
+    }
+    sendGroupCardCommand(chatId, QStringLiteral("group.set_announce"),
+                         {{QStringLiteral("chat_id"), chatId}, {QStringLiteral("enabled"), enabled}},
+                         i18nc("@info", "Unable to change who can send messages"));
+}
+
+void ProtocolController::setGroupLocked(const QString &chatId, bool enabled)
+{
+    if (chatId.isEmpty()) {
+        return;
+    }
+    sendGroupCardCommand(chatId, QStringLiteral("group.set_locked"),
+                         {{QStringLiteral("chat_id"), chatId}, {QStringLiteral("enabled"), enabled}},
+                         i18nc("@info", "Unable to change who can edit the group info"));
+}
+
+void ProtocolController::updateGroupMembers(const QString &chatId, const QString &action, const QStringList &members)
+{
+    if (chatId.isEmpty() || members.isEmpty()) {
+        return;
+    }
+    sendGroupCardCommand(chatId, QStringLiteral("group.members"),
+                         {{QStringLiteral("chat_id"), chatId},
+                          {QStringLiteral("action"), action},
+                          {QStringLiteral("members"), QJsonArray::fromStringList(members)}},
+                         i18nc("@info", "Unable to update the group members"));
+}
+
+void ProtocolController::linkCommunityGroup(const QString &communityId, const QString &groupId)
+{
+    if (communityId.isEmpty() || groupId.isEmpty()) {
+        return;
+    }
+    // Errors route to whichever card is open rather than to the community id:
+    // unlinking is offered from a sub-group's own card, where the community is
+    // not the subject.
+    sendGroupCardCommand(m_infoCardSubject, QStringLiteral("community.link"),
+                         {{QStringLiteral("community_id"), communityId},
+                          {QStringLiteral("group_id"), groupId}},
+                         i18nc("@info", "Unable to link the group to the community"));
+}
+
+void ProtocolController::unlinkCommunityGroup(const QString &communityId, const QString &groupId)
+{
+    if (communityId.isEmpty() || groupId.isEmpty()) {
+        return;
+    }
+    sendGroupCardCommand(m_infoCardSubject, QStringLiteral("community.unlink"),
+                         {{QStringLiteral("community_id"), communityId},
+                          {QStringLiteral("group_id"), groupId}},
+                         i18nc("@info", "Unable to unlink the group from the community"));
 }
 
 // --- per-chat media and links gallery --------------------------------------
@@ -4462,6 +4714,12 @@ void ProtocolController::setReadReceipts(bool enabled)
                         i18nc("@info", "Updating privacy settings failed"));
 }
 
+void ProtocolController::setDefaultDisappearingTimer(int seconds)
+{
+    sendSettingsCommand(QStringLiteral("privacy.set_default_timer"), {{QStringLiteral("seconds"), seconds}},
+                        i18nc("@info", "Updating the default message timer failed"));
+}
+
 void ProtocolController::setAppPreference(const QString &key, bool value)
 {
     static const QSet<QString> keys{
@@ -4469,7 +4727,8 @@ void ProtocolController::setAppPreference(const QString &key, bool value)
         QStringLiteral("notification_preview"), QStringLiteral("auto_download_photos"),
         QStringLiteral("auto_download_videos"), QStringLiteral("auto_download_audio"),
         QStringLiteral("auto_download_documents"), QStringLiteral("auto_download_stickers"),
-        QStringLiteral("anti_delete"), QStringLiteral("send_typing_indicators")};
+        QStringLiteral("anti_delete"), QStringLiteral("send_typing_indicators"),
+        QStringLiteral("keep_chats_archived")};
     if (!keys.contains(key)) {
         return;
     }

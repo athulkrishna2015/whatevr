@@ -9,12 +9,15 @@ import (
 
 // MarkChatRead is the notification action seam. Inline notification replies
 // reuse the normal send action; marking read falls back to opening the chat when
-// no message horizon is available in the notification payload.
+// no message horizon is available in the notification payload. The timeout keeps
+// the notification worker off an unbounded WhatsApp round trip.
 func (s *Server) MarkChatRead(chatID string) bool {
 	if s.commandActions == nil || strings.TrimSpace(chatID) == "" {
 		return false
 	}
-	_, err := s.commandActions.MarkChatRead(context.Background(), chatID)
+	ctx, cancel := context.WithTimeout(context.Background(), netCommandTimeout)
+	defer cancel()
+	_, err := s.commandActions.MarkChatRead(ctx, chatID)
 	return err == nil
 }
 
@@ -24,7 +27,9 @@ func (s *Server) ReplyToChat(chatID, text string) bool {
 	if s.commandActions == nil || strings.TrimSpace(chatID) == "" || strings.TrimSpace(text) == "" {
 		return false
 	}
-	_, err := s.commandActions.SendText(context.Background(), chatID, text, "", nil)
+	ctx, cancel := context.WithTimeout(context.Background(), netCommandTimeout)
+	defer cancel()
+	_, err := s.commandActions.SendText(ctx, chatID, text, "", nil)
 	return err == nil
 }
 

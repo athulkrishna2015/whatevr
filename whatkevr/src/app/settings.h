@@ -99,6 +99,10 @@ class Settings final : public QObject
     Q_PROPERTY(int chatListColumnWidth READ chatListColumnWidth WRITE setChatListColumnWidth NOTIFY chatListColumnWidthChanged FINAL)
     Q_PROPERTY(bool closeToTray READ closeToTray WRITE setCloseToTray NOTIFY closeToTrayChanged FINAL)
 
+    // --- Accessibility ---
+    Q_PROPERTY(bool increaseContrast READ increaseContrast WRITE setIncreaseContrast NOTIFY increaseContrastChanged FINAL)
+    Q_PROPERTY(bool reduceMotion READ reduceMotion WRITE setReduceMotion NOTIFY reduceMotionChanged FINAL)
+
     // --- Emoji ---
     // Default skin tone applied to tone-capable emoji; 0 == neutral, 1..5 == light..dark.
     Q_PROPERTY(int defaultSkinTone READ defaultSkinTone WRITE setDefaultSkinTone NOTIFY defaultSkinToneChanged FINAL)
@@ -188,8 +192,14 @@ public:
     [[nodiscard]] bool closeToTray() const;
     void setCloseToTray(bool enabled);
 
+    [[nodiscard]] bool increaseContrast() const;
+    void setIncreaseContrast(bool enabled);
+    [[nodiscard]] bool reduceMotion() const;
+    void setReduceMotion(bool enabled);
+
     [[nodiscard]] int defaultSkinTone() const;
     void setDefaultSkinTone(int tone);
+
     [[nodiscard]] bool appLockEnabled() const;
     [[nodiscard]] bool appLocked() const;
     Q_INVOKABLE bool setAppLockPin(const QString &pin);
@@ -256,6 +266,8 @@ Q_SIGNALS:
     void chatListColumnWidthChanged();
     void closeToTrayChanged();
     void defaultSkinToneChanged();
+    void increaseContrastChanged();
+    void reduceMotionChanged();
     void appLockChanged();
     // Emitted after the media cache is cleared so QML re-queries the size.
     void cacheChanged();
@@ -294,4 +306,6 @@ private:
     bool m_closeToTray = true;
     int m_defaultSkinTone = 0;
     bool m_appLocked = false;
+    bool m_increaseContrast = false;
+    bool m_reduceMotion = false;
 };

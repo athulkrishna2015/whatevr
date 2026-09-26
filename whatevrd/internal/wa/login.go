@@ -502,6 +502,13 @@ func (c *Client) resetInMemoryAccountState() {
 	c.sendTimings = make(map[string]*sendTiming)
 	c.sendTimingsMu.Unlock()
 
+	// A call ringing on the previous account must not survive into the next
+	// one: neither the `calls` view nor a reject should reach a session that
+	// is gone.
+	c.callsMu.Lock()
+	c.pendingCalls = nil
+	c.callsMu.Unlock()
+
 	c.pendingAppStateMu.Lock()
 	c.pendingAppState = nil
 	c.pendingAppStateMu.Unlock()

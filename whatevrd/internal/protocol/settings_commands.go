@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"time"
 
 	"whatevrd/internal/app"
 )
@@ -85,6 +86,7 @@ type preferencesSetParams struct {
 	AntiDelete            *bool  `json:"anti_delete"`
 	SendTypingIndicators  *bool  `json:"send_typing_indicators"`
 	AutoFetchMaps         *bool  `json:"auto_fetch_maps"`
+	KeepChatsArchived     *bool  `json:"keep_chats_archived"`
 }
 
 func (h commandHandlers) preferencesSet(_ *conn, req request) (any, *Error) {
@@ -140,6 +142,51 @@ func applyPreferencesPatch(prefs *app.AppPreferences, p preferencesSetParams) {
 	}
 	if p.AutoFetchMaps != nil {
 		prefs.AutoFetchMaps = *p.AutoFetchMaps
+	}
+	if p.KeepChatsArchived != nil {
+		prefs.KeepChatsArchived = *p.KeepChatsArchived
+	}
+}
+
+type defaultTimerParams struct {
+	// Seconds is a pointer so a missing value (invalid) is distinguishable
+	// from 0 (off), which is a legitimate request.
+	Seconds *int `json:"seconds"`
+}
+
+// privacySetDefaultTimer sets the account's default disappearing-message timer
+// for new chats. WhatsApp only offers the four durations below, so anything
+// else is rejected here rather than sent on to be refused by the server.
+func (h commandHandlers) privacySetDefaultTimer(ctx context.Context, _ *conn, req request) (any, *Error) {
+	if err := h.requireActions(); err != nil {
+		return nil, err
+	}
+	var p defaultTimerParams
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if p.Seconds == nil {
+		return nil, errorf(CodeInvalidParams, "seconds is required")
+	}
+	timer, ok := defaultTimerForSeconds(*p.Seconds)
+	if !ok {
+		return nil, errorf(CodeInvalidParams, "seconds must be 0, 86400, 604800 or 7776000")
+	}
+	return nil, mapCommandError(h.actions.SetDefaultDisappearingTimer(ctx, timer))
+}
+
+func defaultTimerForSeconds(seconds int) (time.Duration, bool) {
+	switch seconds {
+	case 0:
+		return 0, true
+	case 24 * 60 * 60:
+		return 24 * time.Hour, true
+	case 7 * 24 * 60 * 60:
+		return 7 * 24 * time.Hour, true
+	case 90 * 24 * 60 * 60:
+		return 90 * 24 * time.Hour, true
+	default:
+		return 0, false
 	}
 }
 

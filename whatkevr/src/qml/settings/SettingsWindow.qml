@@ -135,7 +135,7 @@ Kirigami.ApplicationWindow {
                         let module = getModuleByName(root.defaultModule);
                         if (module) {
                             root.pageStack.push(pageForModule(module));
-                            listview.currentIndex = root.modules.findIndex(module => module.moduleId == root.defaultModule);
+                            listview.currentIndex = root.visibleModuleIndex(root.defaultModule);
                         } else {
                             root.pageStack.push(pageForModule(root.modules[0]));
                             listview.currentIndex = 0;
@@ -205,7 +205,7 @@ Kirigami.ApplicationWindow {
                                 return;
                             }
 
-                            while (root.pageStack.length > 1) {
+                            while (root.pageStack.depth > 1) {
                                 root.pageStack.pop(null);
                             }
                             root.pageStack.replace(page);
@@ -244,7 +244,7 @@ Kirigami.ApplicationWindow {
         const page = pageForModule(module);
         const idx = visibleModuleIndex(moduleId);
 
-        while (pageStack.length > 1) {
+        while (pageStack.depth > 1) {
             pageStack.pop(null);
         }
         clearSearch();

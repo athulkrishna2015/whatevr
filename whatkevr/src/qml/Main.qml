@@ -129,6 +129,7 @@ Kirigami.ApplicationWindow {
                 placeholderText: Whatevr.I18n.i18nc("@info:placeholder app unlock PIN", "PIN")
                 onAccepted: unlockButton.clicked()
                 Component.onCompleted: if (appLockOverlay.visible) forceActiveFocus()
+                onVisibleChanged: if (visible) forceActiveFocus()
             }
             QQC2.Button {
                 id: unlockButton

@@ -307,7 +307,7 @@ func (c *Client) reconcileArchivedChatsFromEvents(ctx context.Context, eventsToD
 		archived[chatID] = struct{}{}
 	}
 
-	changed, err := c.store.ReconcileChatArchives(ctx, archived)
+	changed, err := c.store.ReconcileChatArchives(ctx, archived, c.appPreferences().KeepChatsArchived)
 	if err != nil {
 		return err
 	}

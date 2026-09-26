@@ -160,6 +160,7 @@ type CommandActions interface {
 	ReactToChannelMessage(context.Context, string, int64, string) error
 
 	SetPrivacySetting(context.Context, string, string, bool) (app.PrivacySettings, error)
+	SetDefaultDisappearingTimer(context.Context, time.Duration) error
 	UpdateAppPreferences(context.Context, func(*app.AppPreferences)) (app.AppPreferences, error)
 	SetProfileStatus(context.Context, string) error
 	UpdateBlocklist(context.Context, string, bool) ([]app.BlockedContact, error)
@@ -180,8 +181,9 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	// Local-only commands (store enqueue, session state, transient DB queries)
 	// stay synchronous on the dispatch loop; anything that performs a WhatsApp
 	// round trip is backgrounded via backgroundNet so it cannot stall the
-	// connection. Text/media sends only enqueue local work and stay synchronous;
-	// sticker send may first fetch a missing sticker file, so it is backgrounded.
+	// connection. Text sends only enqueue local work and stay synchronous;
+	// media and sticker sends first read and decode the whole file (a sticker
+	// send may also fetch a missing sticker file), so they are backgrounded.
 	s.RegisterCommand("session.update", cmd.sessionUpdate)
 	s.RegisterCommand("daemon.reconnect", cmd.daemonReconnect)
 	s.RegisterCommand("daemon.shutdown", cmd.daemonShutdown)
@@ -204,8 +206,8 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("schedule.text", cmd.scheduleText)
 	s.RegisterCommand("schedule.list", cmd.scheduleList)
 	s.RegisterCommand("schedule.cancel", cmd.scheduleCancel)
-	s.RegisterCommand("send.media", cmd.sendMedia)
-	s.RegisterCommand("send.media_batch", cmd.sendMediaBatch)
+	s.RegisterCommand("send.media", backgroundNet(cmd.sendMedia, false))
+	s.RegisterCommand("send.media_batch", backgroundNet(cmd.sendMediaBatch, false))
 	s.RegisterCommand("send.sticker", backgroundNet(cmd.sendSticker, false))
 	s.RegisterCommand("send.poll", backgroundNet(cmd.sendPoll, false))
 	s.RegisterCommand("send.contact", backgroundNet(cmd.sendContact, false))
@@ -263,6 +265,7 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("channel.react", backgroundNet(cmd.channelReact, false))
 	// Phase C3 settings/contact/sticker commands and transient queries.
 	s.RegisterCommand("privacy.set", backgroundNet(cmd.privacySet, false))
+	s.RegisterCommand("privacy.set_default_timer", backgroundNet(cmd.privacySetDefaultTimer, false))
 	s.RegisterCommand("preferences.set", cmd.preferencesSet)
 	s.RegisterCommand("self.set_about", backgroundNet(cmd.selfSetAbout, false))
 	s.RegisterCommand("contact.block", backgroundNet(cmd.contactBlock, false))

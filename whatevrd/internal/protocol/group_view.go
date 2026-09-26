@@ -23,9 +23,10 @@ type GroupActions interface {
 // --- group --------------------------------------------------------------
 
 // groupView is a group chat's card (subject, description, avatar, created,
-// owner, member_count, my_role, announce/locked) keyed by chat_id. It is an
-// object view: a single item, deliberately without the member array — the chat
-// header and card chrome need only this; the roster is the group_members view.
+// owner, member_count, my_role, announce/locked, community membership) keyed by
+// chat_id. It is an object view: a single item, deliberately without the member
+// array — the chat header and card chrome need only this; the roster is the
+// group_members view.
 type groupView struct {
 	daemon  *app.Daemon
 	actions GroupActions
@@ -46,6 +47,14 @@ type groupItem struct {
 	MyRole      string `json:"my_role,omitempty"`
 	Announce    bool   `json:"announce,omitempty"`
 	Locked      bool   `json:"locked,omitempty"`
+	// Community membership: `is_community` marks this chat as the community
+	// itself, `linked_parent_id` is the community this group sits under, and
+	// `linked_groups` is a community's sub-group directory. All three come
+	// from the live card fetch only (see app.GroupInfo), so they land with the
+	// rest of the enrichment rather than with the stored phase-one row.
+	IsCommunity    bool                 `json:"is_community,omitempty"`
+	LinkedParentID string               `json:"linked_parent_id,omitempty"`
+	LinkedGroups   []app.CommunityGroup `json:"linked_groups,omitempty"`
 }
 
 func (v groupView) Open(params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
@@ -172,16 +181,19 @@ func (s *groupSession) Items(max int) []Item {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	item := groupItem{
-		ID:          s.chatID,
-		Subject:     s.info.Subject,
-		Description: s.info.Description,
-		AvatarPath:  s.info.AvatarLocalPath,
-		CreatedUnix: s.info.CreatedUnix,
-		Owner:       s.info.OwnerJID,
-		MemberCount: len(s.info.Members),
-		MyRole:      s.info.MyRole,
-		Announce:    s.info.IsAnnounce,
-		Locked:      s.info.IsLocked,
+		ID:             s.chatID,
+		Subject:        s.info.Subject,
+		Description:    s.info.Description,
+		AvatarPath:     s.info.AvatarLocalPath,
+		CreatedUnix:    s.info.CreatedUnix,
+		Owner:          s.info.OwnerJID,
+		MemberCount:    len(s.info.Members),
+		MyRole:         s.info.MyRole,
+		Announce:       s.info.IsAnnounce,
+		Locked:         s.info.IsLocked,
+		IsCommunity:    s.info.IsCommunity,
+		LinkedGroups:   s.info.LinkedGroups,
+		LinkedParentID: s.info.LinkedParentJID,
 	}
 	return []Item{{ID: s.chatID, Sort: objectViewSort, Data: item}}
 }

@@ -66,14 +66,15 @@ func NewDaemon(paths Paths) *Daemon {
 
 // ResetAccountState drops the account-scoped snapshots the daemon replays to a
 // new subscriber. Without it the previous account's QR, typing indicators,
-// history-sync progress and in-flight downloads were handed to the next
-// account's first frontend.
+// history-sync progress, in-flight downloads and ringing calls were handed to
+// the next account's first frontend.
 func (d *Daemon) ResetAccountState() {
 	d.subMu.Lock()
 	d.latestQR = nil
 	d.latestHistorySync = nil
 	d.presenceByChatID = make(map[string]presenceState)
 	d.mediaDownloads = make(map[string]MediaDownloadEvent)
+	d.ringingCalls = nil
 	d.subMu.Unlock()
 }
 
@@ -533,6 +534,8 @@ func GroupRoleString(isAdmin, isSuperAdmin bool) string {
 // GroupInfo is the full card for a group chat. Owner/MyRole/IsAnnounce/IsLocked
 // come only from the live GetGroupInfo fetch (the stored-participant fallback
 // leaves them zero), so they populate in the second phase — see GetGroupInfo.
+// The community fields below are the same way: WhatsApp only reports them on
+// that live fetch, so they stay zero until it lands.
 type GroupInfo struct {
 	Subject         string
 	Description     string
@@ -546,6 +549,15 @@ type GroupInfo struct {
 	IsAnnounce bool
 	IsLocked   bool
 	Members    []GroupMember
+	// IsCommunity marks the chat as a community (WhatsApp's group "parent"),
+	// LinkedParentJID is the community this group is linked under. Either can
+	// be set; a community has neither a parent nor a linked parent of its own.
+	IsCommunity     bool
+	LinkedParentJID string
+	// LinkedGroups is a community's sub-group directory, fetched in the same
+	// live pass. Best-effort: a failed sub-group fetch leaves it empty rather
+	// than failing the card the frontend is already showing.
+	LinkedGroups []CommunityGroup
 }
 
 // PrivacySettings mirrors the user's WhatsApp privacy categories. Each audience
@@ -560,6 +572,15 @@ type PrivacySettings struct {
 	ReadReceipts bool
 	GroupAdd     string
 	CallAdd      string
+	// Status is the audience for status (story) updates, in the same audience
+	// spelling as the other categories. Read-only: WhatsApp's status privacy is
+	// a separate namespace from the privacy categories, and whatsmeow exposes no
+	// setter for it, so the frontend shows it and points at the phone.
+	Status string
+	// DefaultTimerSeconds is the account's default disappearing-message timer
+	// for new chats (0 = off). -1 means the account did not report one, so the
+	// frontend must not present a value it does not have.
+	DefaultTimerSeconds int
 }
 
 // BlockedContact is one entry in the user's blocklist, with display fields
@@ -600,6 +621,12 @@ type AppPreferences struct {
 	// received a location, and the bubble falls back to the small JPEG the
 	// sender embedded.
 	AutoFetchMaps bool
+	// KeepChatsArchived makes this device hold archived chats archived instead
+	// of following an unarchive that arrives from WhatsApp (the phone
+	// unarchiving a chat because a new message landed in it, say). It is local
+	// display policy: it changes nothing on the wire, so the phone keeps its own
+	// setting. Off (the default) mirrors the account exactly as before.
+	KeepChatsArchived bool
 }
 
 // DefaultAppPreferences are applied the first time the daemon runs, before the
@@ -696,14 +723,15 @@ func (d *Daemon) SubscribeLoginEvents() (<-chan LoginEvent, func()) {
 	d.connMu.Unlock()
 
 	d.subMu.Lock()
-	d.loginSubs[id] = ch
 	latestQR := d.latestQR
-	d.subMu.Unlock()
-
+	// Queue the replay before releasing the producer lock. Otherwise a live
+	// event can overtake this snapshot and regress the subscriber's state.
 	ch <- LoginEvent{Kind: LoginEventState, State: conn.state, Detail: conn.detail}
 	if latestQR != nil && time.Now().Before(latestQR.ExpiresAt) {
 		ch <- LoginEvent{Kind: LoginEventQR, QRCode: latestQR.Code, ExpiresAt: latestQR.ExpiresAt}
 	}
+	d.loginSubs[id] = ch
+	d.subMu.Unlock()
 
 	return ch, func() {
 		d.subMu.Lock()

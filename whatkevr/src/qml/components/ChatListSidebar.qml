@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
@@ -79,6 +81,8 @@ Item {
         Repeater {
             model: Whatevr.ProtocolController.chatFoldersModel
             delegate: QQC2.ToolButton {
+                id: folderDelegate
+
                 required property var item
                 Layout.alignment: Qt.AlignHCenter
                 icon.name: "folder-symbolic"
@@ -95,7 +99,43 @@ Item {
                 QQC2.ToolTip.visible: hovered
                 QQC2.ToolTip.text: text
                 QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+
+                QQC2.Menu {
+                    id: folderContextMenu
+
+                    QQC2.MenuItem {
+                        text: Whatevr.I18n.i18nc("@action:menu rename a chat list", "Rename…")
+                        icon.name: "document-edit-symbolic"
+                        onTriggered: folderNameDialog.openFor(Number(folderDelegate.item.id),
+                                                              String(folderDelegate.item.name || ""))
+                    }
+                    QQC2.MenuItem {
+                        text: Whatevr.I18n.i18nc("@action:menu delete a chat list", "Delete…")
+                        icon.name: "edit-delete-symbolic"
+                        onTriggered: deleteFolderDialog.openFor(Number(folderDelegate.item.id),
+                                                                String(folderDelegate.item.name || ""))
+                    }
+                }
+
+                TapHandler {
+                    acceptedButtons: Qt.RightButton
+                    onTapped: folderContextMenu.popup()
+                }
             }
+        }
+
+        QQC2.ToolButton {
+            Layout.alignment: Qt.AlignHCenter
+            icon.name: "list-add-symbolic"
+            display: QQC2.AbstractButton.IconOnly
+            icon.width: root.railIconSize
+            icon.height: root.railIconSize
+            text: Whatevr.I18n.i18nc("@action:button create a chat list", "New list")
+            onClicked: folderNameDialog.openFor(0, "")
+
+            QQC2.ToolTip.visible: hovered
+            QQC2.ToolTip.text: text
+            QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
         }
 
         QQC2.ToolButton {
@@ -328,5 +368,85 @@ Item {
                 : Whatevr.I18n.i18nc("@info placeholder for own profile name", "You")
             QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
         }
+    }
+
+    Kirigami.PromptDialog {
+        id: folderNameDialog
+
+        // Centre on the stable implicitHeight: Kirigami.Dialog's own y binding
+        // reads the fitted height back and loops.
+        y: parent ? Math.round((parent.height - implicitHeight) / 2) : 0
+
+        // 0 = creating a new list, otherwise the list being renamed.
+        property int folderId: 0
+
+        function openFor(id, name) {
+            folderId = id
+            nameInput.text = name
+            open()
+            nameInput.forceActiveFocus()
+            nameInput.selectAll()
+        }
+
+        title: folderId > 0
+               ? Whatevr.I18n.i18nc("@title:dialog", "Rename list")
+               : Whatevr.I18n.i18nc("@title:dialog", "New list")
+        standardButtons: Kirigami.Dialog.Ok | Kirigami.Dialog.Cancel
+        showCloseButton: false
+
+        QQC2.TextField {
+            id: nameInput
+
+            placeholderText: Whatevr.I18n.i18nc("@info:placeholder", "List name")
+            onAccepted: folderNameDialog.accept()
+        }
+
+        onAccepted: {
+            const name = nameInput.text.trim()
+            if (name.length > 0) {
+                if (folderId > 0) {
+                    Whatevr.ProtocolController.renameChatFolder(folderId, name)
+                } else {
+                    Whatevr.ProtocolController.createChatFolder(name)
+                }
+            }
+            nameInput.clear()
+        }
+        onRejected: nameInput.clear()
+    }
+
+    Kirigami.PromptDialog {
+        id: deleteFolderDialog
+
+        y: parent ? Math.round((parent.height - implicitHeight) / 2) : 0
+
+        property int folderId: 0
+        property string folderName: ""
+
+        function openFor(id, name) {
+            folderId = id
+            folderName = name
+            open()
+        }
+
+        title: Whatevr.I18n.i18nc("@title:dialog", "Delete list “%1”?", folderName)
+        subtitle: Whatevr.I18n.i18nc("@info", "Its chats are not deleted — they stay in your chat list.")
+        standardButtons: Kirigami.Dialog.Cancel
+        showCloseButton: false
+
+        customFooterActions: [
+            Kirigami.Action {
+                text: Whatevr.I18n.i18nc("@action:button", "Delete list")
+                icon.name: "edit-delete-symbolic"
+                onTriggered: {
+                    // The list filter would otherwise keep asking the daemon
+                    // for a folder that no longer exists.
+                    if (root.activeFolder === deleteFolderDialog.folderId)
+                        root.activeFolder = 0
+                    Whatevr.ProtocolController.deleteChatFolder(deleteFolderDialog.folderId)
+                    deleteFolderDialog.close()
+                }
+            }
+        ]
     }
 }

@@ -327,14 +327,22 @@ func (s *chatsSession) Close() {
 }
 
 func (s *chatSession) Items(_ int) []Item {
+	items, _ := s.ItemsErr(0)
+	return items
+}
+
+func (s *chatSession) ItemsErr(_ int) ([]Item, error) {
 	chat, err := s.lister.GetChatForView(s.ctx, s.chatID)
 	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			log.Printf("protocol: get chat for view %s: %v", s.chatID, err)
+		// A chat deleted while open is a legitimately empty window; anything
+		// else is an unreadable one and must not blank the transcript.
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
 		}
-		return nil
+		log.Printf("protocol: get chat for view %s: %v", s.chatID, err)
+		return nil, err
 	}
-	return []Item{{ID: chat.ID, Sort: objectViewSort, Data: chatItemFromStore(chat)}}
+	return []Item{{ID: chat.ID, Sort: objectViewSort, Data: chatItemFromStore(chat)}}, nil
 }
 
 func (s *chatSession) Close() {

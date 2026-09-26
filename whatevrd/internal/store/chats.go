@@ -698,7 +698,9 @@ func (db *DB) UpdateChatMuteState(ctx context.Context, chatID string, muted bool
 // ReconcileChatArchives sets is_archived to match the given set of archived chat
 // IDs exactly (chats not in the set are unarchived), returning the rows that
 // changed. Mirrors ReconcileChatPins; used when a full app-state sync lands.
-func (db *DB) ReconcileChatArchives(ctx context.Context, archived map[string]struct{}) ([]Chat, error) {
+// keepArchived holds already-archived chats archived instead of letting the
+// snapshot drop them (the "keep chats archived" preference).
+func (db *DB) ReconcileChatArchives(ctx context.Context, archived map[string]struct{}, keepArchived bool) ([]Chat, error) {
 	tx, err := db.conn.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -730,6 +732,7 @@ func (db *DB) ReconcileChatArchives(ctx context.Context, archived map[string]str
 	changedIDs := make([]string, 0)
 	for id, isArchived := range current {
 		_, shouldArchive := archived[id]
+		shouldArchive = shouldArchive || (keepArchived && isArchived)
 		if isArchived == shouldArchive {
 			continue
 		}
@@ -1111,10 +1114,11 @@ func (db *DB) overwriteChatUnreadCount(ctx context.Context, chatID string, unrea
 			UPDATE messages
 			SET is_read = 0
 			WHERE chat_id = ? AND id IN (
-				SELECT id
-				FROM messages
-				WHERE chat_id = ? AND direction = ? AND is_revoked = 0
-				ORDER BY sort_ms DESC, id DESC
+				SELECT m.id
+				FROM messages m
+				WHERE m.chat_id = ? AND m.direction = ? AND m.is_revoked = 0
+			`+albumChildExclusion+`
+				ORDER BY m.sort_ms DESC, m.id DESC
 				LIMIT ?
 			)
 		`, chatID, chatID, DirectionIncoming, int64(unread)); err != nil {

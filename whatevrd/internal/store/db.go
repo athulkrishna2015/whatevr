@@ -407,9 +407,6 @@ func (db *DB) migrate(ctx context.Context) error {
 			return err
 		}
 	}
-	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion)); err != nil {
-		return err
-	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}
@@ -532,6 +529,13 @@ func (db *DB) migrate(ctx context.Context) error {
 		if err := db.ensureStatusMediaColumns(ctx); err != nil {
 			return err
 		}
+	}
+
+	// The version is written last: a crash inside the repairs above leaves the
+	// old version behind, so the next start runs them again rather than
+	// announcing a version whose repairs never finished.
+	if _, err := db.conn.ExecContext(ctx, fmt.Sprintf(`PRAGMA user_version = %d`, schemaVersion)); err != nil {
+		return err
 	}
 
 	return nil

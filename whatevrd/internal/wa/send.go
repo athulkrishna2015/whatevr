@@ -1885,26 +1885,32 @@ func (c *Client) MarkAllChatsRead(ctx context.Context) (int, error) {
 		jid        types.JID
 		candidates []appstore.ReadCandidate
 	}
-	var pendingChats []pending
-	if chats, err := c.store.ListChatsForView(ctx, appstore.ChatListFilter{UnreadOnly: true}); err == nil {
-		for _, chat := range chats {
-			if chat.UnreadCount <= 0 {
-				continue
-			}
-			jid, err := types.ParseJID(chat.ID)
-			if err != nil {
-				continue
-			}
-			candidates, err := c.store.ReadCandidatesForChat(ctx, chat.ID)
-			if err != nil || len(candidates) == 0 {
-				continue
-			}
-			pendingChats = append(pendingChats, pending{
-				chatID:     chat.ID,
-				jid:        c.normalizeJIDForChat(ctx, jid),
-				candidates: candidates,
-			})
+	// The badge clear below touches every chat carrying a badge — archived
+	// chats and badge-only dots included — so the publish set comes from both
+	// tabs of the unread list, not just the main one.
+	var unread []appstore.Chat
+	for _, archived := range []bool{false, true} {
+		chats, err := c.store.ListChatsForView(ctx, appstore.ChatListFilter{UnreadOnly: true, Archived: archived})
+		if err != nil {
+			return 0, err
 		}
+		unread = append(unread, chats...)
+	}
+	var pendingChats []pending
+	for _, chat := range unread {
+		jid, err := types.ParseJID(chat.ID)
+		if err != nil {
+			continue
+		}
+		candidates, err := c.store.ReadCandidatesForChat(ctx, chat.ID)
+		if err != nil || len(candidates) == 0 {
+			continue
+		}
+		pendingChats = append(pendingChats, pending{
+			chatID:     chat.ID,
+			jid:        c.normalizeJIDForChat(ctx, jid),
+			candidates: candidates,
+		})
 	}
 	ids, err := c.store.MarkAllChatsRead(ctx)
 	if err != nil {
@@ -1912,8 +1918,12 @@ func (c *Client) MarkAllChatsRead(ctx context.Context) (int, error) {
 	}
 	for _, entry := range pendingChats {
 		c.sendReadReceipts(ctx, entry.jid, entry.chatID, entry.candidates)
-		if chat, err := c.store.GetChat(ctx, entry.chatID); err == nil {
-			c.daemon.PublishChatUpdated(toDaemonChat(chat))
+	}
+	for _, chat := range unread {
+		// Re-read after the clear: the snapshot above still carries the badge
+		// the UPDATE just dropped.
+		if stored, err := c.store.GetChat(ctx, chat.ID); err == nil {
+			c.daemon.PublishChatUpdated(toDaemonChat(stored))
 		}
 	}
 	return len(ids), nil

@@ -3,9 +3,84 @@
 All notable changes to Whatevr. The protocol is versioned separately in
 PROTOCOL.md (stable at version 1: additive changes only).
 
-## Unreleased
+## 0.9.0 — 2026-09-26
+
+### Added
+
+- Create group, and a full set of group admin controls on the group card:
+  edit subject and description, change or clear the photo, admins-only sending
+  and admins-only info editing, add participants, and per-member make admin,
+  dismiss admin and remove.
+- The composer is disabled with an explanation in admins-only groups instead of
+  letting the send fail server-side.
+- Call history: a new `call_history` view lists every logged call across chats
+  (newest first) and the Calls tab renders it under the ringing section with
+  direction, video/voice, duration and timestamp. Tapping a row opens the chat.
+- Communities: the group card shows the community's linked groups with link and
+  unlink for admins, backed by the existing `community.subgroups`/`link`/
+  `unlink` commands and a new `is_community`/`linked_parent_id` on the `group`
+  view.
+- Chat lists ("Lists") can be created, renamed and deleted, not only assigned.
+  The Archived section header carries an unread badge and shows the
+  "these chats stay archived when new messages are received" notice.
+- An Accessibility settings page: increase contrast (applied to the palette)
+  and reduce motion (which actually stops GIF, animated-sticker and GIF-status
+  autoplay).
+- A status-audience privacy row (read-only: whatsmeow exposes no setter, so the
+  description says to change it on the phone).
+- A default disappearing-message timer (off / 24 hours / 7 days / 90 days) with
+  new `privacy.set_default_timer`, plus the timer in the `privacy` view.
+- A "Keep chats archived" preference, so archived chats no longer resurface
+  when a new message arrives.
+- The status viewer has a clickable contact-name strip, so you can move to
+  another person's statuses without closing the viewer first.
 
 ### Fixed
+
+- Backup, keyring and app-lock passphrases were echoed in cleartext: the
+  `echoMode` binding named `QQC2.TextInput`, which is undefined, so the
+  binding threw and the fields fell back to plain text.
+- The status viewer could hang forever on a second still status (the auto-advance
+  timer was bound to a boolean that never changed between two stills).
+- Sticker bubbles never showed their in-progress placeholder: the property
+  they referenced does not exist anywhere.
+- Switching settings categories never collapsed an open drill-in page, so Back
+  returned to a page instead of closing settings.
+- Secondary workspace tabs (Calls, Logs, Starred, channels, status viewer) had
+  no title in their header.
+- The app-lock PIN field was not focused when the lock screen appeared after
+  startup.
+- Thirteen list views turned a transient store read failure into an empty
+  answer, which made the client delete every row it was holding.
+- `chat.mark_all_read` cleared badges for archived chats and badge-only chats
+  without publishing the change, so those badges never cleared.
+- The notification worker blocked its whole queue on an unbounded WhatsApp
+  round trip when a notification action was invoked.
+- `send.media` and `send.media_batch` ran inline on the protocol read loop,
+  stalling every other request while a large file was read and decoded.
+- A call left ringing survived logout and was replayed as a phantom incoming
+  call after the next login.
+- Hidden album children counted toward a chat's unread badge but were excluded
+  from the unread anchor, so opening at "unread" could land on already-read
+  history.
+- The `chat_folders` view rejected the `view` parameter that every client sends,
+  so the list rail could never subscribe and folders were permanently invisible.
+- `search.stickers` rejected a missing `limit` while `search.chats` and
+  `search.messages` defaulted it, and the frontend asked for more than the
+  daemon's cap.
+- `chat.mark_all_read` returned `marked_chats` where the protocol specifies
+  `count`, and `PRAGMA user_version` was committed before the version-gated
+  repairs it guards.
+
+### Merged
+
+- Upstream: the `whattui` terminal frontend, the `wamock` fake WhatsApp server
+  for frontend development, and six daemon fixes (seconds-not-milliseconds
+  message timestamps, unread messages arriving mid history-sync, the
+  no-session-bus crash, whitespace-only text, an avatar-refresh race, and
+  push-name precedence over address book names), plus a whatsmeow bump.
+
+## 0.8.4 — 2026-09-17
 
 - Media downloads are cancellable by tapping the download control: every
   bubble's download button/ring toggles between start and cancel

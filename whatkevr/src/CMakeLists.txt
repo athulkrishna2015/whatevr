@@ -123,6 +123,10 @@ set(WHATKEVR_QML_FILES
         qml/components/LogsPage.qml
         qml/components/PollCreateDialog.qml
         qml/components/ContactInfoDialog.qml
+        qml/components/ContactMultiPicker.qml
+        qml/components/NewGroupDialog.qml
+        qml/components/AddParticipantsDialog.qml
+        qml/components/LinkCommunityGroupDialog.qml
         qml/components/ProfilePictureViewer.qml
         qml/components/SearchResultDelegate.qml
         qml/components/SearchHighlight.js
@@ -212,6 +216,7 @@ set(WHATKEVR_QML_FILES
         qml/settings/StoragePage.qml
         qml/settings/EmojiStickersPage.qml
         qml/settings/KeyboardShortcutsPage.qml
+    qml/settings/AccessibilityPage.qml
         qml/settings/AboutPage.qml
     qml/settings/AdvancedPage.qml
 )

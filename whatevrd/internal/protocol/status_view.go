@@ -69,8 +69,13 @@ func (s *statusSession) run(events <-chan app.DaemonEvent, invalidate func()) {
 // pages back; statuses expire after 24h server-side, so deep windows are
 // short by nature.
 func (s *statusSession) Items(max int) []Item {
+	items, _ := s.ItemsErr(max)
+	return items
+}
+
+func (s *statusSession) ItemsErr(max int) ([]Item, error) {
 	if s.lister == nil {
-		return nil
+		return nil, nil
 	}
 	limit := max
 	if limit <= 0 {
@@ -79,7 +84,7 @@ func (s *statusSession) Items(max int) []Item {
 	rows, err := s.lister.ListStatusUpdates(s.ctx, limit)
 	if err != nil {
 		log.Printf("protocol: list statuses for view: %v", err)
-		return nil
+		return nil, err
 	}
 	items := make([]Item, 0, len(rows))
 	for _, st := range rows {
@@ -95,7 +100,7 @@ func (s *statusSession) Items(max int) []Item {
 			Data: item,
 		})
 	}
-	return items
+	return items, nil
 }
 
 func (s *statusSession) Close() {
@@ -230,13 +235,18 @@ func (s *statusKeptSession) run(events <-chan app.DaemonEvent, invalidate func()
 
 // Items returns one row per kept sender. `max` is ignored: the set is tiny.
 func (s *statusKeptSession) Items(max int) []Item {
+	items, _ := s.ItemsErr(max)
+	return items
+}
+
+func (s *statusKeptSession) ItemsErr(max int) ([]Item, error) {
 	if s.lister == nil {
-		return nil
+		return nil, nil
 	}
 	rows, err := s.lister.ListKeptStatusSenders(s.ctx)
 	if err != nil {
 		log.Printf("protocol: list kept status senders for view: %v", err)
-		return nil
+		return nil, err
 	}
 	items := make([]Item, 0, len(rows))
 	for _, id := range rows {
@@ -246,7 +256,7 @@ func (s *statusKeptSession) Items(max int) []Item {
 			Data: map[string]any{"id": id},
 		})
 	}
-	return items
+	return items, nil
 }
 
 func (s *statusKeptSession) Close() {
@@ -306,13 +316,18 @@ func (s *statusMutedSession) run(events <-chan app.DaemonEvent, invalidate func(
 
 // Items returns one row per muted sender. `max` is ignored: the set is tiny.
 func (s *statusMutedSession) Items(max int) []Item {
+	items, _ := s.ItemsErr(max)
+	return items
+}
+
+func (s *statusMutedSession) ItemsErr(max int) ([]Item, error) {
 	if s.lister == nil {
-		return nil
+		return nil, nil
 	}
 	rows, err := s.lister.ListMutedStatusSenders(s.ctx)
 	if err != nil {
 		log.Printf("protocol: list muted status senders for view: %v", err)
-		return nil
+		return nil, err
 	}
 	items := make([]Item, 0, len(rows))
 	for _, id := range rows {
@@ -322,7 +337,7 @@ func (s *statusMutedSession) Items(max int) []Item {
 			Data: map[string]any{"id": id},
 		})
 	}
-	return items
+	return items, nil
 }
 
 func (s *statusMutedSession) Close() {

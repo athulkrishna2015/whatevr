@@ -25,8 +25,34 @@ Kirigami.Page {
     signal channelSelected(string channelId, string channelName)
     property int activeFolder: 0
     onActiveFilterChanged: Whatevr.ProtocolController.chatFilter = activeFilter
-    Component.onCompleted: Whatevr.ProtocolController.chatFilter = activeFilter
+    Component.onCompleted: {
+        Whatevr.ProtocolController.chatFilter = activeFilter
+        updateArchivedUnread()
+    }
     onActiveFolderChanged: Whatevr.ProtocolController.chatFolder = activeFolder
+
+    // Unread total behind the "Archived" section header's badge, summed over
+    // the loaded archived window (the rest stays daemon-side).
+    property int archivedUnread: 0
+
+    function updateArchivedUnread() {
+        const model = Whatevr.ProtocolController.archivedChatsModel
+        const count = model ? model.count : 0
+        let total = 0
+        for (let i = 0; i < count; ++i) {
+            total += Number(model.itemById(model.idAt(i)).unread || 0)
+        }
+        archivedUnread = total
+    }
+
+    // Membership and `ready` move with the window; dataChanged catches a row's
+    // own unread flipping without either.
+    Connections {
+        target: Whatevr.ProtocolController.archivedChatsModel
+        function onCountChanged() { root.updateArchivedUnread() }
+        function onReadyChanged() { root.updateArchivedUnread() }
+        function onDataChanged() { root.updateArchivedUnread() }
+    }
 
     function hideSearch() {
         searchBarVisible = false
@@ -100,6 +126,13 @@ Kirigami.Page {
             displayHint: Kirigami.DisplayHint.IconOnly
             visible: root.workspaceMode === "chats"
             onTriggered: Whatevr.ProtocolController.markAllChatsRead()
+        },
+        Kirigami.Action {
+            icon.name: "system-users-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button create a new group chat", "New group…")
+            displayHint: Kirigami.DisplayHint.IconOnly
+            visible: root.workspaceMode === "chats"
+            onTriggered: newGroupDialog.openFor()
         },
         // StatusPage's own New-status action never reaches a toolbar: the
         // page is loaded list-only inside this column, not pushed on the
@@ -293,7 +326,42 @@ Kirigami.Page {
                                     elide: Text.ElideRight
                                     font.bold: true
                                 }
+
+                                // Same badge shape as the chat rows'.
+                                Rectangle {
+                                    Layout.alignment: Qt.AlignVCenter
+                                    Layout.rightMargin: Kirigami.Units.largeSpacing
+                                    visible: root.archivedUnread > 0
+                                    Layout.preferredWidth: Math.max(archivedUnreadLabel.implicitWidth + Kirigami.Units.largeSpacing,
+                                                                    Kirigami.Units.gridUnit * 1.5)
+                                    Layout.preferredHeight: Kirigami.Units.gridUnit * 1.35
+                                    radius: height / 2
+                                    color: Kirigami.Theme.highlightColor
+
+                                    Label {
+                                        id: archivedUnreadLabel
+
+                                        anchors.centerIn: parent
+                                        text: root.archivedUnread > 99 ? "99+" : String(root.archivedUnread)
+                                        color: Kirigami.Theme.highlightedTextColor
+                                        font.weight: Font.Bold
+                                        font.pointSize: Kirigami.Theme.smallFont.pointSize
+                                    }
+                                }
                             }
+                        }
+
+                        Label {
+                            Layout.fillWidth: true
+                            Layout.leftMargin: Kirigami.Units.largeSpacing
+                            Layout.rightMargin: Kirigami.Units.largeSpacing
+                            Layout.bottomMargin: Kirigami.Units.smallSpacing
+                            visible: chatList.archivedExpanded
+                            text: Whatevr.I18n.i18nc("@info:archived chats section",
+                                                     "These chats stay archived when new messages are received.")
+                            color: Kirigami.Theme.disabledTextColor
+                            font: Kirigami.Theme.smallFont
+                            wrapMode: Text.WordWrap
                         }
 
                         ListView {
@@ -521,13 +589,13 @@ Kirigami.Page {
                          model: Whatevr.ProtocolController.chatFoldersModel
                          delegate: MenuItem {
                              required property var item
-                             text: qsTr("Move to %1").arg(item.name)
+                             text: Whatevr.I18n.i18nc("@action:menu move a chat to a list", "Move to %1", item.name)
                              onTriggered: Whatevr.ProtocolController.assignChatFolder(
                                  chatList.contextChatId, Number(item.id))
                          }
                      }
                      MenuItem {
-                         text: qsTr("Remove from folder")
+                         text: Whatevr.I18n.i18nc("@action:menu take a chat out of its list", "Remove from folder")
                          onTriggered: Whatevr.ProtocolController.assignChatFolder(chatList.contextChatId, 0)
                      }
 
@@ -701,6 +769,10 @@ Kirigami.Page {
             }
         }
         }
+    }
+
+    NewGroupDialog {
+        id: newGroupDialog
     }
 
     Kirigami.PromptDialog {

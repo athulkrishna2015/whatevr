@@ -4,6 +4,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls as QQC2
 import QtQuick.Layouts
+import Qt.labs.platform as Platform
 import org.kde.kirigami as Kirigami
 import Whatevr as Whatevr
 import "Initials.js" as Initials
@@ -50,6 +51,44 @@ CenteredDialog {
     readonly property int memberCount: Whatevr.ProtocolController.groupMemberCount > 0
                                        ? Whatevr.ProtocolController.groupMemberCount
                                        : Number(root.card.member_count ?? 0)
+    // Admin state, straight off the daemon's `group` row: only the viewer's
+    // own role gates every control below, and it arrives with the same row as
+    // the policies it guards (no second round-trip to find out).
+    readonly property string myRole: root.isGroup ? String(root.card.my_role ?? "") : ""
+    readonly property bool canAdmin: root.myRole === "admin" || root.myRole === "superadmin"
+    readonly property bool announce: root.isGroup && Boolean(root.card.announce ?? false)
+    readonly property bool locked: root.isGroup && Boolean(root.card.locked ?? false)
+    readonly property string ownerId: root.isGroup ? String(root.card.owner ?? "") : ""
+    // Community membership, same two-phase rule as my_role above: WhatsApp
+    // reports it only on the live card fetch, so the section below appears
+    // when the enrichment lands rather than at open. `isCommunity` says this
+    // chat *is* the community (and therefore owns the directory);
+    // `linkedParentId` is the community this group sits under.
+    readonly property bool isCommunity: root.isGroup && Boolean(root.card.is_community ?? false)
+    readonly property string linkedParentId: root.isGroup ? String(root.card.linked_parent_id ?? "") : ""
+    readonly property var linkedGroups: root.isGroup ? (root.card.linked_groups ?? []) : []
+    // The creator's name, resolved from the roster already loaded for this
+    // card; the raw jid is the honest fallback until that row lands.
+    readonly property string ownerName: {
+        if (root.ownerId.length === 0) {
+            return ""
+        }
+        const rows = root.members
+        for (let i = 0; i < rows.length; ++i) {
+            if (String(rows[i].jid ?? "") === root.ownerId) {
+                const name = String(rows[i].display_name ?? "")
+                const phone = String(rows[i].phone ?? "")
+                return name.length > 0 ? name : (phone.length > 0 ? phone : root.ownerId)
+            }
+        }
+        return root.ownerId
+    }
+
+    // The member row the open actions menu is for, with the label a
+    // confirmation can quote and the role that decides which entries show.
+    property string menuMemberJid: ""
+    property string menuMemberName: ""
+    property string menuMemberRole: ""
 
     // Back-navigation stack of prior subjects (group → member drill-in). Each
     // entry only names a subject — going back re-subscribes, and the daemon
@@ -164,6 +203,32 @@ CenteredDialog {
         loadSubject(prev)
     }
 
+    // Jid-keyed set of the members the group already has, so the add-participants
+    // picker does not offer them again.
+    function memberJidSet() {
+        const out = {}
+        const rows = root.members
+        for (let i = 0; i < rows.length; ++i) {
+            out[String(rows[i].jid ?? "")] = true
+        }
+        return out
+    }
+
+    // Group-id-keyed set the link picker must not offer: what the community
+    // already holds, plus the community itself (a community cannot link under
+    // itself).
+    function linkedGroupIdSet() {
+        const out = {}
+        const rows = root.linkedGroups
+        for (let i = 0; i < rows.length; ++i) {
+            out[String(rows[i].id ?? "")] = true
+        }
+        if (root.subjectKey.length > 0) {
+            out[root.subjectKey] = true
+        }
+        return out
+    }
+
     // Member rows matching the search box, in the daemon's roster order.
     // PROTOCOL.md calls member search presentation-side filtering over rows the
     // frontend already has; the revision tick makes the read reactive.
@@ -183,6 +248,130 @@ CenteredDialog {
 
     ProfilePictureViewer {
         id: pictureViewer
+    }
+
+    // ---- Group admin dialogs ----
+    Kirigami.PromptDialog {
+        id: editSubjectDialog
+
+        y: parent ? Math.round((parent.height - implicitHeight) / 2) : 0
+        title: Whatevr.I18n.i18nc("@title:dialog", "Edit group name")
+        standardButtons: Kirigami.Dialog.Ok | Kirigami.Dialog.Cancel
+        showCloseButton: false
+
+        QQC2.TextField {
+            id: subjectInput
+
+            placeholderText: Whatevr.I18n.i18nc("@info:placeholder", "Group name")
+            onAccepted: editSubjectDialog.accept()
+        }
+
+        onAccepted: {
+            const name = subjectInput.text.trim()
+            subjectInput.clear()
+            if (name.length > 0) {
+                Whatevr.ProtocolController.setGroupName(root.subjectKey, name)
+            }
+        }
+        onRejected: subjectInput.clear()
+    }
+
+    Kirigami.PromptDialog {
+        id: editDescriptionDialog
+
+        y: parent ? Math.round((parent.height - implicitHeight) / 2) : 0
+        title: Whatevr.I18n.i18nc("@title:dialog", "Edit group description")
+        standardButtons: Kirigami.Dialog.Ok | Kirigami.Dialog.Cancel
+        showCloseButton: false
+
+        QQC2.TextField {
+            id: descriptionInput
+
+            placeholderText: Whatevr.I18n.i18nc("@info:placeholder", "Description")
+            onAccepted: editDescriptionDialog.accept()
+        }
+
+        // An empty description clears the topic (the daemon treats "" as a
+        // clear), so a blank submit is a deliberate answer, not a no-op.
+        onAccepted: {
+            const text = descriptionInput.text.trim()
+            descriptionInput.clear()
+            Whatevr.ProtocolController.setGroupDescription(root.subjectKey, text)
+        }
+        onRejected: descriptionInput.clear()
+    }
+
+    Kirigami.PromptDialog {
+        id: removeMemberDialog
+
+        y: parent ? Math.round((parent.height - implicitHeight) / 2) : 0
+        title: Whatevr.I18n.i18nc("@title:dialog", "Remove participant")
+        subtitle: Whatevr.I18n.i18nc("@info remove participant confirmation",
+                                     "Remove %1 from this group?",
+                                     root.menuMemberName)
+        standardButtons: Kirigami.Dialog.Cancel
+        showCloseButton: false
+
+        customFooterActions: [
+            Kirigami.Action {
+                text: Whatevr.I18n.i18nc("@action:button confirm removing the participant", "Remove")
+                onTriggered: {
+                    Whatevr.ProtocolController.updateGroupMembers(root.subjectKey,
+                                                                  "remove",
+                                                                  [root.menuMemberJid])
+                    removeMemberDialog.close()
+                }
+            }
+        ]
+    }
+
+    AddParticipantsDialog {
+        id: addParticipantsDialog
+    }
+
+    Platform.FileDialog {
+        id: groupPhotoDialog
+
+        title: Whatevr.I18n.i18nc("@title:window", "Change group photo")
+        fileMode: Platform.FileDialog.OpenFile
+        nameFilters: [Whatevr.I18n.i18nc("@item:inlistbox image file types",
+                                          "Images (*.png *.jpg *.jpeg *.webp *.bmp)")]
+        onAccepted: Whatevr.ProtocolController.setGroupPhoto(root.subjectKey, file)
+    }
+
+    Menu {
+        id: memberMenu
+
+        parent: memberList
+
+        MenuItem {
+            visible: root.menuMemberRole === "member" || root.menuMemberRole === "participant"
+                     || root.menuMemberRole === ""
+            text: Whatevr.I18n.i18nc("@action:button make this member an admin", "Make admin")
+            onTriggered: Whatevr.ProtocolController.updateGroupMembers(root.subjectKey,
+                                                                      "promote",
+                                                                      [root.menuMemberJid])
+        }
+
+        MenuItem {
+            visible: root.menuMemberRole === "admin"
+            text: Whatevr.I18n.i18nc("@action:button strip this member's admin rights", "Dismiss admin")
+            onTriggered: Whatevr.ProtocolController.updateGroupMembers(root.subjectKey,
+                                                                      "demote",
+                                                                      [root.menuMemberJid])
+        }
+
+        MenuSeparator {
+            visible: root.menuMemberRole === "admin"
+                     || root.menuMemberRole === "member" || root.menuMemberRole === "participant"
+                     || root.menuMemberRole === ""
+        }
+
+        MenuItem {
+            icon.name: "edit-delete-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button remove this member from the group", "Remove from group")
+            onTriggered: removeMemberDialog.open()
+        }
     }
 
     Kirigami.PromptDialog {
@@ -248,15 +437,32 @@ CenteredDialog {
                 }
             }
 
-            QQC2.Label {
-                Layout.alignment: Qt.AlignHCenter
+            RowLayout {
                 Layout.fillWidth: true
-                horizontalAlignment: Text.AlignHCenter
-                text: root.primaryName
-                font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.4
-                font.weight: Font.DemiBold
-                elide: Text.ElideRight
-                wrapMode: Text.NoWrap
+                spacing: Kirigami.Units.smallSpacing
+
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    horizontalAlignment: Text.AlignHCenter
+                    text: root.primaryName
+                    font.pointSize: Kirigami.Theme.defaultFont.pointSize * 1.4
+                    font.weight: Font.DemiBold
+                    elide: Text.ElideRight
+                    wrapMode: Text.NoWrap
+                }
+
+                QQC2.ToolButton {
+                    visible: root.isGroup && root.canAdmin
+                    icon.name: "document-edit-symbolic"
+                    text: Whatevr.I18n.i18nc("@action:button rename this group", "Rename")
+                    display: QQC2.AbstractButton.IconOnly
+                    onClicked: {
+                        subjectInput.text = root.subject
+                        editSubjectDialog.open()
+                        subjectInput.forceActiveFocus()
+                        subjectInput.selectAll()
+                    }
+                }
             }
 
             QQC2.Label {
@@ -320,13 +526,90 @@ CenteredDialog {
                 Layout.maximumWidth: root.preferredWidth - Kirigami.Units.gridUnit * 8
             }
 
-            QQC2.Label {
+            RowLayout {
                 Kirigami.FormData.label: Whatevr.I18n.i18nc("@label:textbox group description", "Description")
-                visible: root.isGroup && root.description.length > 0
-                text: root.description
+                Layout.fillWidth: true
+                visible: root.isGroup && (root.canAdmin || root.description.length > 0)
+                spacing: Kirigami.Units.smallSpacing
+
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    visible: root.description.length > 0
+                    text: root.description
+                    textFormat: Text.PlainText
+                    wrapMode: Text.Wrap
+                }
+
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    visible: root.canAdmin && root.description.length === 0
+                    text: Whatevr.I18n.i18nc("@info group that has no description", "No description yet")
+                    color: Kirigami.Theme.disabledTextColor
+                    font: Kirigami.Theme.smallFont
+                }
+
+                QQC2.ToolButton {
+                    visible: root.canAdmin
+                    icon.name: "document-edit-symbolic"
+                    text: Whatevr.I18n.i18nc("@action:button edit the group description", "Edit description")
+                    display: QQC2.AbstractButton.IconOnly
+                    onClicked: {
+                        descriptionInput.text = root.description
+                        editDescriptionDialog.open()
+                        descriptionInput.forceActiveFocus()
+                        descriptionInput.selectAll()
+                    }
+                }
+            }
+
+            QQC2.Label {
+                Kirigami.FormData.label: Whatevr.I18n.i18nc("@label group creator", "Created by")
+                visible: root.isGroup && root.ownerId.length > 0
+                text: root.ownerName
                 textFormat: Text.PlainText
-                wrapMode: Text.Wrap
+                elide: Text.ElideRight
                 Layout.maximumWidth: root.preferredWidth - Kirigami.Units.gridUnit * 8
+            }
+
+            QQC2.Switch {
+                id: announceSwitch
+
+                Kirigami.FormData.label: Whatevr.I18n.i18nc("@label:checkbox admins-only group sending",
+                                                             "Only admins can send messages")
+                visible: root.isGroup
+                enabled: root.canAdmin
+                checked: root.announce
+                onToggled: Whatevr.ProtocolController.setGroupAnnounce(root.subjectKey, checked)
+
+                // Toggling replaces the `checked` binding; re-establish it on
+                // every card change so a failure snaps the switch back to the
+                // state the daemon still holds.
+                Connections {
+                    target: Whatevr.ProtocolController
+
+                    function onInfoCardChanged() {
+                        announceSwitch.checked = Qt.binding(() => root.announce)
+                    }
+                }
+            }
+
+            QQC2.Switch {
+                id: lockedSwitch
+
+                Kirigami.FormData.label: Whatevr.I18n.i18nc("@label:checkbox admins-only group edits",
+                                                             "Only admins can edit group info")
+                visible: root.isGroup
+                enabled: root.canAdmin
+                checked: root.locked
+                onToggled: Whatevr.ProtocolController.setGroupLocked(root.subjectKey, checked)
+
+                Connections {
+                    target: Whatevr.ProtocolController
+
+                    function onInfoCardChanged() {
+                        lockedSwitch.checked = Qt.binding(() => root.locked)
+                    }
+                }
             }
         }
 
@@ -362,6 +645,44 @@ CenteredDialog {
                         blockConfirmDialog.open()
                     }
                 }
+            }
+        }
+
+        // ---- Group admin actions ----
+        RowLayout {
+            Layout.alignment: Qt.AlignHCenter
+            spacing: Kirigami.Units.largeSpacing
+            visible: root.isGroup && root.canAdmin
+
+            QQC2.Button {
+                icon.name: "list-add-user-symbolic"
+                text: Whatevr.I18n.i18nc("@action:button add people to this group", "Add participants")
+                onClicked: addParticipantsDialog.openFor(root.subjectKey, root.memberJidSet())
+            }
+
+            QQC2.Button {
+                icon.name: "camera-photo-symbolic"
+                text: Whatevr.I18n.i18nc("@action:button pick a new group photo", "Change photo…")
+                onClicked: groupPhotoDialog.open()
+            }
+
+            QQC2.Button {
+                visible: root.avatarLocalPath.length > 0
+                icon.name: "edit-clear-symbolic"
+                text: Whatevr.I18n.i18nc("@action:button remove the group photo", "Clear photo")
+                onClicked: Whatevr.ProtocolController.setGroupPhoto(root.subjectKey, "")
+            }
+
+            // Shown only where it means something: a group that sits under a
+            // community. The community's own card manages the same link from
+            // the other side, in the directory below.
+            QQC2.Button {
+                visible: root.linkedParentId.length > 0
+                icon.name: "list-remove-symbolic"
+                text: Whatevr.I18n.i18nc("@action:button unlink this group from its community",
+                                         "Unlink from community")
+                onClicked: Whatevr.ProtocolController.unlinkCommunityGroup(root.linkedParentId,
+                                                                          root.subjectKey)
             }
         }
 
@@ -406,6 +727,90 @@ CenteredDialog {
                     }
                 }
             ]
+        }
+
+        // ---- Community ----
+        // Only a community owns a directory. A group linked under one gets the
+        // single "Unlink from community" button above instead, so this section
+        // never lists siblings to somebody who cannot act on them.
+        Kirigami.ListSectionHeader {
+            Layout.fillWidth: true
+            visible: root.isCommunity
+            text: Whatevr.I18n.i18nc("@title:section linked groups", "Linked groups")
+        }
+
+        QQC2.Button {
+            Layout.alignment: Qt.AlignHCenter
+            visible: root.isCommunity && root.canAdmin
+            icon.name: "list-add-user-symbolic"
+            text: Whatevr.I18n.i18nc("@action:button link a group to this community", "Link group…")
+            onClicked: linkGroupDialog.openFor(root.subjectKey, root.linkedGroupIdSet())
+        }
+
+        ListView {
+            id: linkedGroupList
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.min(contentHeight, root.memberListMax)
+            visible: root.isCommunity && count > 0
+            clip: true
+            model: root.linkedGroups
+            reuseItems: true
+            ScrollBar.vertical: DiscreetScrollBar {}
+
+            delegate: QQC2.ItemDelegate {
+                id: linkedGroupDelegate
+
+                // One `linked_groups` row, verbatim (id + name; the directory
+                // carries no avatar, so the initials fallback does the work).
+                required property var modelData
+
+                readonly property string groupId: String(modelData.id || "")
+                readonly property string groupName: String(modelData.name || "")
+
+                width: ListView.view.width
+                onClicked: {
+                    Whatevr.ProtocolController.selectChat(linkedGroupDelegate.groupId)
+                    root.close()
+                    applicationWindow().showConversation(linkedGroupDelegate.groupId)
+                }
+
+                contentItem: RowLayout {
+                    spacing: Kirigami.Units.largeSpacing
+
+                    AvatarImage {
+                        Layout.preferredWidth: Kirigami.Units.gridUnit * 2
+                        Layout.preferredHeight: Kirigami.Units.gridUnit * 2
+                        initials: Initials.firstTwo(linkedGroupDelegate.groupName)
+                    }
+
+                    QQC2.Label {
+                        Layout.fillWidth: true
+                        text: linkedGroupDelegate.groupName.length > 0
+                              ? linkedGroupDelegate.groupName
+                              : linkedGroupDelegate.groupId
+                        elide: Text.ElideRight
+                        font.weight: Font.DemiBold
+                    }
+
+                    QQC2.ToolButton {
+                        id: unlinkGroupButton
+
+                        visible: root.canAdmin
+                        icon.name: "list-remove-symbolic"
+                        display: QQC2.AbstractButton.IconOnly
+                        text: Whatevr.I18n.i18nc("@action:button unlink this group from the community",
+                                                 "Unlink")
+                        QQC2.ToolTip.text: text
+                        QQC2.ToolTip.visible: hovered
+                        onClicked: Whatevr.ProtocolController.unlinkCommunityGroup(root.subjectKey,
+                                                                                   linkedGroupDelegate.groupId)
+                    }
+                }
+            }
+        }
+
+        LinkCommunityGroupDialog {
+            id: linkGroupDialog
         }
 
         // ---- Media, links and documents ----
@@ -510,6 +915,27 @@ CenteredDialog {
                               : Whatevr.I18n.i18nc("@info group admin badge", "Admin")
                         color: Kirigami.Theme.positiveTextColor
                         font: Kirigami.Theme.smallFont
+                    }
+
+                    QQC2.ToolButton {
+                        id: memberActionButton
+
+                        // The owner row has no admin above it to change it.
+                        visible: root.canAdmin && memberDelegate.role !== "superadmin"
+                        icon.name: "view-more-symbolic"
+                        text: Whatevr.I18n.i18nc("@action:button actions for this group member", "Member actions")
+                        display: QQC2.AbstractButton.IconOnly
+                        onClicked: {
+                            root.menuMemberJid = memberDelegate.jid
+                            root.menuMemberName = memberDelegate.displayName.length > 0
+                                                  ? memberDelegate.displayName
+                                                  : memberDelegate.phoneNumber
+                            root.menuMemberRole = memberDelegate.role
+                            const pos = memberActionButton.mapToItem(memberMenu.parent, 0, memberActionButton.height)
+                            memberMenu.x = pos.x
+                            memberMenu.y = pos.y
+                            memberMenu.open()
+                        }
                     }
                 }
             }

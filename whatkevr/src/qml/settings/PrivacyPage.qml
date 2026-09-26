@@ -25,6 +25,17 @@ SettingsPage {
         { value: "all", text: Whatevr.I18n.i18nc("@item privacy audience", "Everyone") },
         { value: "known", text: Whatevr.I18n.i18nc("@item privacy audience", "Known contacts") }
     ]
+    readonly property var statusModel: [
+        { value: "contacts", text: Whatevr.I18n.i18nc("@item privacy audience", "My contacts") },
+        { value: "contact_blacklist", text: Whatevr.I18n.i18nc("@item privacy audience", "My contacts except…") },
+        { value: "contact_allowlist", text: Whatevr.I18n.i18nc("@item privacy audience", "Only share with…") }
+    ]
+    readonly property var defaultTimerModel: [
+        { value: 0, text: Whatevr.I18n.i18nc("@item:inlistbox", "Off") },
+        { value: 86400, text: Whatevr.I18n.i18nc("@item:inlistbox", "24 hours") },
+        { value: 604800, text: Whatevr.I18n.i18nc("@item:inlistbox", "7 days") },
+        { value: 7776000, text: Whatevr.I18n.i18nc("@item:inlistbox", "90 days") }
+    ]
 
     FormCard.FormHeader {
         title: Whatevr.I18n.i18nc("@title:group", "Who can see my…")
@@ -63,6 +74,17 @@ SettingsPage {
             text: Whatevr.I18n.i18nc("@label:listbox", "About")
             categoryKey: "about"
             audienceModel: page.everyoneContactsNobody
+        }
+
+        FormCard.FormDelegateSeparator {}
+
+        PrivacyAudienceCombo {
+            objectName: "privacy.status"
+            text: Whatevr.I18n.i18nc("@label:listbox", "Status updates")
+            description: Whatevr.I18n.i18nc("@info", "Who can see the status updates you post. Shown for reference: change it in WhatsApp on your phone.")
+            categoryKey: "status"
+            audienceModel: page.statusModel
+            enabled: false
         }
     }
 
@@ -109,6 +131,39 @@ SettingsPage {
             text: Whatevr.I18n.i18nc("@label:listbox", "Who can call me")
             categoryKey: "call_add"
             audienceModel: page.callModel
+        }
+    }
+
+    FormCard.FormHeader {
+        title: Whatevr.I18n.i18nc("@title:group", "Disappearing messages")
+    }
+
+    FormCard.FormCard {
+        FormCard.FormComboBoxDelegate {
+            id: defaultTimerCombo
+            objectName: "privacy.defaultTimer"
+            text: Whatevr.I18n.i18nc("@label:listbox", "Default message timer")
+            description: (Whatevr.ProtocolController.privacySettings.default_timer_seconds ?? -1) < 0
+                ? Whatevr.I18n.i18nc("@info", "Chats you start from now disappear after this long. Your account did not report its current timer — picking a value sets it.")
+                : Whatevr.I18n.i18nc("@info", "Chats you start from now disappear after this long. Chats already running keep their own timer.")
+            textRole: "text"
+            valueRole: "value"
+            model: page.defaultTimerModel
+
+            function syncFromSettings() {
+                const configured = Whatevr.ProtocolController.privacySettings.default_timer_seconds ?? -1;
+                const idx = configured < 0 ? -1 : defaultTimerCombo.indexOfValue(configured);
+                defaultTimerCombo.currentIndex = idx;
+            }
+
+            Component.onCompleted: defaultTimerCombo.syncFromSettings()
+            onActivated: index => Whatevr.ProtocolController.setDefaultDisappearingTimer(model[index].value)
+
+            Connections {
+                target: Whatevr.ProtocolController
+                function onPrivacySettingsChanged() { defaultTimerCombo.syncFromSettings(); }
+                function onSettingsActionFailed() { defaultTimerCombo.syncFromSettings(); }
+            }
         }
     }
 

@@ -126,6 +126,76 @@ func TestPicturesInAnAlbumDoNotBumpTheChatAgain(t *testing.T) {
 	}
 }
 
+// A badge from the phone picks the newest rows the transcript draws. The
+// pictures hidden behind an album header are not those rows, so they must not
+// be the ones marked unread to back the badge.
+func TestOverwriteChatUnreadCountSkipsHiddenAlbumPictures(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	seedAlbumHeader(t, db, "chat-a:al", "chat-a", 3)
+	seedAlbumPicture(t, db, "chat-a:p1", "chat-a", "chat-a:al", 0)
+	seedAlbumPicture(t, db, "chat-a:p2", "chat-a", "chat-a:al", 1)
+	seedAlbumPicture(t, db, "chat-a:p3", "chat-a", "chat-a:al", 2)
+	if _, err := db.SaveTextMessage(ctx, TextMessageInput{
+		ID:          "chat-a:msg",
+		ChatID:      "chat-a",
+		ChatName:    "Test",
+		SenderID:    "ana@s.whatsapp.net",
+		Text:        "hi",
+		Timestamp:   time.Unix(1_700_000_002, 0),
+		Direction:   DirectionIncoming,
+		Status:      StatusDelivered,
+		CountUnread: true,
+	}); err != nil {
+		t.Fatalf("save message: %v", err)
+	}
+
+	chat, _, err := db.OverwriteChatUnreadCount(ctx, "chat-a", 2)
+	if err != nil {
+		t.Fatalf("overwrite unread: %v", err)
+	}
+	if chat.UnreadCount != 2 {
+		t.Fatalf("unread = %d, want 2", chat.UnreadCount)
+	}
+
+	// The two rows behind the badge are the album and the message, oldest
+	// first; no picture was picked behind its header.
+	candidates, err := db.ReadCandidatesForChat(ctx, "chat-a")
+	if err != nil {
+		t.Fatalf("read candidates: %v", err)
+	}
+	want := []string{"chat-a:al", "chat-a:msg"}
+	if len(candidates) != len(want) {
+		t.Fatalf("read candidates = %+v, want %v", candidates, want)
+	}
+	for i, id := range want {
+		if candidates[i].InternalID != id {
+			t.Fatalf("candidate %d is %s, want %s: candidates = %+v", i, candidates[i].InternalID, id, candidates)
+		}
+	}
+}
+
+// Pictures that arrive before their header are ordinary unread rows, and the
+// header that lands later hides them. The badge derived afterwards must not
+// keep counting rows the transcript no longer draws, or an album would leave
+// the chat carrying a number that nothing can clear.
+func TestBadgeRecountIgnoresPicturesThatArrivedBeforeTheirHeader(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	seedAlbumPicture(t, db, "chat-b:p1", "chat-b", "chat-b:al", 0)
+	seedAlbumPicture(t, db, "chat-b:p2", "chat-b", "chat-b:al", 1)
+	seedAlbumPicture(t, db, "chat-b:p3", "chat-b", "chat-b:al", 2)
+	seedAlbumHeader(t, db, "chat-b:al", "chat-b", 3)
+
+	chat, _, err := db.MarkMessagesReadByIDs(ctx, "chat-b", []string{"chat-b:al"})
+	if err != nil {
+		t.Fatalf("mark read: %v", err)
+	}
+	if chat.UnreadCount != 0 {
+		t.Fatalf("unread = %d, want 0: the pictures sit behind their album, not under the badge", chat.UnreadCount)
+	}
+}
+
 // Jumping to a picture inside an album lands on the album, because the picture
 // is not a row the transcript ever draws.
 func TestJumpingToAPictureAnchorsItsAlbum(t *testing.T) {

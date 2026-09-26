@@ -150,6 +150,7 @@ type fakeCommandActions struct {
 	privacyCategory    string
 	privacyAudience    string
 	privacyRead        bool
+	privacyTimer       time.Duration
 	prefs              app.AppPreferences
 	setPrefs           app.AppPreferences
 	profileStatus      string
@@ -684,6 +685,12 @@ func (f *fakeCommandActions) SetPrivacySetting(_ context.Context, category, audi
 	defer f.mu.Unlock()
 	f.privacyCategory, f.privacyAudience, f.privacyRead = category, audience, readReceipts
 	return app.PrivacySettings{LastSeen: audience, ReadReceipts: readReceipts}, f.err
+}
+func (f *fakeCommandActions) SetDefaultDisappearingTimer(_ context.Context, timer time.Duration) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.privacyTimer = timer
+	return f.err
 }
 func (f *fakeCommandActions) UpdateAppPreferences(_ context.Context, apply func(*app.AppPreferences)) (app.AppPreferences, error) {
 	f.mu.Lock()
@@ -1253,6 +1260,21 @@ func TestC3SettingsContactAndStickerCommands(t *testing.T) {
 				t.Fatalf("sticker_pack.install call = %q/%v", actions.installPackID, actions.installed)
 			}
 		}},
+		{`{"id":10,"method":"privacy.set_default_timer","params":{"seconds":604800}}`, func(t *testing.T) {
+			if actions.privacyTimer != 7*24*time.Hour {
+				t.Fatalf("privacy.set_default_timer call = %s", actions.privacyTimer)
+			}
+		}},
+		{`{"id":11,"method":"privacy.set_default_timer","params":{"seconds":0}}`, func(t *testing.T) {
+			if actions.privacyTimer != 0 {
+				t.Fatalf("privacy.set_default_timer off = %s", actions.privacyTimer)
+			}
+		}},
+		{`{"id":12,"method":"preferences.set","params":{"keep_chats_archived":true}}`, func(t *testing.T) {
+			if !actions.setPrefs.KeepChatsArchived {
+				t.Fatalf("preferences patch = %+v", actions.setPrefs)
+			}
+		}},
 	}
 
 	for _, tc := range cases {
@@ -1318,9 +1340,8 @@ func TestD6StickerQueryInvalidParams(t *testing.T) {
 	cases := []string{
 		`{"id":2,"method":"search.stickers","params":{"limit":1}}`,
 		`{"id":3,"method":"search.stickers","params":{"query":"   ","limit":1}}`,
-		`{"id":4,"method":"search.stickers","params":{"query":"wave"}}`,
-		`{"id":5,"method":"search.stickers","params":{"query":"wave","limit":0}}`,
 		`{"id":6,"method":"search.stickers","params":{"query":"wave","limit":-1}}`,
+		`{"id":7,"method":"search.stickers","params":{"query":"wave","limit":1000}}`,
 	}
 	for _, line := range cases {
 		c.sendLine(line)
@@ -1442,7 +1463,7 @@ func TestCommandValidationAndErrors(t *testing.T) {
 
 	c.sendLine(`{"id":21,"method":"chat.mark_all_read","params":{}}`)
 	result := c.recv()["result"].(map[string]any)
-	if result["marked_chats"] != float64(3) {
+	if result["count"] != float64(3) {
 		t.Fatalf("chat.mark_all_read result = %v", result)
 	}
 
@@ -1467,6 +1488,19 @@ func TestCommandValidationAndErrors(t *testing.T) {
 	c.sendLine(`{"id":6,"method":"message.pin","params":{"message_id":"m1"}}`)
 	if got := errorCode(t, c.recv()); got != CodeInvalidParams {
 		t.Fatalf("missing pinned error = %s", got)
+	}
+
+	c.sendLine(`{"id":9,"method":"privacy.set_default_timer","params":{}}`)
+	if got := errorCode(t, c.recv()); got != CodeInvalidParams {
+		t.Fatalf("missing seconds error = %s", got)
+	}
+	c.sendLine(`{"id":10,"method":"privacy.set_default_timer","params":{"seconds":42}}`)
+	if got := errorCode(t, c.recv()); got != CodeInvalidParams {
+		t.Fatalf("unsupported seconds error = %s", got)
+	}
+	c.sendLine(`{"id":11,"method":"privacy.set_default_timer","params":{"seconds":"7d"}}`)
+	if got := errorCode(t, c.recv()); got != CodeInvalidParams {
+		t.Fatalf("non-numeric seconds error = %s", got)
 	}
 
 	actions.err = app.NewCommandError(app.CommandErrorExpired, "the edit window for this message has expired")

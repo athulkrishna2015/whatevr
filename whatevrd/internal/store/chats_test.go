@@ -283,7 +283,7 @@ func TestReconcileChatArchives(t *testing.T) {
 	changed, err := db.ReconcileChatArchives(ctx, map[string]struct{}{
 		"keep": {},
 		"new":  {},
-	})
+	}, false)
 	if err != nil {
 		t.Fatalf("reconcile archives: %v", err)
 	}
@@ -316,6 +316,31 @@ func TestReconcileChatArchives(t *testing.T) {
 	}
 	if !newChat.IsArchived {
 		t.Fatalf("new chat was not archived: %+v", newChat)
+	}
+
+	// "keep_chats_archived" holds every already-archived chat on the snapshot
+	// that would otherwise drop it, while still archiving a chat the snapshot
+	// adds.
+	if _, _, err := db.UpdateChatArchiveState(ctx, "stale", true); err != nil {
+		t.Fatalf("re-archive stale: %v", err)
+	}
+	changed, err = db.ReconcileChatArchives(ctx, map[string]struct{}{
+		"new": {},
+	}, true)
+	if err != nil {
+		t.Fatalf("reconcile archives (keep): %v", err)
+	}
+	if len(changed) != 0 {
+		t.Fatalf("keep-archived reconcile changed rows: %+v", changed)
+	}
+	for _, chatID := range []string{"stale", "keep", "new"} {
+		chat, err := db.GetChat(ctx, chatID)
+		if err != nil {
+			t.Fatalf("get %s: %v", chatID, err)
+		}
+		if !chat.IsArchived {
+			t.Fatalf("%s was unarchived with keep-archived on: %+v", chatID, chat)
+		}
 	}
 }
 

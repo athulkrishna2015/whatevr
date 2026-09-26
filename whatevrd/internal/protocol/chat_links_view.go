@@ -87,8 +87,13 @@ func (s *chatLinksSession) eventAffects(evt app.DaemonEvent) bool {
 
 // Items returns the newest `max` link messages, newest first.
 func (s *chatLinksSession) Items(max int) []Item {
+	items, _ := s.ItemsErr(max)
+	return items
+}
+
+func (s *chatLinksSession) ItemsErr(max int) ([]Item, error) {
 	if s.lister == nil {
-		return nil
+		return nil, nil
 	}
 	limit := max
 	if limit <= 0 {
@@ -97,7 +102,7 @@ func (s *chatLinksSession) Items(max int) []Item {
 	rows, err := s.lister.ListChatLinkMessages(s.ctx, s.chatID, limit, "")
 	if err != nil {
 		log.Printf("protocol: list chat links for view: %v", err)
-		return nil
+		return nil, err
 	}
 	items := make([]Item, 0, len(rows))
 	for _, m := range rows {
@@ -107,7 +112,7 @@ func (s *chatLinksSession) Items(max int) []Item {
 			Data: messageItemFromStore(m),
 		})
 	}
-	return items
+	return items, nil
 }
 
 func (s *chatLinksSession) Close() {

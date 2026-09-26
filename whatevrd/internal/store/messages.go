@@ -2045,6 +2045,52 @@ func (db *DB) ListStarredMessages(ctx context.Context, chatID string, limit int,
 	return result, nil
 }
 
+// CallLogMessage pairs a call-log row with its chat's display name, so the
+// cross-chat `call_history` view can label which conversation the call belongs
+// to.
+type CallLogMessage struct {
+	Message
+	ChatName string
+}
+
+// ListCallLogMessages returns every chat's call-log rows newest first, each
+// carrying its chat's display name for the global call-history view. limit
+// caps the window; <= 0 means the default page of 50.
+func (db *DB) ListCallLogMessages(ctx context.Context, limit int) ([]CallLogMessage, error) {
+	defer db.timeOp("ListCallLogMessages", time.Now())
+	if limit <= 0 {
+		limit = 50
+	}
+
+	rows, err := db.reader().QueryContext(ctx, messageSelectPrefix+`
+		WHERE m.media_kind = ? AND m.is_revoked = 0
+		ORDER BY m.sort_ms DESC, m.id DESC
+		LIMIT ?
+	`, MediaKindCallLog, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	messages, err := scanMessageRows(rows, limit)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.attachMessageExtras(ctx, db.reader(), messages); err != nil {
+		return nil, err
+	}
+
+	names, err := db.chatNamesByID(ctx, messages)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]CallLogMessage, len(messages))
+	for i, m := range messages {
+		result[i] = CallLogMessage{Message: m, ChatName: names[m.ChatID]}
+	}
+	return result, nil
+}
+
 // MessageSearchResult is a full-text search hit: the matched message plus its
 // chat's display name (for labeling cross-chat results in the global view).
 type MessageSearchResult struct {
@@ -2711,8 +2757,9 @@ func recomputeChatUnreadTx(ctx context.Context, tx *sql.Tx, chatID string) (Chat
 		UPDATE chats
 		SET unread_count = (
 			SELECT COUNT(*)
-			FROM messages
-			WHERE chat_id = ? AND direction = ? AND is_read = 0
+			FROM messages m
+			WHERE m.chat_id = ? AND m.direction = ? AND m.is_read = 0
+		`+albumChildExclusion+`
 		)
 		WHERE id = ?
 	`, chatID, DirectionIncoming, chatID); err != nil {

@@ -25,6 +25,8 @@ Kirigami.ScrollablePage {
     property var statusIds: []
     property int currentIndex: -1
     property var senderIds: []
+    property var senderNames: ({})
+    property var senderUnviewed: ({})
     property int senderIndex: -1
     property var inFlightDownloads: ({})
     readonly property int stillDurationMs: 30 * 1000
@@ -69,18 +71,37 @@ Kirigami.ScrollablePage {
     function collectSenders() {
         const model = Whatevr.ProtocolController.statusModel
         const latest = {}
+        const names = {}
+        const unviewed = {}
         const count = model ? model.count : 0
         for (let i = 0; i < count; ++i) {
             const item = model.itemById(model.idAt(i))
             if (item && item.sender && item.sender.id) {
                 const id = item.sender.id
                 latest[id] = Math.max(Number(latest[id] || 0), Number(item.timestamp || 0))
+                const name = String(item.sender.name || "")
+                if (name.length > 0 && !names[id]) {
+                    names[id] = name
+                }
+                if (!item.viewed) {
+                    unviewed[id] = Number(unviewed[id] || 0) + 1
+                }
             }
         }
         const ids = Object.keys(latest)
         ids.sort((a, b) => latest[b] - latest[a])
         root.senderIds = ids
+        root.senderNames = names
+        root.senderUnviewed = unviewed
         root.senderIndex = Math.max(0, ids.indexOf(root.senderId))
+    }
+
+    function senderLabel(id) {
+        if (id === "me") {
+            return Whatevr.I18n.i18nc("@item status contact", "My status")
+        }
+        const name = root.senderNames[id]
+        return name && String(name).length > 0 ? String(name) : id
     }
 
     function advanceStatus() {
@@ -109,7 +130,13 @@ Kirigami.ScrollablePage {
         root.currentIndex = -1
         root.refreshCurrent()
         const next = root.currentItem
-        root.senderName = next && next.sender ? (next.sender.name || senderId) : senderId
+        root.senderName = next && next.sender ? (next.sender.name || senderId) : root.senderLabel(senderId)
+    }
+
+    function revealCurrentSender() {
+        if (senderStrip.count > 0 && root.senderIndex >= 0 && root.senderIndex < senderStrip.count) {
+            senderStrip.positionViewAtIndex(root.senderIndex, ListView.Contain)
+        }
     }
 
     function markCurrentViewed() {
@@ -283,7 +310,10 @@ Kirigami.ScrollablePage {
     Component.onCompleted: {
         root.refreshCurrent()
         root.loadViewers()
+        root.revealCurrentSender()
     }
+
+    onSenderIndexChanged: root.revealCurrentSender()
 
     Component.onDestruction: {
         // Don't leave this sender's audio running behind a closed viewer —
@@ -332,13 +362,27 @@ Kirigami.ScrollablePage {
         root.ensureDownloaded()
         root.maybeAutoplay()
         root.loadViewers()
+        root.syncStillTimer()
     }
+
+    // A still→still step never changes currentItemIsStill, so a plain
+    // running: binding on it never re-evaluates and the viewer hangs: the
+    // index path restarts the timer as well. Stepping onto a video stops it
+    // there, since the clip advances on end-of-file instead.
+    function syncStillTimer() {
+        if (root.currentItemIsStill) {
+            stillTimer.restart()
+        } else {
+            stillTimer.stop()
+        }
+    }
+
+    onCurrentItemIsStillChanged: root.syncStillTimer()
 
     Timer {
         id: stillTimer
         interval: root.stillDurationMs
         repeat: false
-        running: root.currentItemIsStill
         onTriggered: root.advanceStatus()
     }
 
@@ -418,6 +462,66 @@ Kirigami.ScrollablePage {
         width: parent.width
         spacing: Kirigami.Units.largeSpacing
 
+        // Contact name strip: click any name to jump straight to that
+        // contact's statuses without closing the viewer first. The current
+        // contact is highlighted; a dot marks contacts still holding
+        // unviewed statuses.
+        ListView {
+            id: senderStrip
+
+            Layout.fillWidth: true
+            Layout.preferredHeight: Kirigami.Units.gridUnit * 3
+            visible: root.senderIds.length > 1
+            orientation: ListView.Horizontal
+            clip: true
+            spacing: Kirigami.Units.smallSpacing
+            boundsBehavior: Flickable.StopAtBounds
+            model: root.senderIds
+            currentIndex: root.senderIndex
+            QQC2.ScrollBar.horizontal: QQC2.ScrollBar {}
+
+            delegate: QQC2.ItemDelegate {
+                id: senderDelegate
+
+                required property var modelData
+                required property int index
+
+                readonly property string senderId: String(modelData)
+                readonly property int unviewed: Number(root.senderUnviewed[senderId] || 0)
+
+                highlighted: senderId === root.senderId
+                height: Kirigami.Units.gridUnit * 3
+                padding: Kirigami.Units.smallSpacing + Kirigami.Units.largeSpacing / 2
+                width: senderNameLabel.implicitWidth + padding * 2
+                       + (unviewed > 0 && !highlighted ? Kirigami.Units.smallSpacing + Kirigami.Units.largeSpacing / 2 : 0)
+                onClicked: root.switchSender(senderId)
+
+                contentItem: RowLayout {
+                    spacing: Kirigami.Units.smallSpacing
+
+                    QQC2.Label {
+                        id: senderNameLabel
+
+                        Layout.fillWidth: true
+                        text: root.senderLabel(senderDelegate.senderId)
+                        elide: Text.ElideRight
+                        horizontalAlignment: Text.AlignHCenter
+                        font.weight: senderDelegate.highlighted ? Font.DemiBold : Font.Normal
+                        color: senderDelegate.highlighted
+                            ? Kirigami.Theme.highlightColor : Kirigami.Theme.textColor
+                    }
+
+                    Rectangle {
+                        visible: senderDelegate.unviewed > 0 && !senderDelegate.highlighted
+                        Layout.preferredWidth: Kirigami.Units.smallSpacing
+                        Layout.preferredHeight: Kirigami.Units.smallSpacing
+                        radius: width / 2
+                        color: Kirigami.Theme.highlightColor
+                    }
+                }
+            }
+        }
+
         // Text status: centered large label.
         QQC2.Label {
             Layout.fillWidth: true
@@ -476,6 +580,7 @@ Kirigami.ScrollablePage {
             fillMode: Image.PreserveAspectFit
             asynchronous: true
             playing: root.currentItem && root.currentItem.kind === "gif"
+                     && !Whatevr.Settings.reduceMotion
         }
 
         QQC2.Label {

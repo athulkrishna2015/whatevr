@@ -25,6 +25,7 @@ type DaemonStore interface {
 	ChatLister
 	MessageLister
 	StarredPinnedLister
+	CallHistoryLister
 	ChatMediaLister
 	StatusLister
 	StatusSenderLister
@@ -62,7 +63,7 @@ func RegisterDaemonViews(s *Server, daemon *app.Daemon, store DaemonStore, actio
 	s.RegisterView("login", loginView{daemon: daemon})
 	s.RegisterView("chats", chatsView{daemon: daemon, lister: store, statuses: store})
 	if folders, ok := any(store).(FolderLister); ok {
-		s.RegisterView("chat_folders", foldersView{lister: folders})
+		s.RegisterView("chat_folders", &foldersView{lister: folders})
 	}
 	s.RegisterView("chat", chatView{daemon: daemon, lister: store})
 	s.RegisterView("messages", messagesView{daemon: daemon, lister: store})
@@ -86,6 +87,7 @@ func RegisterDaemonViews(s *Server, daemon *app.Daemon, store DaemonStore, actio
 	s.RegisterView("status.kept", statusKeptView{daemon: daemon, lister: store})
 	s.RegisterView("status.muted", statusMutedView{daemon: daemon, lister: store})
 	s.RegisterView("calls", callsView{daemon: daemon, resolver: store})
+	s.RegisterView("call_history", callHistoryView{daemon: daemon, lister: store})
 	s.RegisterView("daemon.logs", logsView{tailer: actions})
 	s.RegisterView("live_locations", liveLocationsView{daemon: daemon, lister: store})
 	s.RegisterView("stickers", stickersView{daemon: daemon, store: stickerStore})

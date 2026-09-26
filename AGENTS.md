@@ -4,10 +4,14 @@ Development guide for the Whatevr project (daemon `whatevrd` + Qt frontend `what
 
 ## Build commands
 
+Every build and test run is capped at **2 parallel jobs** (`GOMAXPROCS=2` for
+Go, `-- -j2` for Ninja). Never let these run unbounded.
+
 ### Daemon (Go)
 
 ```sh
 GOMAXPROCS=2 go -C whatevrd build -tags sqlite_fts5 ./...
+GOMAXPROCS=2 go -C whatevrd vet -tags sqlite_fts5 ./...
 GOMAXPROCS=2 go -C whatevrd test -tags sqlite_fts5 ./internal/...
 ```
 
@@ -15,11 +19,12 @@ GOMAXPROCS=2 go -C whatevrd test -tags sqlite_fts5 ./internal/...
 
 ```sh
 cmake -S whatkevr -B build/debug/whatkevr -G Ninja -DCMAKE_BUILD_TYPE=Debug
-cmake --build build/debug/whatkevr
+cmake --build build/debug/whatkevr -- -j2
+ctest --test-dir build/debug/whatkevr --output-on-failure
 
 # Release:
 cmake -S whatkevr -B build/release/whatkevr -G Ninja -DCMAKE_BUILD_TYPE=Release
-cmake --build build/release/whatkevr
+cmake --build build/release/whatkevr -- -j2
 ```
 
 ### Release install (just)
@@ -97,6 +102,49 @@ If the update introduces breaking changes, update callers in
 
 Record the new pseudo-version in the changelog entry under "Unreleased" →
 "Updated" with the commit date and hash.
+
+## Merging upstream
+
+`origin` is the fork (`athulkrishna2015/whatevr`); `upstream` is
+`codelif/whatevr`. Check what landed upstream before assuming a tree is
+current:
+
+```sh
+git fetch upstream
+git log --oneline main..upstream/main      # what we are missing
+git rev-list --left-right --count main...upstream/main   # "<ours> <theirs>"
+```
+
+Merge it when upstream has work we need (bug fixes, a whatsmeow bump, new
+frontends). The histories diverge, so expect conflicts in `whatevrd/internal/`
+and `whatkevr/src/`:
+
+```sh
+git status                      # the tree must be clean first
+git merge upstream/main
+```
+
+If the tree has uncommitted work, preserve it before merging — a dirty tree
+blocks the merge and the conflict resolution gets confusing fast:
+
+```sh
+git diff > /tmp/whatevr-wip.patch        # tracked changes
+git ls-files --others --exclude-standard  # copy untracked files aside
+git stash push -u -m "wip before upstream merge"
+```
+
+Resolve conflicts file by file, keeping the intent of both sides rather than
+picking one wholesale. Then always re-verify before committing — an upstream
+whatsmeow bump alone changes compile behaviour:
+
+```sh
+GOMAXPROCS=2 go -C whatevrd build -tags sqlite_fts5 ./...
+GOMAXPROCS=2 go -C whatevrd test -tags sqlite_fts5 ./internal/...
+cmake --build build/debug/whatkevr -- -j2
+ctest --test-dir build/debug/whatkevr --output-on-failure
+```
+
+If the merge bumped whatsmeow, re-check the API-breakage list below.
 
 ## Contribution and PR scope
 

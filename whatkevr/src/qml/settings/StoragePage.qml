@@ -119,7 +119,7 @@ SettingsPage {
         QQC2.TextField {
             id: passphrase
             placeholderText: Whatevr.I18n.i18nc("@info:placeholder", "Optional passphrase")
-            echoMode: QQC2.TextInput.Password
+            echoMode: TextInput.Password
         }
 
         onAccepted: {
@@ -137,7 +137,7 @@ SettingsPage {
         QQC2.TextField {
             id: keyringPassphrase
             placeholderText: Whatevr.I18n.i18nc("@info:placeholder", "Passphrase")
-            echoMode: QQC2.TextInput.Password
+            echoMode: TextInput.Password
         }
 
         onAccepted: {

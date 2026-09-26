@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"time"
 
+	"go.mau.fi/whatsmeow"
+	waBinary "go.mau.fi/whatsmeow/binary"
 	"go.mau.fi/whatsmeow/types"
 	waEvents "go.mau.fi/whatsmeow/types/events"
 
@@ -151,7 +154,80 @@ func (c *Client) GetPrivacySettings(ctx context.Context) (app.PrivacySettings, e
 	if err != nil {
 		return app.PrivacySettings{}, err
 	}
-	return privacyToApp(*settings), nil
+	appSettings := privacyToApp(*settings)
+	// Status (story) audience and the default disappearing timer are not part
+	// of the privacy namespace, so they ride their own queries. Both are
+	// best-effort: one failing still returns the rest of the settings.
+	list, err := client.GetStatusPrivacy(ctx)
+	if err != nil {
+		c.log.Debugf("Failed to read status privacy: %v", err)
+	} else if len(list) > 0 {
+		appSettings.Status = statusPrivacyToApp(list[0])
+	}
+	if timer, err := fetchDefaultDisappearingTimer(ctx, client); err != nil {
+		appSettings.DefaultTimerSeconds = -1
+		c.log.Debugf("Failed to read the default disappearing timer: %v", err)
+	} else {
+		appSettings.DefaultTimerSeconds = timer
+	}
+	return appSettings, nil
+}
+
+// statusPrivacyToApp maps WhatsApp's status list types onto the audience
+// spelling the rest of the privacy fields use, so the frontend needs one model.
+func statusPrivacyToApp(p types.StatusPrivacy) string {
+	switch p.Type {
+	case types.StatusPrivacyTypeContacts:
+		return "contacts"
+	case types.StatusPrivacyTypeBlacklist:
+		return "contact_blacklist"
+	case types.StatusPrivacyTypeWhitelist:
+		return "contact_allowlist"
+	default:
+		return ""
+	}
+}
+
+// fetchDefaultDisappearingTimer reads the account's default timer for new
+// chats, in seconds (0 = off). whatsmeow sets it but never reads it, so this
+// asks the same namespace the set goes to; an account or server that does not
+// answer leaves the caller with -1 (unknown) rather than a made-up value.
+func fetchDefaultDisappearingTimer(ctx context.Context, client *whatsmeow.Client) (int, error) {
+	resp, err := client.DangerousInternals().SendIQ(ctx, whatsmeow.DangerousInfoQuery{
+		Namespace: "disappearing_mode",
+		Type:      "get",
+		To:        types.ServerJID,
+		Content:   []waBinary.Node{{Tag: "disappearing_mode"}},
+	})
+	if err != nil {
+		return 0, err
+	}
+	node, ok := resp.GetOptionalChildByTag("disappearing_mode")
+	if !ok {
+		return 0, errors.New("no disappearing_mode element in the response")
+	}
+	au := node.AttrGetter()
+	seconds, ok := au.GetInt64("duration", true)
+	if !ok {
+		return 0, errors.Join(au.Errors...)
+	}
+	return int(seconds), nil
+}
+
+// SetDefaultDisappearingTimer sets the default disappearing-message timer for
+// new chats, then republishes the privacy snapshot so open views follow it.
+func (c *Client) SetDefaultDisappearingTimer(ctx context.Context, timer time.Duration) error {
+	client := c.currentClient()
+	if client == nil || !client.IsLoggedIn() {
+		return errNotConnected
+	}
+	if err := client.SetDefaultDisappearingTimer(ctx, timer); err != nil {
+		return err
+	}
+	if settings, err := c.GetPrivacySettings(ctx); err == nil {
+		c.daemon.PublishPrivacySettingsChanged(settings)
+	}
+	return nil
 }
 
 // SetPrivacySetting updates one privacy category. category is the app-level key

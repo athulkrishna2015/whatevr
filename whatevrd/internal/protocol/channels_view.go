@@ -91,13 +91,18 @@ type channelItem struct {
 
 // Items returns followed channels, most-followed first.
 func (s *channelsSession) Items(max int) []Item {
+	items, _ := s.ItemsErr(max)
+	return items
+}
+
+func (s *channelsSession) ItemsErr(max int) ([]Item, error) {
 	if s.lister == nil {
-		return nil
+		return nil, nil
 	}
 	rows, err := s.lister.ListChannels(s.ctx)
 	if err != nil {
 		log.Printf("protocol: list channels for view: %v", err)
-		return nil
+		return nil, err
 	}
 	if max > 0 && len(rows) > max {
 		rows = rows[:max]
@@ -117,7 +122,7 @@ func (s *channelsSession) Items(max int) []Item {
 			},
 		})
 	}
-	return items
+	return items, nil
 }
 
 func (s *channelsSession) Close() {
@@ -206,17 +211,19 @@ func (s *channelMessagesSession) run(events <-chan app.DaemonEvent, invalidate f
 }
 
 // refreshLiveEdge merges the newest page into the window (new posts appear on
-// top; everything already held stays where it is).
-func (s *channelMessagesSession) refreshLiveEdge() {
+// top; everything already held stays where it is). A failed fetch reports the
+// error so an unfilled window is never mistaken for an empty one.
+func (s *channelMessagesSession) refreshLiveEdge() error {
 	if s.actions == nil {
-		return
+		return nil
 	}
 	rows, err := s.actions.GetChannelMessages(s.ctx, s.channelID, channelMessagesPageSize, 0)
 	if err != nil {
 		log.Printf("protocol: refresh channel messages for view: %v", err)
-		return
+		return err
 	}
 	s.merge(rows)
+	return nil
 }
 
 // merge folds fetched rows into the window, newest-first, deduplicating by
@@ -293,17 +300,24 @@ func (s *channelMessagesSession) Exhausted() bool {
 
 // Items reports the whole held window; the first call fills the live edge.
 func (s *channelMessagesSession) Items(max int) []Item {
+	items, _ := s.ItemsErr(max)
+	return items
+}
+
+func (s *channelMessagesSession) ItemsErr(_ int) ([]Item, error) {
 	s.mu.Lock()
 	filled := s.filled
 	s.mu.Unlock()
 	if !filled {
-		s.refreshLiveEdge()
+		if err := s.refreshLiveEdge(); err != nil {
+			return nil, err
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]Item, len(s.window))
 	copy(out, s.window)
-	return out
+	return out, nil
 }
 
 type channelMessageItem struct {

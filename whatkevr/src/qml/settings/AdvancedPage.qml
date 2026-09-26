@@ -103,7 +103,7 @@ SettingsPage {
         QQC2.TextField {
             id: appLockPin
             placeholderText: Whatevr.I18n.i18nc("@info:placeholder", "PIN")
-            echoMode: QQC2.TextInput.Password
+            echoMode: TextInput.Password
         }
         onAccepted: {
             if (Whatevr.Settings.setAppLockPin(appLockPin.text)) {

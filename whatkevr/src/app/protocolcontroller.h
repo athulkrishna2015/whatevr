@@ -195,6 +195,11 @@ class ProtocolController final : public QObject
     // the revision tick makes those reads re-evaluate.
     Q_PROPERTY(int forwardTargetsRevision READ forwardTargetsRevision NOTIFY forwardTargetsChanged FINAL)
 
+    // Group-member picker: a `chats` subscription over direct chats (the
+    // daemon's synced contact list) living exactly as long as the picker
+    // dialog is open. Same shape and revision tick as the forward picker.
+    Q_PROPERTY(int contactTargetsRevision READ contactTargetsRevision NOTIFY contactTargetsChanged FINAL)
+
     // Unified chat-list search (D5): the `search.chats` / `search.messages` /
     // `contacts.check_phone` *queries*. Queries are one-shot and their results
     // are explicitly frontend-transient (PROTOCOL.md "Queries"), so unlike a
@@ -241,6 +246,13 @@ class ProtocolController final : public QObject
     // offers Reject and "answer on your phone".
     Q_PROPERTY(QAbstractItemModel *callsModel READ callsModel CONSTANT FINAL)
     Q_PROPERTY(int callsRingingCount READ callsRingingCount NOTIFY callsChanged FINAL)
+
+    // Calls tab — recent section: the `call_history` view, with the same
+    // lifetime as `calls`. Rows are ordinary `messages` items (kind `call_log`)
+    // plus the chat's display name, windowed like any collection.
+    Q_PROPERTY(QAbstractItemModel *callHistoryModel READ callHistoryModel CONSTANT FINAL)
+    Q_PROPERTY(bool callHistoryLoading READ callHistoryLoading NOTIFY callHistoryChanged FINAL)
+    Q_PROPERTY(bool callHistoryExhausted READ callHistoryExhausted NOTIFY callHistoryChanged FINAL)
 
     // Logs tab: the `daemon.logs` view, subscribed while the logs page is on
     // screen. Rows are log entries with time, level, and text.
@@ -451,6 +463,14 @@ public:
     Q_INVOKABLE void openForwardTargets();
     Q_INVOKABLE void closeForwardTargets();
 
+    // Candidate group members: the daemon's direct chats, in daemon order.
+    // Rows are the daemon items verbatim; the picker's search box narrows them
+    // presentation-side.
+    [[nodiscard]] Q_INVOKABLE QVariantList contactTargets(const QString &query) const;
+    Q_INVOKABLE void openContactTargets();
+    Q_INVOKABLE void closeContactTargets();
+    [[nodiscard]] int contactTargetsRevision() const { return m_contactTargetsRevision; }
+
     // --- unified search (D5) ---
     [[nodiscard]] QAbstractItemModel *searchResultsModel() const;
     [[nodiscard]] QString searchQuery() const { return m_searchQuery; }
@@ -481,6 +501,9 @@ public:
     [[nodiscard]] bool statusExhausted() const;
     [[nodiscard]] QAbstractItemModel *callsModel() const;
     [[nodiscard]] int callsRingingCount() const;
+    [[nodiscard]] QAbstractItemModel *callHistoryModel() const;
+    [[nodiscard]] bool callHistoryLoading() const;
+    [[nodiscard]] bool callHistoryExhausted() const;
      [[nodiscard]] QAbstractItemModel *logsModel() const;
     [[nodiscard]] bool logsLoading() const { return m_logsLoading; }
     [[nodiscard]] QString logsErrorText() const { return m_logsErrorText; }
@@ -525,6 +548,11 @@ public:
     // Subscribe/drop the `calls` view for the calls tab's lifetime.
     Q_INVOKABLE void openCalls();
     Q_INVOKABLE void closeCalls();
+    // Subscribe/drop the `call_history` view (the recent section under the
+    // ringing one), and grow its live-edge window older on scroll.
+    Q_INVOKABLE void openCallHistory();
+    Q_INVOKABLE void closeCallHistory();
+    Q_INVOKABLE void loadMoreCallHistory();
     // Subscribe/drop the `daemon.logs` view for the logs page's lifetime.
     Q_INVOKABLE void openLogs();
     Q_INVOKABLE void closeLogs();
@@ -556,6 +584,25 @@ public:
     // link to the clipboard on success.
     Q_INVOKABLE void leaveGroup(const QString &chatId);
     Q_INVOKABLE void copyGroupInviteLink(const QString &chatId);
+    // `group.create` answers with the new chat's id, so the ack is what takes
+    // the user there — same shape as joinGroupInvite.
+    Q_INVOKABLE void createGroup(const QString &name, const QStringList &members);
+    // Admin mutations of the open group card. Ack-only: the new subject,
+    // description, avatar, flags and roster land back through the `group` /
+    // `group_members` views, and a failure is reported on the card itself.
+    Q_INVOKABLE void setGroupName(const QString &chatId, const QString &name);
+    Q_INVOKABLE void setGroupDescription(const QString &chatId, const QString &description);
+    Q_INVOKABLE void setGroupPhoto(const QString &chatId, const QUrl &path);
+    Q_INVOKABLE void setGroupAnnounce(const QString &chatId, bool enabled);
+    Q_INVOKABLE void setGroupLocked(const QString &chatId, bool enabled);
+    // `group.members` with one of add/remove/promote/demote.
+    Q_INVOKABLE void updateGroupMembers(const QString &chatId, const QString &action, const QStringList &members);
+    // `community.link` / `community.unlink`. Both move the community's
+    // directory and the group's parent at once, so the daemon re-publishes both
+    // `group` cards and the open one updates without a reopen; a failure
+    // reports on the card the action came from.
+    Q_INVOKABLE void linkCommunityGroup(const QString &communityId, const QString &groupId);
+    Q_INVOKABLE void unlinkCommunityGroup(const QString &communityId, const QString &groupId);
     // Maps to `media.save`: copies a chat message, status, or profile picture
     // out of the daemon cache to a local file, downloading first when the row
     // carries keys but no bytes yet (explicit per-item save, including for
@@ -625,6 +672,7 @@ public:
     Q_INVOKABLE void closeBlockedContacts();
     Q_INVOKABLE void setPrivacyAudience(const QString &category, const QString &value);
     Q_INVOKABLE void setReadReceipts(bool enabled);
+    Q_INVOKABLE void setDefaultDisappearingTimer(int seconds);
     Q_INVOKABLE void setAppPreference(const QString &key, bool value);
     /// The ceiling above which nothing auto-downloads. 0 means no limit.
     Q_INVOKABLE void setAutoDownloadLimit(qint64 maxBytes);
@@ -867,6 +915,7 @@ public:
     void pinnedMessagesChanged();
     void liveLocationsChanged();
     void forwardTargetsChanged();
+    void contactTargetsChanged();
     void searchChanged();
     void chatSearchChanged();
     void starredMessagesChanged();
@@ -876,6 +925,7 @@ public:
     void statusViewersReady(const QString &statusId, const QVariantList &viewers);
     void statusViewersFailed(const QString &statusId, const QString &message);
     void callsChanged();
+    void callHistoryChanged();
     void channelsChanged();
     void channelMessagesChanged();
     void logsLoadingChanged();
@@ -1049,6 +1099,12 @@ private:
     // Issues a `message.*` command whose only interesting outcome is failure.
     void sendMessageCommand(const QString &method, const QJsonObject &params, const QString &failureText);
 
+    // Same, for a group-card mutation: a failure belongs on the card that is
+    // still showing that group, and only falls back to the generic toast when
+    // the card has moved on.
+    void sendGroupCardCommand(const QString &chatId, const QString &method, const QJsonObject &params,
+                              const QString &failureText);
+
     // Fire the unified-search queries for the current query string. A
     // generation counter drops replies to superseded queries — the client
     // always answers, so the guard is on this side.
@@ -1077,6 +1133,7 @@ private:
     whatevr::proto::Subscription *m_liveLocationsSub = nullptr;
     QString m_liveLocationsChatId;
     whatevr::proto::CollectionViewModel *m_forwardTargetsModel = nullptr;
+    whatevr::proto::CollectionViewModel *m_contactTargetsModel = nullptr;
     whatevr::proto::CollectionViewModel *m_transfersModel = nullptr;
     whatevr::proto::CollectionViewModel *m_starredModel = nullptr;
     whatevr::proto::CollectionViewModel *m_chatMediaModel = nullptr;
@@ -1085,6 +1142,7 @@ private:
     whatevr::proto::CollectionViewModel *m_keptStatusModel = nullptr;
     whatevr::proto::CollectionViewModel *m_mutedStatusModel = nullptr;
     whatevr::proto::CollectionViewModel *m_callsModel = nullptr;
+    whatevr::proto::CollectionViewModel *m_callHistoryModel = nullptr;
     whatevr::proto::CollectionViewModel *m_channelsModel = nullptr;
     whatevr::proto::CollectionViewModel *m_channelMessagesModel = nullptr;
     whatevr::proto::CollectionViewModel *m_logsModel = nullptr;
@@ -1113,6 +1171,7 @@ private:
     whatevr::proto::Subscription *m_receiptsSub = nullptr;
     whatevr::proto::Subscription *m_pinnedSub = nullptr;
     whatevr::proto::Subscription *m_forwardTargetsSub = nullptr;
+    whatevr::proto::Subscription *m_contactTargetsSub = nullptr;
     whatevr::proto::Subscription *m_transfersSub = nullptr;
     whatevr::proto::Subscription *m_starredSub = nullptr;
     whatevr::proto::Subscription *m_chatMediaSub = nullptr;
@@ -1121,6 +1180,7 @@ private:
     whatevr::proto::Subscription *m_keptStatusSub = nullptr;
     whatevr::proto::Subscription *m_mutedStatusSub = nullptr;
     whatevr::proto::Subscription *m_callsSub = nullptr;
+    whatevr::proto::Subscription *m_callHistorySub = nullptr;
     whatevr::proto::Subscription *m_channelsSub = nullptr;
     whatevr::proto::Subscription *m_channelMessagesSub = nullptr;
     whatevr::proto::Subscription *m_logsSub = nullptr;
@@ -1235,6 +1295,9 @@ private:
     int m_forwardInFlight = 0;
     int m_forwardBatchChatCount = 0;
     bool m_forwardBatchFailed = false;
+
+    // Group-member picker (same shape as the forward picker's revision tick).
+    int m_contactTargetsRevision = 0;
 
     // Unified search (D5). The generation counter is bumped per query so a
     // late reply to a superseded query is dropped instead of overwriting the

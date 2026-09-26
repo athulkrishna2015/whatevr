@@ -257,13 +257,18 @@ func (s *pinnedSession) eventAffects(evt app.DaemonEvent) bool {
 // first, and arms the expiry timer for the soonest pinned_until so an expiring
 // pin drops out even with no daemon event.
 func (s *pinnedSession) Items(int) []Item {
+	items, _ := s.ItemsErr(0)
+	return items
+}
+
+func (s *pinnedSession) ItemsErr(_ int) ([]Item, error) {
 	if s.lister == nil {
-		return nil
+		return nil, nil
 	}
 	rows, err := s.lister.ListPinnedMessages(s.ctx, s.chatID)
 	if err != nil {
 		log.Printf("protocol: list pinned messages for view: %v", err)
-		return nil
+		return nil, err
 	}
 	s.armExpiry(rows)
 	items := make([]Item, 0, len(rows))
@@ -274,7 +279,7 @@ func (s *pinnedSession) Items(int) []Item {
 			Data: messageItemFromStore(m),
 		})
 	}
-	return items
+	return items, nil
 }
 
 // pinnedSort orders rows by pin time then the message's own key, matching the

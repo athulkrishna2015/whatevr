@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 
+	"go.mau.fi/whatsmeow/types"
+
 	"whatevrd/internal/app"
 )
 
@@ -44,7 +46,12 @@ func (c *Client) ListCommunitySubgroups(ctx context.Context, chatID string) ([]C
 	return groups, nil
 }
 
-// LinkCommunityGroup attaches an existing group under a community.
+// LinkCommunityGroup attaches an existing group under a community. Both cards
+// move — the community gains a directory row, the group learns the community it
+// now sits under — so both are re-fetched. Spawned rather than inline: three
+// round trips (group info, then the directory) must not sit in front of the
+// command's response, and the card the frontend holds only has to catch up
+// before the user looks at it, not before the button returns.
 func (c *Client) LinkCommunityGroup(ctx context.Context, communityID, groupID string) error {
 	client, err := c.requireConnectedClient()
 	if err != nil {
@@ -58,10 +65,15 @@ func (c *Client) LinkCommunityGroup(ctx context.Context, communityID, groupID st
 	if err != nil {
 		return err
 	}
-	return client.LinkGroup(ctx, community, group)
+	if err := client.LinkGroup(ctx, community, group); err != nil {
+		return err
+	}
+	c.refreshLinkedGroupCards(community, group)
+	return nil
 }
 
-// UnlinkCommunityGroup detaches a sub-group from its community.
+// UnlinkCommunityGroup detaches a sub-group from its community. The same two
+// cards move as in LinkCommunityGroup, in the other direction.
 func (c *Client) UnlinkCommunityGroup(ctx context.Context, communityID, groupID string) error {
 	client, err := c.requireConnectedClient()
 	if err != nil {
@@ -75,5 +87,22 @@ func (c *Client) UnlinkCommunityGroup(ctx context.Context, communityID, groupID 
 	if err != nil {
 		return err
 	}
-	return client.UnlinkGroup(ctx, community, group)
+	if err := client.UnlinkGroup(ctx, community, group); err != nil {
+		return err
+	}
+	c.refreshLinkedGroupCards(community, group)
+	return nil
+}
+
+// refreshLinkedGroupCards re-publishes a community's card and a sub-group's
+// card after their link changed. Each refresh is the same best-effort live
+// fetch a plain group-info open runs; an empty avatar path keeps whatever the
+// card already resolved (the same rule every other refresh uses).
+func (c *Client) refreshLinkedGroupCards(jids ...types.JID) {
+	for _, jid := range jids {
+		if jid.IsEmpty() {
+			continue
+		}
+		c.spawn(func(ctx context.Context) { c.refreshGroupInfoLive(ctx, jid, "") })
+	}
 }

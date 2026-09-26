@@ -215,16 +215,17 @@ noted; this inventory fixes the shape of the protocol, not every field name.
 | `sync` | none | object | history sync progress: type, phase, percent, counts; `stalled` phase included |
 | `chats` | `filter` (`all`\|`direct`\|`groups`\|`unread`\|`favorite`), `archived` (bool), `limit` | chat rows | full row per old `Chat` incl. preview, unread, mute/pin/favorite/archive, `history_exhausted`; typing indicators live in the `typing` view |
 | `chat` | `chat_id` | object | the same live chat row emitted by `chats`, independent of chat-list filters and windows |
+| `chat_folders` | none | folders | one row per saved list (`id`, `folder_id`, `name`); `chat_folder.*` commands kick the subscription, since folders have no daemon event |
 | `messages` | `chat_id`, `limit`, `anchor` (`latest` \| `unread` \| `{message_id}`) | message rows | subscribe meta returns `anchor_id` when anchored at unread; `remove` on delete-for-me; revocation is an upsert with `revoked: true` |
 | `typing` | none | one item per chat with anyone composing | id is the `chat_id`; `senders` (jid + display name; frontends compose the localized label); `remove` when the last sender stops. Global, unwindowed, and tiny: chat lists and conversation headers both read it, everyone else skips it |
 | `presence` | `chat_id` | one item per participant | `availability`, `last_seen`. Subscribing is what triggers the upstream WhatsApp presence subscription for that chat: availability is only delivered on request, whereas typing arrives unsolicited, which is why `typing` and `presence` are separate views |
 | `receipts` | `message_id` | one item per participant | per-member delivered/read/played times, updating live while the info dialog is open |
 | `self` | none | object | own profile: jid, phone, push name, about, avatar path |
 | `contact` | `jid` | object | contact card; local data (including the `is_business` flag) upserted immediately, the network-fetched `about` upserted when it lands; the old two-phase hack is just how views work |
-| `group` | `chat_id` | object | subject, description, avatar, created, owner, `member_count`, `my_role`, announce/locked flags (feeds composer lockout in admins-only groups); same two-phase behavior. No member array; the chat header and card chrome need only this |
+| `group` | `chat_id` | object | subject, description, avatar, created, owner, `member_count`, `my_role`, announce/locked flags (feeds composer lockout in admins-only groups), plus community membership: `is_community` (this chat is the community), `linked_parent_id` (the community this group sits under) and `linked_groups` (`[{id, name}]`, a community's sub-group directory). Those three are reported by WhatsApp only on the live card fetch, so they arrive with the rest of the enrichment rather than with the stored row; `linked_groups` is best-effort and absent when the directory fetch fails. Same two-phase behavior. No member array; the chat header and card chrome need only this |
 | `group_members` | `chat_id` | one item per member | jid, display name, phone, avatar path, role; joins/leaves/promotions are single upserts/removes. The info dialog subscribes to `group` + `group_members`; member search is presentation-side filtering over rows it already has |
-| `privacy` | none | object | all privacy category values |
-| `preferences` | none | object | daemon-persisted app preferences (notification gates, auto-download, and whether the daemon may fetch map tiles for a location) |
+| `privacy` | none | object | all privacy category values, plus the read-only `status` (story) audience and `default_timer_seconds` (the default disappearing timer; `-1` when the account does not report one, so `0` stays "off" rather than "unknown") |
+| `preferences` | none | object | daemon-persisted app preferences (notification gates, auto-download, whether the daemon may fetch map tiles for a location, and whether this device keeps chats archived) |
 | `blocklist` | none | blocked contacts | |
 | `starred` | optional `chat_id`, `limit` | message rows + `chat_name` | windowed; syncs with stars made on other devices. Ordered by the message's own timestamp (newest first), not by when it was starred (the store records no star time), so starring an old message places it deep in the window rather than at the top |
 | `pinned` | `chat_id` | message rows | currently-pinned, unexpired; expiry produces `remove` |
@@ -238,6 +239,7 @@ noted; this inventory fixes the shape of the protocol, not every field name.
 | `status.kept` | none | keep-enabled senders | one `{id}` row per sender whose expired statuses the Status tab archives instead of hiding |
 | `status.muted` | none | muted senders | one `{id}` row per sender whose statuses the Status tab collects under Muted; mirrors the phone's muted-status list (synced from appstate, fetch direction) |
 | `calls` | none | ringing calls | one item per locally-ringing call: `id` (call id), `chat_id`, `caller` (id, name), `video`, `started_at`. `remove`d on terminate/reject; missed calls land in their chats as tombstone messages |
+| `call_history` | `limit` | message rows + `chat_name` | the Calls page's recent section: every chat's call-log tombstones, newest first, windowed. Rows are ordinary `messages` items (`kind` `call_log`, with the `call_log` payload and the row's `direction`), each carrying its `chat_id` and `chat_name` so a cross-chat list can label the call and open the conversation; a call ending lands here as the same upsert the chat sees |
 | `notifications` | none | notification records | **Reserved, not served in protocol 1**: subscribing errors `not_found`. What the daemon would notify about, for applets, relays, and headless setups; the daemon's own D-Bus notifier is unaffected. Its shape waits on a real consumer (see *Open questions*) |
 | `daemon.logs` | `limit` (default 200) | log rows, oldest first | the daemon's own process log ring (`daemon.logs` command answers the same lines for a one-shot query). Items carry `time` (`YYYY/MM/DD HH:MM:SS`), `level` (`info`\|`warn`\|`error`\|`debug`), `text`; rows keep stable ids across refreshes so new lines stream in as upserts instead of churning the whole list |
 
@@ -267,8 +269,8 @@ correlation (e.g. to scroll to your own just-sent message when it upserts).
 | `chat.pin` | `chat_id`, `pinned` | `{}` |
 | `chat.favorite` | `chat_id`, `favorite` | `{}` |
 | `chat_folder.create` | `name` | `{id}` |
-| `chat_folder.rename` | `folder_id`, `name` | `{}` |
-| `chat_folder.delete` | `folder_id` | `{}` |
+| `chat_folder.rename` | `id`, `name` | `{}` |
+| `chat_folder.delete` | `id` | `{}` |
 | `chat_folder.set_chat` | `chat_id`, `folder_id` (nullable) | `{}` |
 | `chat.archive` | `chat_id`, `archived` | `{}` |
 | `chat.mute` | `chat_id`, `muted`, `duration_secs` (0 = forever) | `{}` |
@@ -342,6 +344,12 @@ views.
 | `community.link` | `community_id`, `group_id` | `{}`: attach a group (admins) |
 | `community.unlink` | `community_id`, `group_id` | `{}`: detach a sub-group (admins) |
 
+`community.link` and `community.unlink` re-publish the `group` cards of both
+chats they touched (the community's directory and the group's parent both
+change), so a subscriber never has to reopen the card to see the result. The
+`group` view carries the directory itself as `linked_groups`, which is why a
+frontend rendering one card does not normally call `community.subgroups`.
+
 **Calls**
 
 | method | params | result |
@@ -372,7 +380,8 @@ views.
 
 | method | params | result |
 | --- | --- | --- |
-| `privacy.set` | `category`, `value` | `{}` |
+| `privacy.set` | `category`, `value` | `{}`: sets one writable privacy category (the `status` audience is read-only) |
+| `privacy.set_default_timer` | `seconds` (`0`, `86400`, `604800`, `7776000`) | `{}`: default disappearing-message timer for new chats |
 | `preferences.set` | partial preferences object | `{}` |
 | `self.set_about` | `text` | `{}` (later: `self.set_name`, `self.set_avatar`) |
 | `contact.block` | `jid`, `blocked` | `{}` |

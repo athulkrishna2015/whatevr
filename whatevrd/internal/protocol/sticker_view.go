@@ -253,10 +253,15 @@ func (s *stickerPacksSession) run(events <-chan app.DaemonEvent, invalidate func
 }
 
 func (s *stickerPacksSession) Items(int) []Item {
+	items, _ := s.ItemsErr(0)
+	return items
+}
+
+func (s *stickerPacksSession) ItemsErr(_ int) ([]Item, error) {
 	packs, err := s.store.ListStickerPacks(s.ctx)
 	if err != nil {
 		log.Printf("protocol: list sticker packs for view: %v", err)
-		return nil
+		return nil, err
 	}
 	items := make([]Item, 0, len(packs))
 	for i, pack := range packs {
@@ -266,7 +271,7 @@ func (s *stickerPacksSession) Items(int) []Item {
 			Data: stickerPackItemFromStore(pack),
 		})
 	}
-	return items
+	return items, nil
 }
 
 func (s *stickerPacksSession) Close() {
@@ -370,10 +375,15 @@ func (s *stickerPackSession) eventAffects(evt app.DaemonEvent) bool {
 }
 
 func (s *stickerPackSession) Items(int) []Item {
+	items, _ := s.ItemsErr(0)
+	return items
+}
+
+func (s *stickerPackSession) ItemsErr(_ int) ([]Item, error) {
 	stickers, err := s.store.ListPackStickers(s.ctx, s.packID)
 	if err != nil {
 		log.Printf("protocol: list sticker pack %s for view: %v", s.packID, err)
-		return nil
+		return nil, err
 	}
 	items := make([]Item, 0, len(stickers))
 	for _, sticker := range stickers {
@@ -383,7 +393,7 @@ func (s *stickerPackSession) Items(int) []Item {
 			Data: stickerItemFromStore(sticker),
 		})
 	}
-	return items
+	return items, nil
 }
 
 func (s *stickerPackSession) Close() {

@@ -43,6 +43,11 @@ type privacyItem struct {
 	ReadReceipts bool   `json:"read_receipts"`
 	GroupAdd     string `json:"group_add,omitempty"`
 	CallAdd      string `json:"call_add,omitempty"`
+	// Status is the read-only status (story) audience; DefaultTimerSeconds is
+	// the account's default disappearing timer (-1 when the account did not
+	// report one, so the frontend can tell "unknown" from "off").
+	Status              string `json:"status,omitempty"`
+	DefaultTimerSeconds int    `json:"default_timer_seconds"`
 }
 
 func (v privacyView) Open(_ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
@@ -142,14 +147,16 @@ func (s *privacySession) Items(max int) []Item {
 		return nil
 	}
 	item := privacyItem{
-		ID:           "self",
-		LastSeen:     s.settings.LastSeen,
-		Online:       s.settings.Online,
-		ProfilePhoto: s.settings.ProfilePhoto,
-		About:        s.settings.About,
-		ReadReceipts: s.settings.ReadReceipts,
-		GroupAdd:     s.settings.GroupAdd,
-		CallAdd:      s.settings.CallAdd,
+		ID:                  "self",
+		LastSeen:            s.settings.LastSeen,
+		Online:              s.settings.Online,
+		ProfilePhoto:        s.settings.ProfilePhoto,
+		About:               s.settings.About,
+		ReadReceipts:        s.settings.ReadReceipts,
+		GroupAdd:            s.settings.GroupAdd,
+		CallAdd:             s.settings.CallAdd,
+		Status:              s.settings.Status,
+		DefaultTimerSeconds: s.settings.DefaultTimerSeconds,
 	}
 	return []Item{{ID: "self", Sort: objectViewSort, Data: item}}
 }
@@ -188,6 +195,7 @@ type preferencesItem struct {
 	AntiDelete            bool   `json:"anti_delete"`
 	SendTypingIndicators  bool   `json:"send_typing_indicators"`
 	AutoFetchMaps         bool   `json:"auto_fetch_maps"`
+	KeepChatsArchived     bool   `json:"keep_chats_archived"`
 }
 
 func (v preferencesView) Open(_ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
@@ -307,6 +315,7 @@ func (s *preferencesSession) Items(max int) []Item {
 		AutoDownloadMaxBytes:  p.AutoDownloadMaxBytes,
 		AntiDelete:            p.AntiDelete,
 		SendTypingIndicators:  p.SendTypingIndicators,
+		KeepChatsArchived:     p.KeepChatsArchived,
 	}
 	return []Item{{ID: "self", Sort: objectViewSort, Data: item}}
 }

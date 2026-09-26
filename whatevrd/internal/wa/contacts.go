@@ -407,7 +407,7 @@ func (c *Client) refreshGroupInfoLive(ctx context.Context, chatJID types.JID, av
 		owner = c.canonicalParticipantJID(ctx, live.OwnerPN)
 	}
 
-	c.daemon.PublishGroupInfoUpdated(chatJID.String(), app.GroupInfo{
+	card := app.GroupInfo{
 		Subject:         strings.TrimSpace(live.Name),
 		Description:     strings.TrimSpace(live.Topic),
 		AvatarLocalPath: avatarLocalPath,
@@ -417,7 +417,25 @@ func (c *Client) refreshGroupInfoLive(ctx context.Context, chatJID types.JID, av
 		IsAnnounce:      live.IsAnnounce,
 		IsLocked:        live.IsLocked,
 		Members:         c.resolveGroupMembers(ctx, sources),
-	})
+		IsCommunity:     live.IsParent,
+		LinkedParentJID: live.LinkedParentJID.String(),
+	}
+	// Only the community's own card lists its sub-groups — a linked group's
+	// card only points back at the community. Best-effort on top of a fetch
+	// that already went to the network: a sub-group failure degrades the card
+	// to no directory rather than to no card.
+	if live.IsParent {
+		groups, gErr := c.ListCommunitySubgroups(ctx, chatJID.String())
+		if gErr != nil {
+			if ctx.Err() == nil {
+				c.log.Warnf("Failed to list sub-groups of %s: %v", chatJID, gErr)
+			}
+		} else {
+			card.LinkedGroups = groups
+		}
+	}
+
+	c.daemon.PublishGroupInfoUpdated(chatJID.String(), card)
 }
 
 // FetchProfilePicture downloads the full-resolution profile picture for a user

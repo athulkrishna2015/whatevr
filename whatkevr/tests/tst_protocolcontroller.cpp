@@ -209,6 +209,7 @@ public:
     void setCheckPhone(const QJsonObject &result) { m_checkPhone = result; }
     void setEnsureDirectChatId(const QString &chatId) { m_ensureDirectChatId = chatId; }
     void setJoinInviteChatId(const QString &chatId) { m_joinInviteChatId = chatId; }
+    void setGroupCreateChatId(const QString &chatId) { m_groupCreateChatId = chatId; }
     void setProfilePicturePath(const QString &path) { m_profilePicturePath = path; }
 
     int reconnectCount = 0;
@@ -500,10 +501,18 @@ private:
             lastCommandParams = params;
             reply(id, QJsonObject{{QStringLiteral("chat_id"), m_ensureDirectChatId}});
             Q_EMIT commandReceived();
-        } else if (method == QLatin1String("group.join_invite")) {
+        } else if (method.startsWith(QLatin1String("group."))) {
             lastCommandMethod = method;
             lastCommandParams = params;
-            reply(id, QJsonObject{{QStringLiteral("chat_id"), m_joinInviteChatId}});
+            // Only the commands whose ack carries data need one: the group id
+            // is not derivable client-side for either create or join.
+            if (method == QLatin1String("group.create")) {
+                reply(id, QJsonObject{{QStringLiteral("chat_id"), m_groupCreateChatId}});
+            } else if (method == QLatin1String("group.join_invite")) {
+                reply(id, QJsonObject{{QStringLiteral("chat_id"), m_joinInviteChatId}});
+            } else {
+                reply(id, QJsonObject{});
+            }
             Q_EMIT commandReceived();
         } else if (method == QLatin1String("daemon.reconnect")) {
             ++reconnectCount;
@@ -595,6 +604,7 @@ private:
     QJsonObject m_checkPhone;
     QString m_ensureDirectChatId;
     QString m_joinInviteChatId;
+    QString m_groupCreateChatId;
     QString m_profilePicturePath;
 };
 
@@ -2783,6 +2793,71 @@ private Q_SLOTS:
         QCOMPARE(daemon.lastCommandMethod, QStringLiteral("group.join_invite"));
         QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("message_id")).toString(),
                  QStringLiteral("chat@s:m1"));
+    }
+
+    // Creating a group lands you in it the same way a join invite does: the new
+    // chat id exists only in the ack, so the controller selects it and asks the
+    // shell to surface it.
+    void createGroupOpensTheNewChat()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats({chatRow(QStringLiteral("130@g.us"), QStringLiteral("Trip"),
+                                       QStringLiteral("1-000"))});
+        daemon.setGroupCreateChatId(QStringLiteral("130@g.us"));
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_VERIFY(!ctrl.chatsLoading());
+
+        QSignalSpy openSpy(&ctrl, &ProtocolController::openChatRequested);
+        ctrl.createGroup(QStringLiteral("Trip"), {QStringLiteral("a@s"), QStringLiteral("b@s")});
+        QVERIFY(openSpy.wait());
+        QCOMPARE(openSpy.first().first().toString(), QStringLiteral("130@g.us"));
+        QCOMPARE(ctrl.selectedChatId(), QStringLiteral("130@g.us"));
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("group.create"));
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("name")).toString(),
+                 QStringLiteral("Trip"));
+        const QJsonArray members = daemon.lastCommandParams.value(QStringLiteral("members")).toArray();
+        QCOMPARE(members.size(), 2);
+        QCOMPARE(members.at(0).toString(), QStringLiteral("a@s"));
+        QCOMPARE(members.at(1).toString(), QStringLiteral("b@s"));
+    }
+
+    // An announce-only group closes the composer to everyone but admins, and the
+    // gate is the daemon's own `group` row: no local guess, and it re-opens the
+    // moment the row says the viewer is an admin.
+    void announceOnlyGroupLocksOutTheComposer()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats({chatRow(QStringLiteral("140@g.us"), QStringLiteral("Announcements"),
+                                       QStringLiteral("1-000"))});
+        daemon.setItem(QStringLiteral("group"),
+                       QJsonObject{{QStringLiteral("id"), QStringLiteral("140@g.us")},
+                                   {QStringLiteral("subject"), QStringLiteral("Announcements")},
+                                   {QStringLiteral("announce"), true},
+                                   {QStringLiteral("my_role"), QStringLiteral("member")}});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_VERIFY(!ctrl.chatsLoading());
+        ctrl.selectChat(QStringLiteral("140@g.us"));
+        QTRY_VERIFY(!ctrl.selectedChatCanSend());
+        QVERIFY(!ctrl.composerEnabled());
+
+        QSignalSpy sentSpy(&ctrl, &ProtocolController::messageSent);
+        ctrl.sendText(QStringLiteral("hello"), QString(), {});
+        QVERIFY(sentSpy.isEmpty());
+
+        // The same row with an admin role leaves the composer open.
+        daemon.setItem(QStringLiteral("group"),
+                       QJsonObject{{QStringLiteral("id"), QStringLiteral("140@g.us")},
+                                   {QStringLiteral("subject"), QStringLiteral("Announcements")},
+                                   {QStringLiteral("announce"), true},
+                                   {QStringLiteral("my_role"), QStringLiteral("admin")}});
+        QTRY_VERIFY(ctrl.selectedChatCanSend());
+        QVERIFY(ctrl.composerEnabled());
     }
 
     // D6: session-long self/preferences rows and page-scoped privacy/blocklist

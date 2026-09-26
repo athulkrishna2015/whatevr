@@ -54,7 +54,7 @@ func (h commandHandlers) chatMarkAllRead(ctx context.Context, _ *conn, req reque
 	if perr := mapCommandError(err); perr != nil {
 		return nil, perr
 	}
-	return map[string]any{"marked_chats": marked}, nil
+	return map[string]any{"count": marked}, nil
 }
 
 type chatPinParams struct {

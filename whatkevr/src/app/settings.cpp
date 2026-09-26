@@ -4,6 +4,8 @@
 
 #include <QAbstractItemModel>
 #include <QDir>
+#include <QGuiApplication>
+#include <QPalette>
 #include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
@@ -52,6 +54,8 @@ constexpr auto kRememberColumnWidth = "settings/rememberColumnWidth";
 constexpr auto kChatListColumnWidth = "settings/chatListColumnWidth";
 constexpr auto kCloseToTray = "settings/closeToTray";
 constexpr auto kDefaultSkinTone = "settings/defaultSkinTone";
+constexpr auto kIncreaseContrast = "settings/increaseContrast";
+constexpr auto kReduceMotion = "settings/reduceMotion";
 constexpr auto kAppLockSalt = "settings/appLockSalt";
 constexpr auto kAppLockHash = "settings/appLockHash";
 constexpr auto kWindowX = "settings/window/x";
@@ -144,6 +148,8 @@ void Settings::load()
     m_closeToTray = settings.value(QLatin1String(kCloseToTray), true).toBool();
     m_defaultSkinTone = settings.value(QLatin1String(kDefaultSkinTone), 0).toInt();
     m_appLocked = !settings.value(QLatin1String(kAppLockHash)).toByteArray().isEmpty();
+    m_increaseContrast = settings.value(QLatin1String(kIncreaseContrast), false).toBool();
+    m_reduceMotion = settings.value(QLatin1String(kReduceMotion), false).toBool();
 }
 
 bool Settings::closeToTray() const { return m_closeToTray; }
@@ -216,6 +222,53 @@ void Settings::applyColorScheme()
     }
     // An empty id activates the system scheme (documented behaviour).
     m_schemeManager->activateSchemeId(m_colorScheme);
+    if (!m_increaseContrast) {
+        return;
+    }
+    // activateSchemeId re-sets the whole application palette, so these tweaks
+    // always start from a clean scheme instead of stacking up.
+    QPalette pal = QGuiApplication::palette();
+    const QColor text = pal.color(QPalette::Active, QPalette::Text);
+    pal.setColor(QPalette::Disabled, QPalette::Text, text);
+    pal.setColor(QPalette::Disabled, QPalette::WindowText, text);
+    pal.setColor(QPalette::Disabled, QPalette::ButtonText, text);
+    pal.setColor(QPalette::Disabled, QPalette::PlaceholderText, text);
+    const QColor placeholder = pal.color(QPalette::Active, QPalette::PlaceholderText);
+    pal.setColor(QPalette::Active, QPalette::PlaceholderText,
+                 QColor((placeholder.red() + text.red()) / 2, (placeholder.green() + text.green()) / 2,
+                        (placeholder.blue() + text.blue()) / 2));
+    QGuiApplication::setPalette(pal);
+}
+
+bool Settings::increaseContrast() const
+{
+    return m_increaseContrast;
+}
+
+void Settings::setIncreaseContrast(bool enabled)
+{
+    if (m_increaseContrast == enabled) {
+        return;
+    }
+    m_increaseContrast = enabled;
+    QSettings().setValue(QLatin1String(kIncreaseContrast), m_increaseContrast);
+    applyColorScheme();
+    Q_EMIT increaseContrastChanged();
+}
+
+bool Settings::reduceMotion() const
+{
+    return m_reduceMotion;
+}
+
+void Settings::setReduceMotion(bool enabled)
+{
+    if (m_reduceMotion == enabled) {
+        return;
+    }
+    m_reduceMotion = enabled;
+    QSettings().setValue(QLatin1String(kReduceMotion), m_reduceMotion);
+    Q_EMIT reduceMotionChanged();
 }
 
 QString Settings::colorScheme() const
