@@ -19,6 +19,19 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.9.1" date="2026-09-27">
+      <description>
+        <p><em>Statuses now expire after 24 hours, for real</em></p>
+        <p>Nothing ever deleted an old status. The prune function existed but had no callers, so the database kept every status it had ever seen, and the per-contact Keep toggle archived the expired ones on top of that.</p>
+        <p>The daemon now prunes on connect and after every ingest: the rows, the cached media and thumbnails behind them, and the view receipts that pointed at them. A status lives exactly as long as it does on the phone.</p>
+        <p><em>One way into Status</em></p>
+        <p>Status had two entry points: the left-rail Status tab, and a horizontal contact-name strip across the top of the viewer. The strip is gone. Skipping between contacts still works through the viewer's previous/next-contact buttons and their keyboard shortcuts.</p>
+        <p><em>Removed</em></p>
+        <p>The per-contact Keep (archive) toggle, and with it the Status tab's Archived section, the <code>status.kept</code> view and the <code>status.keep_sender</code> command. With retention fixed at the 24 hour status life there was nothing left for it to archive. This narrows the protocol rather than extending it, so frontends have to be updated alongside the daemon.</p>
+        <p><em>Fixed</em></p>
+        <p><code>whatevrd</code> parsed its flags before it registered the mock ones, so <code>--mock</code> was rejected as an undefined flag in mock builds, and a release build reported Go's "flag provided but not defined" rather than the rebuild hint. That failed CI twice over: the mock-gate check wanted the hint, and the whattui golden-frame tests started a mock daemon that exited immediately, so they waited out their startup deadline and the suite timed out.</p>
+      </description>
+    </release>
     <release version="0.9.0" date="2026-09-26">
       <description>
         <p>Groups become writable, and the Calls tab grows a history.</p>
