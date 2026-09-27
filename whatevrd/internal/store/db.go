@@ -322,7 +322,8 @@ func (db *DB) migrate(ctx context.Context) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_undecryptable_messages_created_at ON undecryptable_messages(created_at)`,
 		// Contact statuses (stories) live outside chats: storing them as chat
-		// messages would materialize a bogus "status" chat row.
+		// messages would materialize a bogus "status" chat row. Rows past the
+		// 24h status life are pruned, not archived — see PruneOldStatusUpdates.
 		`CREATE TABLE IF NOT EXISTS status_updates (
 			id TEXT PRIMARY KEY,
 			sender_id TEXT NOT NULL,
@@ -362,13 +363,6 @@ func (db *DB) migrate(ctx context.Context) error {
 			text TEXT NOT NULL DEFAULT ''
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_message_edits_message ON message_edits(message_id, id)`,
-		// Contacts whose expired statuses are kept instead of hidden: the
-		// Status tab shows only unexpired statuses by default, and kept
-		// contacts grow an archived section with their older ones.
-		`CREATE TABLE IF NOT EXISTS status_keep_senders (
-			sender_id TEXT PRIMARY KEY,
-			kept_at INTEGER NOT NULL DEFAULT (unixepoch())
-		)`,
 		// Contacts whose statuses are hidden from the main Status tab into a
 		// collapsed Muted section. Mirrors the phone's muted-status list.
 		`CREATE TABLE IF NOT EXISTS status_muted_senders (

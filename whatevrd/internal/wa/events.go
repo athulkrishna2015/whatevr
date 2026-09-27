@@ -65,6 +65,7 @@ func (c *Client) handleEvent(sess *accountSession, raw any) bool {
 		sess.spawn(c.backfillStatusThumbs)
 		sess.spawn(c.pruneStatusBroadcastMirror)
 		sess.spawn(c.pruneMisfiledNewsletterChats)
+		sess.spawn(c.pruneExpiredStatuses)
 	case *events.AppStateSyncComplete:
 		c.syncPresence(sess.detached(), true)
 		// A fresh login reconciles app state on Connected, which is before the

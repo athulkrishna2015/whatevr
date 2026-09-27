@@ -33,4 +33,5 @@ feature must avoid adding *new* detectable abnormal behavior. The rule:
 
 Ghost story viewing needs no feature: viewed receipts are never sent, so
 watching a status is already invisible. Others' deleted statuses are likewise
-already kept (revokes only ever touched chat rows).
+already kept (revokes only ever touched chat rows) — but only until the 24h
+status life runs out, after which the daemon prunes them.

@@ -84,7 +84,6 @@ func RegisterDaemonViews(s *Server, daemon *app.Daemon, store DaemonStore, actio
 	s.RegisterView("channels", channelsView{daemon: daemon, lister: store})
 	s.RegisterView("channel_messages", channelMessagesView{daemon: daemon, actions: channelActionsFrom(actions)})
 	s.RegisterView("status", statusView{daemon: daemon, lister: store, resolver: store})
-	s.RegisterView("status.kept", statusKeptView{daemon: daemon, lister: store})
 	s.RegisterView("status.muted", statusMutedView{daemon: daemon, lister: store})
 	s.RegisterView("calls", callsView{daemon: daemon, resolver: store})
 	s.RegisterView("call_history", callHistoryView{daemon: daemon, lister: store})

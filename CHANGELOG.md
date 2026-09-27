@@ -3,6 +3,38 @@
 All notable changes to Whatevr. The protocol is versioned separately in
 PROTOCOL.md (stable at version 1: additive changes only).
 
+## 0.9.1 — 2026-09-27
+
+### Changed
+
+- Statuses are now hard-capped at their 24 hour life. The daemon prunes
+  expired rows on connect and after every ingest, along with the cached media
+  and thumbnails behind them and the view receipts that pointed at them, so
+  nothing accumulates indefinitely. Previously the prune function existed but
+  had no callers, so every status ever seen stayed in the database forever.
+- Status has one entry point again: the left-rail Status tab. The viewer's
+  horizontal contact-name strip is gone — it duplicated the tab, and skipping
+  between contacts still works through the viewer's previous/next-contact
+  buttons and their keyboard shortcuts.
+
+### Removed
+
+- The per-contact "Keep" (archive) toggle, with it the Status tab's Archived
+  section, the `status.kept` view and the `status.keep_sender` command. With
+  retention fixed at the 24 hour status life there is nothing left for it to
+  archive. This narrows the protocol rather than extending it, so frontends
+  have to be updated alongside the daemon; nothing that shipped has to be
+  rebuilt against an older one.
+
+### Fixed
+
+- `whatevrd` parsed its flags before it registered the mock ones, so
+  `--mock` was rejected as an undefined flag in mock builds and a release
+  build reported Go's "flag provided but not defined" instead of the rebuild
+  hint. This broke the whatttui golden-frame tests (the mock daemon never
+  started, so they waited out their 90 second startup deadline eight times
+  over) and failed the mock-gate script. `mockPrepare` now runs first.
+
 ## 0.9.0 — 2026-09-26
 
 ### Added

@@ -61,7 +61,7 @@ print(f.readline())
 "
 ```
 
-Useful views to subscribe: `status`, `status.kept`, `chats`,
+Useful views to subscribe: `status`, `chats`,
 `channel_messages` (`{"channel_id": …}`), `daemon.logs` (`{"limit": …}`).
 
 ## Upgrading

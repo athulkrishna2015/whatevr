@@ -7,9 +7,11 @@ import Qt.labs.platform as Platform
 import org.kde.kirigami as Kirigami
 import Whatevr as Whatevr
 
-// One contact's statuses, newest first, stepped with back/next. The first
-// shown status is marked viewed on arrival (and each one as it appears), so
-// the contact's ring clears as you watch. Photo statuses render
+// One contact's statuses, newest first, stepped with back/next. The Status
+// tab in the left rail is the only entry point; here the header's
+// previous/next-contact buttons and their shortcuts skip between contacts. The
+// first shown status is marked viewed on arrival (and each one as it appears),
+// so the contact's ring clears as you watch. Photo statuses render
 // thumbnail-first, then full-bleed once the auto-download lands (a "Load"
 // button retries a failed fetch); text statuses render
 // centered; anything else shows its fallback line with a Save action.
@@ -26,7 +28,6 @@ Kirigami.ScrollablePage {
     property int currentIndex: -1
     property var senderIds: []
     property var senderNames: ({})
-    property var senderUnviewed: ({})
     property int senderIndex: -1
     property var inFlightDownloads: ({})
     readonly property int stillDurationMs: 30 * 1000
@@ -72,7 +73,6 @@ Kirigami.ScrollablePage {
         const model = Whatevr.ProtocolController.statusModel
         const latest = {}
         const names = {}
-        const unviewed = {}
         const count = model ? model.count : 0
         for (let i = 0; i < count; ++i) {
             const item = model.itemById(model.idAt(i))
@@ -83,16 +83,12 @@ Kirigami.ScrollablePage {
                 if (name.length > 0 && !names[id]) {
                     names[id] = name
                 }
-                if (!item.viewed) {
-                    unviewed[id] = Number(unviewed[id] || 0) + 1
-                }
             }
         }
         const ids = Object.keys(latest)
         ids.sort((a, b) => latest[b] - latest[a])
         root.senderIds = ids
         root.senderNames = names
-        root.senderUnviewed = unviewed
         root.senderIndex = Math.max(0, ids.indexOf(root.senderId))
     }
 
@@ -131,12 +127,6 @@ Kirigami.ScrollablePage {
         root.refreshCurrent()
         const next = root.currentItem
         root.senderName = next && next.sender ? (next.sender.name || senderId) : root.senderLabel(senderId)
-    }
-
-    function revealCurrentSender() {
-        if (senderStrip.count > 0 && root.senderIndex >= 0 && root.senderIndex < senderStrip.count) {
-            senderStrip.positionViewAtIndex(root.senderIndex, ListView.Contain)
-        }
     }
 
     function markCurrentViewed() {
@@ -310,10 +300,7 @@ Kirigami.ScrollablePage {
     Component.onCompleted: {
         root.refreshCurrent()
         root.loadViewers()
-        root.revealCurrentSender()
     }
-
-    onSenderIndexChanged: root.revealCurrentSender()
 
     Component.onDestruction: {
         // Don't leave this sender's audio running behind a closed viewer —
@@ -461,66 +448,6 @@ Kirigami.ScrollablePage {
     ColumnLayout {
         width: parent.width
         spacing: Kirigami.Units.largeSpacing
-
-        // Contact name strip: click any name to jump straight to that
-        // contact's statuses without closing the viewer first. The current
-        // contact is highlighted; a dot marks contacts still holding
-        // unviewed statuses.
-        ListView {
-            id: senderStrip
-
-            Layout.fillWidth: true
-            Layout.preferredHeight: Kirigami.Units.gridUnit * 3
-            visible: root.senderIds.length > 1
-            orientation: ListView.Horizontal
-            clip: true
-            spacing: Kirigami.Units.smallSpacing
-            boundsBehavior: Flickable.StopAtBounds
-            model: root.senderIds
-            currentIndex: root.senderIndex
-            QQC2.ScrollBar.horizontal: QQC2.ScrollBar {}
-
-            delegate: QQC2.ItemDelegate {
-                id: senderDelegate
-
-                required property var modelData
-                required property int index
-
-                readonly property string senderId: String(modelData)
-                readonly property int unviewed: Number(root.senderUnviewed[senderId] || 0)
-
-                highlighted: senderId === root.senderId
-                height: Kirigami.Units.gridUnit * 3
-                padding: Kirigami.Units.smallSpacing + Kirigami.Units.largeSpacing / 2
-                width: senderNameLabel.implicitWidth + padding * 2
-                       + (unviewed > 0 && !highlighted ? Kirigami.Units.smallSpacing + Kirigami.Units.largeSpacing / 2 : 0)
-                onClicked: root.switchSender(senderId)
-
-                contentItem: RowLayout {
-                    spacing: Kirigami.Units.smallSpacing
-
-                    QQC2.Label {
-                        id: senderNameLabel
-
-                        Layout.fillWidth: true
-                        text: root.senderLabel(senderDelegate.senderId)
-                        elide: Text.ElideRight
-                        horizontalAlignment: Text.AlignHCenter
-                        font.weight: senderDelegate.highlighted ? Font.DemiBold : Font.Normal
-                        color: senderDelegate.highlighted
-                            ? Kirigami.Theme.highlightColor : Kirigami.Theme.textColor
-                    }
-
-                    Rectangle {
-                        visible: senderDelegate.unviewed > 0 && !senderDelegate.highlighted
-                        Layout.preferredWidth: Kirigami.Units.smallSpacing
-                        Layout.preferredHeight: Kirigami.Units.smallSpacing
-                        radius: width / 2
-                        color: Kirigami.Theme.highlightColor
-                    }
-                }
-            }
-        }
 
         // Text status: centered large label.
         QQC2.Label {

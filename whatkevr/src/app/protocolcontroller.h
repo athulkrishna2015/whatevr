@@ -231,10 +231,6 @@ class ProtocolController final : public QObject
     Q_PROPERTY(QAbstractItemModel *statusModel READ statusModel CONSTANT FINAL)
     Q_PROPERTY(bool statusLoading READ statusLoading NOTIFY statusChanged FINAL)
     Q_PROPERTY(bool statusExhausted READ statusExhausted NOTIFY statusChanged FINAL)
-    // Status keep: the `status.kept` view, subscribed alongside the status
-    // page. One row per keep-enabled sender id; the page archives those
-    // contacts' expired statuses instead of hiding them.
-    Q_PROPERTY(QAbstractItemModel *keptStatusModel READ keptStatusModel CONSTANT FINAL)
     // Status mute: the `status.muted` view, subscribed alongside the status
     // page. One row per muted sender id; the page collects those contacts
     // under a Muted section instead of the main list.
@@ -539,9 +535,6 @@ public:
     Q_INVOKABLE void deleteStatus(const QString &statusId);
     // Maps to `status.download`; the row upserts with media.path on success.
     Q_INVOKABLE void downloadStatus(const QString &statusId);
-    // Maps to `status.keep_sender`; kept contacts grow an archived section.
-    Q_INVOKABLE void setStatusKeepSender(const QString &senderId, bool kept);
-    [[nodiscard]] QAbstractItemModel *keptStatusModel() const;
     // Maps to `status.mute_sender`; muted contacts collect under Muted.
     Q_INVOKABLE void setStatusMuteSender(const QString &senderId, bool muted);
     [[nodiscard]] QAbstractItemModel *mutedStatusModel() const;
@@ -1139,7 +1132,6 @@ private:
     whatevr::proto::CollectionViewModel *m_chatMediaModel = nullptr;
     whatevr::proto::CollectionViewModel *m_chatLinksModel = nullptr;
     whatevr::proto::CollectionViewModel *m_statusModel = nullptr;
-    whatevr::proto::CollectionViewModel *m_keptStatusModel = nullptr;
     whatevr::proto::CollectionViewModel *m_mutedStatusModel = nullptr;
     whatevr::proto::CollectionViewModel *m_callsModel = nullptr;
     whatevr::proto::CollectionViewModel *m_callHistoryModel = nullptr;
@@ -1177,7 +1169,6 @@ private:
     whatevr::proto::Subscription *m_chatMediaSub = nullptr;
     whatevr::proto::Subscription *m_chatLinksSub = nullptr;
     whatevr::proto::Subscription *m_statusSub = nullptr;
-    whatevr::proto::Subscription *m_keptStatusSub = nullptr;
     whatevr::proto::Subscription *m_mutedStatusSub = nullptr;
     whatevr::proto::Subscription *m_callsSub = nullptr;
     whatevr::proto::Subscription *m_callHistorySub = nullptr;

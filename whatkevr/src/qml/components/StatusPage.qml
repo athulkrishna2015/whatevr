@@ -29,18 +29,16 @@ Kirigami.ScrollablePage {
 
     // Contact groups rebuilt from the flat model: newest status first, so the
     // first time a sender appears is its recency rank. Each entry: {senderId,
-    // senderName, latest, total, unviewed, statusIds, section, kept, muted}.
-    // Kept contacts whose statuses all expired sort under "Archived" at the
-    // top instead of vanishing; recent contacts (anything newer than 24h)
-    // follow under "Recent" with unviewed contacts above watched ones; muted
-    // contacts collect under "Muted" at the bottom instead of the main list.
+    // senderName, latest, total, unviewed, statusIds, section, muted}.
+    // Recent contacts (anything newer than 24h) sort under "Recent" with
+    // unviewed contacts above watched ones; muted contacts collect under
+    // "Muted" at the bottom instead of the main list.
     property var contactGroups: []
-    // Keep-enabled sender ids from the `status.kept` view, as a lookup map.
-    property var keptSenders: ({})
     // Muted sender ids from the `status.muted` view, as a lookup map.
     property var mutedSenders: ({})
 
-    // WhatsApp statuses live 24 hours; older rows are archive material.
+    // WhatsApp statuses live 24 hours, and the daemon prunes past that, so an
+    // expired row is only ever seen against a stale daemon.
     readonly property int statusExpirySecs: 24 * 60 * 60
 
     QtObject {
@@ -60,13 +58,6 @@ Kirigami.ScrollablePage {
     }
 
     function rebuildGroups() {
-        const kept = {}
-        const kmodel = Whatevr.ProtocolController.keptStatusModel
-        const kcount = kmodel ? kmodel.count : 0
-        for (let i = 0; i < kcount; ++i) {
-            kept[kmodel.idAt(i)] = true
-        }
-        root.keptSenders = kept
         const muted = {}
         const mmodel = Whatevr.ProtocolController.mutedStatusModel
         const mcount = mmodel ? mmodel.count : 0
@@ -126,37 +117,29 @@ Kirigami.ScrollablePage {
         const now = clock.now
         const recentUnviewed = []
         const recentViewed = []
-        const archived = []
         const mutedGroups = []
         for (let i = 0; i < groups.length; ++i) {
             const group = groups[i]
             const expired = (now - group.latest) > root.statusExpirySecs
-            group.kept = Boolean(kept[group.senderId])
             group.muted = Boolean(muted[group.senderId])
-            // Expiry first: muted contacts age out like everyone else —
-            // expired rows vanish unless kept (which archives them). Only
-            // unexpired muted contacts collect under Muted.
-            if (expired && !group.kept) {
+            // Expiry first: muted contacts age out like everyone else. Only
+            // unexpired contacts show, muted ones under their own section.
+            if (expired) {
                 continue
             }
-            if (group.muted && !expired) {
+            if (group.muted) {
                 group.section = Whatevr.I18n.i18nc("@title:section muted statuses", "Muted")
                 mutedGroups.push(group)
                 continue
             }
-            if (expired) {
-                group.section = Whatevr.I18n.i18nc("@title:section expired kept statuses", "Archived")
-                archived.push(group)
+            group.section = Whatevr.I18n.i18nc("@title:section recent statuses", "Recent")
+            if (group.unviewed > 0) {
+                recentUnviewed.push(group)
             } else {
-                group.section = Whatevr.I18n.i18nc("@title:section recent statuses", "Recent")
-                if (group.unviewed > 0) {
-                    recentUnviewed.push(group)
-                } else {
-                    recentViewed.push(group)
-                }
+                recentViewed.push(group)
             }
         }
-        root.contactGroups = archived.concat(recentUnviewed, recentViewed, mutedGroups)
+        root.contactGroups = recentUnviewed.concat(recentViewed, mutedGroups)
     }
 
     function contactLabel(group) {
@@ -266,15 +249,6 @@ Kirigami.ScrollablePage {
                 id: statusContextMenu
 
                 QQC2.MenuItem {
-                    text: statusDelegate.group.kept
-                        ? Whatevr.I18n.i18nc("@action:menu remove status archive", "Remove from archive")
-                        : Whatevr.I18n.i18nc("@action:menu archive statuses", "Archive statuses")
-                    icon.name: statusDelegate.group.kept ? "bookmark-remove-symbolic" : "bookmark-new-symbolic"
-                    onTriggered: Whatevr.ProtocolController.setStatusKeepSender(
-                        statusDelegate.group.senderId, !statusDelegate.group.kept)
-                }
-
-                QQC2.MenuItem {
                     text: statusDelegate.group.muted
                         ? Whatevr.I18n.i18nc("@action:menu show hidden statuses", "Show hidden statuses")
                         : Whatevr.I18n.i18nc("@action:menu hide statuses", "Hide statuses")
@@ -337,30 +311,10 @@ Kirigami.ScrollablePage {
                     }
                 }
 
-                // Per-contact keep: expired statuses of kept contacts collect
-                // under Archived instead of vanishing after 24 hours.
-                // onClicked (not onToggled): recycled delegates change groups
-                // without user input, and a toggled edge then fires for the
-                // wrong contact.
-                QQC2.ToolButton {
-                    icon.name: statusDelegate.group.kept ? "bookmark-symbolic" : "bookmark-new-symbolic"
-                    text: Whatevr.I18n.i18nc("@action:button keep a contact's expired statuses", "Keep")
-                    display: QQC2.AbstractButton.IconOnly
-                    checkable: true
-                    checked: statusDelegate.group.kept
-                    onClicked: Whatevr.ProtocolController.setStatusKeepSender(statusDelegate.group.senderId, checked)
-
-                    QQC2.ToolTip.visible: hovered
-                    QQC2.ToolTip.text: statusDelegate.group.kept
-                        ? Whatevr.I18n.i18nc("@info:tooltip kept statuses", "Kept: expired statuses stay archived here")
-                        : text
-                    QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
-                }
-
                 // Per-contact mute: muted contacts collect under Muted at the
-                // bottom instead of the main list. onClicked (not onToggled),
-                // like Keep above: recycled delegates must not command for
-                // the wrong contact.
+                // bottom instead of the main list. onClicked (not onToggled):
+                // recycled delegates change groups without user input, and a
+                // toggled edge then fires for the wrong contact.
                 QQC2.ToolButton {
                     icon.name: statusDelegate.group.muted ? "notifications-disabled-symbolic" : "notifications-symbolic"
                     text: Whatevr.I18n.i18nc("@action:button mute a contact's statuses", "Mute")

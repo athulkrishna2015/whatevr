@@ -19,7 +19,6 @@ var (
 	_ FallibleSession = (*pinnedSession)(nil)
 	_ FallibleSession = (*receiptsSession)(nil)
 	_ FallibleSession = (*statusSession)(nil)
-	_ FallibleSession = (*statusKeptSession)(nil)
 	_ FallibleSession = (*statusMutedSession)(nil)
 	_ FallibleSession = (*channelsSession)(nil)
 	_ FallibleSession = (*channelMessagesSession)(nil)

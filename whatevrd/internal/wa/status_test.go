@@ -3,6 +3,7 @@ package wa
 import (
 	"context"
 	"testing"
+	"time"
 
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waSyncAction"
@@ -18,6 +19,10 @@ func statusIngestEvent(id, sender string, message *waE2E.Message) *events.Messag
 	evt.Info.Chat = types.StatusBroadcastJID
 	evt.Info.Sender = types.JID{User: sender, Server: types.DefaultUserServer}
 	evt.Info.MessageSource.IsGroup = false
+	// Now, not the fixed 2023 stamp the chat-message helper uses: ingest
+	// prunes statuses past the 24h life, so a stale timestamp is dropped
+	// before the test can look at it.
+	evt.Info.Timestamp = time.Now()
 	return evt
 }
 

@@ -93,33 +93,6 @@ func TestEditHistoryRecordsVersions(t *testing.T) {
 	}
 }
 
-// TestStatusKeepSenders locks in the keep/archive flag lifecycle.
-func TestStatusKeepSenders(t *testing.T) {
-	ctx := context.Background()
-	db, err := Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	defer db.Close()
-
-	if err := db.SetStatusKeepSender(ctx, "a@s.whatsapp.net", true); err != nil {
-		t.Fatalf("keep a: %v", err)
-	}
-	if err := db.SetStatusKeepSender(ctx, "b@s.whatsapp.net", true); err != nil {
-		t.Fatalf("keep b: %v", err)
-	}
-	if err := db.SetStatusKeepSender(ctx, "a@s.whatsapp.net", false); err != nil {
-		t.Fatalf("unkeep a: %v", err)
-	}
-	kept, err := db.ListKeptStatusSenders(ctx)
-	if err != nil {
-		t.Fatalf("list kept: %v", err)
-	}
-	if len(kept) != 1 || kept[0] != "b@s.whatsapp.net" {
-		t.Fatalf("kept = %v; want [b@s.whatsapp.net]", kept)
-	}
-}
-
 // TestMarkAllChatsRead locks in that one call clears every badge and every
 // unread row, reporting the touched chats.
 func TestMarkAllChatsRead(t *testing.T) {

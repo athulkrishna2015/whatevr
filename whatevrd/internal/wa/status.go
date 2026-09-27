@@ -2,6 +2,7 @@ package wa
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -269,26 +270,6 @@ func (c *Client) DeleteStatus(ctx context.Context, statusID string) error {
 
 func (c *Client) ListStatusViewers(ctx context.Context, statusID string) ([]appstore.StatusViewer, error) {
 	return c.store.ListStatusViewers(ctx, strings.TrimSpace(statusID))
-}
-
-// SetStatusKeepSender pins (or unpins) a contact's expired statuses: kept
-// senders grow an archived section in the Status tab instead of having their
-// older statuses hidden once past 24h.
-func (c *Client) SetStatusKeepSender(ctx context.Context, senderID string, kept bool) error {
-	senderID = strings.TrimSpace(senderID)
-	if senderID == "" {
-		return app.NewCommandError(app.CommandErrorInvalidArgument, "sender_id is required")
-	}
-	if err := c.store.SetStatusKeepSender(ctx, senderID, kept); err != nil {
-		return err
-	}
-	c.daemon.PublishStatusChanged()
-	return nil
-}
-
-// ListKeptStatusSenders returns the sender ids with status keep enabled.
-func (c *Client) ListKeptStatusSenders(ctx context.Context) ([]string, error) {
-	return c.store.ListKeptStatusSenders(ctx)
 }
 
 // SetStatusMutedSender hides (or unhides) a contact's statuses: muted
@@ -571,6 +552,37 @@ func (c *Client) ingestStatusUpdate(ctx context.Context, evt *events.Message) {
 		c.attachIngestedStatusThumb(ctx, stored.ID, stored.MediaKind, stored.MediaPayload)
 		c.daemon.PublishStatusChanged()
 	}
+	// A fresh status is the moment the 24h window may have rolled over.
+	c.pruneExpiredStatuses(ctx)
+}
+
+// statusRetention is how long a status lives. WhatsApp expires stories after
+// 24h, so that is the whole retention window: nothing is archived past it and
+// the cached media goes with the row.
+const statusRetention = 24 * time.Hour
+
+// pruneExpiredStatuses drops statuses past the 24h status life along with their
+// cached media and thumbnails. Runs on connect and after every ingest: statuses
+// arrive a few times a day, so that bounds the table without a sweeper loop.
+// ponytail: connect + ingest, not a ticker. Add a sweeper if statuses ever
+// stream in fast enough to matter.
+func (c *Client) pruneExpiredStatuses(ctx context.Context) {
+	paths, err := c.store.PruneOldStatusUpdates(ctx, statusRetention)
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			c.log.Warnf("Failed to prune expired statuses: %v", err)
+		}
+		return
+	}
+	if len(paths) == 0 {
+		return
+	}
+	for _, path := range paths {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			c.log.Warnf("Failed to remove pruned status media %s: %v", path, err)
+		}
+	}
+	c.daemon.PublishStatusChanged()
 }
 
 // statusMirrorCleanupKey marks the one-time purge of the status@broadcast

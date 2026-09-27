@@ -180,91 +180,10 @@ func statusFallback(st store.StatusUpdate) string {
 	}
 }
 
-// StatusSenderLister supplies the `status.kept` and `status.muted` views
-// their rows. *store.DB implements it.
+// StatusSenderLister supplies the `status.muted` view its rows. *store.DB
+// implements it.
 type StatusSenderLister interface {
-	ListKeptStatusSenders(ctx context.Context) ([]string, error)
 	ListMutedStatusSenders(ctx context.Context) ([]string, error)
-}
-
-// statusKeptView lists the sender ids with status keep enabled: one row per
-// sender, `{id: sender_id}`. The Status tab reads it to decide which contacts
-// grow an archived section for their expired statuses. Local store read, so
-// the first load is synchronous; later keep flips arrive as StatusChanged.
-type statusKeptView struct {
-	daemon *app.Daemon
-	lister StatusSenderLister
-}
-
-func (v statusKeptView) Open(_ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
-	events, cancel := v.daemon.SubscribeDaemonEvents()
-	ctx, cancelCtx := context.WithCancel(context.Background())
-	s := &statusKeptSession{
-		lister:       v.lister,
-		eventsCancel: cancel,
-		ctx:          ctx,
-		cancelCtx:    cancelCtx,
-		done:         make(chan struct{}),
-	}
-	go s.run(events, invalidate)
-	return s, nil, nil
-}
-
-type statusKeptSession struct {
-	lister       StatusSenderLister
-	eventsCancel func()
-	ctx          context.Context
-	cancelCtx    context.CancelFunc
-	done         chan struct{}
-	closeOnce    sync.Once
-}
-
-func (s *statusKeptSession) run(events <-chan app.DaemonEvent, invalidate func()) {
-	for {
-		select {
-		case <-s.done:
-			return
-		case evt := <-events:
-			switch evt.Kind {
-			case app.DaemonEventStatusChanged, app.DaemonEventResync:
-				invalidate()
-			}
-		}
-	}
-}
-
-// Items returns one row per kept sender. `max` is ignored: the set is tiny.
-func (s *statusKeptSession) Items(max int) []Item {
-	items, _ := s.ItemsErr(max)
-	return items
-}
-
-func (s *statusKeptSession) ItemsErr(max int) ([]Item, error) {
-	if s.lister == nil {
-		return nil, nil
-	}
-	rows, err := s.lister.ListKeptStatusSenders(s.ctx)
-	if err != nil {
-		log.Printf("protocol: list kept status senders for view: %v", err)
-		return nil, err
-	}
-	items := make([]Item, 0, len(rows))
-	for _, id := range rows {
-		items = append(items, Item{
-			ID:   id,
-			Sort: id,
-			Data: map[string]any{"id": id},
-		})
-	}
-	return items, nil
-}
-
-func (s *statusKeptSession) Close() {
-	s.closeOnce.Do(func() {
-		s.cancelCtx()
-		close(s.done)
-		s.eventsCancel()
-	})
 }
 
 // statusMutedView lists the sender ids with status mute enabled: one row per

@@ -126,8 +126,6 @@ type CommandActions interface {
 	ReplyToStatus(context.Context, string, string) (appstore.SavedTextMessage, error)
 	DeleteStatus(context.Context, string) error
 	ListStatusViewers(context.Context, string) ([]appstore.StatusViewer, error)
-	SetStatusKeepSender(context.Context, string, bool) error
-	ListKeptStatusSenders(context.Context) ([]string, error)
 	SetStatusMutedSender(context.Context, string, bool) error
 	ListMutedStatusSenders(context.Context) ([]string, error)
 
@@ -235,7 +233,6 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("status.post", backgroundNet(cmd.statusPost, false))
 	s.RegisterCommand("status.download", cmd.statusDownload)
 	s.RegisterCommand("status.reply", backgroundNet(cmd.statusReply, false))
-	s.RegisterCommand("status.keep_sender", cmd.statusKeepSender)
 	s.RegisterCommand("status.mute_sender", cmd.statusMuteSender)
 	s.RegisterCommand("status.viewers", backgroundNet(cmd.statusViewers, true))
 	s.RegisterCommand("status.delete", backgroundNet(cmd.statusDelete, false))

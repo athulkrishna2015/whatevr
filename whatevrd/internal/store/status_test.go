@@ -61,12 +61,62 @@ func TestStatusUpdateRoundTrip(t *testing.T) {
 		t.Fatalf("set media thumb/dims = %+v; want thumb + 1280x720", saved)
 	}
 
+	// The prune hands the caller the cached media paths of the rows it took,
+	// so expired statuses do not leave their files behind in the cache.
 	pruned, err := db.PruneOldStatusUpdates(ctx, 0)
-	if err != nil || pruned != 2 {
-		t.Fatalf("prune = %d, %v; want 2", pruned, err)
+	if err != nil || len(pruned) != 2 {
+		t.Fatalf("prune = %v, %v; want 2 media paths", pruned, err)
 	}
 	if remaining, err := db.ListStatusUpdates(ctx, 0); err != nil || len(remaining) != 0 {
 		t.Fatalf("remaining after prune = %v, %v; want none", remaining, err)
+	}
+}
+
+// TestPruneOldStatusUpdatesRespects24h locks in the retention window: rows
+// inside 24h survive, older rows go with their cached media paths and their
+// view receipts.
+func TestPruneOldStatusUpdatesRespects24h(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+
+	fresh := time.Now().Add(-2 * time.Hour)
+	stale := time.Now().Add(-30 * time.Hour)
+	if _, _, err := db.SaveStatusUpdate(ctx, StatusUpdateInput{ID: "status:fresh", SenderID: "a@s.whatsapp.net", Timestamp: fresh, Kind: "text"}); err != nil {
+		t.Fatalf("save fresh: %v", err)
+	}
+	if _, _, err := db.SaveStatusUpdate(ctx, StatusUpdateInput{ID: "status:stale", SenderID: "b@s.whatsapp.net", Timestamp: stale, Kind: MediaKindImage}); err != nil {
+		t.Fatalf("save stale: %v", err)
+	}
+	if _, err := db.SetStatusMediaPath(ctx, "status:stale", "/cache/status/stale.jpg", "/cache/status/stale.thumb.jpg", 10, 10); err != nil {
+		t.Fatalf("set stale media path: %v", err)
+	}
+	if err := db.RecordStatusViewer(ctx, "status:stale", "peer@s.whatsapp.net", fresh); err != nil {
+		t.Fatalf("record viewer: %v", err)
+	}
+
+	pruned, err := db.PruneOldStatusUpdates(ctx, 24*time.Hour)
+	if err != nil {
+		t.Fatalf("prune: %v", err)
+	}
+	want := map[string]bool{"/cache/status/stale.jpg": true, "/cache/status/stale.thumb.jpg": true}
+	if len(pruned) != len(want) {
+		t.Fatalf("pruned paths = %v; want %v", pruned, want)
+	}
+	for _, path := range pruned {
+		if !want[path] {
+			t.Fatalf("pruned path %q is not the stale row's media", path)
+		}
+	}
+	remaining, err := db.ListStatusUpdates(ctx, 0)
+	if err != nil || len(remaining) != 1 || remaining[0].ID != "status:fresh" {
+		t.Fatalf("remaining = %+v, %v; want only status:fresh", remaining, err)
+	}
+	if viewers, err := db.ListStatusViewers(ctx, "status:stale"); err != nil || len(viewers) != 0 {
+		t.Fatalf("viewers of pruned status = %+v, %v; want none", viewers, err)
 	}
 }
 

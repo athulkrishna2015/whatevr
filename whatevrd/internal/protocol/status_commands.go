@@ -28,27 +28,6 @@ type statusIDParams struct {
 	StatusID string `json:"status_id"`
 }
 
-// status.keep_sender pins (or unpins) a contact's expired statuses: kept
-// senders grow an archived section in the Status tab instead of having their
-// older statuses hidden once past 24h. Synchronous: a local flag flip.
-func (h commandHandlers) statusKeepSender(_ *conn, req request) (any, *Error) {
-	if err := h.requireActions(); err != nil {
-		return nil, err
-	}
-	var p struct {
-		SenderID string `json:"sender_id"`
-		Kept     bool   `json:"kept"`
-	}
-	if err := decodeParams(req.Params, &p); err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(p.SenderID) == "" {
-		return nil, errorf(CodeInvalidParams, "sender_id is required")
-	}
-	err := h.actions.SetStatusKeepSender(context.Background(), strings.TrimSpace(p.SenderID), p.Kept)
-	return nil, mapCommandError(err)
-}
-
 // status.mute_sender hides (or unhides) a contact's statuses: muted senders
 // collect under the Status tab's Muted section instead of the main list.
 // Synchronous: a local flag flip.

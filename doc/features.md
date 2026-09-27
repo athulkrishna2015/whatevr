@@ -33,8 +33,10 @@ Status key: **have** · **new** (this cycle) · **missing** (planned, safe) ·
   other media 25 MiB: **have**. Anything past official caps stays
   server-enforced and **refused** to bypass.
 - Anti-delete messages (content kept + Deleted mark, toggleable):
-  **new**. Ghost story viewing and kept deleted statuses: inherent (no viewed
-  receipts are ever sent; status revokes never touched the status store).
+  **new**. Ghost story viewing: inherent (no viewed receipts are ever sent;
+  status revokes never touched the status store). Statuses are **not** kept
+  past their 24h life: the daemon prunes the rows and their cached media, so
+  there is no status anti-delete and no archive.
 - Edit history dialog (current vs previous versions): **new**.
 - Sender client indicator (phone app vs linked device, info dialog + bubble
   mark): **new**. OS-level (Android vs iOS) is not exposed by the protocol.
