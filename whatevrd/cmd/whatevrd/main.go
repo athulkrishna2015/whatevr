@@ -21,15 +21,18 @@ import (
 func main() {
 	restoreBundle := flag.String("restore", "", "restore a backup bundle created by daemon.backup_export and exit (the daemon must be stopped)")
 	restorePassphrase := flag.String("restore-passphrase", "", "passphrase for an encrypted backup bundle (prefer WHATEVR_BACKUP_PASSPHRASE)")
+
+	// Mock mode repoints the XDG directories at a scratch tree, so it has to
+	// settle before anything resolves a path. It also has to run before
+	// flag.Parse: under -tags whatevr_mock it is what registers the mock
+	// flags, and in a release build it is what turns --mock into the rebuild
+	// hint instead of Go's "flag provided but not defined: -mock". Parsing
+	// first broke both, and only the mock-gate script noticed.
+	mock := mockPrepare()
 	flag.Parse()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-
-	// Mock mode repoints the XDG directories at a scratch tree, so it has to
-	// settle before anything resolves a path. In a release build this parses
-	// no flags and returns nil.
-	mock := mockPrepare()
 
 	paths, err := app.ResolvePaths()
 	if err != nil {
