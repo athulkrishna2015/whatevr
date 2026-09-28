@@ -7,6 +7,8 @@ set_source_files_properties(qml/I18n.qml qml/Palette.qml PROPERTIES
 set(WHATKEVR_SOURCES
     app/conversationsession.cpp
     app/conversationsession.h
+    app/mediaeditor.cpp
+    app/mediaeditor.h
     app/protocolcontroller.cpp
     app/protocolcontroller.h
     app/protocolstickercontroller.cpp
@@ -70,6 +72,7 @@ set(WHATKEVR_LINK_LIBRARIES
     KF6::I18nQml
     KF6::Kirigami
     KF6::Prison
+    KQuickImageEditor
     PkgConfig::RLottie
     PkgConfig::Mpv
 )
@@ -193,6 +196,7 @@ set(WHATKEVR_QML_FILES
         qml/components/MessageInfoDialog.qml
         qml/components/EditHistoryDialog.qml
         qml/components/AttachConfirmDialog.qml
+    qml/components/MediaEditDialog.qml
         qml/components/MessageContentDialog.qml
         qml/components/ForwardChatPickerDialog.qml
         qml/components/ChatListSidebar.qml

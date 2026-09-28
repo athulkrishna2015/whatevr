@@ -65,6 +65,11 @@ find_package(KF6 ${KF_MIN_VERSION} REQUIRED COMPONENTS
 )
 
 find_package(KF6KirigamiAddons ${KIRIGAMI_ADDONS_MIN_VERSION} REQUIRED)
+# The pre-send photo editor: crop, rotate, mirror and undo, with the selection
+# chrome that goes with it. KQuickImageEditor rather than a hand-rolled cropper
+# because KDE already ships the whole thing, it is what NeoChat and Photos use,
+# and it is the same licence as the Kirigami this app is built on.
+find_package(KQuickImageEditor REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(RLottie REQUIRED IMPORTED_TARGET rlottie)
 # libmpv plays everything: pitch-corrected voice-note speed, and video that

@@ -1007,28 +1007,49 @@ Kirigami.Page {
                             ? model.allMessageIds() : []
                         const entries = []
                         let start = -1
+                        const push = (id, kind, path, fileName, timestampUnix, width, height, durationSecs) => {
+                            if (path.length === 0)
+                                return
+                            if (id === openId)
+                                start = entries.length
+                            entries.push({
+                                id: id,
+                                kind: kind,
+                                path: path,
+                                fileName: fileName,
+                                timestampUnix: timestampUnix,
+                                width: width,
+                                height: height,
+                                durationSecs: durationSecs,
+                            })
+                        }
                         for (let i = 0; i < ids.length; ++i) {
                             const snap = messageSnapshot(ids[i])
                             if (!snap)
                                 continue
                             const k = String(snap.mediaKind || "")
+                            // Pictures sent together arrive as one album row, so
+                            // walking the row's own kind would step straight over
+                            // all of them. Expanded in the album's place, which
+                            // keeps them in the order they were sent rather than
+                            // in some order of their own.
+                            if (k === "album") {
+                                const tiles = snap.album ? (snap.album.items ?? []) : []
+                                for (let t = 0; t < tiles.length; ++t) {
+                                    const media = tiles[t].media ?? {}
+                                    push(String(tiles[t].id ?? ""), String(tiles[t].kind ?? "image"),
+                                         String(media.path ?? ""), String(media.filename ?? ""),
+                                         Number(tiles[t].timestamp ?? 0), Number(media.width ?? 0),
+                                         Number(media.height ?? 0), Number(media.duration_secs ?? 0))
+                                }
+                                continue
+                            }
                             if (k !== "image" && k !== "video" && k !== "gif" && k !== "video_note")
                                 continue
-                            const path = String(snap.mediaLocalPath || "")
-                            if (path.length === 0)
-                                continue
-                            if (ids[i] === openId)
-                                start = entries.length
-                            entries.push({
-                                id: String(ids[i]),
-                                kind: k,
-                                path: path,
-                                fileName: String(snap.mediaFileName || ""),
-                                timestampUnix: Number(snap.timestampUnix || 0),
-                                width: Number(snap.mediaWidth || 0),
-                                height: Number(snap.mediaHeight || 0),
-                                durationSecs: Number(snap.mediaDurationSecs || 0),
-                            })
+                            push(String(ids[i]), k, String(snap.mediaLocalPath || ""),
+                                 String(snap.mediaFileName || ""), Number(snap.timestampUnix || 0),
+                                 Number(snap.mediaWidth || 0), Number(snap.mediaHeight || 0),
+                                 Number(snap.mediaDurationSecs || 0))
                         }
                         return { entries: entries, start: start }
                     }
@@ -1174,7 +1195,7 @@ Kirigami.Page {
             editingOriginalText: root.editingOriginalText
             onSendTextRequested: (text, replyToMessageId, mentionedJids) => Whatevr.ProtocolController.sendText(text, replyToMessageId, mentionedJids)
             onSendImageRequested: (fileUrl, caption, replyToMessageId, kind, viewOnce) => Whatevr.ProtocolController.sendMedia(fileUrl, caption, replyToMessageId, kind, viewOnce)
-            onSendMediaBatchRequested: (fileUrls, caption, replyToMessageId, kind, viewOnce) => Whatevr.ProtocolController.sendMediaBatch(fileUrls, caption, replyToMessageId, kind, viewOnce)
+            onSendMediaBatchRequested: (fileUrls, caption, replyToMessageId, kind, viewOnce, quality) => Whatevr.ProtocolController.sendMediaBatch(fileUrls, caption, replyToMessageId, kind, viewOnce, quality)
             onComposingChanged: composing => Whatevr.ProtocolController.setSelectedChatComposing(composing)
             onClearReplyRequested: root.clearReplyTarget()
             onReplyConsumed: root.clearReplyTarget()

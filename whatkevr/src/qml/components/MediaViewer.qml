@@ -91,6 +91,19 @@ QQC2.Popup {
     property real panX: 0
     property real panY: 0
 
+    /// Which way up the picture is being shown, 0/90/180/270. Every ninety
+    /// degrees is a quarter turn, and the point of having it at all is the
+    /// photo shot sideways and the clip recorded the wrong way up: rotating
+    /// the view is the fix, and it is one the viewer can undo. Applies to a
+    /// clip too, where the alternative is turning the device.
+    property real viewRotation: 0
+
+    /// A quarter turn turns the picture's own width and height over, which is
+    /// what the pan clamp has to measure against: clamping a rotated picture
+    /// by its unrotated box lets it be dragged until the picture has left the
+    /// screen.
+    readonly property bool viewSwapped: viewRotation === 90 || viewRotation === 270
+
     function setZoom(next) {
         zoom = Math.min(8, Math.max(1, next))
         if (zoom <= 1) {
@@ -114,11 +127,28 @@ QQC2.Popup {
         clampPan()
     }
 
+    /// Turns the picture. Zoom and pan survive, since a zoomed picture
+    /// turned on its side is still the same close-up of the same thing.
+    function rotateView(degrees) {
+        viewRotation = (viewRotation + degrees + 360) % 360
+        clampPan()
+        wakeChrome()
+    }
+
+    /// Back to the file as it was sent, for a viewer that had been rotated,
+    /// zoomed and dragged about.
+    function resetView() {
+        viewRotation = 0
+        setZoom(1)
+    }
+
     /// Keeps a zoomed picture covering the viewport: no panning past the
     /// point where an edge would leave a gap.
     function clampPan() {
-        const maxX = Math.max(0, (photo.width - viewerContent.width) / 2)
-        const maxY = Math.max(0, (photo.height - viewerContent.height) / 2)
+        const boxWidth = root.viewSwapped ? photo.height : photo.width
+        const boxHeight = root.viewSwapped ? photo.width : photo.height
+        const maxX = Math.max(0, (boxWidth - viewerContent.width) / 2)
+        const maxY = Math.max(0, (boxHeight - viewerContent.height) / 2)
         panX = Math.min(maxX, Math.max(-maxX, panX))
         panY = Math.min(maxY, Math.max(-maxY, panY))
     }
@@ -142,6 +172,7 @@ QQC2.Popup {
         zoom = 1
         panX = 0
         panY = 0
+        viewRotation = 0
         open()
     }
 
@@ -162,6 +193,7 @@ QQC2.Popup {
         // up to that position.
         startAt = at ?? 0
         stillRevision = Whatevr.VideoPlayback.frameRevision(id)
+        viewRotation = 0
         surface.muted = false
         surface.volume = 100
         surface.playbackWanted = true
@@ -453,6 +485,7 @@ QQC2.Popup {
             cache: true
             width: implicitWidth * fitScale * root.zoom
             height: implicitHeight * fitScale * root.zoom
+            rotation: root.viewRotation
             // Anchors keep the zoom centered; the translate carries the pan.
             transform: Translate {
                 x: root.panX
@@ -551,6 +584,11 @@ QQC2.Popup {
             height: root.isVideoNote
                 ? width
                 : parent.height - Kirigami.Units.gridUnit * 6
+            // Turning a clip the right way up is a view change, not a re-encode,
+            // so it rides the same property the photo uses. The surface is a
+            // framebuffer item, which follows its parent's transform like any
+            // other item, and everything overlaid on it below travels with it.
+            rotation: root.viewRotation
 
             // The clip is fitted inside this frame, so the frame is wider or
             // taller than the picture on every clip whose shape is not the
@@ -910,6 +948,43 @@ QQC2.Popup {
                 }
 
                 QQC2.ToolButton {
+                    focusPolicy: Qt.NoFocus
+                    icon.name: "object-rotate-left-symbolic"
+                    text: Whatevr.I18n.i18nc("@action:button", "Rotate Left")
+                    display: QQC2.AbstractButton.IconOnly
+                    QQC2.ToolTip.text: text
+                    QQC2.ToolTip.visible: hovered
+                    QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+                    Accessible.name: text
+                    onClicked: root.rotateView(-90)
+                }
+
+                QQC2.ToolButton {
+                    focusPolicy: Qt.NoFocus
+                    icon.name: "object-rotate-right-symbolic"
+                    text: Whatevr.I18n.i18nc("@action:button", "Rotate Right")
+                    display: QQC2.AbstractButton.IconOnly
+                    QQC2.ToolTip.text: text
+                    QQC2.ToolTip.visible: hovered
+                    QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+                    Accessible.name: text
+                    onClicked: root.rotateView(90)
+                }
+
+                QQC2.ToolButton {
+                    visible: root.viewRotation !== 0 || root.zoom > 1
+                    focusPolicy: Qt.NoFocus
+                    icon.name: "view-fullscreen-symbolic"
+                    text: Whatevr.I18n.i18nc("@action:button", "Reset View")
+                    display: QQC2.AbstractButton.IconOnly
+                    QQC2.ToolTip.text: text
+                    QQC2.ToolTip.visible: hovered
+                    QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+                    Accessible.name: text
+                    onClicked: root.resetView()
+                }
+
+                QQC2.ToolButton {
                     visible: root.messageId.length > 0
                     focusPolicy: Qt.NoFocus
                     icon.name: "mail-forward-symbolic"
@@ -1222,6 +1297,18 @@ QQC2.Popup {
             case Qt.Key_S:
                 if (event.modifiers & Qt.ControlModifier) {
                     root.saveMedia()
+                    event.accepted = true
+                }
+                break
+            // R turns the picture, which is the one adjustment a viewer can
+            // make that is not about looking closer. Shift turns it back.
+            case Qt.Key_R:
+                root.rotateView(event.modifiers & Qt.ShiftModifier ? -90 : 90)
+                event.accepted = true
+                break
+            case Qt.Key_Backslash:
+                if (event.modifiers & Qt.ControlModifier) {
+                    root.resetView()
                     event.accepted = true
                 }
                 break

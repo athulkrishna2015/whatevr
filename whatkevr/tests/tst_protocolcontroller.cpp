@@ -419,6 +419,18 @@ private:
                 reply(id, QJsonObject{{QStringLiteral("message_id"), QStringLiteral("sent-1")}});
             }
             Q_EMIT commandReceived();
+        } else if (method == QLatin1String("send.media_batch")) {
+            // Its own branch because it answers a different shape: a list of ids
+            // and a list of per-file failures, not one message_id.
+            lastCommandMethod = method;
+            lastCommandParams = params;
+            if (std::exchange(m_rejectNextSend, false)) {
+                error(id, QStringLiteral("rejected"), QStringLiteral("send rejected"));
+            } else {
+                reply(id, QJsonObject{{QStringLiteral("message_ids"), QJsonArray{QStringLiteral("sent-1")}},
+                                      {QStringLiteral("errors"), QJsonArray{}}});
+            }
+            Q_EMIT commandReceived();
         } else if (method.startsWith(QLatin1String("message."))) {
             lastCommandMethod = method;
             lastCommandParams = params;
@@ -2031,6 +2043,38 @@ private Q_SLOTS:
         QVERIFY(commandSpy.wait());
         QTRY_VERIFY(!ctrl.composerErrorText().isEmpty());
         QVERIFY(!ctrl.sendInFlight());
+    }
+
+    // The send dialog's Standard/HD choice reaches the daemon on the batch, and
+    // stays off the wire entirely when nobody picked anything — the daemon
+    // treats a missing quality as standard, so an empty key would be a second
+    // spelling of the same answer.
+    void sendMediaBatchCarriesQuality()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats({chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_VERIFY(!ctrl.chatsLoading());
+        ctrl.selectChat(QStringLiteral("a@s"));
+
+        QSignalSpy commandSpy(&daemon, &FakeDaemon::commandReceived);
+
+        ctrl.sendMediaBatch({QStringLiteral("file:///tmp/a.jpg")}, QString(), QString(), {}, false, QStringLiteral("hd"));
+        QVERIFY(commandSpy.wait());
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("send.media_batch"));
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("quality")).toString(), QStringLiteral("hd"));
+        // The daemon has the request but the controller has not been told yet,
+        // and it only ever holds one send: a second one here would be dropped
+        // for being in flight rather than for anything to do with quality.
+        QTRY_VERIFY(!ctrl.sendInFlight());
+
+        commandSpy.clear();
+        ctrl.sendMediaBatch({QStringLiteral("file:///tmp/a.jpg")}, QString(), QString());
+        QVERIFY(commandSpy.wait());
+        QVERIFY(!daemon.lastCommandParams.contains(QStringLiteral("quality")));
     }
 
     // The composing indicator maps to `chat.typing`; a stop is only sent for

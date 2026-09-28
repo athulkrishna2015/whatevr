@@ -29,9 +29,14 @@ cmake --build build/release/whatkevr -- -j2
 
 ### Release install (just)
 
+The prefix is a **positional** argument. `just install prefix=/path` is not a
+named assignment on the installed `just` (1.58): it takes the whole string as
+the prefix, so the build lands in a directory literally named `prefix=…` inside
+the repo and reports success. See `doc/troubleshooting.md`.
+
 ```sh
-just install prefix=/home/admin/.local         # release, user-writable prefix
-just install-dev prefix=/home/admin/.local     # debug, user-writable prefix
+just install /home/admin/.local                # release, user-writable prefix
+just install-dev /home/admin/.local            # debug, user-writable prefix
 ```
 
 ### After install: restart both processes

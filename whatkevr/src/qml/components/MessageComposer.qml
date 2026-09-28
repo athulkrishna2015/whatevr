@@ -73,7 +73,7 @@ Frame {
 
     signal sendTextRequested(string text, string replyToMessageId, var mentionedJids)
     signal sendImageRequested(string fileUrl, string caption, string replyToMessageId, string kind, bool viewOnce)
-    signal sendMediaBatchRequested(var fileUrls, string caption, string replyToMessageId, string kind, bool viewOnce)
+    signal sendMediaBatchRequested(var fileUrls, string caption, string replyToMessageId, string kind, bool viewOnce, string quality)
     signal composingChanged(bool composing)
     signal clearReplyRequested()
     signal replyConsumed()
@@ -1264,9 +1264,9 @@ Frame {
     AttachConfirmDialog {
         id: attachConfirmDialog
 
-        onConfirmed: (fileUrls, caption, kind, viewOnce) => {
+        onConfirmed: (fileUrls, caption, kind, viewOnce, quality) => {
             root.setComposing(false)
-            root.sendMediaBatchRequested(fileUrls, caption, root.replyToMessageId, kind, viewOnce)
+            root.sendMediaBatchRequested(fileUrls, caption, root.replyToMessageId, kind, viewOnce, quality)
             root.viewOnceSend = false
             root.replyConsumed()
             input.clear()

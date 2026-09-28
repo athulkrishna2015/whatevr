@@ -13,8 +13,11 @@ import (
 	"image/png"
 	"io"
 	"net/http"
+	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -207,19 +210,33 @@ func (c *Client) SendMediaWithOptions(ctx context.Context, chatID, filePath, cap
 	if opts.ViewOnce && !viewOnceSendable(mediaKind) {
 		return appstore.SavedTextMessage{}, app.NewCommandError(app.CommandErrorInvalidArgument, "view-once is only supported for photo, video and audio messages")
 	}
-	// Standard quality downscales photos the way official clients do; HD (or
-	// any non-image kind) keeps the original bytes.
+	// Quality picks what actually goes over the wire: standard re-encodes at the
+	// sizes official clients use, hd sends the original bytes. It is validated
+	// for every kind so a typo is an error rather than a silent downgrade, but
+	// only photos and clips are re-encoded by it.
+	quality := strings.ToLower(strings.TrimSpace(opts.Quality))
+	if quality != "" && quality != "standard" && quality != "hd" {
+		return appstore.SavedTextMessage{}, app.NewCommandError(app.CommandErrorInvalidArgument, "quality must be standard or hd")
+	}
 	var mediaWidth, mediaHeight int32
-	if mediaKind == appstore.MediaKindImage {
-		if quality := strings.ToLower(strings.TrimSpace(opts.Quality)); quality != "" && quality != "standard" && quality != "hd" {
-			return appstore.SavedTextMessage{}, app.NewCommandError(app.CommandErrorInvalidArgument, "quality must be standard or hd")
-		} else if quality != "hd" {
+	if quality != "hd" {
+		switch mediaKind {
+		case appstore.MediaKindImage:
 			scaledData, scaledMime, scaledExt, scaledW, scaledH := downscaleImageForStandard(data, mimeType)
 			data, mimeType = scaledData, scaledMime
 			if scaledExt != "" {
 				extension = scaledExt
 			}
 			mediaWidth, mediaHeight = scaledW, scaledH
+		case appstore.MediaKindVideo:
+			// A clip is re-encoded with ffmpeg, which the daemon only has when
+			// something else already wanted it (poster frames, waveforms). With
+			// none on PATH the clip goes out as it is, which is what happened
+			// before this existed, rather than not going out at all.
+			if scaledData, scaledW, scaledH, ok := downscaleVideoForStandard(ctx, filePath, mimeType); ok {
+				data, mimeType, extension = scaledData, "video/mp4", ".mp4"
+				mediaWidth, mediaHeight = scaledW, scaledH
+			}
 		}
 	}
 
@@ -608,6 +625,116 @@ const outgoingThumbnailMaxDimension = 100
 // downscaled to in standard quality, matching official clients. HD sends the
 // original bytes untouched.
 const standardImageMaxSide = 1600
+
+// standardVideoMaxSide is the longest side a clip is held to in standard
+// quality, which is also the frame size the poster frames are taken at.
+const standardVideoMaxSide = 1280
+
+// videoTranscodeTimeout bounds the re-encode. A clip that will not finish in
+// this is sent as it is: the message is worth more than the size saving.
+const videoTranscodeTimeout = 3 * time.Minute
+
+// downscaleVideoForStandard re-encodes a clip so neither side exceeds
+// standardVideoMaxSide, without ever upscaling a clip that is already smaller.
+// It reports false — leaving the caller to send the original — when ffmpeg is
+// missing, when the clip is already within bounds, or when anything goes wrong,
+// because none of those are worth failing a send over.
+func downscaleVideoForStandard(ctx context.Context, sourcePath, mimeType string) ([]byte, int32, int32, bool) {
+	ffmpeg, err := exec.LookPath("ffmpeg")
+	if err != nil {
+		return nil, 0, 0, false
+	}
+	// Re-encoding a clip that is already the size it is going to be sent at
+	// costs a minute of the user's time and a generation of quality for nothing,
+	// so the size is read first and the work skipped when it would be.
+	width, height, ok := probeVideoDimensions(ctx, sourcePath)
+	if !ok {
+		return nil, 0, 0, false
+	}
+	if width <= standardVideoMaxSide && height <= standardVideoMaxSide {
+		return nil, 0, 0, false
+	}
+
+	tmp, err := os.CreateTemp(filepath.Dir(sourcePath), ".whatevr-lq-*.mp4")
+	if err != nil {
+		return nil, 0, 0, false
+	}
+	tmpPath := tmp.Name()
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return nil, 0, 0, false
+	}
+	defer os.Remove(tmpPath)
+
+	// ffmpeg parses the quotes in a filter itself, so they are part of the
+	// filter and not a shell's. force_divisible_by keeps the result on even
+	// sides, which yuv420p needs and would otherwise refuse.
+	scale := fmt.Sprintf("scale='min(%d,iw)':'min(%d,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
+		standardVideoMaxSide, standardVideoMaxSide)
+	encodeCtx, cancel := context.WithTimeout(ctx, videoTranscodeTimeout)
+	defer cancel()
+	args := []string{
+		"-nostdin", "-hide_banner", "-loglevel", "error", "-y",
+		"-i", sourcePath,
+		"-vf", scale,
+		"-c:v", "libx264", "-preset", "veryfast", "-crf", "30",
+		"-pix_fmt", "yuv420p",
+		"-c:a", "aac", "-b:a", "96k",
+		"-movflags", "+faststart",
+		tmpPath,
+	}
+	if out, err := exec.CommandContext(encodeCtx, ffmpeg, args...).CombinedOutput(); err != nil {
+		if encodeCtx.Err() == nil && len(out) > 0 {
+			slog.Debug("standard-quality video transcode failed", "error", err, "output", string(out))
+		}
+		return nil, 0, 0, false
+	}
+	info, err := os.Stat(tmpPath)
+	if err != nil || info.Size() == 0 {
+		return nil, 0, 0, false
+	}
+	data, err := os.ReadFile(tmpPath)
+	if err != nil {
+		return nil, 0, 0, false
+	}
+	scaledW, scaledH, ok := probeVideoDimensions(ctx, tmpPath)
+	if !ok {
+		return data, int32(standardVideoMaxSide), 0, true
+	}
+	return data, int32(scaledW), int32(scaledH), true
+}
+
+// probeVideoDimensions reads a clip's frame size with ffprobe, which ships with
+// ffmpeg. It reports false when neither is available or the clip will not say.
+func probeVideoDimensions(ctx context.Context, path string) (int, int, bool) {
+	ffprobe, err := exec.LookPath("ffprobe")
+	if err != nil {
+		return 0, 0, false
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+	defer cancel()
+	// The comma-separated stream list needs one entry picked, and -select_streams
+	// is the way to ask for the first video stream without parsing a list.
+	out, err := exec.CommandContext(probeCtx, ffprobe,
+		"-v", "error",
+		"-select_streams", "v:0",
+		"-show_entries", "stream=width,height",
+		"-of", "csv=s=x:p=0",
+		path).Output()
+	if err != nil {
+		return 0, 0, false
+	}
+	fields := strings.SplitN(strings.TrimSpace(string(out)), "x", 2)
+	if len(fields) != 2 {
+		return 0, 0, false
+	}
+	w, wErr := strconv.Atoi(fields[0])
+	h, hErr := strconv.Atoi(fields[1])
+	if wErr != nil || hErr != nil || w <= 0 || h <= 0 {
+		return 0, 0, false
+	}
+	return w, h, true
+}
 
 // downscaleImageForStandard downsizes data when its longest side exceeds
 // standardImageMaxSide, re-encoding as JPEG (like official clients) except

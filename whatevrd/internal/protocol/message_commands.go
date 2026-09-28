@@ -186,7 +186,10 @@ type sendMediaBatchParams struct {
 	ReplyTo  string `json:"reply_to"`
 	Kind     string `json:"kind"`
 	ViewOnce bool   `json:"view_once"`
-	Files    []struct {
+	// Quality applies to every file in the batch, the same way the frontend
+	// offers it: "standard" or "hd". Empty means standard.
+	Quality string `json:"quality"`
+	Files   []struct {
 		Path    string `json:"path"`
 		Caption string `json:"caption"`
 	} `json:"files"`
@@ -225,6 +228,7 @@ func (h commandHandlers) sendMediaBatch(ctx context.Context, _ *conn, req reques
 	opts := app.MediaSendOptions{
 		Kind:     strings.TrimSpace(p.Kind),
 		ViewOnce: p.ViewOnce,
+		Quality:  strings.TrimSpace(p.Quality),
 	}
 	saved, failed := h.actions.SendMediaBatch(ctx, strings.TrimSpace(p.ChatID), files, strings.TrimSpace(p.ReplyTo), opts)
 	ids := make([]string, 0, len(saved))

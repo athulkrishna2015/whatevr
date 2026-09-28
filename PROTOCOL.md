@@ -289,7 +289,8 @@ views.
 | --- | --- | --- |
 | `send.text` | `chat_id`, `text`, `reply_to`, `mentions` (jids) | `{message_id}` |
 | `schedule.text` | `chat_id`, `text`, `send_at` (Unix seconds) | `{scheduled_id}`: durable one-shot text send |
-| `send.media` | `chat_id`, `path`, `caption`, `reply_to`, `mentions`, `kind` (`image`\|`video`\|`audio`\|`voice`\|`document`, empty auto-classifies from the file), `view_once` (photo/video/audio only), `filename` (document display-name override) | `{message_id}`: daemon copies the file into its cache immediately; the caller may delete its copy on return |
+| `send.media` | `chat_id`, `path`, `caption`, `reply_to`, `mentions`, `kind` (`image`\|`video`\|`audio`\|`voice`\|`document`, empty auto-classifies from the file), `view_once` (photo/video/audio only), `filename` (document display-name override), `quality` (`standard`\|`hd`, empty means standard) | `{message_id}`: daemon copies the file into its cache immediately; the caller may delete its copy on return. `standard` re-encodes photos to 1600px and clips to 1280px the way official clients do; `hd` sends the original bytes. A clip re-encode needs ffmpeg, and a clip already within bounds is sent untouched either way |
+| `send.media_batch` | `chat_id`, `reply_to`, `mentions`, `kind`, `view_once`, `quality`, `files` (1-30 of `{path, caption}`) | `{message_ids, errors}`: one request for a multi-pick, because a frontend can only hold one send in flight and looping `send.media` drops every file after the first. `caption` rides on the first file. `errors` holds `{index, error}` per failure without stopping the rest |
 | `send.sticker` | `chat_id`, `cache_key`, `reply_to` | `{message_id}` |
 | `send.cancel` | `message_id` | `{}`: marks a still-pending outgoing message failed so the send worker skips it. Fails `rejected` when the message already left the queue |
 | `message.react` | `message_id`, `emoji` ("" removes) | `{}` |

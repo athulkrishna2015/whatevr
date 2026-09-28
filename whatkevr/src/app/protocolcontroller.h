@@ -690,7 +690,11 @@ public:
     // from the file); viewOnce sends photo/video/audio view-once. QML may keep
     // calling with three arguments — the defaults preserve the old behavior.
     Q_INVOKABLE bool sendMedia(const QString &fileUrl, const QString &caption, const QString &replyToMessageId, const QString &kind = {}, bool viewOnce = false);
-    Q_INVOKABLE void sendMediaBatch(const QVariantList &fileUrls, const QString &caption, const QString &replyToMessageId, const QString &kind = {}, bool viewOnce = false);
+    // quality is "standard" (photos downscaled to 1600px and clips to 1280px,
+    // the way official clients send them) or "hd" (the original bytes). One
+    // choice for the whole batch, which is what the send dialog offers. Empty
+    // means standard.
+    Q_INVOKABLE void sendMediaBatch(const QVariantList &fileUrls, const QString &caption, const QString &replyToMessageId, const QString &kind = {}, bool viewOnce = false, const QString &quality = {});
     // Sends whatever image the clipboard currently holds (pasted bitmap or a
     // local image file URL), same as sendMedia. Returns false when the
     // clipboard had nothing sendable, so the caller can fall back to a normal

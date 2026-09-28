@@ -3,6 +3,46 @@
 All notable changes to Whatevr. The protocol is versioned separately in
 PROTOCOL.md (stable at version 1: additive changes only).
 
+## Unreleased
+
+### Added
+
+- Received photos and videos can be turned in the full-screen viewer, with
+  toolbar buttons, `R` / `Shift+R`, and a reset. Turning is a view change, so
+  it costs nothing and is undone by turning back — the alternative for a
+  sideways photo is turning the device.
+- Attachments can be edited before they are sent: a quarter turn and a crop for
+  photos, a freehand mark on top of them, and a quarter turn for clips. The
+  picked file is never touched; the edit is written to a new file in the cache
+  and that is what gets sent, so cancelling costs nothing. Crop, rotate, mirror
+  and undo come from KQuickImageEditor, the same library NeoChat and Photos
+  use.
+- A Standard / HD choice in the send dialog, covering the whole batch. It
+  reaches the daemon as `quality` and means the same thing for every kind: a
+  standard photo is held to 1600px, as official clients send them, and a
+  standard clip to 1280px. HD sends the original bytes. `quality` was already
+  implemented on the daemon and already documented on `send.media`, but was
+  unreachable from the frontend and missing from `send.media_batch` entirely.
+- `send.media_batch` is documented in PROTOCOL.md, along with the `quality`
+  parameter. Neither was, and the batch command had no frontend test coverage;
+  it does now.
+
+### Fixed
+
+- Panning a zoomed photo stopped being clamped correctly once it had been
+  turned: the clamp measured the unrotated box, which let a rotated picture be
+  dragged until it left the screen.
+- Pictures sent together in an album were unreachable from the chat-wide media
+  viewer, because the walk keyed on the album row's own `album` kind and
+  stepped over its tiles. Album tiles are now expanded in the album's place, so
+  they keep the order they were sent in.
+
+### Added (dependencies)
+
+- KQuickImageEditor, for the pre-send photo editor. It is already required by
+  the KDE Plasma stack this app is built on, is LGPL like the Kirigami it sits
+  beside, and is what NeoChat and Photos use for the same job.
+
 ## 0.9.1 — 2026-09-27
 
 ### Changed

@@ -2170,7 +2170,7 @@ bool ProtocolController::sendMedia(const QString &fileUrl, const QString &captio
 // Batch twin of sendMedia: the daemon serializes the files, so a multi-pick
 // (or a multi-file drop) goes out as one request instead of N racing ones
 // that the single in-flight guard would drop after the first.
-void ProtocolController::sendMediaBatch(const QVariantList &fileUrls, const QString &caption, const QString &replyToMessageId, const QString &kind, bool viewOnce)
+void ProtocolController::sendMediaBatch(const QVariantList &fileUrls, const QString &caption, const QString &replyToMessageId, const QString &kind, bool viewOnce, const QString &quality)
 {
     if (m_selectedChatId.isEmpty() || fileUrls.isEmpty() || m_sendInFlight || !selectedChatCanSend()) {
         return;
@@ -2208,6 +2208,9 @@ void ProtocolController::sendMediaBatch(const QVariantList &fileUrls, const QStr
     }
     if (viewOnce) {
         params.insert(QStringLiteral("view_once"), true);
+    }
+    if (const QString q = quality.trimmed(); !q.isEmpty()) {
+        params.insert(QStringLiteral("quality"), q);
     }
 
     m_sendInFlight = true;

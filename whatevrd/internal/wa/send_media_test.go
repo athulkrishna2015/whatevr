@@ -2,6 +2,7 @@ package wa
 
 import (
 	"bytes"
+	"context"
 	"image"
 	"image/color"
 	"image/jpeg"
@@ -47,6 +48,25 @@ func TestDownscaleImageForStandard(t *testing.T) {
 	}
 	if cfg, _, err := image.DecodeConfig(bytes.NewReader(out)); err != nil || cfg.Width != 1600 || cfg.Height != 1200 {
 		t.Fatalf("scaled bytes decode = %+v, %v; want 1600x1200", cfg, err)
+	}
+}
+
+// TestDownscaleVideoForStandardSkipsWhenUndersized locks in the half of the
+// standard-quality clip path that costs the user nothing: a clip already within
+// the ceiling, and anything that is not a clip at all, are both left alone
+// rather than re-encoded. Re-encoding a clip that is about to be sent at its own
+// size costs a minute and a generation of quality for no saving.
+func TestDownscaleVideoForStandardSkipsWhenUndersized(t *testing.T) {
+	dir := t.TempDir()
+	notAVideo := filepath.Join(dir, "clip.mp4")
+	if err := os.WriteFile(notAVideo, []byte("not a container ffprobe can read"), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	if _, _, _, ok := downscaleVideoForStandard(context.Background(), notAVideo, "video/mp4"); ok {
+		t.Fatal("a file ffprobe cannot read must not be re-encoded")
+	}
+	if w, h, ok := probeVideoDimensions(context.Background(), notAVideo); ok {
+		t.Fatalf("unreadable clip reported %dx%d", w, h)
 	}
 }
 

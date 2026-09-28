@@ -50,13 +50,14 @@ with `git clone --recursive`, or run
 **Terminal frontend:** the same Go toolchain, nothing else.
 **Frontend:** C++20 compiler, CMake 3.21+, Ninja, Qt 6.8+, KDE Frameworks 6.5+
 (KCoreAddons, KDBusAddons, KI18n, Kirigami, Prison, QQC2 Desktop Style),
-Kirigami Addons 1.0+, rlottie, Vulkan headers.
+Kirigami Addons 1.0+, KQuickImageEditor, rlottie, Vulkan headers.
 
 ```sh
 # Arch
 sudo pacman -S --needed base-devel go just sqlite pkgconf cmake ninja \
   extra-cmake-modules vulkan-headers qt6-base qt6-declarative qt6-shadertools \
-  kcoreaddons kdbusaddons ki18n kirigami kirigami-addons prison qqc2-desktop-style rlottie 
+  kcoreaddons kdbusaddons ki18n kirigami kirigami-addons prison qqc2-desktop-style \
+  kquickimageeditor rlottie ffmpeg
 
 # Note: rlottie is not available on the official Arch repos, you can install it from the AUR 
 
@@ -65,13 +66,15 @@ sudo dnf install go just gcc gcc-c++ sqlite-devel pkgconf-pkg-config cmake ninja
   extra-cmake-modules vulkan-headers qt6-qtbase-devel qt6-qtdeclarative-devel \
   qt6-qtshadertools-devel kf6-kcoreaddons-devel \
   kf6-kdbusaddons-devel kf6-ki18n-devel kf6-kirigami-devel kf6-prison-devel \
-  kf6-qqc2-desktop-style-devel kf6-kirigami-addons-devel rlottie-devel
+  kf6-qqc2-desktop-style-devel kf6-kirigami-addons-devel kquickimageeditor-devel \
+  rlottie-devel ffmpeg-free
 
 # Debian 13 "trixie" (needs Go >= 1.26, see Platform support)
 sudo apt install golang just gcc g++ libsqlite3-dev pkg-config cmake ninja-build \
   extra-cmake-modules vulkan-headers qt6-base-dev qt6-declarative-dev qt6-shadertools-dev \
   libkf6coreaddons-dev libkf6dbusaddons-dev libkf6i18n-dev \
-  libkf6kirigami-dev libkf6prison-dev libkf6qqc2desktopstyle-dev kirigami-addons-dev librlottie-dev
+  libkf6kirigami-dev libkf6prison-dev libkf6qqc2desktopstyle-dev kirigami-addons-dev \
+  libkquickimageeditor-dev librlottie-dev ffmpeg
 ```
 
 #### 2. Build and install
@@ -287,11 +290,13 @@ Whatevr stands on the shoulders of:
 - [Qt](https://www.qt.io): cross-platform application framework (LGPL-3.0)
 - [KDE Frameworks](https://kde.org) / [Kirigami](https://develop.kde.org/frameworks/kirigami/): UI toolkit and helpers (LGPL)
 - [Kirigami Addons](https://invent.kde.org/libraries/kirigami-addons): convergent UI components (LGPL)
+- [KQuickImageEditor](https://invent.kde.org/libraries/kquickimageeditor): the pre-send photo editor — crop, rotate, mirror, undo (LGPL-2.1-or-later)
 - [rlottie](https://github.com/Samsung/rlottie): Lottie rendering for animated stickers (MIT)
 - [emojilib](https://github.com/muan/emojilib): emoji keyword / shortcode data, © 2014 Mu-An Chiou (MIT)
 - [Google Fonts emoji metadata](https://github.com/googlefonts/emoji-metadata): emoji ordering & grouping data (Apache-2.0)
 
-Additionally, I took a fair amount of inspiration for UI layouts :from [NeoChat](https://apps.kde.org/neochat/)
+Additionally, I took a fair amount of inspiration for UI layouts :from [NeoChat](https://apps.kde.org/neochat/),
+whose own use of KQuickImageEditor is what the pre-send editor is built on.
 
 ## License
 This program is licensed under the BSD-3-Clause License

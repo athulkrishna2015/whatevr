@@ -49,6 +49,7 @@ type fakeCommandActions struct {
 	sendMediaBatchReply    string
 	sendMediaBatchKind     string
 	sendMediaBatchViewOnce bool
+	sendMediaBatchQuality  string
 	saveMessageID          string
 	saveStatusID           string
 	saveJID                string
@@ -296,6 +297,7 @@ func (f *fakeCommandActions) SendMediaBatch(_ context.Context, chatID string, fi
 	defer f.mu.Unlock()
 	f.sendMediaBatchChat, f.sendMediaBatchFiles, f.sendMediaBatchReply = chatID, files, reply
 	f.sendMediaBatchKind, f.sendMediaBatchViewOnce = opts.Kind, opts.ViewOnce
+	f.sendMediaBatchQuality = opts.Quality
 	out := make([]appstore.SavedTextMessage, 0, len(files))
 	for i := range files {
 		out = append(out, appstore.SavedTextMessage{Message: appstore.Message{ID: "media-batch", ChatID: chatID}})
@@ -860,11 +862,15 @@ func TestC2SendCommands(t *testing.T) {
 		t.Fatalf("send.sticker result/action = %v/%+v", result, actions)
 	}
 
-	c.sendLine(`{"id":41,"method":"send.media_batch","params":{"chat_id":"chat@s.whatsapp.net","reply_to":"r2","kind":"document","files":[{"path":"/tmp/a.pdf","caption":"first"},{"path":"/tmp/b.pdf"}]}}`)
+	c.sendLine(`{"id":41,"method":"send.media_batch","params":{"chat_id":"chat@s.whatsapp.net","reply_to":"r2","kind":"document","quality":"hd","files":[{"path":"/tmp/a.pdf","caption":"first"},{"path":"/tmp/b.pdf"}]}}`)
 	result = c.recv()["result"].(map[string]any)
 	ids, ok := result["message_ids"].([]any)
 	if !ok || len(ids) != 2 || actions.sendMediaBatchChat != "chat@s.whatsapp.net" || len(actions.sendMediaBatchFiles) != 2 || actions.sendMediaBatchFiles[0].Caption != "first" || actions.sendMediaBatchKind != "document" {
 		t.Fatalf("send.media_batch result/action = %v/%+v", result, actions)
+	}
+	// The one choice covers the whole batch, which is what the send dialog offers.
+	if actions.sendMediaBatchQuality != "hd" {
+		t.Fatalf("send.media_batch quality = %q, want hd", actions.sendMediaBatchQuality)
 	}
 
 	c.sendLine(`{"id":42,"method":"send.media_batch","params":{"chat_id":"chat@s.whatsapp.net","files":[]}}`)
