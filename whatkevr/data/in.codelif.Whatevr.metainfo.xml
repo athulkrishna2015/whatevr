@@ -19,6 +19,29 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.10.0" date="2026-09-28">
+      <description>
+        <p>Received photos and videos can be turned in the full-screen viewer, and attachments can be edited before they are sent.</p>
+        <p><em>Viewing what arrived</em></p>
+        <ul>
+          <li><em>Turn a photo or a clip</em> in the full-screen viewer, with toolbar buttons, <code>R</code> and <code>Shift+R</code>, and a reset. Turning is a <em>view</em> change: it costs nothing, and the alternative for a sideways photo is turning the device. A clip is a framebuffer item, so it follows the same rotation a photo does.</li>
+          <li><em>Drag to reposition a zoomed picture</em>, and the clamp that stops you dragging it off screen now measures the <em>rotated</em> box. That was wrong: a zoomed photo turned on its side could previously be dragged until it left the viewport.</li>
+          <li><em>Cycle through every photo and clip in a chat.</em> This already worked, with one gap: pictures sent together in an album were unreachable from the walk, because it keyed on the album row's own <code>album</code> kind and stepped over its tiles. Album tiles are now expanded in the album's place, so they keep the order they were sent in.</li>
+        </ul>
+        <p><em>Editing before sending</em></p>
+        <ul>
+          <li><em>A quarter turn, a crop and a freehand mark</em> on a photo, and <em>a quarter turn</em> on a clip. The picked file is never modified — the edit is baked into a new file in the cache and <em>that</em> is what gets staged in its place, so cancelling costs a quarter turn and a squiggle rather than the original.</li>
+          <li><em>Standard or HD</em> for the whole batch, from the send dialog. A standard photo is held to 1600px the way official clients send them, and a standard clip to 1280px. HD sends the original bytes.</li>
+        </ul>
+        <p>Crop, rotate, mirror and undo come from KQuickImageEditor (invent.kde.org/libraries/kquickimageeditor) — KDE's own, already part of the Plasma stack this app is built on, licensed like the Kirigami it sits beside, and what NeoChat and Photos use for the same job. Only the pen is ours, because its annotation system composites onto a fixed canvas rather than recomposing one, which is the wrong model for editing a photo to send.</p>
+        <p><em>For frontends</em></p>
+        <ul>
+          <li><code>send.media_batch</code> takes a <code>quality</code> parameter (<code>standard</code> or <code>hd</code>) and now reaches the frontend's Standard/HD control. <code>quality</code> was already implemented on the daemon for <code>send.media</code> but was unreachable from the UI.</li>
+          <li>Both <code>send.media_batch</code> and the <code>quality</code> parameter are documented in <code>PROTOCOL.md</code>, which neither was. The additive changes keep the protocol at version 1.</li>
+        </ul>
+        <p>A clip re-encode needs <code>ffmpeg</code>. It is optional and best-effort exactly as the daemon's poster frames already are: with no <code>ffmpeg</code> on <code>PATH</code>, a standard clip is sent as it is rather than not being sent.</p>
+      </description>
+    </release>
     <release version="0.9.1" date="2026-09-27">
       <description>
         <p><em>Statuses now expire after 24 hours, for real</em></p>
