@@ -12,6 +12,7 @@ require (
 	go.mau.fi/whatsmeow v0.0.0-20260921121126-35ae40906e74
 	golang.org/x/crypto v0.57.0
 	google.golang.org/protobuf v1.36.12
+	rsc.io/qr v0.2.0
 )
 
 require (

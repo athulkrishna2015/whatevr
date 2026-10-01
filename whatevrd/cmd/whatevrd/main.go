@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 	"os/signal"
 	"syscall"
 
@@ -14,6 +15,10 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "pair" {
+		os.Exit(runPair(os.Args[2:], os.Stdout, os.Stderr))
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
