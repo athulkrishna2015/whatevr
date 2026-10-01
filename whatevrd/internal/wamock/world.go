@@ -239,6 +239,11 @@ type Msg struct {
 	// swallowed by the client rather than shown.
 	control *waE2E.Message
 
+	// quoted is the message this one is a reply to. A reply is an ordinary
+	// text message that carries the quoted one inside its context, which is
+	// what lets every device draw the quote without looking anything up.
+	quoted *Msg
+
 	// starred and the rest are app state the account already had, which the
 	// client can also change from a frontend.
 	starred bool
@@ -251,6 +256,15 @@ func (m *Msg) payload() *waE2E.Message {
 		return m.control
 	case m.media != nil:
 		return m.media
+	case m.quoted != nil:
+		return &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+			Text: proto.String(m.Text),
+			ContextInfo: &waE2E.ContextInfo{
+				StanzaID:      proto.String(m.quoted.ID),
+				Participant:   proto.String(m.quoted.From.JID.String()),
+				QuotedMessage: m.quoted.payload(),
+			},
+		}}
 	}
 	return &waE2E.Message{Conversation: proto.String(m.Text)}
 }
@@ -559,6 +573,15 @@ func (c *Chat) HistoryFromMe(text string, at time.Time) *Msg {
 // message typed on the phone reaches a linked device.
 func (c *Chat) SayFromMe(text string, at time.Time) *Msg {
 	return c.add(c.w.self, text, at)
+}
+
+// Quote says something as a reply to another message. It is an ordinary text
+// message with the quoted one inside its context, which is how a reply travels.
+func (c *Chat) Quote(from *Contact, to *Msg, text string, at time.Time) *Msg {
+	m := c.newMsg(from, text, at)
+	m.quoted = to
+	c.deliver(m)
+	return m
 }
 
 func (c *Chat) newMsg(from *Contact, text string, at time.Time) *Msg {
