@@ -42,6 +42,13 @@ func (a *App) paint() {
 	win := a.vx.Window()
 	l := a.layout()
 
+	if a.pairing() {
+		a.drawPairing(win)
+		a.drawModal(win)
+		a.drawToast(win, layout.Layout{})
+		return
+	}
+
 	a.drawChatList(win, l)
 	if !l.Header.Empty() {
 		a.drawHeader(win, l.Header)

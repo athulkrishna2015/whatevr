@@ -161,6 +161,21 @@ type Connection struct {
 	PendingOutgoing int    `json:"pending_outgoing"`
 }
 
+// Login is the login view's object: where pairing is, and the code to scan
+// while the daemon waits for a phone.
+type Login struct {
+	State  string   `json:"state"`
+	Detail string   `json:"detail"`
+	QR     *LoginQR `json:"qr"`
+}
+
+// LoginQR is one pairing code. The daemon swaps it for a fresh one before
+// expires_at, so this only ever says when the next one lands.
+type LoginQR struct {
+	Code      string `json:"code"`
+	ExpiresAt string `json:"expires_at"`
+}
+
 // Self is our own profile.
 type Self struct {
 	JID        string `json:"jid"`

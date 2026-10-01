@@ -54,6 +54,10 @@ func (a *App) onKey(k vaxis.Key) {
 		a.execute(id)
 		return
 	}
+	// the panes are not on screen, so nothing typed may land in one
+	if a.pairing() {
+		return
+	}
 
 	// Esc pops exactly one level, and a live selection is the outermost one.
 	if k.Matches(vaxis.KeyEsc) && a.clearSelection() {
@@ -340,6 +344,11 @@ func (a *App) onMouse(m vaxis.Mouse) bool {
 			a.pointer(a.modalShape(m))
 		}
 		return dirty
+	}
+	if a.pairing() {
+		// nothing under the pointer but the code
+		a.pointer(vaxis.MouseShapeDefault)
+		return false
 	}
 	l := a.layout()
 	over := -1

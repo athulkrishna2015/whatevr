@@ -84,3 +84,35 @@ func TestTheEdgesAreSmooth(t *testing.T) {
 	}
 	t.Fatal("every pixel in the corner is fully in or fully out")
 }
+
+// every module is a whole number of pixels, hard edged, centred in the rect
+func TestQRModulesAreWholePixelSquares(t *testing.T) {
+	q := QR{W: 34, H: 30, N: 3, Dark: []bool{
+		true, false, true,
+		false, true, false,
+		true, false, false,
+	}, Code: "x"}
+	img := q.Render()
+	// 30/3 = 10 px a module, the square centred 2 px in from the left
+	for my := 0; my < 3; my++ {
+		for mx := 0; mx < 3; mx++ {
+			want := uint8(0xff)
+			if q.Dark[my*3+mx] {
+				want = 0
+			}
+			for _, d := range [][2]int{{0, 0}, {9, 9}, {0, 9}, {9, 0}} {
+				px := img.NRGBAAt(2+mx*10+d[0], my*10+d[1])
+				if px.R != want || px.A != 0xff {
+					t.Fatalf("module %d,%d pixel %v = %v, want %d", mx, my, d, px, want)
+				}
+			}
+		}
+	}
+	// outside the square is the terminal's own ground, not a light band
+	if px := img.NRGBAAt(0, 0); px.A != 0 {
+		t.Errorf("the margin outside the square is painted: %v", px)
+	}
+	if (QR{W: 34, H: 30, Code: "x"}).Key() == (QR{W: 34, H: 30, Code: "y"}).Key() {
+		t.Error("two codes share a key")
+	}
+}

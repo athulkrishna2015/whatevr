@@ -43,6 +43,9 @@ type App struct {
 	conn    *view.Object[proto.Connection]
 	connSub *proto.Subscription
 
+	login    *view.Object[proto.Login]
+	loginSub *proto.Subscription
+
 	// The rasteriser for the scripts a cell grid cannot hold, and the images
 	// it has already produced. shaping is snapshotted once per frame so
 	// measuring and drawing cannot disagree across the moment it comes up.
@@ -135,6 +138,7 @@ func New(vx *vaxis.Vaxis, caps term.Caps, client *proto.Client) *App {
 		client:  client,
 		chats:   view.NewCollection[proto.ChatRow](),
 		conn:    view.NewObject[proto.Connection](),
+		login:   view.NewObject[proto.Login](),
 		focus:   FocusList,
 		focused: true,
 		hovered: -1,
@@ -317,6 +321,9 @@ func (a *App) Run() error {
 	defer a.client.Stop()
 
 	a.connSub = a.client.Subscribe("connection", nil, a.conn)
+	// held for the whole run: a phone can unlink at any time, and the code
+	// has to be on screen the moment it does
+	a.loginSub = a.client.Subscribe("login", nil, a.login)
 	a.subscribeChats()
 
 	a.draw()
@@ -443,7 +450,7 @@ func (a *App) status() (string, vaxis.Color, bool) {
 	case "online":
 		return "", 0, false
 	case "need_login":
-		return "not logged in: run whatkevr to pair, or wait for the qr screen", a.theme.Warning, true
+		return "not linked to a phone: scan the code", a.theme.Warning, true
 	case "connecting", "starting":
 		return "connecting to whatsapp", a.theme.TextMuted, true
 	case "reconnecting":
@@ -534,13 +541,6 @@ func (a *App) notice() (title string, colour vaxis.Color, body []string, ok bool
 			return "", 0, nil, false
 		}
 		switch c.State {
-		case "need_login":
-			return "not paired with a phone", a.theme.Warning, []string{
-				"whattui cannot show a chat until whatevr is linked",
-				"to your phone. pair it, then come back:",
-				"",
-				"  whatkevr",
-			}, true
 		case "offline":
 			return "whatsapp is offline", a.theme.Error, []string{
 				"the daemon is running and is not connected.",

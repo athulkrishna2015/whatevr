@@ -31,6 +31,7 @@ func stubApp(cols, rows, chats, msgs int) *App {
 		theme:   theme.Derive(vaxis.RGBColor(0x12, 0x14, 0x18), vaxis.RGBColor(0xe4, 0xe4, 0xe6)),
 		chats:   view.NewCollection[proto.ChatRow](),
 		conn:    view.NewObject[proto.Connection](),
+		login:   view.NewObject[proto.Login](),
 		focus:   FocusComposer,
 		focused: true,
 		hovered: -1,
