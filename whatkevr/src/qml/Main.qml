@@ -44,6 +44,11 @@ Kirigami.ApplicationWindow {
     title: Whatevr.I18n.i18nc("@title:window", "Whatevr")
     visible: true
     property bool quitting: false
+    // True while the window is parked in the tray. Telegram's tray menu leads
+    // with a row whose label is the inverse of this ("Show Telegram" while
+    // hidden, "Minimize to tray" while up), and `visible` cannot answer that:
+    // showing the menu briefly shows the window too.
+    property bool hiddenToTray: false
     function quitApplication() {
         quitting = true
         // Ask the daemon to exit too (tray icon is daemon-owned), then quit
@@ -69,18 +74,26 @@ Kirigami.ApplicationWindow {
     onClosing: closeEvent => {
         if (Whatevr.Settings.closeToTray && !quitting) {
             closeEvent.accepted = false
-            if (Whatevr.ProtocolController.perfLogging) {
-                console.log("[perf] hide-to-tray mode=" + currentMode)
-            }
-            trayMenuWindow.close()
-            // Park the left column back on chats: reopening lands on the
-            // conversation list, not on whatever tab was open when hiding.
-            if (chatListPageItem)
-                chatListPageItem.workspaceMode = "chats"
-            if (workspacePageItem)
-                workspacePageItem.openConversation()
-            root.hide()
+            hideToTray()
         }
+    }
+
+    // Close-to-tray and the tray menu's "Minimize to tray" row share this: one
+    // place that parks the window, so the state the menu reads back
+    // (hiddenToTray) can never disagree with what actually happened.
+    function hideToTray() {
+        if (Whatevr.ProtocolController.perfLogging) {
+            console.log("[perf] hide-to-tray mode=" + currentMode)
+        }
+        trayMenuWindow.close()
+        hiddenToTray = true
+        // Park the left column back on chats: reopening lands on the
+        // conversation list, not on whatever tab was open when hiding.
+        if (chatListPageItem)
+            chatListPageItem.workspaceMode = "chats"
+        if (workspacePageItem)
+            workspacePageItem.openConversation()
+        root.hide()
     }
 
     SettingsView {
@@ -181,22 +194,41 @@ Kirigami.ApplicationWindow {
                 anchors.margins: Kirigami.Units.smallSpacing
                 spacing: 0
 
+                // Item order and phrasing follow Telegram Desktop's tray menu
+                // (tdesktop `Telegram/SourceFiles/tray.cpp`, `rebuildMenu`): a
+                // show/hide row whose label follows the window state, one
+                // notification toggle phrased as the action it performs, Quit.
                 QQC2.Button {
                     flat: true
                     Layout.fillWidth: true
-                    text: Whatevr.I18n.i18nc("@action:inmenu open the main window", "Open Whatevr")
+                    text: root.hiddenToTray
+                        ? Whatevr.I18n.i18nc("@action:inmenu open the main window", "Show Whatevr")
+                        : Whatevr.I18n.i18nc("@action:inmenu minimize to the system tray", "Minimize to tray")
                     onClicked: {
                         trayMenuWindow.visible = false
-                        root.activateWindow()
+                        if (root.hiddenToTray)
+                            root.activateWindow()
+                        else
+                            root.hideToTray()
                     }
                 }
 
-                QQC2.CheckBox {
-                    id: notificationsItem
-
+                // Telegram phrases notifications as the action it performs and
+                // drops the row entirely while the passcode lock is up. The old
+                // pair of checkboxes both wrote notifications_enabled, so the
+                // two rows could show contradictory states; this is one row.
+                QQC2.Button {
+                    flat: true
                     Layout.fillWidth: true
-                    text: Whatevr.I18n.i18nc("@action:inmenu toggle desktop notifications", "Notifications")
-                    onToggled: Whatevr.ProtocolController.setAppPreference("notifications_enabled", checked)
+                    visible: !Whatevr.Settings.appLocked
+                    text: (Whatevr.ProtocolController.appPreferences.notifications_enabled ?? true)
+                        ? Whatevr.I18n.i18nc("@action:inmenu turn desktop notifications off", "Disable notifications")
+                        : Whatevr.I18n.i18nc("@action:inmenu turn desktop notifications on", "Enable notifications")
+                    onClicked: {
+                        trayMenuWindow.visible = false
+                        Whatevr.ProtocolController.setAppPreference("notifications_enabled",
+                            !(Whatevr.ProtocolController.appPreferences.notifications_enabled ?? true))
+                    }
                 }
 
                 QQC2.Button {
@@ -207,14 +239,6 @@ Kirigami.ApplicationWindow {
                         trayMenuWindow.visible = false
                         Whatevr.ProtocolController.markAllChatsRead()
                     }
-                }
-
-                QQC2.CheckBox {
-                    id: muteNotificationsItem
-                    Layout.fillWidth: true
-                    text: Whatevr.I18n.i18nc("@action:inmenu mute desktop notifications", "Mute notifications")
-                    checked: !(Whatevr.ProtocolController.appPreferences.notifications_enabled ?? true)
-                    onToggled: Whatevr.ProtocolController.setAppPreference("notifications_enabled", !checked)
                 }
 
                 Kirigami.Separator {
@@ -231,8 +255,6 @@ Kirigami.ApplicationWindow {
         }
 
         function showAt(sx, sy) {
-            notificationsItem.checked = Whatevr.ProtocolController.appPreferences.notifications_enabled ?? true
-            muteNotificationsItem.checked = !notificationsItem.checked
             const screenW = Screen.desktopAvailableWidth > 0 ? Screen.desktopAvailableWidth : Screen.width
             const screenH = Screen.desktopAvailableHeight > 0 ? Screen.desktopAvailableHeight : Screen.height
             const w = trayMenuWindow.width
@@ -568,6 +590,7 @@ Kirigami.ApplicationWindow {
         root.show()
         root.raise()
         root.requestActivate()
+        hiddenToTray = false
         // Single-column restores land on the chat list when no conversation
         // is open, instead of a stale secondary tab left over from hiding.
         if (currentMode === "chat" && chatSingleColumnLayout
