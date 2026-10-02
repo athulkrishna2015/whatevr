@@ -59,6 +59,17 @@ type Options struct {
 	// Login is the daemon's login event stream. The mock needs it to read the
 	// QR it is meant to scan, because the adv secret exists nowhere else.
 	Login LoginWatcher
+
+	// Capture plays back a capture directory instead of a scenario, Segment
+	// says which daemon run of it. Speed paces it against the recorded clock
+	// (0 is as fast as the gates allow) and Gate is how long a push waits for
+	// the client to catch up. Socket is the daemon's protocol socket, where
+	// the recorded frontend requests go.
+	Capture string
+	Segment int
+	Speed   float64
+	Gate    time.Duration
+	Socket  string
 }
 
 // LoginWatcher is the slice of app.Daemon the mock depends on. Keeping it an
@@ -122,6 +133,9 @@ type Server struct {
 	keysReady chan struct{}
 	keysOnce  sync.Once
 
+	// replay is set when the run plays a capture
+	replay *replay
+
 	mu          sync.Mutex
 	sessions    map[*session]struct{}
 	peers       map[string]*peer
@@ -172,6 +186,18 @@ func New(ctx context.Context, opts Options) (*Server, error) {
 		appState:  newMockAppState(rng),
 		quiet:     newQuiescence(),
 	}
+	if opts.Capture != "" {
+		r, err := loadReplay(srv)
+		if err != nil {
+			return nil, fmt.Errorf("load capture: %w", err)
+		}
+		srv.replay = r
+		srv.opts.AccountPhone = r.pn.User
+		if r.acct.PushName != "" {
+			srv.opts.AccountName = r.acct.PushName
+		}
+		srv.quiet.hold = r.holding
+	}
 	srv.world = newWorld(srv)
 	if scenario, ok := Lookup(opts.Scenario); ok && scenario.Build != nil {
 		scenario.Build(srv.world)
@@ -201,10 +227,20 @@ func (s *Server) Start(ctx context.Context) error {
 	// page to decide the version it advertises. Serving it keeps the daemon
 	// from retrying a 404 on every connect.
 	mux.HandleFunc("/", s.handleRoot)
-	s.http = &http.Server{Handler: s.countHTTP(mux)}
+	var handler http.Handler = mux
+	var hosts []string
+	if r := s.replay; r != nil {
+		hosts = r.hosts()
+		handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if req.URL.Path == websocketPath || !r.serveHTTP(w, req) {
+				mux.ServeHTTP(w, req)
+			}
+		})
+	}
+	s.http = &http.Server{Handler: s.countHTTP(handler)}
 
 	installCertPubKey(s.ident)
-	installTransport(s.tlsID, ln.Addr().String())
+	installTransport(s.tlsID, ln.Addr().String(), hosts)
 
 	go func() {
 		if err := s.http.Serve(ln); err != nil && !s.isClosed() {
@@ -215,6 +251,9 @@ func (s *Server) Start(ctx context.Context) error {
 		<-ctx.Done()
 		_ = s.Close()
 	}()
+	if s.replay != nil {
+		go s.replay.run(ctx)
+	}
 	s.log.Info().Stringer("addr", ln.Addr()).Str("scenario", s.opts.Scenario).Int64("seed", s.opts.Seed).Msg("fake WhatsApp server up")
 	return nil
 }

@@ -142,9 +142,16 @@ func (s *session) completePairing(ctx context.Context, code string) error {
 	s.jid = s.srv.accountJID()
 	s.jid.Device = 1
 	s.lid = lidFor(s.jid)
+	platform := "android"
+	if r := s.srv.replay; r != nil {
+		s.jid, s.lid = r.pn, r.lid
+		if r.acct.Platform != "" {
+			platform = r.acct.Platform
+		}
+	}
 
 	details, err := proto.Marshal(&waAdv.ADVDeviceIdentity{
-		RawID:     proto.Uint32(1),
+		RawID:     proto.Uint32(uint32(s.jid.Device)),
 		Timestamp: proto.Uint64(uint64(time.Now().Unix())),
 		KeyIndex:  proto.Uint32(1),
 	})
@@ -191,7 +198,7 @@ func (s *session) completePairing(ctx context.Context, code string) error {
 			Tag: "pair-success",
 			Content: []waBinary.Node{
 				{Tag: "device", Attrs: waBinary.Attrs{"jid": s.jid, "lid": s.lid}},
-				{Tag: "platform", Attrs: waBinary.Attrs{"name": "android"}},
+				{Tag: "platform", Attrs: waBinary.Attrs{"name": platform}},
 				{Tag: "biz", Attrs: waBinary.Attrs{"name": s.srv.opts.AccountName}},
 				{Tag: "device-identity", Content: container},
 			},

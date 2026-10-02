@@ -289,6 +289,29 @@ func (s *session) sendNode(ctx context.Context, node waBinary.Node) error {
 	return s.writeFrame(ctx, ciphertext)
 }
 
+// sendRaw puts a recorded stanza back on the wire byte for byte. data is the
+// unpacked frame, the flag byte in front says it is not compressed.
+func (s *session) sendRaw(ctx context.Context, data []byte) error {
+	plaintext := append([]byte{0}, data...)
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	iv := make([]byte, 12)
+	binary.BigEndian.PutUint32(iv[8:], s.writeCounter)
+	s.writeCounter++
+	ciphertext := s.writeKey.Seal(nil, iv, plaintext, nil)
+	s.srv.quiet.touch()
+	return s.writeFrame(ctx, ciphertext)
+}
+
+func (s *session) isClosed() bool {
+	select {
+	case <-s.done:
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *session) setPairRequest(id string) {
 	s.pairMu.Lock()
 	defer s.pairMu.Unlock()

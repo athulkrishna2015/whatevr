@@ -213,7 +213,7 @@ func (s *Server) checkUploadedMedia(message *waE2E.Message) {
 // OnSend hooks, and starts the receipt clock.
 func (s *Server) noteClientMessage(id string, to types.JID, message *waE2E.Message) {
 	world := s.world
-	if world == nil {
+	if world == nil || s.replay != nil {
 		return
 	}
 	if message.GetProtocolMessage() != nil || message.GetReactionMessage() != nil {

@@ -28,6 +28,11 @@ func (s *session) onConnected(ctx context.Context) error {
 		Server: types.DefaultUserServer,
 	}
 	s.lid = lidFor(s.jid)
+	if r := s.srv.replay; r != nil {
+		s.lid = r.lid
+		s.lid.Device = s.jid.Device
+		return r.attach(ctx, s)
+	}
 	if err := s.sendSuccess(ctx); err != nil {
 		return err
 	}
@@ -57,6 +62,12 @@ func lidFor(jid types.JID) types.JID {
 }
 
 func (s *session) handleNode(ctx context.Context, node *waBinary.Node) error {
+	if r := s.srv.replay; r != nil {
+		r.noteSent(node)
+		if node.Tag == "iq" && r.answerIQ(ctx, s, node) {
+			return nil
+		}
+	}
 	switch node.Tag {
 	case "iq":
 		return s.handleIQ(ctx, node)
@@ -97,6 +108,11 @@ func (s *session) ackStanza(ctx context.Context, node *waBinary.Node) error {
 		// The send path reads the sent timestamp straight off the ack. Without
 		// it every message the account sends is stored as sent in 1970.
 		"t": fmt.Sprintf("%d", time.Now().Unix()),
+	}
+	if r := s.srv.replay; r != nil {
+		if t, ok := r.ackTime(ag.String("id")); ok {
+			attrs["t"] = t
+		}
 	}
 	if to := ag.OptionalJIDOrEmpty("to"); !to.IsEmpty() {
 		attrs["from"] = to

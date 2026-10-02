@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"whatevrd/internal/app"
+	"whatevrd/internal/capture"
 	"whatevrd/internal/wamock"
 )
 
@@ -37,10 +38,12 @@ func mockSilencesNotifications(run *mockRun) bool {
 }
 
 type mockFlagSet struct {
-	scenario, dir, phone, control, now *string
-	list, keep, notify                 *bool
-	seed                               *int64
-	scanDelay, histDelay               *time.Duration
+	scenario, dir, phone, control, now, capture *string
+	list, keep, notify                          *bool
+	seed                                        *int64
+	scanDelay, histDelay, gate                  *time.Duration
+	segment                                     *int
+	speed                                       *float64
 }
 
 func mockFlags(zerolog.Logger) *mockFlagSet {
@@ -56,6 +59,10 @@ func mockFlags(zerolog.Logger) *mockFlagSet {
 		control:   flag.String("mock-control", "", "bind a control socket here for the quiescence barrier"),
 		now:       flag.String("mock-now", "", "pin the clock scenario timestamps hang off, as RFC3339, for reproducible frames"),
 		notify:    flag.Bool("mock-notify", false, "let a mock run raise desktop notifications"),
+		capture:   flag.String("mock-capture", "", "replay this capture (a name or a path) instead of a scenario"),
+		segment:   flag.Int("mock-segment", 1, "which segment of --mock-capture this run plays"),
+		speed:     flag.Float64("mock-speed", 0, "replay pace against the recorded clock, 1 is real time, 0 as fast as the gates allow"),
+		gate:      flag.Duration("mock-gate", 5*time.Second, "how long a replayed push waits for the client to catch up"),
 	}
 }
 
@@ -79,6 +86,21 @@ func mockPrepare(log zerolog.Logger, f *mockFlagSet) *mockRun {
 		}
 		os.Exit(0)
 	}
+	var capturePath string
+	if *f.capture != "" {
+		if *scenario != "" {
+			log.Fatal().Msg("--mock and --mock-capture are two different runs, pick one")
+		}
+		// names resolve under the real state dir, before it moves
+		stateHome, err := app.StateHome()
+		if err != nil {
+			log.Fatal().Err(err).Msg("resolve state dir")
+		}
+		if capturePath, err = capture.Resolve(*f.capture, stateHome); err != nil {
+			log.Fatal().Err(err).Msg("resolve --mock-capture")
+		}
+		*scenario = wamock.RecordedScenario
+	}
 	if *scenario == "" {
 		return nil
 	}
@@ -86,6 +108,9 @@ func mockPrepare(log zerolog.Logger, f *mockFlagSet) *mockRun {
 	found, ok := wamock.Lookup(*scenario)
 	if !ok {
 		log.Fatal().Str("scenario", *scenario).Msg("unknown mock scenario (try --mock-list)")
+	}
+	if found.Name == wamock.RecordedScenario && capturePath == "" {
+		log.Fatal().Msg("the recorded scenario plays a capture, use --mock-capture")
 	}
 
 	root := *dir
@@ -130,6 +155,10 @@ func mockPrepare(log zerolog.Logger, f *mockFlagSet) *mockRun {
 		ScanDelay:    *scanDelay,
 		HistoryDelay: *histDelay,
 		Control:      *control,
+		Capture:      capturePath,
+		Segment:      *f.segment,
+		Speed:        *f.speed,
+		Gate:         *f.gate,
 	}
 	if *now != "" {
 		at, err := time.Parse(time.RFC3339, *now)
@@ -178,6 +207,7 @@ func mockStart(ctx context.Context, run *mockRun, daemon *app.Daemon) (func(), e
 		return func() {}, nil
 	}
 	run.opts.Login = daemon
+	run.opts.Socket = daemon.Status().Paths.SocketPath
 	srv, err := wamock.New(ctx, run.opts)
 	if err != nil {
 		return nil, err
