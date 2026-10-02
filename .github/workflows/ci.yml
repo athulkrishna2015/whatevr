@@ -242,7 +242,8 @@ jobs:
           pacman -Syu --noconfirm --needed \
             git sudo base-devel go just python cmake ninja ccache extra-cmake-modules zstd vulkan-headers \
             qt6-base qt6-declarative qt6-multimedia qt6-shadertools mpv ffmpeg appstream \
-            kcoreaddons kdbusaddons ki18n kirigami kirigami-addons prison qqc2-desktop-style sqlite
+            kcoreaddons kdbusaddons ki18n kirigami kirigami-addons prison qqc2-desktop-style \
+            kquickimageeditor sqlite
           useradd -m -G wheel builduser
           printf 'builduser ALL=(ALL) NOPASSWD: ALL\n' >> /etc/sudoers
 
@@ -358,7 +359,8 @@ jobs:
           pacman -Syu --noconfirm --needed \
             git base-devel just python cmake ninja ccache extra-cmake-modules vulkan-headers \
             qt6-base qt6-declarative qt6-multimedia qt6-shadertools mpv ffmpeg \
-            kcoreaddons kdbusaddons ki18n kirigami kirigami-addons prison qqc2-desktop-style sqlite
+            kcoreaddons kdbusaddons ki18n kirigami kirigami-addons prison qqc2-desktop-style \
+            kquickimageeditor sqlite
 
       - name: Checkout
         uses: actions/checkout@v6
