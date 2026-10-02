@@ -101,6 +101,7 @@ func newConn(parent context.Context, srv *Server, nc net.Conn, id int64) *conn {
 func (c *conn) run() {
 	defer c.srv.connDone(c)
 	defer c.close()
+	c.tap("open", nil)
 
 	go c.writeLoop()
 
@@ -198,6 +199,7 @@ func (c *conn) writeLoop() {
 func (c *conn) close() {
 	c.closeOnce.Do(func() {
 		zerolog.Ctx(c.ctx).Info().Msg("connection closed")
+		c.tap("close", nil)
 		c.cancel()
 		close(c.done)
 		_ = c.nc.Close()
@@ -267,7 +269,14 @@ func (c *conn) takeSubscription(id int64) (*subscription, bool) {
 	return sub, ok
 }
 
+func (c *conn) tap(dir string, line []byte) {
+	if c.srv.tap != nil {
+		c.srv.tap(c.id, dir, line)
+	}
+}
+
 func (c *conn) handleLine(line []byte) {
+	c.tap("req", line)
 	var req request
 	if err := json.Unmarshal(line, &req); err != nil {
 		c.respondError(nullID, errorf(CodeInvalidRequest, "request is not a JSON object"), false)
@@ -400,5 +409,6 @@ func (c *conn) send(resp response, closeAfter bool) {
 		zerolog.Ctx(c.ctx).Error().Err(err).Msg("marshal response")
 		line, _ = json.Marshal(response{ID: resp.ID, Error: errorf(CodeInternal, "failed to encode response")})
 	}
+	c.tap("resp", line)
 	c.q.push(line, closeAfter)
 }

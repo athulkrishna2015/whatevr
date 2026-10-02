@@ -6,7 +6,7 @@ version := `scripts/version.py full`
 default:
     @just --list
 
-# Debug build. Includes the fake WhatsApp server.
+# Debug build. Includes the fake WhatsApp server and captures.
 build dir=build_dir:
     @just _build debug "{{dir}}"
 
@@ -42,6 +42,7 @@ _test-daemon:
     @just _require-whatsmeow
     @cd whatevrd && go test -tags sqlite_fts5 ./...
     @cd whatevrd && go test -tags "sqlite_fts5 whatevr_mock" ./internal/wamock/...
+    @cd whatevrd && go test -tags "sqlite_fts5 whatevr_mock whatevr_capture" ./cmd/whatevrd/
     @scripts/check-mock-gate
 
 # Race is not optional: the protocol client, the view models and the render
@@ -142,7 +143,7 @@ _build-daemon profile dir=build_dir:
         go_flags=(-trimpath -buildvcs=false); \
         ldflags="$ldflags -s -w"; \
     else \
-        tags="$tags whatevr_mock"; \
+        tags="$tags whatevr_mock whatevr_capture"; \
         go_flags=(-buildvcs=false); \
     fi; \
     go_flags+=(-tags "$tags"); \

@@ -36,24 +36,42 @@ func mockSilencesNotifications(run *mockRun) bool {
 	return run != nil && !run.notify
 }
 
-// mockPrepare parses the mock flags and, in mock mode, repoints the XDG
+type mockFlagSet struct {
+	scenario, dir, phone, control, now *string
+	list, keep, notify                 *bool
+	seed                               *int64
+	scanDelay, histDelay               *time.Duration
+}
+
+func mockFlags(zerolog.Logger) *mockFlagSet {
+	return &mockFlagSet{
+		scenario:  flag.String("mock", "", "run against a fake WhatsApp server using this scenario"),
+		list:      flag.Bool("mock-list", false, "list mock scenarios and exit"),
+		dir:       flag.String("mock-dir", "", "scratch directory for mock state (default: a per-scenario dir under XDG_RUNTIME_DIR)"),
+		seed:      flag.Int64("mock-seed", 1, "seed for every key and identifier the mock generates"),
+		scanDelay: flag.Duration("mock-scan-delay", 0, "how long a published QR sits unscanned before the mock phone pairs"),
+		phone:     flag.String("mock-phone", "", "phone number the mock account answers as"),
+		keep:      flag.Bool("mock-keep", false, "keep existing mock state instead of starting fresh"),
+		histDelay: flag.Duration("mock-history-delay", 0, "how long between history sync chunks, to make the sync view watchable"),
+		control:   flag.String("mock-control", "", "bind a control socket here for the quiescence barrier"),
+		now:       flag.String("mock-now", "", "pin the clock scenario timestamps hang off, as RFC3339, for reproducible frames"),
+		notify:    flag.Bool("mock-notify", false, "let a mock run raise desktop notifications"),
+	}
+}
+
+func mockScenario(run *mockRun) string {
+	if run == nil {
+		return ""
+	}
+	return run.opts.Scenario
+}
+
+// mockPrepare acts on the mock flags and, in mock mode, repoints the XDG
 // directories at a scratch tree. It has to run before app.ResolvePaths, so the
 // real account database is never opened by a mock daemon.
-func mockPrepare(log zerolog.Logger) *mockRun {
-	var (
-		scenario  = flag.String("mock", "", "run against a fake WhatsApp server using this scenario")
-		list      = flag.Bool("mock-list", false, "list mock scenarios and exit")
-		dir       = flag.String("mock-dir", "", "scratch directory for mock state (default: a per-scenario dir under XDG_RUNTIME_DIR)")
-		seed      = flag.Int64("mock-seed", 1, "seed for every key and identifier the mock generates")
-		scanDelay = flag.Duration("mock-scan-delay", 0, "how long a published QR sits unscanned before the mock phone pairs")
-		phone     = flag.String("mock-phone", "", "phone number the mock account answers as")
-		keep      = flag.Bool("mock-keep", false, "keep existing mock state instead of starting fresh")
-		histDelay = flag.Duration("mock-history-delay", 0, "how long between history sync chunks, to make the sync view watchable")
-		control   = flag.String("mock-control", "", "bind a control socket here for the quiescence barrier")
-		now       = flag.String("mock-now", "", "pin the clock scenario timestamps hang off, as RFC3339, for reproducible frames")
-		notify    = flag.Bool("mock-notify", false, "let a mock run raise desktop notifications")
-	)
-	flag.Parse()
+func mockPrepare(log zerolog.Logger, f *mockFlagSet) *mockRun {
+	scenario, list, dir, seed, scanDelay, phone, keep, histDelay, control, now, notify :=
+		f.scenario, f.list, f.dir, f.seed, f.scanDelay, f.phone, f.keep, f.histDelay, f.control, f.now, f.notify
 
 	if *list {
 		for _, s := range wamock.List() {

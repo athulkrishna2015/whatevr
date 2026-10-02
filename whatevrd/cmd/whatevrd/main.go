@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"os"
 	"os/signal"
 	"syscall"
@@ -23,6 +24,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "logs" {
 		os.Exit(runLogs(os.Args[2:], os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "capture" {
+		os.Exit(runCapture(os.Args[2:], os.Stdout, os.Stderr))
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -34,10 +38,21 @@ func main() {
 		log.Fatal().Err(levelErr).Msg("bad log level")
 	}
 
+	// every flag is parsed in every build, so a typo stops here instead of
+	// starting a daemon on the real account
+	mockFlagSet := mockFlags(log)
+	captureFlagSet := captureFlags(log)
+	flag.Parse()
+	if flag.NArg() > 0 {
+		log.Fatal().Strs("args", flag.Args()).Msg("unexpected arguments")
+	}
+
 	// Mock mode repoints the XDG directories at a scratch tree, so it has to
-	// settle before anything resolves a path. In a release build this parses
-	// no flags and returns nil.
-	mock := mockPrepare(log)
+	// settle before anything resolves a path. A capture of the real account
+	// does the same for its own linked device. In a release build both return
+	// nil.
+	mock := mockPrepare(log, mockFlagSet)
+	capture := capturePrepare(log, captureFlagSet, mockScenario(mock))
 
 	paths, err := app.ResolvePaths()
 	if err != nil {
@@ -57,6 +72,9 @@ func main() {
 	ctx = log.WithContext(ctx)
 	log.Info().Str("version", protocol.Version).Int("pid", os.Getpid()).Str("file", run.Path).
 		Stringer("file_level", fileLevel).Stringer("stderr_level", stderrLevel).Msg("whatevrd starting")
+
+	instrument, stopCapture := captureStart(ctx, capture, run.ID)
+	defer stopCapture()
 
 	// Adopt a systemd-activated socket if present (and clear LISTEN_* so it is
 	// never inherited by child processes). nil means run standalone.
@@ -93,6 +111,9 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("start protocol server")
 	}
+	if tap := captureTap(capture); tap != nil {
+		protocolServer.SetTap(tap)
+	}
 
 	// The protocol server routes daemon→frontend pushes (open_chat on a
 	// notification click) as connection-directed events.
@@ -113,7 +134,7 @@ func main() {
 		notificationWorker.Start(ctx)
 	}
 
-	waClient, err := wa.New(ctx, paths, daemon, db, notifier)
+	waClient, err := wa.New(ctx, paths, daemon, db, notifier, instrument)
 	if err != nil {
 		log.Fatal().Err(err).Msg("initialize WhatsApp client")
 	}

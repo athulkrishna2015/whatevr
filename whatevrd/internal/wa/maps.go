@@ -109,7 +109,7 @@ func newMapFetcher(cacheDir, userAgent, urlTemplate string) *mapFetcher {
 		cacheDir:    cacheDir,
 		userAgent:   userAgent,
 		urlTemplate: urlTemplate,
-		client:      &http.Client{Timeout: mapTileFetchTimeout},
+		client:      newHTTPClient(mapTileFetchTimeout),
 		inflight:    make(map[mapTileCoord]*sync.WaitGroup),
 	}
 }

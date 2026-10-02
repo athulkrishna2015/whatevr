@@ -4,8 +4,6 @@ package main
 
 import (
 	"context"
-	"os"
-	"strings"
 
 	"github.com/rs/zerolog"
 
@@ -17,18 +15,20 @@ import (
 // -tags whatevr_mock.
 type mockRun struct{}
 
-func mockPrepare(log zerolog.Logger) *mockRun {
-	for _, arg := range os.Args[1:] {
-		if arg == "--" {
-			break
-		}
-		name := strings.TrimLeft(arg, "-")
-		if name == "mock" || strings.HasPrefix(name, "mock=") || strings.HasPrefix(name, "mock-") {
-			log.Fatal().Msg("this whatevrd was built without mock support; rebuild with -tags whatevr_mock")
-		}
+type mockFlagSet struct{}
+
+// mockFlags registers nothing, so flag.Parse would reject --mock with a bare
+// "flag provided but not defined". Say why instead.
+func mockFlags(log zerolog.Logger) *mockFlagSet {
+	if usesFlag("mock") {
+		log.Fatal().Msg("this whatevrd was built without mock support; rebuild with -tags whatevr_mock")
 	}
 	return nil
 }
+
+func mockPrepare(zerolog.Logger, *mockFlagSet) *mockRun { return nil }
+
+func mockScenario(*mockRun) string { return "" }
 
 func mockStart(context.Context, *mockRun, *app.Daemon) (func(), error) {
 	return func() {}, nil

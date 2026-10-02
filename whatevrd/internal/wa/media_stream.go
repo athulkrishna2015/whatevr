@@ -260,7 +260,7 @@ func (c *Client) mediaStreamClient() *http.Client {
 	c.mediaStreamMu.Lock()
 	defer c.mediaStreamMu.Unlock()
 	if c.mediaStreamHTTP == nil {
-		c.mediaStreamHTTP = &http.Client{Timeout: 2 * time.Minute}
+		c.mediaStreamHTTP = newHTTPClient(2 * time.Minute)
 	}
 	return c.mediaStreamHTTP
 }

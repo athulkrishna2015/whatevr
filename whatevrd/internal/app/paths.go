@@ -50,9 +50,9 @@ func ResolvePaths() (Paths, error) {
 		cacheBase = filepath.Join(home, ".cache")
 	}
 
-	stateBase := os.Getenv("XDG_STATE_HOME")
-	if stateBase == "" {
-		stateBase = filepath.Join(home, ".local", "state")
+	stateBase, err := StateHome()
+	if err != nil {
+		return Paths{}, err
 	}
 
 	socketDir := filepath.Join(runtimeBase, "whatevr")
@@ -84,4 +84,16 @@ func (p Paths) Ensure() error {
 	}
 
 	return nil
+}
+
+// StateHome is $XDG_STATE_HOME or its default.
+func StateHome() (string, error) {
+	if dir := os.Getenv("XDG_STATE_HOME"); dir != "" {
+		return dir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".local", "state"), nil
 }

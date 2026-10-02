@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
-	"net/http"
 	"os"
 	"path/filepath"
 	"time"
@@ -30,10 +29,6 @@ const (
 
 	connReconcileInterval = 5 * time.Second
 )
-
-// http.DefaultClient has no timeout, so a black-holed route after sleep used to
-// hang the supervisor for minutes before backoff even started.
-var waVersionClient = &http.Client{Timeout: waVersionTimeout}
 
 var (
 	// errQRCodeExpired is the ordinary case: nobody scanned in time. A fresh
@@ -197,7 +192,9 @@ func (c *Client) refreshWAVersion(ctx context.Context) bool {
 	fetchCtx, cancel := context.WithTimeout(ctx, waVersionTimeout)
 	defer cancel()
 
-	latest, err := whatsmeow.GetLatestVersion(fetchCtx, waVersionClient)
+	// http.DefaultClient has no timeout, so a black-holed route after sleep used to
+	// hang the supervisor for minutes before backoff even started.
+	latest, err := whatsmeow.GetLatestVersion(fetchCtx, newHTTPClient(waVersionTimeout))
 	if err != nil {
 		zerolog.Ctx(ctx).Warn().Err(err).Msg("fetch latest WhatsApp version")
 		return false

@@ -56,7 +56,16 @@ type Server struct {
 	conns    map[*conn]struct{}
 	wg       sync.WaitGroup
 	lastConn atomic.Int64
+
+	tap Tap
 }
+
+// Tap sees every request and response line of every connection, plus its
+// open and close (no line), for captures. it runs inline on the connection.
+type Tap func(conn int64, dir string, line []byte)
+
+// SetTap has to come before Serve.
+func (s *Server) SetTap(t Tap) { s.tap = t }
 
 // New binds the whatevr protocol socket on socketPath but does not yet accept
 // connections. Callers register all views and commands, then call Serve — so a

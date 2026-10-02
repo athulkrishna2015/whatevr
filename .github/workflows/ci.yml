@@ -53,6 +53,9 @@ jobs:
               - 'VERSION'
               - '.gitmodules'
               - 'whatevrd/**'
+              - 'scripts/check-mock-gate'
+              - 'scripts/record-stream'
+              - 'scripts/conformance'
               - '.github/workflows/**'
             whattui:
               - 'justfile'
@@ -125,9 +128,16 @@ jobs:
         working-directory: whatevrd
         run: go test -tags "sqlite_fts5 whatevr_mock" ./internal/wamock/...
 
+      - name: Vet and test captures
+        working-directory: whatevrd
+        run: |
+          go vet -tags "sqlite_fts5 whatevr_mock whatevr_capture" ./...
+          go test -tags "sqlite_fts5 whatevr_mock whatevr_capture" ./cmd/whatevrd/
+
       # The fake WhatsApp server overrides whatsmeow's pinned certificate key
-      # and trusts a private CA. It must never reach a shipped binary.
-      - name: Check mock build gate
+      # and trusts a private CA, and a capture holds every message in
+      # plaintext. Neither may reach a shipped binary.
+      - name: Check mock and capture build gates
         run: scripts/check-mock-gate
 
       - name: Test the whatsmeow fork

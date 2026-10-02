@@ -1084,7 +1084,7 @@ func (c *Client) stickerHTTP() *http.Client {
 	c.stickerMu.Lock()
 	defer c.stickerMu.Unlock()
 	if c.stickerHTTPClient == nil {
-		c.stickerHTTPClient = &http.Client{Timeout: 15 * time.Second}
+		c.stickerHTTPClient = newHTTPClient(15 * time.Second)
 	}
 	return c.stickerHTTPClient
 }

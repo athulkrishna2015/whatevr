@@ -24,11 +24,12 @@ import (
 )
 
 type Client struct {
-	daemon    *app.Daemon
-	store     *appstore.DB
-	notifier  MessageNotifier
-	container *sqlstore.Container
-	paths     app.Paths
+	daemon     *app.Daemon
+	store      *appstore.DB
+	notifier   MessageNotifier
+	container  *sqlstore.Container
+	paths      app.Paths
+	instrument Instrument
 
 	mu     sync.Mutex
 	client *whatsmeow.Client
@@ -220,7 +221,8 @@ type mediaRetryState struct {
 	completed  bool
 }
 
-func New(ctx context.Context, paths app.Paths, daemon *app.Daemon, store *appstore.DB, notifier MessageNotifier) (*Client, error) {
+func New(ctx context.Context, paths app.Paths, daemon *app.Daemon, store *appstore.DB, notifier MessageNotifier, inst Instrument) (*Client, error) {
+	httpTransport = inst.Transport
 	container, err := openSessionStore(ctx, paths.SessionDBPath, whatsmeowLog(ctx).Sub("DB"))
 	if err != nil {
 		return nil, err
@@ -232,6 +234,7 @@ func New(ctx context.Context, paths app.Paths, daemon *app.Daemon, store *appsto
 		container:        container,
 		paths:            paths,
 		notifier:         notifier,
+		instrument:       inst,
 		frontendSessions: make(map[string]frontendSession),
 		mediaDownloads:   make(map[string]*mediaDownloadState),
 		mediaRetries:     make(map[string]*mediaRetryState),
@@ -389,6 +392,10 @@ func (c *Client) resetClient(ctx context.Context) error {
 		}
 		return c.handleEvent(sess, raw)
 	})
+
+	if c.instrument.Client != nil {
+		c.instrument.Client(client)
+	}
 
 	c.mu.Lock()
 	c.client = client
