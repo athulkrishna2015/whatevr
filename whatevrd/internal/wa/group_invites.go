@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -65,7 +66,7 @@ func (c *Client) groupInviteMessageInput(ctx context.Context, evt *events.Messag
 
 	encoded, err := appstore.EncodePayload(appstore.MessagePayload{GroupInvite: payload})
 	if err != nil {
-		c.log.Warnf("Failed to encode group invite payload for %s: %v", base.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", base.ID).Msg("encode group invite payload")
 		return appstore.MediaMessageInput{}, false
 	}
 
@@ -93,7 +94,7 @@ func (c *Client) maybeResolveGroupInvite(ctx context.Context, message appstore.M
 	if groupInviteExpired(payload, time.Now()) {
 		return
 	}
-	c.log.Debugf("Resolving group invite %s for %s", message.ID, payload.GroupJID)
+	zerolog.Ctx(ctx).Debug().Str("msg", message.ID).Str("group", payload.GroupJID).Msg("resolving group invite")
 	c.spawn(func(ctx context.Context) { c.resolveGroupInvite(ctx, message.ID) })
 }
 
@@ -105,22 +106,22 @@ func (c *Client) resolveGroupInvite(ctx context.Context, messageID string) {
 	// explain it, which is exactly how long this took to diagnose the once.
 	client := c.currentClient()
 	if client == nil || !client.IsLoggedIn() {
-		c.log.Debugf("Not resolving group invite %s: not connected", messageID)
+		zerolog.Ctx(ctx).Debug().Str("msg", messageID).Msg("not resolving group invite, not connected")
 		return
 	}
 	message, err := c.store.GetMessage(ctx, messageID)
 	if err != nil {
-		c.log.Warnf("Failed to read group invite %s back: %v", messageID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", messageID).Msg("read group invite back")
 		return
 	}
 	payload := appstore.DecodePayload(message.PayloadJSON).GroupInvite
 	if payload == nil {
-		c.log.Warnf("Group invite %s stored no invite payload", messageID)
+		zerolog.Ctx(ctx).Warn().Str("msg", messageID).Msg("group invite stored no invite payload")
 		return
 	}
 	groupJID, inviter, ok := c.groupInviteParties(message, payload)
 	if !ok {
-		c.log.Debugf("Group invite %s names no resolvable group or inviter", messageID)
+		zerolog.Ctx(ctx).Debug().Str("msg", messageID).Msg("group invite names no resolvable group or inviter")
 		return
 	}
 
@@ -138,30 +139,30 @@ func (c *Client) resolveGroupInvite(ctx context.Context, messageID string) {
 	// card sits on the sender's copy for twenty seconds before giving up on a
 	// question the other query answers at once.
 	if info, err := client.GetGroupInfo(ctx, groupJID); err == nil && info != nil {
-		c.log.Debugf("Group invite %s is for %s, which we are already in", messageID, groupJID)
+		zerolog.Ctx(ctx).Debug().Str("msg", messageID).Stringer("group", groupJID).Msg("group invite is for a group we are already in")
 		payload.Joined = true
 		applyResolvedGroupInfo(payload, info)
 		c.saveGroupInvitePayload(ctx, messageID, payload)
 		return
 	}
 
-	c.log.Debugf("Asking WhatsApp about invite %s to %s from %s", payload.Code, groupJID, inviter)
+	zerolog.Ctx(ctx).Debug().Str("msg", messageID).Stringer("group", groupJID).Stringer("inviter", inviter).Msg("asking WhatsApp about a group invite")
 	info, err := client.GetGroupInfoFromInvite(ctx, groupJID, inviter, payload.Code, payload.ExpiresAt)
 	if err != nil {
 		if ctx.Err() != nil {
-			c.log.Debugf("Gave up resolving group invite %s: %v", messageID, ctx.Err())
+			zerolog.Ctx(ctx).Debug().Err(ctx.Err()).Str("msg", messageID).Msg("gave up resolving group invite")
 			return
 		}
 		// A revoked or already-used code is the common failure and is worth
 		// saying: the card can tell the reader the door is closed rather than
 		// offering a button that will fail.
-		c.log.Debugf("Failed to resolve group invite %s: %v", messageID, err)
+		zerolog.Ctx(ctx).Debug().Err(err).Str("msg", messageID).Msg("resolve group invite")
 		payload.ResolveError = err.Error()
 		c.saveGroupInvitePayload(ctx, messageID, payload)
 		return
 	}
 	if info == nil {
-		c.log.Debugf("Group invite %s resolved to nothing", messageID)
+		zerolog.Ctx(ctx).Debug().Str("msg", messageID).Msg("group invite resolved to nothing")
 		return
 	}
 
@@ -215,12 +216,12 @@ func (c *Client) groupInviteParties(message appstore.Message, payload *appstore.
 func (c *Client) saveGroupInvitePayload(ctx context.Context, messageID string, payload *appstore.GroupInvitePayload) {
 	encoded, err := appstore.EncodePayload(appstore.MessagePayload{GroupInvite: payload})
 	if err != nil {
-		c.log.Warnf("Failed to encode resolved group invite for %s: %v", messageID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", messageID).Msg("encode resolved group invite")
 		return
 	}
 	message, err := c.store.UpdateMessagePayload(ctx, messageID, encoded, payload.DisplayName())
 	if err != nil {
-		c.log.Warnf("Failed to store resolved group invite for %s: %v", messageID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", messageID).Msg("store resolved group invite")
 		return
 	}
 	c.daemon.PublishMessageUpdated(toDaemonMessage(message))

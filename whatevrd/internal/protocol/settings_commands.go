@@ -85,7 +85,7 @@ type preferencesSetParams struct {
 	AutoFetchMaps         *bool  `json:"auto_fetch_maps"`
 }
 
-func (h commandHandlers) preferencesSet(_ *conn, req request) (any, *Error) {
+func (h commandHandlers) preferencesSet(ctx context.Context, _ *conn, req request) (any, *Error) {
 	if err := h.requireActions(); err != nil {
 		return nil, err
 	}
@@ -96,7 +96,7 @@ func (h commandHandlers) preferencesSet(_ *conn, req request) (any, *Error) {
 	// Apply the partial patch atomically on the daemon side: the read-modify-write
 	// happens under the daemon's lock so two concurrent preferences.set calls
 	// cannot lose each other's fields.
-	_, err := h.actions.UpdateAppPreferences(context.Background(), func(prefs *app.AppPreferences) {
+	_, err := h.actions.UpdateAppPreferences(ctx, func(prefs *app.AppPreferences) {
 		applyPreferencesPatch(prefs, p)
 	})
 	return nil, mapCommandError(err)

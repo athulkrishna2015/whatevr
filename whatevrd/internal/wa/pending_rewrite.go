@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 
+	"github.com/rs/zerolog"
+
 	appstore "whatevrd/internal/store"
 )
 
@@ -100,14 +102,14 @@ func (c *Client) reconcilePendingRewrites(ctx context.Context, final bool) {
 			continue
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
-			c.log.Warnf("Failed to apply %s to message %s: %v", rewrite.what(), internalID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("rewrite", rewrite.what()).Str("msg", internalID).Msg("apply parked rewrite")
 			continue
 		}
 		if final {
 			// The sync is over and the message never came: it is older than the
 			// history this device was given, and there is nothing here to
 			// rewrite.
-			c.log.Debugf("Dropping %s for message %s, which was never synced", rewrite.what(), internalID)
+			zerolog.Ctx(ctx).Debug().Str("rewrite", rewrite.what()).Str("msg", internalID).Msg("dropping a rewrite for a message that was never synced")
 			continue
 		}
 		c.parkPendingRewrite(internalID, rewrite, true)

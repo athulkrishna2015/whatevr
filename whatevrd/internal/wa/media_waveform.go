@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	appstore "whatevrd/internal/store"
 )
 
@@ -53,14 +55,14 @@ func (c *Client) maybeDeriveVoiceWaveform(ctx context.Context, message appstore.
 	waveform, err := decodeWaveform(ctx, ffmpeg, message.MediaLocalPath)
 	if err != nil || len(waveform) == 0 {
 		if err != nil {
-			c.log.Debugf("Could not derive waveform for %s: %v", message.ID, err)
+			zerolog.Ctx(ctx).Debug().Err(err).Str("msg", message.ID).Msg("could not derive waveform")
 		}
 		return
 	}
 
 	updated, err := c.store.SetMessageMediaWaveform(ctx, message.ID, waveform)
 	if err != nil {
-		c.log.Warnf("Failed to store derived waveform for %s: %v", message.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", message.ID).Msg("store derived waveform")
 		return
 	}
 	c.daemon.PublishMessageUpdated(toDaemonMessage(updated))

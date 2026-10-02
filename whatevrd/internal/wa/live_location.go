@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types/events"
 
@@ -63,7 +64,7 @@ func (c *Client) handleLiveLocationUpdate(ctx context.Context, evt *events.Messa
 		return c.openShareFromUpdate(ctx, evt, chatID, update)
 	}
 	if err != nil {
-		c.log.Warnf("Failed to find live-location share for %s: %v", chatID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("find live-location share")
 		return true
 	}
 
@@ -78,7 +79,7 @@ func (c *Client) handleLiveLocationUpdate(ctx context.Context, evt *events.Messa
 	}
 	applied, err := c.store.AppendLiveLocationPoint(ctx, share.MessageID, point)
 	if err != nil {
-		c.log.Warnf("Failed to append live-location point to %s: %v", share.MessageID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", share.MessageID).Msg("append live-location point")
 		return true
 	}
 	if !applied {
@@ -106,7 +107,7 @@ func (c *Client) openShareFromUpdate(ctx context.Context, evt *events.Message, c
 	}
 	encoded, err := appstore.EncodePayload(appstore.MessagePayload{Location: payload})
 	if err != nil {
-		c.log.Warnf("Failed to encode orphan live-location payload: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("encode orphan live-location payload")
 		return true
 	}
 
@@ -122,7 +123,7 @@ func (c *Client) openShareFromUpdate(ctx context.Context, evt *events.Message, c
 		PayloadSummary:          locationSummary(payload),
 	})
 	if err != nil {
-		c.log.Warnf("Failed to store orphan live-location update: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("store orphan live-location update")
 		return true
 	}
 	c.registerLiveShare(ctx, saved.Message, evt.Info.Timestamp, 0)
@@ -149,7 +150,7 @@ func (c *Client) registerLiveShare(ctx context.Context, message appstore.Message
 		ExpiresAt: startedAt.Add(window).Unix(),
 	}
 	if err := c.store.OpenLiveLocationShare(ctx, share); err != nil {
-		c.log.Warnf("Failed to open live-location share for %s: %v", message.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", message.ID).Msg("open live-location share")
 		return
 	}
 
@@ -162,12 +163,12 @@ func (c *Client) registerLiveShare(ctx context.Context, message appstore.Message
 			Longitude:      payload.Location.Longitude,
 			AccuracyMeters: int32(payload.Location.AccuracyMeters),
 		}); err != nil {
-			c.log.Warnf("Failed to seed live-location trail for %s: %v", message.ID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("msg", message.ID).Msg("seed live-location trail")
 		}
 	}
 
 	if _, err := c.writeLiveShareState(ctx, message.ID); err != nil {
-		c.log.Warnf("Failed to record live-share state for %s: %v", message.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", message.ID).Msg("record live-share state")
 	}
 }
 
@@ -215,7 +216,7 @@ func (c *Client) writeLiveShareState(ctx context.Context, messageID string) (app
 func (c *Client) applyLivePositionToRow(ctx context.Context, messageID string, point appstore.LiveLocationPoint) {
 	message, err := c.store.GetMessage(ctx, messageID)
 	if err != nil {
-		c.log.Warnf("Failed to read live-location row %s: %v", messageID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", messageID).Msg("read live-location row")
 		return
 	}
 	payload := appstore.DecodePayload(message.PayloadJSON)
@@ -229,18 +230,18 @@ func (c *Client) applyLivePositionToRow(ctx context.Context, messageID string, p
 
 	encoded, err := appstore.EncodePayload(payload)
 	if err != nil {
-		c.log.Warnf("Failed to encode moved live-location payload for %s: %v", messageID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", messageID).Msg("encode moved live-location payload")
 		return
 	}
 	if _, err := c.store.UpdateMessagePayload(ctx, messageID, encoded, locationSummary(payload.Location)); err != nil {
-		c.log.Warnf("Failed to persist live-location move for %s: %v", messageID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", messageID).Msg("persist live-location move")
 		return
 	}
 	// Refresh the share block from the tables so `live.updated_at` and the
 	// trail length on the row match what just landed.
 	updated, err := c.writeLiveShareState(ctx, messageID)
 	if err != nil {
-		c.log.Warnf("Failed to refresh live-share state for %s: %v", messageID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", messageID).Msg("refresh live-share state")
 		return
 	}
 
@@ -263,7 +264,7 @@ func (c *Client) redrawLiveLocationMap(ctx context.Context, message appstore.Mes
 	updated, err := c.fetchLocationMap(ctx, message, nil)
 	if err != nil {
 		if !errors.Is(err, ErrMapsDisabled) {
-			c.log.Warnf("Failed to redraw live-location map for %s: %v", message.ID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("msg", message.ID).Msg("redraw live-location map")
 		}
 		return
 	}
@@ -313,14 +314,14 @@ func (c *Client) sweepLiveLocationShares(ctx context.Context) {
 	now := time.Now()
 	expired, err := c.store.ExpireLiveLocationShares(ctx, now.Unix())
 	if err != nil {
-		c.log.Warnf("Failed to expire live-location shares: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("expire live-location shares")
 	}
 
 	// A share nobody has updated recently is over even if its window says
 	// otherwise: a sender who lost signal never gets to send a stop.
 	open, err := c.store.ListLiveLocationShares(ctx, "", now.Unix())
 	if err != nil {
-		c.log.Warnf("Failed to list live-location shares: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("list live-location shares")
 	}
 	staleBefore := now.Add(-liveLocationStaleAfter).Unix()
 	for _, share := range open {
@@ -332,7 +333,7 @@ func (c *Client) sweepLiveLocationShares(ctx context.Context) {
 			continue
 		}
 		if err := c.store.EndLiveLocationShare(ctx, share.MessageID); err != nil {
-			c.log.Warnf("Failed to end stale live-location share %s: %v", share.MessageID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("msg", share.MessageID).Msg("end stale live-location share")
 			continue
 		}
 		expired = append(expired, share.MessageID)

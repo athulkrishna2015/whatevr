@@ -1,9 +1,12 @@
 package app
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/rs/zerolog"
 )
 
 var composingPresenceTTL = 15 * time.Second
@@ -135,6 +138,10 @@ func (d *Daemon) SetConnection(state State, detail string, attempt int32, nextRe
 }
 
 func (d *Daemon) publishConnState(snapshot connState) {
+	// no ctx reaches the setters, this is the run's root logger
+	zerolog.Ctx(context.Background()).Info().Stringer("state", snapshot.state).Str("detail", snapshot.detail).
+		Int32("attempt", snapshot.retryAttempt).Int64("next_retry", snapshot.nextRetryUnix).
+		Bool("can_reconnect", snapshot.canReconnect).Msg("connection state")
 	d.broadcastDaemonEvent(DaemonEvent{
 		Kind:          DaemonEventConnectionChanged,
 		State:         snapshot.state,

@@ -56,7 +56,7 @@ type stickerPackInstallParams struct {
 	Installed *bool  `json:"installed"`
 }
 
-func (h commandHandlers) stickerPackInstall(_ *conn, req request) (any, *Error) {
+func (h commandHandlers) stickerPackInstall(ctx context.Context, _ *conn, req request) (any, *Error) {
 	if err := h.requireActions(); err != nil {
 		return nil, err
 	}
@@ -71,7 +71,7 @@ func (h commandHandlers) stickerPackInstall(_ *conn, req request) (any, *Error) 
 	if p.Installed == nil {
 		return nil, errorf(CodeInvalidParams, "installed is required")
 	}
-	_, err := h.actions.SetStickerPackInstalled(context.Background(), packID, *p.Installed)
+	_, err := h.actions.SetStickerPackInstalled(ctx, packID, *p.Installed)
 	return nil, mapCommandError(err)
 }
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	waWeb "go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/types"
@@ -37,7 +38,7 @@ func (c *Client) handleReaction(ctx context.Context, evt *events.Message, offlin
 		}
 		decrypted, err := client.DecryptReaction(ctx, evt)
 		if err != nil {
-			c.log.Warnf("Failed to decrypt reaction: %v", err)
+			zerolog.Ctx(ctx).Warn().Err(err).Msg("decrypt reaction")
 			return true
 		}
 		reaction = decrypted
@@ -75,7 +76,7 @@ func (c *Client) applyReaction(ctx context.Context, internalID, reactorID, react
 		// A reaction can arrive for a message we have not synced yet; drop it
 		// quietly (it ships with the message during history sync).
 		if !errors.Is(err, sql.ErrNoRows) {
-			c.log.Warnf("Failed to save reaction on %s: %v", internalID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("msg", internalID).Msg("save reaction")
 		}
 		return
 	}
@@ -173,7 +174,7 @@ func (c *Client) FillReactionSenderNames(ctx context.Context, messages []appstor
 			}
 			reaction.SenderName = name
 			if err := c.store.UpdateReactionSenderName(ctx, messages[mi].ID, reaction.SenderID, name); err != nil {
-				c.log.Warnf("Failed to backfill reaction sender name on %s: %v", messages[mi].ID, err)
+				zerolog.Ctx(ctx).Warn().Err(err).Str("msg", messages[mi].ID).Msg("backfill reaction sender name")
 			}
 		}
 	}

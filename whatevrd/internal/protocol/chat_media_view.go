@@ -3,8 +3,9 @@ package protocol
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"sync"
+
+	"github.com/rs/zerolog"
 
 	"whatevrd/internal/app"
 	"whatevrd/internal/store"
@@ -30,7 +31,7 @@ type chatMediaParams struct {
 	ChatID string `json:"chat_id"`
 }
 
-func (v chatMediaView) Open(params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v chatMediaView) Open(ctx context.Context, params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	var p chatMediaParams
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -41,7 +42,7 @@ func (v chatMediaView) Open(params json.RawMessage, invalidate func()) (ViewSess
 		return nil, nil, errorf(CodeInvalidParams, "chat_media params must carry a chat_id")
 	}
 	events, cancel := v.daemon.SubscribeDaemonEvents()
-	ctx, cancelCtx := context.WithCancel(context.Background())
+	ctx, cancelCtx := context.WithCancel(ctx)
 	s := &chatMediaSession{
 		lister:       v.lister,
 		chatID:       p.ChatID,
@@ -114,7 +115,7 @@ func (s *chatMediaSession) ItemsErr(max int) ([]Item, error) {
 	}
 	rows, err := s.lister.ListChatMediaMessages(s.ctx, s.chatID, limit, "")
 	if err != nil {
-		log.Printf("protocol: list chat media for view: %v", err)
+		zerolog.Ctx(s.ctx).Warn().Err(err).Msg("list chat media")
 		return nil, err
 	}
 	items := make([]Item, 0, len(rows))

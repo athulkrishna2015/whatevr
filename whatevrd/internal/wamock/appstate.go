@@ -426,11 +426,11 @@ func (m *mockAppState) push(ctx context.Context, w *World, info appstate.PatchIn
 	}
 	encoded, err := m.proc.EncodePatch(ctx, m.keyID, m.states[info.Type], info)
 	if err != nil {
-		w.srv.log.Printf("encode %s patch: %v", info.Type, err)
+		w.srv.log.Warn().Err(err).Str("type", string(info.Type)).Msg("encode patch")
 		return "", 0, false
 	}
 	if _, err := m.applyPatch(ctx, w, info.Type, encoded); err != nil {
-		w.srv.log.Printf("apply %s patch: %v", info.Type, err)
+		w.srv.log.Warn().Err(err).Str("type", string(info.Type)).Msg("apply patch")
 		return "", 0, false
 	}
 	return info.Type, uint64(len(m.patches[info.Type])), true

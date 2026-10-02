@@ -11,7 +11,6 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
-	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 
 	"whatevrd/internal/app"
@@ -38,7 +37,7 @@ func newRetryFallbackTest(t *testing.T) (*retryFallbackBuffer, *fakeEventBuffer,
 		t.Fatalf("open db: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{}), log: waLog.Noop}
+	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{})}
 	inner := &fakeEventBuffer{err: sql.ErrNoRows}
 	return &retryFallbackBuffer{EventBuffer: inner, client: client}, inner, db
 }

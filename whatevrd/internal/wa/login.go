@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
@@ -163,10 +164,10 @@ func (c *Client) reconcileConnectionState() {
 
 	switch {
 	case live && published != app.StateOnline:
-		c.log.Debugf("Reconciler: socket is live but state was %v; publishing online", published)
+		zerolog.Ctx(c.currentSession().detached()).Debug().Any("published", published).Msg("reconciler: socket is live, publishing online")
 		c.daemon.SetConnection(app.StateOnline, "Connected to WhatsApp", 0, 0, false)
 	case !live && published == app.StateOnline:
-		c.log.Debugf("Reconciler: state was online but the socket is gone; reconnecting")
+		zerolog.Ctx(c.currentSession().detached()).Debug().Msg("reconciler: state was online but the socket is gone, reconnecting")
 		c.daemon.SetConnection(app.StateOffline, "Connection lost. Reconnecting...", 0, 0, true)
 		c.requestReconnect(true)
 	}
@@ -198,7 +199,7 @@ func (c *Client) refreshWAVersion(ctx context.Context) bool {
 
 	latest, err := whatsmeow.GetLatestVersion(fetchCtx, waVersionClient)
 	if err != nil {
-		c.log.Warnf("Failed to fetch latest WhatsApp version: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("fetch latest WhatsApp version")
 		return false
 	}
 	store.SetWAVersion(*latest)
@@ -351,13 +352,13 @@ func (c *Client) resetAfterExternalLogout() {
 		old.Disconnect()
 		if old.Store.ID != nil {
 			if err := old.Store.Delete(ctx); err != nil {
-				c.log.Warnf("Failed to delete device store after remote logout: %v", err)
+				zerolog.Ctx(ctx).Warn().Err(err).Msg("delete device store after remote logout")
 			}
 		}
 	}
 
 	if err := c.wipeAccountData(ctx); err != nil {
-		c.log.Errorf("Failed to wipe account data after remote logout: %v", err)
+		zerolog.Ctx(ctx).Error().Err(err).Msg("wipe account data after remote logout")
 	}
 }
 
@@ -372,7 +373,7 @@ func (c *Client) Logout(ctx context.Context) error {
 		if client.Store.ID != nil {
 			logoutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			if err := client.Logout(logoutCtx); err != nil && err != store.ErrDeviceDeleted {
-				c.log.Warnf("Remote WhatsApp logout failed; clearing local session anyway: %v", err)
+				zerolog.Ctx(ctx).Warn().Err(err).Msg("remote logout failed, clearing the local session anyway")
 			}
 			cancel()
 		} else {
@@ -434,7 +435,7 @@ func (c *Client) wipeAccountData(ctx context.Context) error {
 		return err
 	}
 
-	container, err := openSessionStore(ctx, c.paths.SessionDBPath, c.log.Sub("DB"))
+	container, err := openSessionStore(ctx, c.paths.SessionDBPath, whatsmeowLog(ctx).Sub("DB"))
 	if err != nil {
 		return err
 	}
@@ -454,10 +455,10 @@ func (c *Client) wipeAccountData(ctx context.Context) error {
 func (c *Client) backupBeforeWipe(ctx context.Context) {
 	backupPath := filepath.Join(c.paths.DataDir, fmt.Sprintf("whatevrd-before-logout-%d.db", time.Now().Unix()))
 	if err := c.store.Backup(ctx, backupPath); err != nil {
-		c.log.Warnf("Failed to back up local database before logout: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("back up local database before logout")
 		return
 	}
-	c.log.Infof("Backed up local database before logout to %s", backupPath)
+	zerolog.Ctx(ctx).Info().Str("path", backupPath).Msg("backed up local database before logout")
 
 	entries, err := filepath.Glob(filepath.Join(c.paths.DataDir, "whatevrd-before-logout-*.db"))
 	if err != nil {
@@ -468,7 +469,7 @@ func (c *Client) backupBeforeWipe(ctx context.Context) {
 			continue
 		}
 		if err := os.Remove(entry); err != nil {
-			c.log.Warnf("Failed to remove old logout backup %s: %v", entry, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("path", entry).Msg("remove old logout backup")
 		}
 	}
 }

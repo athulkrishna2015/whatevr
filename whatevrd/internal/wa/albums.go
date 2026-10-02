@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -44,7 +45,7 @@ func (c *Client) albumMessageInput(ctx context.Context, evt *events.Message, opt
 	}
 	encoded, err := appstore.EncodePayload(appstore.MessagePayload{Album: payload})
 	if err != nil {
-		c.log.Warnf("Failed to encode album payload for %s: %v", base.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", base.ID).Msg("encode album payload")
 		return appstore.MediaMessageInput{}, false
 	}
 
@@ -116,7 +117,7 @@ func (c *Client) publishAlbumChild(ctx context.Context, child appstore.Message) 
 	}
 	message, err := c.store.GetMessage(ctx, child.AlbumParentID)
 	if err != nil {
-		c.log.Debugf("Album %s has a picture but no header yet: %v", child.AlbumParentID, err)
+		zerolog.Ctx(ctx).Debug().Err(err).Str("msg", child.AlbumParentID).Msg("album has a picture but no header yet")
 		return false
 	}
 	c.daemon.PublishMessageUpdated(toDaemonMessage(message))

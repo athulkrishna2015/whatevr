@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"go.mau.fi/whatsmeow/types/events"
-	waLog "go.mau.fi/whatsmeow/util/log"
 
 	"whatevrd/internal/app"
 )
@@ -17,7 +16,7 @@ import (
 // and return, and a burst of category changes has to collapse into one re-read
 // rather than one goroutine each.
 func TestPrivacySettingsChangeDoesNotBlockTheEventQueue(t *testing.T) {
-	client := &Client{daemon: app.NewDaemon(app.Paths{}), log: waLog.Noop}
+	client := &Client{daemon: app.NewDaemon(app.Paths{})}
 	sess := newAccountSession(context.Background())
 	client.session = sess
 

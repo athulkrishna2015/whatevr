@@ -4,8 +4,6 @@ package wamock
 
 import (
 	"context"
-	"io"
-	"log"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -46,8 +44,6 @@ func (t *testLogin) publish(code string) {
 	}
 }
 
-func discardLogger() *log.Logger { return log.New(io.Discard, "", 0) }
-
 // dialMock brings up a mock server and drives a real whatsmeow client through
 // pairing into a logged-in session. Everything below the daemon runs exactly as
 // it does in production, which is the only reason any of these tests mean
@@ -57,10 +53,7 @@ func dialMock(ctx context.Context, t *testing.T, opts Options) (*Server, *whatsm
 
 	login := &testLogin{}
 	opts.Login = login
-	if opts.Logger == nil {
-		opts.Logger = discardLogger()
-	}
-	srv, err := New(opts)
+	srv, err := New(ctx, opts)
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
@@ -195,7 +188,7 @@ func TestSeedIsDeterministic(t *testing.T) {
 // are worth testing without a handshake in the way.
 func testServer(t *testing.T) *Server {
 	t.Helper()
-	srv, err := New(Options{Login: &testLogin{}, Logger: discardLogger()})
+	srv, err := New(t.Context(), Options{Login: &testLogin{}})
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}

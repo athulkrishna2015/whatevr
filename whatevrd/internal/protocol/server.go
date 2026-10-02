@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"syscall"
+
+	"github.com/rs/zerolog"
 
 	"whatevrd/internal/app"
 )
@@ -26,7 +28,7 @@ const maxConnections = 256
 // response ahead of the events it unleashes). Handlers run on the
 // connection's dispatch goroutine; responses and any events they cause go
 // through the write loop.
-type handlerFunc func(c *conn, req request) (any, *Error)
+type handlerFunc func(ctx context.Context, c *conn, req request) (any, *Error)
 
 // Server owns the protocol socket and its connections. hello negotiation is
 // built in; views and commands register into handlers as migration steps
@@ -50,9 +52,10 @@ type Server struct {
 
 	serveOnce sync.Once
 
-	mu    sync.Mutex
-	conns map[*conn]struct{}
-	wg    sync.WaitGroup
+	mu       sync.Mutex
+	conns    map[*conn]struct{}
+	wg       sync.WaitGroup
+	lastConn atomic.Int64
 }
 
 // New binds the whatevr protocol socket on socketPath but does not yet accept
@@ -148,7 +151,7 @@ func (s *Server) serve(ctx context.Context) {
 	defer close(s.errCh)
 
 	acceptErr := make(chan error, 1)
-	go s.acceptLoop(acceptErr)
+	go s.acceptLoop(ctx, acceptErr)
 
 	select {
 	case err := <-acceptErr:
@@ -181,7 +184,7 @@ func (s *Server) serve(ctx context.Context) {
 	}
 }
 
-func (s *Server) acceptLoop(acceptErr chan<- error) {
+func (s *Server) acceptLoop(ctx context.Context, acceptErr chan<- error) {
 	for {
 		nc, err := s.listener.Accept()
 		if err != nil {
@@ -193,11 +196,12 @@ func (s *Server) acceptLoop(acceptErr chan<- error) {
 			return
 		}
 		if err := validateSameUIDPeer(nc); err != nil {
+			zerolog.Ctx(ctx).Warn().Err(err).Msg("refusing connection from another user")
 			_ = nc.Close()
 			continue
 		}
 
-		c := newConn(s, nc)
+		c := newConn(ctx, s, nc, s.lastConn.Add(1))
 		s.mu.Lock()
 		atCap := len(s.conns) >= maxConnections
 		if !atCap {
@@ -205,10 +209,11 @@ func (s *Server) acceptLoop(acceptErr chan<- error) {
 		}
 		s.mu.Unlock()
 		if atCap {
-			log.Printf("protocol: refusing connection: at connection cap (%d)", maxConnections)
+			zerolog.Ctx(c.ctx).Warn().Int("cap", maxConnections).Msg("refusing connection: at connection cap")
 			_ = nc.Close()
 			continue
 		}
+		zerolog.Ctx(c.ctx).Info().Msg("connection opened")
 		s.wg.Add(1)
 		go c.run()
 	}

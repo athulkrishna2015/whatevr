@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
@@ -28,7 +29,6 @@ type Client struct {
 	notifier  MessageNotifier
 	container *sqlstore.Container
 	paths     app.Paths
-	log       waLog.Logger
 
 	mu     sync.Mutex
 	client *whatsmeow.Client
@@ -221,12 +221,7 @@ type mediaRetryState struct {
 }
 
 func New(ctx context.Context, paths app.Paths, daemon *app.Daemon, store *appstore.DB, notifier MessageNotifier) (*Client, error) {
-	level := os.Getenv("WHATEVRD_LOG_LEVEL")
-	if level == "" {
-		level = "WARN"
-	}
-	log := waLog.Stdout("whatevrd/wa", level, false)
-	container, err := openSessionStore(ctx, paths.SessionDBPath, log.Sub("DB"))
+	container, err := openSessionStore(ctx, paths.SessionDBPath, whatsmeowLog(ctx).Sub("DB"))
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +232,6 @@ func New(ctx context.Context, paths app.Paths, daemon *app.Daemon, store *appsto
 		container:        container,
 		paths:            paths,
 		notifier:         notifier,
-		log:              log,
 		frontendSessions: make(map[string]frontendSession),
 		mediaDownloads:   make(map[string]*mediaDownloadState),
 		mediaRetries:     make(map[string]*mediaRetryState),
@@ -252,9 +246,9 @@ func New(ctx context.Context, paths app.Paths, daemon *app.Daemon, store *appsto
 	c.loadAppPreferences(ctx)
 	c.maps = newMapFetcher(paths.MediaCacheDir, MapUserAgent, mapTileURLTemplate(ctx, store))
 
-	storeLog := log.Sub("Store")
+	storeLog := zerolog.Ctx(ctx).With().Str("module", "store").Logger()
 	store.SetSlowOpLogger(func(op string, d time.Duration) {
-		storeLog.Warnf("Slow db op %s took %s", op, d.Round(time.Millisecond))
+		storeLog.Warn().Str("op", op).Dur("dur", d).Msg("slow db op")
 	})
 
 	if err := c.resetClient(ctx); err != nil {
@@ -367,14 +361,14 @@ func (c *Client) resetClient(ctx context.Context) error {
 		device.EventBuffer = &retryFallbackBuffer{EventBuffer: device.EventBuffer, client: c}
 	}
 
-	client := whatsmeow.NewClient(device, c.log.Sub("Client"))
+	client := whatsmeow.NewClient(device, whatsmeowLog(ctx).Sub("Client"))
 	client.BackgroundEventCtx = ctx
 	client.EnableAutoReconnect = false
 	client.ManualHistorySyncDownload = true
 	client.DisableManualHistorySyncReceipt = true
 	client.AutoTrustIdentity = autoTrustIdentityEnabled()
 	if !client.AutoTrustIdentity {
-		c.log.Warnf("WHATEVRD_AUTO_TRUST_IDENTITY is disabled; contacts whose WhatsApp identity changes (reinstall/re-register) stay unreachable in both directions until their stored identity is cleared manually")
+		zerolog.Ctx(ctx).Warn().Msg("WHATEVRD_AUTO_TRUST_IDENTITY is off: a contact whose identity changes stays unreachable until its stored identity is cleared by hand")
 	}
 	client.SetForceActiveDeliveryReceipts(true)
 	client.UseRetryMessageStore = true
@@ -518,7 +512,7 @@ func (c *Client) syncPresence(ctx context.Context, force bool) {
 	c.presenceMu.Unlock()
 
 	if err := client.SendPresence(ctx, desired); err != nil {
-		c.log.Warnf("Failed to update presence to %s: %v", desired, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("presence", string(desired)).Msg("update presence")
 	}
 }
 
@@ -553,7 +547,7 @@ func (c *Client) presenceOfflineTimerFired(gen uint64) {
 	c.presenceMu.Unlock()
 
 	if err := client.SendPresence(context.Background(), types.PresenceUnavailable); err != nil {
-		c.log.Warnf("Failed to update presence to %s: %v", types.PresenceUnavailable, err)
+		zerolog.Ctx(c.currentSession().detached()).Warn().Err(err).Str("presence", string(types.PresenceUnavailable)).Msg("update presence")
 	}
 }
 
@@ -574,7 +568,7 @@ func (c *Client) migrateLIDChats(ctx context.Context) {
 
 	lidChats, err := c.store.ListLIDChats(ctx)
 	if err != nil {
-		c.log.Warnf("Failed to list LID chats: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("list LID chats")
 		return
 	}
 
@@ -591,12 +585,12 @@ func (c *Client) migrateLIDChats(ctx context.Context) {
 
 		chat, migrated, err := c.store.MigrateChatID(ctx, lidChatID, pnJID.String())
 		if err != nil {
-			c.log.Warnf("Failed to migrate LID chat %s -> %s: %v", lidChatID, pnJID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("chat", lidChatID).Stringer("pn", pnJID).Msg("migrate LID chat")
 			continue
 		}
 
 		if migrated {
-			c.log.Infof("Migrated LID chat %s -> %s", lidChatID, pnJID)
+			zerolog.Ctx(ctx).Info().Str("chat", lidChatID).Stringer("pn", pnJID).Msg("migrated LID chat")
 			c.daemon.PublishChatMigrated(lidChatID, toDaemonChat(chat))
 		}
 	}
@@ -607,6 +601,12 @@ func (c *Client) migrateLIDChats(ctx context.Context) {
 
 func sqliteDSN(path string) string {
 	return fmt.Sprintf("file:%s?_foreign_keys=on&_busy_timeout=5000&_journal_mode=WAL", filepath.ToSlash(path))
+}
+
+// whatsmeowLog is whatsmeow's printf logger on our zerolog stream, its lines
+// carry module=whatsmeow and its own sublogger path.
+func whatsmeowLog(ctx context.Context) waLog.Logger {
+	return waLog.Zerolog(zerolog.Ctx(ctx).With().Str("module", "whatsmeow").Logger())
 }
 
 func openSessionStore(ctx context.Context, path string, log waLog.Logger) (*sqlstore.Container, error) {

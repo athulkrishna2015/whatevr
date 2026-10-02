@@ -73,7 +73,7 @@ func (s *session) startPairing(ctx context.Context) error {
 func (s *session) awaitScan(ctx context.Context) {
 	code, err := s.srv.waitForQR(ctx)
 	if err != nil {
-		s.srv.log.Printf("pairing: %v", err)
+		s.srv.log.Warn().Err(err).Msg("pairing")
 		return
 	}
 	select {
@@ -82,7 +82,7 @@ func (s *session) awaitScan(ctx context.Context) {
 		return
 	}
 	if err := s.completePairing(ctx, code); err != nil {
-		s.srv.log.Printf("pairing: %v", err)
+		s.srv.log.Warn().Err(err).Msg("pairing")
 	}
 }
 
@@ -210,7 +210,7 @@ func (s *session) handleIQResponse(ctx context.Context, node *waBinary.Node) err
 		return fmt.Errorf("client rejected pair-success: %s", node.String())
 	}
 	s.srv.notePaired(pairedDevice{JID: s.jid, LID: s.lid})
-	s.srv.log.Printf("paired %s", s.jid)
+	s.srv.log.Info().Stringer("jid", s.jid).Msg("paired")
 
 	// A freshly paired device has to start a new stream, and the real server
 	// says so with stream:error 515 rather than by hanging up. whatsmeow has a
@@ -227,7 +227,7 @@ func (s *session) handleIQResponse(ctx context.Context, node *waBinary.Node) err
 			Tag:   "stream:error",
 			Attrs: waBinary.Attrs{"code": "515"},
 		}); err != nil {
-			s.srv.log.Printf("send 515: %v", err)
+			s.srv.log.Warn().Err(err).Msg("send 515")
 		}
 	}()
 	return nil

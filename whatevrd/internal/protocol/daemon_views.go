@@ -3,9 +3,10 @@ package protocol
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog"
 
 	"whatevrd/internal/app"
 )
@@ -83,9 +84,9 @@ type connectionView struct {
 	pending PendingOutgoingCounter
 }
 
-func (v connectionView) Open(_ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v connectionView) Open(ctx context.Context, _ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	events, cancel := v.daemon.SubscribeDaemonEvents()
-	ctx, cancelCtx := context.WithCancel(context.Background())
+	ctx, cancelCtx := context.WithCancel(ctx)
 	s := &connectionSession{daemon: v.daemon, eventsCancel: cancel, cancelCtx: cancelCtx, ctx: ctx, pending: v.pending, done: make(chan struct{})}
 	s.refreshPendingCount()
 	s.drainInitial(events)
@@ -198,7 +199,7 @@ func (s *connectionSession) refreshPendingCountLocked() bool {
 	}
 	count, err := s.pending.CountPendingOutgoingMessages(s.ctx)
 	if err != nil {
-		log.Printf("protocol: count pending outgoing messages: %v", err)
+		zerolog.Ctx(s.ctx).Warn().Err(err).Msg("count pending outgoing messages")
 		return false
 	}
 	if count == s.pendingCount {
@@ -245,7 +246,7 @@ type syncView struct {
 	daemon *app.Daemon
 }
 
-func (v syncView) Open(_ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v syncView) Open(ctx context.Context, _ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	events, cancel := v.daemon.SubscribeDaemonEvents()
 	s := &syncSession{daemon: v.daemon, eventsCancel: cancel, done: make(chan struct{})}
 	s.event = inactiveSyncEvent()
@@ -425,7 +426,7 @@ type loginView struct {
 	daemon *app.Daemon
 }
 
-func (v loginView) Open(_ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v loginView) Open(ctx context.Context, _ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	events, cancel := v.daemon.SubscribeLoginEvents()
 	s := &loginSession{eventsCancel: cancel, done: make(chan struct{}), invalidate: invalidate}
 	s.drainInitial(events)

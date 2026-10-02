@@ -7,13 +7,13 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/util/keys"
 
@@ -30,7 +30,6 @@ const (
 // server generates, so two runs of the same scenario produce the same bytes.
 type Options struct {
 	Seed     int64
-	Logger   *log.Logger
 	Scenario string
 
 	// AccountPhone is the number the mock account answers as, in plain digits.
@@ -74,7 +73,7 @@ type LoginWatcher interface {
 // protocol whatsmeow expects. The daemon above it is unmodified.
 type Server struct {
 	opts  Options
-	log   *log.Logger
+	log   zerolog.Logger
 	ident *serverIdentity
 	tlsID *tlsIdentity
 	rng   *seededRand
@@ -131,10 +130,7 @@ type Server struct {
 	liveSession *session
 }
 
-func New(opts Options) (*Server, error) {
-	if opts.Logger == nil {
-		opts.Logger = log.New(log.Writer(), "wamock: ", log.LstdFlags)
-	}
+func New(ctx context.Context, opts Options) (*Server, error) {
 	if !opts.Now.IsZero() {
 		SetBootTime(opts.Now)
 	}
@@ -160,7 +156,7 @@ func New(opts Options) (*Server, error) {
 	}
 	srv := &Server{
 		opts:      opts,
-		log:       opts.Logger,
+		log:       zerolog.Ctx(ctx).With().Str("module", "wamock").Logger(),
 		ident:     ident,
 		tlsID:     tlsID,
 		rng:       rng,
@@ -212,14 +208,14 @@ func (s *Server) Start(ctx context.Context) error {
 
 	go func() {
 		if err := s.http.Serve(ln); err != nil && !s.isClosed() {
-			s.log.Printf("serve: %v", err)
+			s.log.Error().Err(err).Msg("serve")
 		}
 	}()
 	go func() {
 		<-ctx.Done()
 		_ = s.Close()
 	}()
-	s.log.Printf("fake WhatsApp server on %s (scenario %q, seed %d)", ln.Addr(), s.opts.Scenario, s.opts.Seed)
+	s.log.Info().Stringer("addr", ln.Addr()).Str("scenario", s.opts.Scenario).Int64("seed", s.opts.Seed).Msg("fake WhatsApp server up")
 	return nil
 }
 
@@ -281,7 +277,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		CompressionMode:    websocket.CompressionContextTakeover,
 	})
 	if err != nil {
-		s.log.Printf("websocket accept: %v", err)
+		s.log.Warn().Err(err).Msg("websocket accept")
 		return
 	}
 	conn.SetReadLimit(frameMaxSize)
@@ -389,7 +385,7 @@ const websocketPath = "/ws/chat"
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
-		s.log.Printf("unhandled http %s %s", r.Method, r.URL.Path)
+		s.log.Warn().Str("method", r.Method).Str("path", r.URL.Path).Msg("unhandled http")
 		http.NotFound(w, r)
 		return
 	}

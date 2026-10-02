@@ -88,12 +88,12 @@ func (s *session) run(ctx context.Context) {
 	err := s.handshake(hsCtx)
 	cancel()
 	if err != nil {
-		s.srv.log.Printf("handshake failed: %v", err)
+		s.srv.log.Warn().Err(err).Msg("handshake failed")
 		return
 	}
 
 	if err := s.onConnected(ctx); err != nil {
-		s.srv.log.Printf("post-connect: %v", err)
+		s.srv.log.Warn().Err(err).Msg("post-connect")
 		return
 	}
 
@@ -101,13 +101,13 @@ func (s *session) run(ctx context.Context) {
 		node, err := s.readNode(ctx)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) && websocket.CloseStatus(err) == -1 {
-				s.srv.log.Printf("read: %v", err)
+				s.srv.log.Warn().Err(err).Msg("read")
 			}
 			return
 		}
 		s.srv.quiet.touch()
 		if err := s.handleNode(ctx, node); err != nil {
-			s.srv.log.Printf("handle <%s>: %v", node.Tag, err)
+			s.srv.log.Warn().Err(err).Str("tag", node.Tag).Msg("handle stanza")
 		}
 	}
 }

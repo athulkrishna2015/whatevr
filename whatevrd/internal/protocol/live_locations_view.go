@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog"
 
 	"whatevrd/internal/app"
 	"whatevrd/internal/store"
@@ -35,7 +36,7 @@ type liveLocationsParams struct {
 	ChatID string `json:"chat_id"`
 }
 
-func (v liveLocationsView) Open(params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v liveLocationsView) Open(ctx context.Context, params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	var p liveLocationsParams
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -47,7 +48,7 @@ func (v liveLocationsView) Open(params json.RawMessage, invalidate func()) (View
 	}
 
 	events, cancel := v.daemon.SubscribeDaemonEvents()
-	ctx, cancelCtx := context.WithCancel(context.Background())
+	ctx, cancelCtx := context.WithCancel(ctx)
 	s := &liveLocationsSession{
 		lister:       v.lister,
 		chatID:       p.ChatID,
@@ -132,7 +133,7 @@ func (s *liveLocationsSession) ItemsErr(max int) ([]Item, error) {
 	}
 	shares, err := s.lister.ListLiveLocationShares(s.ctx, s.chatID, time.Now().Unix())
 	if err != nil {
-		log.Printf("protocol: list live locations for view: %v", err)
+		zerolog.Ctx(s.ctx).Warn().Err(err).Msg("list live locations")
 		return nil, err
 	}
 	if max > 0 && len(shares) > max {

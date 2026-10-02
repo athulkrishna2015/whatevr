@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/proto"
 
 	"go.mau.fi/whatsmeow"
@@ -36,7 +37,7 @@ func (c *Client) handleManualHistorySyncNotification(ctx context.Context, evt *e
 
 	chunk := historySyncChunkFromNotification(evt.Info.ID, notif)
 	if _, err := c.store.SaveHistorySyncChunk(ctx, chunk); err != nil {
-		c.log.Errorf("Failed to persist history sync notification %s: %v", evt.Info.ID, err)
+		zerolog.Ctx(ctx).Error().Err(err).Str("stanza", evt.Info.ID).Msg("persist history sync notification")
 		return true, false
 	}
 	c.publishHistorySyncChunkProgress(chunk, syncType, app.HistorySyncPhaseQueued)
@@ -145,7 +146,7 @@ func (c *Client) runHistorySyncWorker(ctx context.Context) {
 	for {
 		chunks, err := c.store.ListRecoverableHistorySyncChunks(ctx, 100)
 		if err != nil {
-			c.log.Errorf("Failed to list recoverable history sync chunks: %v", err)
+			zerolog.Ctx(ctx).Error().Err(err).Msg("list recoverable history sync chunks")
 			return
 		}
 		if len(chunks) == 0 {
@@ -172,7 +173,7 @@ func (c *Client) processHistorySyncChunk(ctx context.Context, chunk appstore.His
 
 	if chunk.Status != appstore.HistorySyncStatusProcessed {
 		if err := c.store.MarkHistorySyncChunkProcessing(ctx, chunk.ID); err != nil {
-			c.log.Errorf("Failed to mark history sync chunk %s processing: %v", chunk.ID, err)
+			zerolog.Ctx(ctx).Error().Err(err).Str("chunk", chunk.ID).Msg("mark history sync chunk processing")
 			return false
 		}
 		c.publishHistorySyncChunkProgress(chunk, syncType, app.HistorySyncPhaseDownloading)
@@ -181,16 +182,16 @@ func (c *Client) processHistorySyncChunk(ctx context.Context, chunk appstore.His
 		if err != nil {
 			_ = c.store.MarkHistorySyncChunkFailed(ctx, chunk.ID, err.Error())
 			_ = client.SendHistorySyncServerErrorReceipt(c.backgroundContext(), chunk.ID, chunk.MediaKey)
-			c.log.Warnf("Failed to download history sync chunk %s: %v", chunk.ID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("chunk", chunk.ID).Msg("download history sync chunk")
 			return false
 		}
-		c.log.Debugf("Downloaded history sync chunk %s (type %d, chunk %d, progress %d) in %s", chunk.ID, chunk.SyncType, chunk.ChunkOrder, chunk.Progress, time.Since(downloadStarted).Round(time.Millisecond))
+		zerolog.Ctx(ctx).Debug().Str("chunk", chunk.ID).Any("sync_type", chunk.SyncType).Any("chunk_order", chunk.ChunkOrder).Any("progress", chunk.Progress).Dur("dur", time.Since(downloadStarted)).Msg("downloaded history sync chunk")
 
 		if err := client.SendProtocolMessageReceipt(ctx, chunk.ID, types.ReceiptTypeHistorySync); err != nil {
-			c.log.Warnf("Failed to acknowledge history sync chunk %s: %v", chunk.ID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("chunk", chunk.ID).Msg("acknowledge history sync chunk")
 			return false
 		}
-		c.log.Debugf("Acknowledged history sync chunk %s (type %d, chunk %d, progress %d) before ingestion", chunk.ID, chunk.SyncType, chunk.ChunkOrder, chunk.Progress)
+		zerolog.Ctx(ctx).Debug().Str("chunk", chunk.ID).Any("sync_type", chunk.SyncType).Any("chunk_order", chunk.ChunkOrder).Any("progress", chunk.Progress).Msg("acknowledged history sync chunk before ingestion")
 
 		processStarted := time.Now()
 		c.publishHistorySyncChunkProgress(chunk, syncType, app.HistorySyncPhaseProcessing)
@@ -203,12 +204,12 @@ func (c *Client) processHistorySyncChunk(ctx context.Context, chunk appstore.His
 			// chance at it. Marking it processed here would ack, prune and lose
 			// the conversation permanently over one transient store error.
 			_ = c.store.MarkHistorySyncChunkFailed(ctx, chunk.ID, "failed to store one or more conversations")
-			c.log.Errorf("History sync chunk %s stored incompletely; leaving it for retry", chunk.ID)
+			zerolog.Ctx(ctx).Error().Str("chunk", chunk.ID).Msg("history sync chunk stored incompletely, leaving it for retry")
 			return false
 		}
-		c.log.Debugf("Processed history sync chunk %s (type %d, chunk %d, progress %d) in %s", chunk.ID, chunk.SyncType, chunk.ChunkOrder, chunk.Progress, time.Since(processStarted).Round(time.Millisecond))
+		zerolog.Ctx(ctx).Debug().Str("chunk", chunk.ID).Any("sync_type", chunk.SyncType).Any("chunk_order", chunk.ChunkOrder).Any("progress", chunk.Progress).Dur("dur", time.Since(processStarted)).Msg("processed history sync chunk")
 		if err := c.store.MarkHistorySyncChunkProcessed(ctx, chunk.ID); err != nil {
-			c.log.Errorf("Failed to mark history sync chunk %s processed: %v", chunk.ID, err)
+			zerolog.Ctx(ctx).Error().Err(err).Str("chunk", chunk.ID).Msg("mark history sync chunk processed")
 			return false
 		}
 		// Each chunk brings LID→PN mappings with it; retry any pin/archive/mute
@@ -219,19 +220,19 @@ func (c *Client) processHistorySyncChunk(ctx context.Context, chunk appstore.His
 		c.reconcilePendingRewrites(ctx, false)
 	} else {
 		if err := client.SendProtocolMessageReceipt(ctx, chunk.ID, types.ReceiptTypeHistorySync); err != nil {
-			c.log.Warnf("Failed to acknowledge processed history sync chunk %s: %v", chunk.ID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("chunk", chunk.ID).Msg("acknowledge processed history sync chunk")
 			return false
 		}
-		c.log.Debugf("Acknowledged processed history sync chunk %s (type %d, chunk %d, progress %d)", chunk.ID, chunk.SyncType, chunk.ChunkOrder, chunk.Progress)
+		zerolog.Ctx(ctx).Debug().Str("chunk", chunk.ID).Any("sync_type", chunk.SyncType).Any("chunk_order", chunk.ChunkOrder).Any("progress", chunk.Progress).Msg("acknowledged processed history sync chunk")
 	}
 	if err := c.store.MarkHistorySyncChunkAcked(ctx, chunk.ID); err != nil {
-		c.log.Errorf("Failed to mark history sync chunk %s acked: %v", chunk.ID, err)
+		zerolog.Ctx(ctx).Error().Err(err).Str("chunk", chunk.ID).Msg("mark history sync chunk acked")
 		return false
 	}
 	if err := c.store.PruneAckedHistorySyncChunks(ctx, time.Now().Add(-7*24*time.Hour)); err != nil {
-		c.log.Warnf("Failed to prune acked history sync chunks: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("prune acked history sync chunks")
 	}
-	c.log.Debugf("Finished history sync chunk %s (type %d, chunk %d, progress %d) in %s", chunk.ID, chunk.SyncType, chunk.ChunkOrder, chunk.Progress, time.Since(started).Round(time.Millisecond))
+	zerolog.Ctx(ctx).Info().Str("chunk", chunk.ID).Any("sync_type", chunk.SyncType).Any("chunk_order", chunk.ChunkOrder).Any("progress", chunk.Progress).Dur("dur", time.Since(started)).Msg("finished history sync chunk")
 	if chunk.DirectPath != "" {
 		c.spawn(func(ctx context.Context) { c.deleteHistorySyncMedia(ctx, client, chunk) })
 	}
@@ -304,7 +305,7 @@ func (c *Client) historySyncStallCheck() {
 	last := c.historySyncLastEvent
 	c.historySyncMu.Unlock()
 
-	c.log.Warnf("History sync stalled: no activity for %s (type %d, chunk %d, progress %d%%); running settle work early", historySyncStallTimeout, last.SyncType, last.ChunkOrder, last.ProgressPercent)
+	zerolog.Ctx(c.currentSession().detached()).Warn().Dur("idle", historySyncStallTimeout).Any("sync_type", last.SyncType).Any("chunk_order", last.ChunkOrder).Any("progress", last.ProgressPercent).Msg("history sync stalled, running settle work early")
 	c.daemon.PublishHistorySyncProgress(app.HistorySyncEvent{
 		SyncType:        last.SyncType,
 		ProgressPercent: last.ProgressPercent,
@@ -319,9 +320,9 @@ func (c *Client) historySyncStallCheck() {
 
 func (c *Client) deleteHistorySyncMedia(ctx context.Context, client *whatsmeow.Client, chunk appstore.HistorySyncChunk) {
 	if err := client.DeleteMedia(ctx, whatsmeow.MediaHistory, chunk.DirectPath, chunk.FileEncSHA256, chunk.EncHandle); err != nil {
-		c.log.Warnf("Failed to delete history sync media for chunk %s: %v", chunk.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("chunk", chunk.ID).Msg("delete history sync media")
 	} else {
-		c.log.Debugf("Deleted history sync media for chunk %s", chunk.ID)
+		zerolog.Ctx(ctx).Debug().Str("chunk", chunk.ID).Msg("deleted history sync media")
 	}
 }
 

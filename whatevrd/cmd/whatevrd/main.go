@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"github.com/rs/zerolog"
+
 	"whatevrd/internal/app"
+	"whatevrd/internal/logx"
 	"whatevrd/internal/notify"
 	"whatevrd/internal/protocol"
 	"whatevrd/internal/store"
@@ -22,36 +24,53 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	fileLevel, stderrLevel, levelErr := logx.LevelsFromEnv()
+	// stderr only until the run file exists
+	log := logx.Console(os.Stderr, zerolog.InfoLevel)
+	if levelErr != nil {
+		log.Fatal().Err(levelErr).Msg("bad log level")
+	}
+
 	// Mock mode repoints the XDG directories at a scratch tree, so it has to
 	// settle before anything resolves a path. In a release build this parses
 	// no flags and returns nil.
-	mock := mockPrepare()
+	mock := mockPrepare(log)
 
 	paths, err := app.ResolvePaths()
 	if err != nil {
-		log.Fatalf("resolve paths: %v", err)
+		log.Fatal().Err(err).Msg("resolve paths")
 	}
 
 	if err := paths.Ensure(); err != nil {
-		log.Fatalf("create runtime/data directories: %v", err)
+		log.Fatal().Err(err).Msg("create runtime/data directories")
 	}
+
+	run, err := logx.Start(logx.Config{Dir: paths.LogDir, FileLevel: fileLevel, StderrLevel: stderrLevel})
+	if err != nil {
+		log.Fatal().Err(err).Msg("start the run log")
+	}
+	defer run.Close()
+	log = run.Logger
+	ctx = log.WithContext(ctx)
+	log.Info().Str("version", protocol.Version).Int("pid", os.Getpid()).Str("file", run.Path).
+		Stringer("file_level", fileLevel).Stringer("stderr_level", stderrLevel).Msg("whatevrd starting")
 
 	// Adopt a systemd-activated socket if present (and clear LISTEN_* so it is
 	// never inherited by child processes). nil means run standalone.
 	activatedListener, err := app.SystemdListener()
 	if err != nil {
-		log.Fatalf("adopt systemd socket: %v", err)
+		log.Fatal().Err(err).Msg("adopt systemd socket")
 	}
 
 	processLock, err := app.AcquireProcessLock(paths.LockPath)
 	if err != nil {
-		log.Fatalf("acquire process lock: %v", err)
+		log.Fatal().Err(err).Msg("acquire process lock")
 	}
 	defer processLock.Close()
 
 	db, err := store.Open(ctx, paths.DatabasePath)
 	if err != nil {
-		log.Fatalf("open sqlite database: %v", err)
+		log.Fatal().Err(err).Msg("open sqlite database")
 	}
 	defer db.Close()
 
@@ -61,7 +80,7 @@ func main() {
 	// snapshots http.DefaultTransport when it constructs its client.
 	stopMock, err := mockStart(ctx, mock, daemon)
 	if err != nil {
-		log.Fatalf("start mock server: %v", err)
+		log.Fatal().Err(err).Msg("start mock server")
 	}
 	defer stopMock()
 
@@ -69,16 +88,16 @@ func main() {
 	// interface.
 	protocolServer, err := protocol.New(paths.SocketPath, activatedListener, daemon)
 	if err != nil {
-		log.Fatalf("start protocol server: %v", err)
+		log.Fatal().Err(err).Msg("start protocol server")
 	}
 
 	// The protocol server routes daemon→frontend pushes (open_chat on a
 	// notification click) as connection-directed events.
 	var notificationWorker *notify.Worker
 	if mockSilencesNotifications(mock) {
-		log.Print("notifications disabled: mock mode")
-	} else if notificationWorker, err = notify.NewWorker(protocolServer); err != nil {
-		log.Printf("notifications disabled: %v", err)
+		log.Info().Msg("notifications disabled: mock mode")
+	} else if notificationWorker, err = notify.NewWorker(ctx, protocolServer); err != nil {
+		log.Warn().Err(err).Msg("notifications disabled")
 	}
 	// Built separately rather than passed straight in: a nil *notify.Worker
 	// inside an interface is not a nil interface, and wa.Client checks for a
@@ -93,7 +112,7 @@ func main() {
 
 	waClient, err := wa.New(ctx, paths, daemon, db, notifier)
 	if err != nil {
-		log.Fatalf("initialize WhatsApp client: %v", err)
+		log.Fatal().Err(err).Msg("initialize WhatsApp client")
 	}
 	defer waClient.Close()
 
@@ -101,7 +120,7 @@ func main() {
 	// of an in-progress download. It is bound before commands are registered
 	// so a media.stream can never arrive before there is somewhere to point it.
 	if err := waClient.StartMediaServer(); err != nil {
-		log.Printf("media streaming disabled: %v", err)
+		log.Warn().Err(err).Msg("media streaming disabled")
 	}
 	defer waClient.StopMediaServer()
 
@@ -111,24 +130,24 @@ func main() {
 		// Not part of PROTOCOL.md, off unless the environment asks for it. See
 		// internal/protocol/dev_commands.go.
 		protocol.RegisterDevCommands(protocolServer, waClient)
-		log.Printf("development commands enabled (%s=1)", protocol.DevEnvVar)
+		log.Warn().Str("env", protocol.DevEnvVar).Msg("development commands enabled")
 	}
 	// Every view and command is registered above; only now do we accept
 	// connections, so no client can race a half-populated handler surface.
 	protocolServer.Serve(ctx)
 	waClient.Start(ctx)
 
-	log.Printf("whatevrd listening on %s", paths.SocketPath)
+	log.Info().Str("socket", paths.SocketPath).Msg("whatevrd listening")
 
 	select {
 	case <-ctx.Done():
-		log.Print("whatevrd shutting down")
+		log.Info().Msg("whatevrd shutting down")
 		if err := <-protocolServer.Err(); err != nil {
-			log.Fatalf("protocol server failed during shutdown: %v", err)
+			log.Fatal().Err(err).Msg("protocol server failed during shutdown")
 		}
 	case err := <-protocolServer.Err():
 		if err != nil {
-			log.Fatalf("protocol server failed: %v", err)
+			log.Fatal().Err(err).Msg("protocol server failed")
 		}
 	}
 }

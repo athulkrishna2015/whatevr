@@ -30,9 +30,9 @@ type typingView struct {
 	resolver SenderDisplayer
 }
 
-func (v typingView) Open(_ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v typingView) Open(ctx context.Context, _ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	events, cancel := v.daemon.SubscribeDaemonEvents()
-	ctx, cancelCtx := context.WithCancel(context.Background())
+	ctx, cancelCtx := context.WithCancel(ctx)
 	s := &typingSession{
 		daemon:       v.daemon,
 		resolver:     v.resolver,

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/nyaruka/phonenumbers"
+	"github.com/rs/zerolog"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
@@ -143,7 +144,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		}
 		rawChatJID, err := types.ParseJID(conv.GetID())
 		if err != nil {
-			c.log.Warnf("Failed to parse chat JID in history sync: %v", err)
+			zerolog.Ctx(ctx).Warn().Err(err).Msg("parse chat JID in history sync")
 			continue
 		}
 		chatJID := c.normalizeJIDForChat(ctx, rawChatJID)
@@ -163,7 +164,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 			if ctx.Err() != nil {
 				return false
 			}
-			c.log.Warnf("Failed to ensure history-sync chat %s: %v", chatID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("ensure history-sync chat")
 			stored = false
 			continue
 		}
@@ -213,7 +214,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 			}
 			parsedEvt, err := client.ParseWebMessage(chatJID, webMsg)
 			if err != nil {
-				c.log.Warnf("Failed to parse history sync message: %v", err)
+				zerolog.Ctx(ctx).Warn().Err(err).Msg("parse history sync message")
 				publishProcessingProgress(false)
 				continue
 			}
@@ -286,7 +287,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 			if ctx.Err() != nil {
 				return false
 			}
-			c.log.Errorf("Failed to store history sync conversation %s: %v", chatID, err)
+			zerolog.Ctx(ctx).Error().Err(err).Str("chat", chatID).Msg("store history sync conversation")
 			stored = false
 			continue
 		}
@@ -316,13 +317,13 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 			}
 			if entry.isMedia {
 				if updated, ok, err := c.resolveCachedStickerMedia(ctx, saved.Message); err != nil {
-					c.log.Warnf("Failed to resolve cached sticker media for %s: %v", saved.Message.ID, err)
+					zerolog.Ctx(ctx).Warn().Err(err).Str("msg", saved.Message.ID).Msg("resolve cached sticker media")
 				} else if ok {
 					saved.Message = updated
 				}
 				c.registerSavedMessage(ctx, saved.Message, entry.waMsg, entry.timestamp, false)
 			}
-			c.log.Debugf("Stored history message %s from %s", saved.Message.ID, saved.Message.SenderID)
+			zerolog.Ctx(ctx).Debug().Str("msg", saved.Message.ID).Str("sender", saved.Message.SenderID).Msg("stored history message")
 			messagesAdded++
 			lastSavedChat = saved.Chat
 		}
@@ -337,7 +338,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		}
 		updatedChat, unreadChanged, err := c.store.OverwriteChatUnreadCountSince(ctx, chatID, convUnread, newestHistoryMS)
 		if err != nil {
-			c.log.Warnf("Failed to overwrite unread count for %s: %v", chatID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("overwrite unread count")
 		} else if updatedChat.ID != "" {
 			lastSavedChat = updatedChat
 		}
@@ -345,7 +346,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		if exhausted, known := historyExhaustedFromConversation(conv); known {
 			answered[chatID] = true
 			if chat, changed, err := c.store.UpdateChatHistoryExhausted(ctx, chatID, exhausted); err != nil {
-				c.log.Warnf("Failed to record history exhaustion for %s: %v", chatID, err)
+				zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("record history exhaustion")
 			} else if changed {
 				lastSavedChat = chat
 				historyExhaustedChanged = true
@@ -355,7 +356,7 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 		if convHasPinned {
 			updatedChat, pinChanged, err = c.store.UpdateChatPinState(ctx, chatID, convPinned, convPinnedOrder)
 			if err != nil {
-				c.log.Warnf("Failed to update pinned state for %s: %v", chatID, err)
+				zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("update pinned state")
 			} else if updatedChat.ID != "" {
 				lastSavedChat = updatedChat
 			}
@@ -517,7 +518,7 @@ func (c *Client) handleMessage(ctx context.Context, evt *events.Message, offline
 	if inserted && evt.Info.IsFromMe && saved.Chat.UnreadCount > 0 {
 		if chat, changed, err := c.store.MarkChatReadUpTo(ctx, saved.Chat.ID, evt.Info.Timestamp.Unix()); err != nil {
 			if !errors.Is(err, sql.ErrNoRows) {
-				c.log.Warnf("Failed to clear unread after own message in %s: %v", saved.Chat.ID, err)
+				zerolog.Ctx(ctx).Warn().Err(err).Str("chat", saved.Chat.ID).Msg("clear unread after own message")
 			}
 		} else if changed {
 			c.daemon.PublishChatUpdated(toDaemonChat(chat))
@@ -562,7 +563,7 @@ func (c *Client) handleRevokeMessage(ctx context.Context, evt *events.Message, o
 			c.parkPendingRewrite(internalID, rewrite, false)
 			return true
 		}
-		c.log.Warnf("Failed to mark message %s revoked: %v", internalID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", internalID).Msg("mark message revoked")
 	}
 	return true
 }
@@ -588,7 +589,7 @@ func (c *Client) editPayload(ctx context.Context, evt *events.Message) (string, 
 		}
 		decrypted, err := client.DecryptSecretEncryptedMessage(ctx, evt)
 		if err != nil {
-			c.log.Warnf("Failed to decrypt edit of message %s: %v", targetID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("msg", targetID).Msg("decrypt edit")
 			return targetID, nil, true
 		}
 		if protocol := decrypted.GetProtocolMessage(); protocol.GetType() == waE2E.ProtocolMessage_MESSAGE_EDIT {
@@ -651,7 +652,7 @@ func (c *Client) handleEditMessage(ctx context.Context, evt *events.Message, off
 			c.parkPendingRewrite(internalID, rewrite, false)
 			return true
 		}
-		c.log.Warnf("Failed to apply edit to message %s: %v", internalID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", internalID).Msg("apply edit")
 	}
 	return true
 }
@@ -667,11 +668,11 @@ func (c *Client) handleUndecryptableMessage(ctx context.Context, evt *events.Und
 
 	correction, err := c.store.RecordUndecryptableMessageTimestamp(ctx, internalID, chatID, string(evt.Info.ID), senderID(evt.Info), evt.Info.Timestamp)
 	if err != nil {
-		c.log.Warnf("Failed to record undecryptable message timestamp for %s: %v", internalID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", internalID).Msg("record undecryptable message timestamp")
 		return
 	}
 	if err := c.store.PruneUndecryptableMessageTimestamps(ctx, time.Now().Add(-undecryptableMessageRetention)); err != nil {
-		c.log.Warnf("Failed to prune undecryptable message timestamps: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("prune undecryptable message timestamps")
 	}
 	if correction.Changed {
 		c.daemon.PublishMessageUpdated(toDaemonMessage(correction.Message))
@@ -693,7 +694,7 @@ func (c *Client) originalRetryTimestamp(ctx context.Context, evt *events.Message
 	}
 	timestamp, ok, err := c.store.LookupUndecryptableMessageTimestamp(ctx, internalID)
 	if err != nil {
-		c.log.Warnf("Failed to look up undecryptable message timestamp for %s: %v", internalID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", internalID).Msg("look up undecryptable message timestamp")
 		return time.Time{}, false
 	}
 	return timestamp, ok
@@ -764,7 +765,7 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 	if textInput, ok := c.textMessageInput(ctx, evt, opts); ok {
 		saved, err := c.store.SaveTextMessage(ctx, textInput)
 		if err != nil {
-			c.log.Errorf("Failed to store text message %s: %v", textInput.ID, err)
+			zerolog.Ctx(ctx).Error().Err(err).Str("msg", textInput.ID).Msg("store text message")
 			return appstore.SavedTextMessage{}, false, false
 		}
 		if !saved.Inserted {
@@ -777,11 +778,11 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 			return saved, false, true
 		}
 		if opts.source == sourceLive {
-			c.log.Infof("Stored text message %s from %s", saved.Message.ID, saved.Message.SenderID)
+			zerolog.Ctx(ctx).Info().Str("msg", saved.Message.ID).Str("sender", saved.Message.SenderID).Msg("stored text message")
 		} else if opts.source == sourceOfflineSync {
-			c.log.Debugf("Stored offline-sync text message %s from %s", saved.Message.ID, saved.Message.SenderID)
+			zerolog.Ctx(ctx).Debug().Str("msg", saved.Message.ID).Str("sender", saved.Message.SenderID).Msg("stored offline-sync text message")
 		} else {
-			c.log.Debugf("Stored history text message %s from %s", saved.Message.ID, saved.Message.SenderID)
+			zerolog.Ctx(ctx).Debug().Str("msg", saved.Message.ID).Str("sender", saved.Message.SenderID).Msg("stored history text message")
 		}
 		if opts.source == sourceLive {
 			message := toDaemonMessage(saved.Message)
@@ -800,7 +801,7 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 	if mediaInput, ok := c.mediaMessageInput(ctx, evt, opts); ok {
 		saved, err := c.store.SaveMediaMessage(ctx, mediaInput)
 		if err != nil {
-			c.log.Errorf("Failed to store media message %s: %v", mediaInput.ID, err)
+			zerolog.Ctx(ctx).Error().Err(err).Str("msg", mediaInput.ID).Msg("store media message")
 			return appstore.SavedTextMessage{}, false, false
 		}
 		if !saved.Inserted {
@@ -813,17 +814,17 @@ func (c *Client) ingestMessage(ctx context.Context, evt *events.Message, opts in
 			return saved, false, true
 		}
 		if updated, ok, err := c.resolveCachedStickerMedia(ctx, saved.Message); err != nil {
-			c.log.Warnf("Failed to resolve cached sticker media for %s: %v", saved.Message.ID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("msg", saved.Message.ID).Msg("resolve cached sticker media")
 		} else if ok {
 			saved.Message = updated
 		}
 		c.registerSavedMessage(ctx, saved.Message, evt.Message, evt.Info.Timestamp, opts.source == sourceLive)
 		if opts.source == sourceLive {
-			c.log.Infof("Stored media message %s from %s", saved.Message.ID, saved.Message.SenderID)
+			zerolog.Ctx(ctx).Info().Str("msg", saved.Message.ID).Str("sender", saved.Message.SenderID).Msg("stored media message")
 		} else if opts.source == sourceOfflineSync {
-			c.log.Debugf("Stored offline-sync media message %s from %s", saved.Message.ID, saved.Message.SenderID)
+			zerolog.Ctx(ctx).Debug().Str("msg", saved.Message.ID).Str("sender", saved.Message.SenderID).Msg("stored offline-sync media message")
 		} else {
-			c.log.Debugf("Stored history media message %s from %s", saved.Message.ID, saved.Message.SenderID)
+			zerolog.Ctx(ctx).Debug().Str("msg", saved.Message.ID).Str("sender", saved.Message.SenderID).Msg("stored history media message")
 		}
 		if opts.source == sourceLive {
 			message := toDaemonMessage(saved.Message)
@@ -1017,7 +1018,7 @@ func (c *Client) videoMessageInput(ctx context.Context, evt *events.Message, opt
 
 	payload, err := proto.Marshal(videoMsg)
 	if err != nil {
-		c.log.Warnf("Failed to serialize video metadata for message %s: %v", evt.Info.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("stanza", evt.Info.ID).Msg("serialize video metadata")
 		return appstore.MediaMessageInput{}, false
 	}
 	mimeType := videoMsg.GetMimetype()
@@ -1067,7 +1068,7 @@ func (c *Client) audioMessageInput(ctx context.Context, evt *events.Message, opt
 
 	payload, err := proto.Marshal(audioMsg)
 	if err != nil {
-		c.log.Warnf("Failed to serialize audio metadata for message %s: %v", evt.Info.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("stanza", evt.Info.ID).Msg("serialize audio metadata")
 		return appstore.MediaMessageInput{}, false
 	}
 	mimeType := audioMsg.GetMimetype()
@@ -1109,7 +1110,7 @@ func (c *Client) documentMessageInput(ctx context.Context, evt *events.Message, 
 
 	payload, err := proto.Marshal(docMsg)
 	if err != nil {
-		c.log.Warnf("Failed to serialize document metadata for message %s: %v", evt.Info.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("stanza", evt.Info.ID).Msg("serialize document metadata")
 		return appstore.MediaMessageInput{}, false
 	}
 	mimeType := docMsg.GetMimetype()
@@ -1183,7 +1184,7 @@ func (c *Client) imageMessageInput(ctx context.Context, evt *events.Message, opt
 
 	payload, err := proto.Marshal(imgMsg)
 	if err != nil {
-		c.log.Warnf("Failed to serialize image metadata for message %s: %v", info.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("stanza", info.ID).Msg("serialize image metadata")
 		return appstore.MediaMessageInput{}, false
 	}
 	mimeType := imgMsg.GetMimetype()
@@ -1240,7 +1241,7 @@ func (c *Client) stickerMessageInput(ctx context.Context, evt *events.Message, o
 	direction, status := messageDirectionAndStatus(info, opts)
 	payload, err := proto.Marshal(stickerMsg)
 	if err != nil {
-		c.log.Warnf("Failed to serialize sticker metadata for message %s: %v", info.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("stanza", info.ID).Msg("serialize sticker metadata")
 		return appstore.MediaMessageInput{}, false
 	}
 	mimeType := stickerMsg.GetMimetype()
@@ -1303,7 +1304,7 @@ func (c *Client) unsupportedMessageInput(ctx context.Context, evt *events.Messag
 		if !unknown {
 			return appstore.MediaMessageInput{}, false
 		}
-		c.log.Warnf("Storing a tombstone for message %s: nothing handles payload %q", evt.Info.ID, field)
+		zerolog.Ctx(ctx).Warn().Str("stanza", evt.Info.ID).Str("payload", field).Msg("storing a tombstone, nothing handles the payload")
 		label = "Unsupported message"
 	}
 
@@ -1341,7 +1342,7 @@ func (c *Client) storeBackfilledMessageSecret(ctx context.Context, evt *events.M
 		return
 	}
 	if err := client.Store.MsgSecrets.PutMessageSecret(ctx, evt.Info.Chat, evt.Info.Sender, evt.Info.ID, secret); err != nil {
-		c.log.Warnf("Failed to store backfilled message secret for %s: %v", evt.Info.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("stanza", evt.Info.ID).Msg("store backfilled message secret")
 	}
 }
 
@@ -1562,12 +1563,12 @@ func (c *Client) saveMessageThumbnailWithExtension(chatID, messageID string, thu
 	}
 	mediaDir := filepath.Join(c.paths.MediaCacheDir, "messages", chatID)
 	if err := os.MkdirAll(mediaDir, 0o700); err != nil {
-		c.log.Warnf("Failed to create thumbnail cache directory for message %s: %v", messageID, err)
+		zerolog.Ctx(c.currentSession().detached()).Warn().Err(err).Str("msg", messageID).Msg("create thumbnail cache directory")
 		return ""
 	}
 	localPath := filepath.Join(mediaDir, safeMediaFileName(messageID, extension))
 	if err := writeFileAtomic(localPath, thumbnail, 0o600); err != nil {
-		c.log.Warnf("Failed to cache thumbnail for message %s: %v", messageID, err)
+		zerolog.Ctx(c.currentSession().detached()).Warn().Err(err).Str("msg", messageID).Msg("cache thumbnail")
 		return ""
 	}
 	return localPath
@@ -1640,7 +1641,7 @@ func (c *Client) textMessageInput(ctx context.Context, evt *events.Message, opts
 	if preview := c.linkPreviewFromMessage(chatID, input.ID, evt.Message); preview != nil {
 		encoded, err := appstore.EncodePayload(appstore.MessagePayload{LinkPreview: preview})
 		if err != nil {
-			c.log.Warnf("Failed to encode link preview for %s: %v", input.ID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("msg", input.ID).Msg("encode link preview")
 		} else {
 			input.PayloadJSON = encoded
 		}
@@ -1937,7 +1938,7 @@ func defaultMime(mimeType, fallback string) string {
 func (c *Client) maybeUpdateStatusFromHistory(ctx context.Context, internalID, status string) {
 	message, changed, err := c.store.UpdateMessageStatusFromHistory(ctx, internalID, status)
 	if err != nil {
-		c.log.Warnf("Failed to apply history-sync status for %s: %v", internalID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", internalID).Msg("apply history-sync status")
 		return
 	}
 	if !changed {
@@ -2179,11 +2180,11 @@ func (c *Client) updateChatNamesFromHistorySync(ctx context.Context, evt *events
 			}
 			if client != nil && client.Store.Contacts != nil {
 				if err := client.Store.Contacts.PutContactName(ctx, jid, contact.GetFirstName(), contact.GetFullName()); err != nil {
-					c.log.Warnf("Failed to store contact name for %s: %v", jid, err)
+					zerolog.Ctx(ctx).Warn().Err(err).Stringer("jid", jid).Msg("store contact name")
 				}
 			}
 			if err := c.store.UpdateSenderName(ctx, jid.String(), name, appstore.SenderNameSourceContact); err != nil {
-				c.log.Warnf("Failed to store sender name for %s: %v", jid, err)
+				zerolog.Ctx(ctx).Warn().Err(err).Stringer("jid", jid).Msg("store sender name")
 			}
 			c.updateChatName(ctx, jid.String(), name, appstore.ChatNameSourceContact)
 		}
@@ -2201,15 +2202,15 @@ func (c *Client) updateChatNamesFromHistorySync(ctx context.Context, evt *events
 		}
 		if client != nil && client.Store.Contacts != nil {
 			if _, _, err := client.Store.Contacts.PutPushName(ctx, jid, name); err != nil {
-				c.log.Warnf("Failed to store push name for %s: %v", jid, err)
+				zerolog.Ctx(ctx).Warn().Err(err).Stringer("jid", jid).Msg("store push name")
 			}
 		}
 		if err := c.store.UpdateSenderName(ctx, jid.String(), whatsAppDisplayName(name), appstore.SenderNameSourceWhatsApp); err != nil {
-			c.log.Warnf("Failed to store sender push name for %s: %v", jid, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Stringer("jid", jid).Msg("store sender push name")
 		}
 		chatIDs, err := c.store.ListChatIDsBySenderID(ctx, jid.String())
 		if err != nil {
-			c.log.Warnf("Failed to list chats for sender push name refresh %s: %v", jid, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Stringer("jid", jid).Msg("list chats for sender push name refresh")
 			continue
 		}
 		for _, chatID := range chatIDs {
@@ -2314,7 +2315,7 @@ func whatsAppDisplayName(name string) string {
 func (c *Client) updateChatName(ctx context.Context, chatID, name, source string) {
 	chat, changed, err := c.store.UpdateChatNameWithSource(ctx, chatID, name, source)
 	if err != nil {
-		c.log.Warnf("Failed to update chat name for %s: %v", chatID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("update chat name")
 		return
 	}
 	if changed {

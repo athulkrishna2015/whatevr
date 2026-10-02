@@ -5,8 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"log"
 	"sync"
+
+	"github.com/rs/zerolog"
 
 	"whatevrd/internal/app"
 )
@@ -53,7 +54,7 @@ type receiptItem struct {
 	PlayedTsUnix    int64  `json:"played_ts_unix,omitempty"`
 }
 
-func (v receiptsView) Open(params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v receiptsView) Open(ctx context.Context, params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	var p receiptsParams
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -66,7 +67,7 @@ func (v receiptsView) Open(params json.RawMessage, invalidate func()) (ViewSessi
 	if v.actions == nil {
 		return nil, nil, errorf(CodeInternal, "receipts view unavailable")
 	}
-	ctx, cancelCtx := context.WithCancel(context.Background())
+	ctx, cancelCtx := context.WithCancel(ctx)
 	// Validate the message exists up front so a bad message_id is a clean
 	// not_found at subscribe (rather than a silently empty view). Done before
 	// subscribing to events so the early return leaks no subscription.
@@ -144,7 +145,7 @@ func (s *receiptsSession) Items(_ int) []Item {
 	info, err := s.actions.GetMessageInfo(s.ctx, s.messageID)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			log.Printf("protocol: receipts re-derive %s: %v", s.messageID, err)
+			zerolog.Ctx(s.ctx).Warn().Err(err).Str("msg", s.messageID).Msg("receipts re-derive")
 		}
 		return nil
 	}

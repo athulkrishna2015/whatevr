@@ -6,9 +6,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
+
+	"github.com/rs/zerolog"
 )
 
 // WebP RIFF layout, for the chunk walk below:
@@ -147,7 +148,7 @@ func (c *Client) repairCachedWebPAlphaFlags(ctx context.Context) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
-			slog.Debug("scan sticker cache for webp alpha repair", "error", err)
+			zerolog.Ctx(ctx).Debug().Err(err).Msg("scan sticker cache for webp alpha repair")
 		}
 		return
 	}
@@ -163,7 +164,7 @@ func (c *Client) repairCachedWebPAlphaFlags(ctx context.Context) {
 		}
 		changed, err := repairWebPAlphaFlagFile(filepath.Join(dir, entry.Name()))
 		if err != nil {
-			slog.Debug("repair cached sticker webp alpha flag", "file", entry.Name(), "error", err)
+			zerolog.Ctx(ctx).Debug().Err(err).Str("file", entry.Name()).Msg("repair cached sticker webp alpha flag")
 			continue
 		}
 		if changed {
@@ -171,6 +172,6 @@ func (c *Client) repairCachedWebPAlphaFlags(ctx context.Context) {
 		}
 	}
 	if repaired > 0 {
-		slog.Info("repaired animated sticker webp headers", "count", repaired, "scanned", len(entries))
+		zerolog.Ctx(ctx).Info().Int("count", repaired).Int("scanned", len(entries)).Msg("repaired animated sticker webp headers")
 	}
 }

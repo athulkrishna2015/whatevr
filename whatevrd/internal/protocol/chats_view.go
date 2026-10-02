@@ -6,9 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"math"
 	"sync"
+
+	"github.com/rs/zerolog"
 
 	"whatevrd/internal/app"
 	"whatevrd/internal/store"
@@ -50,7 +51,7 @@ type chatParams struct {
 	ChatID string `json:"chat_id"`
 }
 
-func (v chatView) Open(params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v chatView) Open(ctx context.Context, params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	var p chatParams
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -63,7 +64,7 @@ func (v chatView) Open(params json.RawMessage, invalidate func()) (ViewSession, 
 	if v.lister == nil {
 		return nil, nil, errorf(CodeInternal, "chat view unavailable")
 	}
-	ctx, cancelCtx := context.WithCancel(context.Background())
+	ctx, cancelCtx := context.WithCancel(ctx)
 	if _, err := v.lister.GetChatForView(ctx, p.ChatID); err != nil {
 		cancelCtx()
 		if errors.Is(err, sql.ErrNoRows) {
@@ -85,7 +86,7 @@ func (v chatView) Open(params json.RawMessage, invalidate func()) (ViewSession, 
 	return s, nil, nil
 }
 
-func (v chatsView) Open(params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v chatsView) Open(ctx context.Context, params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	var p chatsParams
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -98,7 +99,7 @@ func (v chatsView) Open(params json.RawMessage, invalidate func()) (ViewSession,
 	}
 
 	events, cancel := v.daemon.SubscribeDaemonEvents()
-	ctx, cancelCtx := context.WithCancel(context.Background())
+	ctx, cancelCtx := context.WithCancel(ctx)
 	s := &chatsSession{
 		lister:       v.lister,
 		filter:       store.ChatListFilter{Kind: kind, Archived: p.Archived},
@@ -250,7 +251,7 @@ func (s *chatsSession) ItemsErr(max int) ([]Item, error) {
 	}
 	chats, err := s.lister.ListChatsForView(s.ctx, filter)
 	if err != nil {
-		log.Printf("protocol: list chats for view: %v", err)
+		zerolog.Ctx(s.ctx).Warn().Err(err).Msg("list chats")
 		return nil, err
 	}
 	s.noteWindow(chats)
@@ -273,7 +274,7 @@ func (s *chatSession) Items(_ int) []Item {
 	chat, err := s.lister.GetChatForView(s.ctx, s.chatID)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			log.Printf("protocol: get chat for view %s: %v", s.chatID, err)
+			zerolog.Ctx(s.ctx).Warn().Err(err).Str("chat", s.chatID).Msg("get chat")
 		}
 		return nil
 	}

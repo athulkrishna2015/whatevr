@@ -6,10 +6,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/rs/zerolog"
 
 	"whatevrd/internal/app"
 	"whatevrd/internal/wamock"
@@ -38,7 +39,7 @@ func mockSilencesNotifications(run *mockRun) bool {
 // mockPrepare parses the mock flags and, in mock mode, repoints the XDG
 // directories at a scratch tree. It has to run before app.ResolvePaths, so the
 // real account database is never opened by a mock daemon.
-func mockPrepare() *mockRun {
+func mockPrepare(log zerolog.Logger) *mockRun {
 	var (
 		scenario  = flag.String("mock", "", "run against a fake WhatsApp server using this scenario")
 		list      = flag.Bool("mock-list", false, "list mock scenarios and exit")
@@ -66,39 +67,41 @@ func mockPrepare() *mockRun {
 
 	found, ok := wamock.Lookup(*scenario)
 	if !ok {
-		log.Fatalf("unknown mock scenario %q (try --mock-list)", *scenario)
+		log.Fatal().Str("scenario", *scenario).Msg("unknown mock scenario (try --mock-list)")
 	}
 
 	root := *dir
 	if root == "" {
 		runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
 		if runtimeDir == "" {
-			log.Fatal("XDG_RUNTIME_DIR is unset; pass --mock-dir")
+			log.Fatal().Msg("XDG_RUNTIME_DIR is unset; pass --mock-dir")
 		}
 		root = filepath.Join(runtimeDir, "whatevr-mock", *scenario)
 	}
 	root, err := filepath.Abs(root)
 	if err != nil {
-		log.Fatalf("resolve --mock-dir: %v", err)
+		log.Fatal().Err(err).Msg("resolve --mock-dir")
 	}
 	if err := prepareMockDir(root, *keep); err != nil {
-		log.Fatalf("prepare mock dir: %v", err)
+		log.Fatal().Err(err).Msg("prepare mock dir")
 	}
 
-	// The whole XDG triple moves, so the socket, the lock, the app database and
-	// the whatsmeow session all land inside the scratch tree. Two mock runs of
-	// different scenarios cannot collide, and neither can touch a real account.
+	// Every XDG base moves, so the socket, the lock, the app database, the
+	// whatsmeow session and the run logs all land inside the scratch tree. Two
+	// mock runs of different scenarios cannot collide, and neither can touch a
+	// real account.
 	for env, sub := range map[string]string{
 		"XDG_RUNTIME_DIR": "run",
 		"XDG_DATA_HOME":   "data",
 		"XDG_CACHE_HOME":  "cache",
+		"XDG_STATE_HOME":  "state",
 	} {
 		path := filepath.Join(root, sub)
 		if err := os.MkdirAll(path, 0o700); err != nil {
-			log.Fatalf("create %s: %v", path, err)
+			log.Fatal().Err(err).Str("path", path).Msg("create mock dir")
 		}
 		if err := os.Setenv(env, path); err != nil {
-			log.Fatalf("set %s: %v", env, err)
+			log.Fatal().Err(err).Str("env", env).Msg("set mock env")
 		}
 	}
 
@@ -113,7 +116,7 @@ func mockPrepare() *mockRun {
 	if *now != "" {
 		at, err := time.Parse(time.RFC3339, *now)
 		if err != nil {
-			log.Fatalf("parse --mock-now: %v", err)
+			log.Fatal().Err(err).Msg("parse --mock-now")
 		}
 		opts.Now = at
 	}
@@ -157,7 +160,7 @@ func mockStart(ctx context.Context, run *mockRun, daemon *app.Daemon) (func(), e
 		return func() {}, nil
 	}
 	run.opts.Login = daemon
-	srv, err := wamock.New(run.opts)
+	srv, err := wamock.New(ctx, run.opts)
 	if err != nil {
 		return nil, err
 	}
@@ -167,6 +170,6 @@ func mockStart(ctx context.Context, run *mockRun, daemon *app.Daemon) (func(), e
 	if err := srv.StartControl(ctx, run.opts.Control); err != nil {
 		return nil, err
 	}
-	log.Printf("mock mode: scenario %q, state in %s", run.scenario.Name, run.dir)
+	zerolog.Ctx(ctx).Info().Str("scenario", run.scenario.Name).Str("dir", run.dir).Msg("mock mode")
 	return func() { _ = srv.Close() }, nil
 }

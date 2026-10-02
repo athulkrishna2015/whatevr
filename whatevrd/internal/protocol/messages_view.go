@@ -6,7 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
+
+	"github.com/rs/zerolog"
 
 	"sync"
 
@@ -57,7 +58,7 @@ type messagesParams struct {
 	Limit  *int   `json:"limit"`
 }
 
-func (v messagesView) Open(params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v messagesView) Open(ctx context.Context, params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	var p messagesParams
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -68,7 +69,7 @@ func (v messagesView) Open(params json.RawMessage, invalidate func()) (ViewSessi
 		return nil, nil, errorf(CodeInvalidParams, "messages params must carry a chat_id")
 	}
 
-	ctx, cancelCtx := context.WithCancel(context.Background())
+	ctx, cancelCtx := context.WithCancel(ctx)
 	anchorID, meta, verr := v.resolveAnchor(ctx, p)
 	if verr != nil {
 		cancelCtx()
@@ -138,7 +139,7 @@ func (v messagesView) resolveAnchor(ctx context.Context, p messagesParams) (stri
 	case "unread":
 		chat, err := v.lister.GetChat(ctx, p.ChatID)
 		if err != nil {
-			log.Printf("protocol: messages unread anchor: get chat %q: %v", p.ChatID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("chat", p.ChatID).Msg("unread anchor: get chat")
 			return "", nil, nil
 		}
 		if chat.UnreadCount <= 0 {
@@ -147,7 +148,7 @@ func (v messagesView) resolveAnchor(ctx context.Context, p messagesParams) (stri
 		_, anchorID, err := v.lister.ListMessagesAroundUnread(ctx, p.ChatID, 1, int(chat.UnreadCount))
 		if err != nil {
 			if !errors.Is(err, sql.ErrNoRows) {
-				log.Printf("protocol: messages unread anchor: resolve %q: %v", p.ChatID, err)
+				zerolog.Ctx(ctx).Warn().Err(err).Str("chat", p.ChatID).Msg("unread anchor: resolve")
 			}
 			return "", nil, nil
 		}
@@ -160,7 +161,7 @@ func (v messagesView) resolveAnchor(ctx context.Context, p messagesParams) (stri
 			if errors.Is(err, sql.ErrNoRows) {
 				return "", nil, errorf(CodeNotFound, "no message %q in chat %q", p.Anchor, p.ChatID)
 			}
-			log.Printf("protocol: messages anchor %q: %v", p.Anchor, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("chat", p.ChatID).Str("msg", p.Anchor).Msg("messages anchor")
 			return "", nil, errorf(CodeInternal, "resolve message anchor")
 		}
 		// The anchor comes back from that window rather than from the request,
@@ -355,7 +356,7 @@ func (s *latestMessagesSession) ItemsErr(max int) ([]Item, error) {
 	}
 	msgs, err := s.lister.ListMessages(s.ctx, s.chatID, limit, "")
 	if err != nil {
-		log.Printf("protocol: list latest messages for view: %v", err)
+		zerolog.Ctx(s.ctx).Warn().Err(err).Msg("list latest messages")
 		return nil, err
 	}
 	reverseMessages(msgs) // newest-first for the prefix window
@@ -439,7 +440,7 @@ func (s *anchoredMessagesSession) ItemsErr(int) ([]Item, error) {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
 		}
-		log.Printf("protocol: anchored messages get anchor %q: %v", s.anchorID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", s.anchorID).Msg("anchored messages: get anchor")
 		return nil, err
 	}
 
@@ -447,7 +448,7 @@ func (s *anchoredMessagesSession) ItemsErr(int) ([]Item, error) {
 	// (ascending). Fetch one extra to detect exhaustion, then keep the newest.
 	older, err := s.lister.ListMessages(ctx, s.chatID, olderN+1, s.anchorID)
 	if err != nil {
-		log.Printf("protocol: anchored messages older frontier: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("anchored messages: older frontier")
 		return nil, err
 	}
 	olderExhausted := len(older) <= olderN
@@ -468,7 +469,7 @@ func (s *anchoredMessagesSession) ItemsErr(int) ([]Item, error) {
 	}
 	newer, err := s.lister.ListMessagesAfter(ctx, s.chatID, newerLimit, s.anchorID)
 	if err != nil {
-		log.Printf("protocol: anchored messages newer frontier: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("anchored messages: newer frontier")
 		return nil, err
 	}
 	newerExhausted := live || len(newer) <= newerN

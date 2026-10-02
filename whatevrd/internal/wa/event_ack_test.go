@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"go.mau.fi/whatsmeow/types/events"
-	waLog "go.mau.fi/whatsmeow/util/log"
 
 	"whatevrd/internal/app"
 )
@@ -15,7 +14,7 @@ import (
 // redelivery has to answer true or it loops forever. Only a failed store may
 // answer false.
 func TestHandleEventAcksWhatRedeliveryCannotFix(t *testing.T) {
-	client := &Client{daemon: app.NewDaemon(app.Paths{}), log: waLog.Noop}
+	client := &Client{daemon: app.NewDaemon(app.Paths{})}
 
 	// An event for a superseded account: its database is gone, and asking for
 	// it again would only replay it into the wrong one.

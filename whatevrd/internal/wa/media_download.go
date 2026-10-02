@@ -8,12 +8,12 @@ import (
 	"fmt"
 	"image"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waMmsRetry"
 	"go.mau.fi/whatsmeow/types"
@@ -164,7 +164,7 @@ func (c *Client) DownloadMessageMedia(ctx context.Context, messageID string) (ap
 		if errorText != "" {
 			updated, err := c.store.SetMessageMediaDownloadError(c.backgroundContext(), message.ID, errorText)
 			if err != nil {
-				c.log.Errorf("Persist media download error for %s: %v", message.ID, err)
+				zerolog.Ctx(ctx).Error().Err(err).Str("msg", message.ID).Msg("persist media download error")
 				return
 			}
 			c.daemon.PublishMessageUpdated(toDaemonMessage(updated))
@@ -311,14 +311,14 @@ func (c *Client) DownloadMessageMedia(ctx context.Context, messageID string) (ap
 			// quietly falls back and fails again is indistinguishable in the
 			// log from one that never tried, which is exactly how long the
 			// missing hash-mismatch case took to find.
-			c.log.Infof("Media for %s did not verify (%v); asking the sender for a fresh path", message.ID, err)
+			zerolog.Ctx(ctx).Info().Err(err).Str("msg", message.ID).Msg("media did not verify, asking the sender for a fresh path")
 			message, err = c.refreshMediaForDownload(ctx, client, message, media)
 			if err != nil {
-				c.log.Warnf("Media retry for %s got nowhere: %v", message.ID, err)
+				zerolog.Ctx(ctx).Warn().Err(err).Str("msg", message.ID).Msg("media retry got nowhere")
 				state.err = err
 				return appstore.Message{}, state.err
 			}
-			c.log.Infof("Media retry for %s returned a fresh path; downloading again", message.ID)
+			zerolog.Ctx(ctx).Info().Str("msg", message.ID).Msg("media retry returned a fresh path, downloading again")
 			media, err = downloadableMediaMessage(message)
 			if err != nil {
 				state.err = err
@@ -374,7 +374,7 @@ func (c *Client) DownloadMessageMedia(ctx context.Context, messageID string) (ap
 	// VP8X's alpha flag clear even though their frames carry ALPH deltas, which
 	// makes Qt skip frame compositing and draw the mask holes (see webp.go).
 	if _, err := repairWebPAlphaFlagFile(localPath); err != nil {
-		slog.Debug("repair downloaded sticker webp alpha flag", "message_id", message.ID, "error", err)
+		zerolog.Ctx(ctx).Debug().Err(err).Str("msg", message.ID).Msg("repair downloaded sticker webp alpha flag")
 	}
 	if isWhatsAppAnimatedSticker(message.MediaMimeType) {
 		localPath, err = extractLottieSticker(localPath)
@@ -753,7 +753,7 @@ func (c *Client) ResolveCachedStickerMedia(ctx context.Context, messages []appst
 		}
 		updated, ok, err := c.resolveCachedStickerMedia(ctx, message)
 		if err != nil {
-			c.log.Warnf("Failed to resolve cached sticker media for %s: %v", message.ID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("msg", message.ID).Msg("resolve cached sticker media")
 			continue
 		}
 		if ok {

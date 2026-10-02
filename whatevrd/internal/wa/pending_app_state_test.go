@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"go.mau.fi/whatsmeow/types"
-	waLog "go.mau.fi/whatsmeow/util/log"
 
 	"whatevrd/internal/app"
 	appstore "whatevrd/internal/store"
@@ -23,7 +22,7 @@ func TestPendingAppStateParksUnresolvedLIDsAndAppliesOnFinal(t *testing.T) {
 	}
 	defer db.Close()
 
-	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{}), log: waLog.Noop}
+	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{})}
 	lid := types.NewJID("12345", types.HiddenUserServer)
 
 	resolved, ok := client.resolveAppStateChatJID(ctx, lid)
@@ -82,7 +81,7 @@ func TestResolveAppStateChatJIDUsesExistingLIDChat(t *testing.T) {
 	}
 	defer db.Close()
 
-	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{}), log: waLog.Noop}
+	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{})}
 	lid := types.NewJID("67890", types.HiddenUserServer)
 	if _, err := db.EnsureChat(ctx, lid.String(), "LID-only contact", false); err != nil {
 		t.Fatalf("ensure chat: %v", err)

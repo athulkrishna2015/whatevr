@@ -6,10 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"log"
 	"net"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog"
 )
 
 const (
@@ -37,6 +39,7 @@ const (
 type conn struct {
 	srv *Server
 	nc  net.Conn
+	id  int64
 
 	q         *outQueue
 	done      chan struct{}
@@ -75,11 +78,15 @@ type conn struct {
 	subsClosed bool
 }
 
-func newConn(srv *Server, nc net.Conn) *conn {
-	ctx, cancel := context.WithCancel(context.Background())
+// newConn takes its logger from parent and nothing else, a connection ends
+// on close, not when parent does.
+func newConn(parent context.Context, srv *Server, nc net.Conn, id int64) *conn {
+	l := zerolog.Ctx(parent).With().Int64("conn", id).Logger()
+	ctx, cancel := context.WithCancel(l.WithContext(context.Background()))
 	return &conn{
 		srv:    srv,
 		nc:     nc,
+		id:     id,
 		q:      newOutQueue(),
 		done:   make(chan struct{}),
 		ctx:    ctx,
@@ -125,16 +132,16 @@ func (c *conn) reportReadError(err error) {
 		// We closed the socket (shutdown, unsubscribe teardown, or a prior fatal
 		// frame). This is normal termination, not a framing failure.
 	case errors.Is(err, bufio.ErrTooLong):
-		log.Printf("protocol: oversized frame (> %d bytes) closed the connection", maxLineBytes)
+		zerolog.Ctx(c.ctx).Warn().Int("max_bytes", maxLineBytes).Msg("oversized frame closed the connection")
 		c.respondError(nullID, errorf(CodeInvalidRequest, "frame exceeds the %d byte maximum", maxLineBytes), true)
 	case errors.As(err, &ne) && ne.Timeout():
 		if !c.helloDone {
-			log.Printf("protocol: closing connection: no hello within %s", helloTimeout)
+			zerolog.Ctx(c.ctx).Warn().Dur("timeout", helloTimeout).Msg("closing connection: no hello in time")
 		} else {
-			log.Printf("protocol: connection read timed out: %v", err)
+			zerolog.Ctx(c.ctx).Warn().Err(err).Msg("connection read timed out")
 		}
 	default:
-		log.Printf("protocol: connection read error: %v", err)
+		zerolog.Ctx(c.ctx).Warn().Err(err).Msg("connection read error")
 	}
 }
 
@@ -190,6 +197,7 @@ func (c *conn) writeLoop() {
 // session, which is the connection-drop half of subscription cleanup.
 func (c *conn) close() {
 	c.closeOnce.Do(func() {
+		zerolog.Ctx(c.ctx).Info().Msg("connection closed")
 		c.cancel()
 		close(c.done)
 		_ = c.nc.Close()
@@ -283,13 +291,18 @@ func (c *conn) handleLine(line []byte) {
 		return
 	}
 
+	ctx := c.requestContext(req)
+	zerolog.Ctx(ctx).Info().Msg("command")
 	handler, ok := c.srv.handler(req.Method)
 	if !ok {
-		c.respondError(req.ID, errorf(CodeUnknownMethod, "unknown method %q", req.Method), false)
+		herr := errorf(CodeUnknownMethod, "unknown method %q", req.Method)
+		logCommandError(ctx, herr)
+		c.respondError(req.ID, herr, false)
 		return
 	}
-	result, herr := handler(c, req)
+	result, herr := handler(ctx, c, req)
 	if herr != nil {
+		logCommandError(ctx, herr)
 		c.respondError(req.ID, herr, false)
 		return
 	}
@@ -300,6 +313,30 @@ func (c *conn) handleLine(line []byte) {
 		result = map[string]any{}
 	}
 	c.respondResult(req.ID, result)
+}
+
+// requestContext carries conn, req and method. like the connection it never
+// cancels on its own, backgroundNet adds a timeout where it wants one.
+func (c *conn) requestContext(req request) context.Context {
+	l := zerolog.Ctx(c.ctx).With().Str("req", requestIDString(req.ID)).Str("method", req.Method).Logger()
+	return l.WithContext(context.Background())
+}
+
+// requestIDString drops the quotes of a string id so req=abc filters like req=5.
+func requestIDString(id json.RawMessage) string {
+	var s string
+	if json.Unmarshal(id, &s) == nil {
+		return s
+	}
+	return strings.TrimSpace(string(id))
+}
+
+func logCommandError(ctx context.Context, e *Error) {
+	evt := zerolog.Ctx(ctx).Info()
+	if e.Code == CodeInternal {
+		evt = zerolog.Ctx(ctx).Warn()
+	}
+	evt.Str("code", e.Code).Str("error", e.Message).Msg("command failed")
 }
 
 type helloParams struct {
@@ -332,6 +369,7 @@ func (c *conn) handleHello(req request) {
 	}
 
 	c.helloDone = true
+	zerolog.Ctx(c.ctx).Info().Str("client", params.Client).Int("protocol", *params.Protocol).Msg("hello")
 	// Handshake complete: drop the read deadline. A subscribed frontend may now
 	// sit silent indefinitely waiting for pushed events.
 	_ = c.nc.SetReadDeadline(time.Time{})
@@ -359,7 +397,7 @@ func (c *conn) send(resp response, closeAfter bool) {
 	if err != nil {
 		// A result we produced failed to marshal; that is a daemon bug, and
 		// the request still must get its one response.
-		log.Printf("protocol: marshal response: %v", err)
+		zerolog.Ctx(c.ctx).Error().Err(err).Msg("marshal response")
 		line, _ = json.Marshal(response{ID: resp.ID, Error: errorf(CodeInternal, "failed to encode response")})
 	}
 	c.q.push(line, closeAfter)

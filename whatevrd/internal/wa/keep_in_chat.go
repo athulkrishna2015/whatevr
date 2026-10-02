@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/rs/zerolog"
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/types"
@@ -50,7 +51,7 @@ func (c *Client) handleKeepInChat(ctx context.Context, evt *events.Message, offl
 
 	kept, known := keepFlagFromType(keep.GetKeepType())
 	if !known {
-		c.log.Debugf("Ignoring keep-in-chat with unknown type %v", keep.GetKeepType())
+		zerolog.Ctx(ctx).Debug().Any("keep_type", keep.GetKeepType()).Msg("ignoring keep-in-chat with an unknown type")
 		return true
 	}
 
@@ -71,7 +72,7 @@ func (c *Client) applyKeepInChat(ctx context.Context, internalID string, kept bo
 	updated, changed, err := c.store.SetMessageKept(ctx, internalID, kept)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			c.log.Warnf("Failed to apply keep-in-chat to message %s: %v", internalID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("msg", internalID).Msg("apply keep-in-chat")
 		}
 		return
 	}

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
@@ -85,7 +86,7 @@ func (c *Client) ListStickers(ctx context.Context, source app.StickerSource, que
 func (c *Client) ListStickerPacks(ctx context.Context, forceRefresh bool) ([]appstore.StickerPack, error) {
 	if err := c.refreshStickerStoreIndex(ctx, forceRefresh); err != nil {
 		// Degrade to whatever the cache has; the store endpoint is best-effort.
-		c.log.Warnf("Failed to refresh sticker store index: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("refresh sticker store index")
 	}
 	return c.store.ListStickerPacks(ctx)
 }
@@ -166,7 +167,7 @@ func (c *Client) warmStickerPack(ctx context.Context, packID string) {
 	}
 	if pack.ContentsFetchedAt == 0 {
 		if err := c.fetchStickerPackContents(ctx, packID); err != nil {
-			c.log.Warnf("Failed to fetch sticker pack %s for warmup: %v", packID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("pack", packID).Msg("fetch sticker pack for warmup")
 			return
 		}
 	}
@@ -184,7 +185,7 @@ func (c *Client) warmStickerPack(ctx context.Context, packID string) {
 			}
 		}
 		if _, err := c.ensureStickerFile(ctx, sticker.CacheKey, false); err != nil {
-			c.log.Warnf("Failed to warm sticker %s from pack %s: %v", sticker.CacheKey, packID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("sticker", sticker.CacheKey).Str("pack", packID).Msg("warm sticker")
 		}
 	}
 }
@@ -263,7 +264,7 @@ func (c *Client) fetchMissingTrayImages(ctx context.Context) {
 	}
 	trayDir := filepath.Join(c.paths.MediaCacheDir, "stickers", "trays")
 	if err := os.MkdirAll(trayDir, 0o700); err != nil {
-		c.log.Warnf("Failed to create sticker tray directory: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("create sticker tray directory")
 		return
 	}
 
@@ -289,11 +290,11 @@ func (c *Client) fetchMissingTrayImages(ctx context.Context) {
 			}
 			path, err := c.downloadTrayImage(ctx, trayDir, pack.TrayImageID)
 			if err != nil {
-				c.log.Warnf("Failed to fetch tray image for pack %s: %v", pack.ID, err)
+				zerolog.Ctx(ctx).Warn().Err(err).Str("pack", pack.ID).Msg("fetch tray image")
 				return
 			}
 			if err := c.store.SetStickerPackTrayPath(ctx, pack.ID, path); err != nil {
-				c.log.Warnf("Failed to record tray image for pack %s: %v", pack.ID, err)
+				zerolog.Ctx(ctx).Warn().Err(err).Str("pack", pack.ID).Msg("record tray image")
 			}
 		}(pack)
 	}
@@ -511,7 +512,7 @@ func (c *Client) ensureStickerFileLocked(ctx context.Context, cacheKey string, n
 		}
 	}
 	if err != nil {
-		c.log.Debugf("Sticker download failed for %s: %v", cacheKey, err)
+		zerolog.Ctx(ctx).Debug().Err(err).Str("sticker", cacheKey).Msg("sticker download failed")
 		// A stale media path (403/404/410) is terminal: favorites have no pack
 		// to re-fetch and no chat message for a media-retry receipt, so the
 		// path can never be refreshed. Report it as non-retryable so the client
@@ -591,7 +592,7 @@ func (c *Client) backfillAnimatedWebPFlags(ctx context.Context) {
 
 	stickers, err := c.store.ListDownloadedWebPStickersUnflagged(ctx)
 	if err != nil {
-		c.log.Warnf("Failed to list stickers for animation backfill: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("list stickers for animation backfill")
 		return
 	}
 
@@ -604,14 +605,14 @@ func (c *Client) backfillAnimatedWebPFlags(ctx context.Context) {
 			continue
 		}
 		if err := c.store.SetStickerAnimated(ctx, sticker.CacheKey, true); err != nil {
-			c.log.Warnf("Failed to flag sticker %s as animated: %v", sticker.CacheKey, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("sticker", sticker.CacheKey).Msg("flag sticker as animated")
 			continue
 		}
 		changed = true
 	}
 
 	if err := c.store.SetAppStateValue(ctx, stickerAnimBackfillKey, strconv.FormatInt(time.Now().Unix(), 10)); err != nil {
-		c.log.Warnf("Failed to record sticker animation backfill marker: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("record sticker animation backfill marker")
 	}
 	if changed {
 		c.publishStickerLibraryChangedDebounced(app.StickerSourceUnspecified)
@@ -694,7 +695,7 @@ func (c *Client) SendSticker(ctx context.Context, chatID, cacheKey, replyToMessa
 	}
 
 	if saved.Inserted {
-		c.log.Infof("Queued sticker message %s to %s", saved.Message.ID, chatID)
+		zerolog.Ctx(ctx).Info().Str("msg", saved.Message.ID).Str("chat", chatID).Msg("queued sticker message")
 		c.daemon.PublishNewMessage(toDaemonMessage(saved.Message), toDaemonChat(saved.Chat))
 	}
 	c.signalSendQueue()
@@ -803,13 +804,13 @@ func (c *Client) ingestRecentStickers(ctx context.Context, recents []*waHistoryS
 			RecentWeight:   float64(meta.GetWeight()),
 			LastUsed:       normalizeUnixTimestamp(meta.GetLastStickerSentTS()),
 		}); err != nil {
-			c.log.Warnf("Failed to record recent sticker from history sync: %v", err)
+			zerolog.Ctx(ctx).Warn().Err(err).Msg("record recent sticker from history sync")
 			continue
 		}
 		imported++
 	}
 	if imported > 0 {
-		c.log.Infof("Imported %d recent stickers from history sync", imported)
+		zerolog.Ctx(ctx).Info().Int("count", imported).Msg("imported recent stickers from history sync")
 		c.publishStickerLibraryChangedDebounced(app.StickerSourceRecent)
 	}
 }
@@ -827,7 +828,7 @@ func (c *Client) handleStickerAppState(ctx context.Context, evt *events.AppState
 			return
 		}
 		if err := c.applyFavoriteStickerAction(ctx, action, normalizeUnixTimestamp(evt.GetTimestamp())); err != nil {
-			c.log.Warnf("Failed to apply favorite sticker mutation: %v", err)
+			zerolog.Ctx(ctx).Warn().Err(err).Msg("apply favorite sticker mutation")
 			return
 		}
 		c.publishStickerLibraryChangedDebounced(app.StickerSourceFavorite)
@@ -836,7 +837,7 @@ func (c *Client) handleStickerAppState(ctx context.Context, evt *events.AppState
 			return
 		}
 		if err := c.store.ClearStickerRecency(ctx, strings.ToLower(evt.Index[1])); err != nil {
-			c.log.Warnf("Failed to clear recent sticker: %v", err)
+			zerolog.Ctx(ctx).Warn().Err(err).Msg("clear recent sticker")
 			return
 		}
 		c.publishStickerLibraryChangedDebounced(app.StickerSourceRecent)
@@ -891,7 +892,7 @@ func (c *Client) reconcileFavoriteStickersFromEvents(ctx context.Context, events
 		return
 	}
 	if err := c.store.ReconcileStickerFavorites(ctx, favorites); err != nil {
-		c.log.Warnf("Failed to reconcile favorite stickers: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("reconcile favorite stickers")
 		return
 	}
 	c.publishStickerLibraryChangedDebounced(app.StickerSourceFavorite)

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types/events"
 
@@ -75,7 +76,7 @@ func (c *Client) interactiveMessageInput(ctx context.Context, evt *events.Messag
 
 	encoded, err := appstore.EncodePayload(appstore.MessagePayload{Interactive: payload})
 	if err != nil {
-		c.log.Warnf("Failed to encode interactive payload for %s: %v", base.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", base.ID).Msg("encode interactive payload")
 		return appstore.MediaMessageInput{}, false
 	}
 	base.PayloadJSON = encoded

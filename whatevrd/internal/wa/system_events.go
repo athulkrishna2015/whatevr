@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	waWeb "go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/types"
@@ -89,7 +90,7 @@ func (c *Client) recordSystemEvent(ctx context.Context, chatJID types.JID, paylo
 		CoalesceWith: coalesceWith,
 	})
 	if err != nil {
-		c.log.Warnf("Failed to store system event %s in %s: %v", payload.Type, chatID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("type", string(payload.Type)).Str("chat", chatID).Msg("store system event")
 		return
 	}
 	if !saved.Inserted {
@@ -121,7 +122,7 @@ func (c *Client) systemEventToFoldInto(ctx context.Context, chatID string, paylo
 	newest, err := c.store.NewestSystemMessage(ctx, chatID)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			c.log.Warnf("Failed to look for a system row to fold into in %s: %v", chatID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("look for a system row to fold into")
 		}
 		return "", appstore.SystemPayload{}, false
 	}

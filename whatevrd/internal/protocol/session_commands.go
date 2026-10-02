@@ -11,7 +11,7 @@ type sessionUpdateParams struct {
 	ActiveChatID string `json:"active_chat_id"`
 }
 
-func (h commandHandlers) sessionUpdate(c *conn, req request) (any, *Error) {
+func (h commandHandlers) sessionUpdate(ctx context.Context, c *conn, req request) (any, *Error) {
 	if err := h.requireActions(); err != nil {
 		return nil, err
 	}
@@ -34,14 +34,14 @@ func (h commandHandlers) sessionUpdate(c *conn, req request) (any, *Error) {
 	return nil, nil
 }
 
-func (h commandHandlers) daemonReconnect(_ *conn, req request) (any, *Error) {
+func (h commandHandlers) daemonReconnect(ctx context.Context, _ *conn, req request) (any, *Error) {
 	if err := h.requireActions(); err != nil {
 		return nil, err
 	}
 	if err := rejectNonEmptyParams(req.Params); err != nil {
 		return nil, err
 	}
-	return nil, mapCommandError(h.actions.Reconnect(context.Background()))
+	return nil, mapCommandError(h.actions.Reconnect(ctx))
 }
 
 func (h commandHandlers) accountLogout(ctx context.Context, _ *conn, req request) (any, *Error) {

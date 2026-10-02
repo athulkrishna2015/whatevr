@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -69,7 +70,7 @@ func (c *Client) eventMessageInput(ctx context.Context, evt *events.Message, opt
 
 	encoded, err := appstore.EncodePayload(appstore.MessagePayload{Event: payload})
 	if err != nil {
-		c.log.Warnf("Failed to encode event payload for %s: %v", base.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", base.ID).Msg("encode event payload")
 		return appstore.MediaMessageInput{}, false
 	}
 	input.PayloadJSON = encoded
@@ -98,7 +99,7 @@ func (c *Client) handleEventResponse(ctx context.Context, evt *events.Message) b
 		// secret is not stored. Unlike a poll vote there is nothing to park it
 		// against: an RSVP carries no useful state until the event exists, and
 		// WhatsApp redelivers responses on reconnect anyway.
-		c.log.Debugf("Failed to decrypt an event response on %s: %v", eventID, err)
+		zerolog.Ctx(ctx).Debug().Err(err).Str("msg", eventID).Msg("decrypt an event response")
 		return true
 	}
 
@@ -109,7 +110,7 @@ func (c *Client) handleEventResponse(ctx context.Context, evt *events.Message) b
 	applied, err := c.store.ApplyEventResponse(ctx, eventID, responder,
 		eventResponseValue(response.GetResponse()), int(response.GetExtraGuestCount()), respondedAt)
 	if err != nil {
-		c.log.Warnf("Failed to apply an event response on %s: %v", eventID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", eventID).Msg("apply an event response")
 		return true
 	}
 	if applied {
@@ -243,12 +244,12 @@ func (c *Client) RespondToEvent(ctx context.Context, messageID, response string,
 func (c *Client) undoEventResponse(ctx context.Context, messageID, selfJID, previous string, guests int, now time.Time) {
 	if previous == "" {
 		if err := c.store.ClearEventResponse(ctx, messageID, selfJID); err != nil {
-			c.log.Warnf("Failed to undo an unsent RSVP on %s: %v", messageID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("msg", messageID).Msg("undo an unsent RSVP")
 		}
 		return
 	}
 	if _, err := c.store.ApplyEventResponse(ctx, messageID, selfJID, previous, guests, now.Unix()); err != nil {
-		c.log.Warnf("Failed to undo an unsent RSVP on %s: %v", messageID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", messageID).Msg("undo an unsent RSVP")
 	}
 }
 

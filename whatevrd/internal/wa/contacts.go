@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/types"
 
 	"whatevrd/internal/app"
@@ -282,7 +283,7 @@ func (c *Client) resolveGroupMembers(ctx context.Context, sources []groupMemberS
 
 	displays, err := c.store.SenderDisplays(ctx, allIDs)
 	if err != nil {
-		c.log.Warnf("Failed to batch-load sender displays for %d ids: %v", len(allIDs), err)
+		zerolog.Ctx(ctx).Warn().Err(err).Int("ids", len(allIDs)).Msg("batch-load sender displays")
 		displays = nil
 	}
 
@@ -372,7 +373,7 @@ func (c *Client) refreshGroupInfoLive(ctx context.Context, chatJID types.JID, av
 	live, err := client.GetGroupInfo(ctx, chatJID)
 	if err != nil || live == nil {
 		if err != nil && ctx.Err() == nil {
-			c.log.Warnf("Failed to fetch group info for %s: %v", chatJID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Stringer("chat", chatJID).Msg("fetch group info")
 		}
 		return
 	}

@@ -9,7 +9,6 @@ import (
 	"go.mau.fi/whatsmeow/proto/waSyncAction"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
-	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 
 	"whatevrd/internal/app"
@@ -29,7 +28,7 @@ func TestAStarForAMessageThatHasNotArrivedIsAppliedWhenItDoes(t *testing.T) {
 	}
 	defer db.Close()
 
-	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{}), log: waLog.Noop}
+	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{})}
 	chat := types.NewJID("917770000001", types.DefaultUserServer)
 	internalID := internalMessageIDForChat(chat.String(), "MSG1")
 
@@ -95,7 +94,7 @@ func TestAStarForAMessageThatNeverArrivesIsDroppedAtTheEndOfTheSync(t *testing.T
 	}
 	defer db.Close()
 
-	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{}), log: waLog.Noop}
+	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{})}
 	client.handleStarEvent(ctx, &events.Star{
 		ChatJID:   types.NewJID("917770000001", types.DefaultUserServer),
 		MessageID: "GONE",

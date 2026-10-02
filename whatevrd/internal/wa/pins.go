@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/types"
@@ -145,26 +146,26 @@ func (c *Client) applyPendingAppState(ctx context.Context, chatJID types.JID, en
 		nameSource = appstore.ChatNameSourceGroup
 	}
 	if _, err := c.store.EnsureChatWithNameSource(ctx, chatID, name, nameSource, chatJID.Server == types.GroupServer); err != nil {
-		c.log.Warnf("Failed to ensure chat %s for deferred app state: %v", chatID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("ensure chat for deferred app state")
 		return
 	}
 	if entry.hasPin {
 		if chat, changed, err := c.store.UpdateChatPinState(ctx, chatID, entry.pinned, entry.pinOrder); err != nil {
-			c.log.Warnf("Failed to apply deferred pin state for %s: %v", chatID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("apply deferred pin state")
 		} else if changed {
 			c.daemon.PublishChatUpdated(toDaemonChat(chat))
 		}
 	}
 	if entry.hasArchive {
 		if chat, changed, err := c.store.UpdateChatArchiveState(ctx, chatID, entry.archived); err != nil {
-			c.log.Warnf("Failed to apply deferred archive state for %s: %v", chatID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("apply deferred archive state")
 		} else if changed {
 			c.daemon.PublishChatUpdated(toDaemonChat(chat))
 		}
 	}
 	if entry.hasMute {
 		if chat, changed, err := c.store.UpdateChatMuteState(ctx, chatID, entry.muted, entry.muteEnd); err != nil {
-			c.log.Warnf("Failed to apply deferred mute state for %s: %v", chatID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("apply deferred mute state")
 		} else if changed {
 			c.daemon.PublishChatUpdated(toDaemonChat(chat))
 		}
@@ -191,7 +192,7 @@ func (c *Client) startPinnedChatRecovery(reason string, fn func(context.Context)
 		for {
 			c.pinBackfillAgain.Store(false)
 			if err := fn(ctx); err != nil {
-				c.log.Warnf("Failed to %s pinned chats from WhatsApp app state: %v", reason, err)
+				zerolog.Ctx(ctx).Warn().Err(err).Str("action", reason).Msg("pinned chats from app state")
 			}
 			if ctx.Err() != nil || !c.pinBackfillAgain.CompareAndSwap(true, false) {
 				return
@@ -217,7 +218,7 @@ func (c *Client) reconcileRegularAppState(ctx context.Context) error {
 		if !isAppStateConflictError(err) {
 			return err
 		}
-		c.log.Warnf("WhatsApp regular_low app state snapshot verification failed while reconciling; requesting recovery: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("regular_low snapshot verification failed while reconciling, requesting recovery")
 		eventsToDispatch, err = recoverRegularLowAppState(ctx, client)
 		if err != nil {
 			return err
@@ -228,7 +229,7 @@ func (c *Client) reconcileRegularAppState(ctx context.Context) error {
 	// archive state; reconcile them here so one fetch serves all features.
 	c.reconcileFavoriteStickersFromEvents(ctx, eventsToDispatch)
 	if err := c.reconcileArchivedChatsFromEvents(ctx, eventsToDispatch); err != nil {
-		c.log.Warnf("Failed to reconcile archived chats from app state: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("reconcile archived chats from app state")
 	}
 	c.reconcileMarkReadFromEvents(ctx, eventsToDispatch)
 	if err := c.reconcilePinnedChatsFromEvents(ctx, eventsToDispatch); err != nil {
@@ -258,7 +259,7 @@ func (c *Client) recoverPinnedChatsFromAppState(ctx context.Context) error {
 	}
 	c.reconcileFavoriteStickersFromEvents(ctx, eventsToDispatch)
 	if err := c.reconcileArchivedChatsFromEvents(ctx, eventsToDispatch); err != nil {
-		c.log.Warnf("Failed to reconcile archived chats from app state: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("reconcile archived chats from app state")
 	}
 	c.reconcileMarkReadFromEvents(ctx, eventsToDispatch)
 	return c.reconcilePinnedChatsFromEvents(ctx, eventsToDispatch)
@@ -302,7 +303,7 @@ func (c *Client) reconcileArchivedChatsFromEvents(ctx context.Context, eventsToD
 			nameSource = appstore.ChatNameSourceGroup
 		}
 		if _, err := c.store.EnsureChatWithNameSource(ctx, chatID, name, nameSource, chatJID.Server == types.GroupServer); err != nil {
-			c.log.Warnf("Failed to ensure archived chat %s: %v", chatID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("ensure archived chat")
 			continue
 		}
 		archived[chatID] = struct{}{}
@@ -354,7 +355,7 @@ func (c *Client) reconcilePinnedChatsFromEvents(ctx context.Context, eventsToDis
 			nameSource = appstore.ChatNameSourceGroup
 		}
 		if _, err := c.store.EnsureChatWithNameSource(ctx, chatID, name, nameSource, chatJID.Server == types.GroupServer); err != nil {
-			c.log.Warnf("Failed to ensure pinned chat %s: %v", chatID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("ensure pinned chat")
 			continue
 		}
 		pins[chatID] = order
@@ -411,7 +412,7 @@ func (c *Client) reconcileMutedChatsFromEvents(ctx context.Context, eventsToDisp
 			nameSource = appstore.ChatNameSourceGroup
 		}
 		if _, err := c.store.EnsureChatWithNameSource(ctx, chatID, name, nameSource, chatJID.Server == types.GroupServer); err != nil {
-			c.log.Warnf("Failed to ensure muted chat %s: %v", chatID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("ensure muted chat")
 			continue
 		}
 		mutes[chatID] = muteEnd

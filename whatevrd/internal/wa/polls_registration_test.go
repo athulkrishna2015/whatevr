@@ -7,7 +7,6 @@ import (
 	"time"
 
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
-	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 
 	"whatevrd/internal/app"
@@ -26,7 +25,7 @@ func TestRegisterSavedMessageRecordsPollOptionsFromBackfill(t *testing.T) {
 	}
 	defer db.Close()
 
-	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{}), log: waLog.Noop}
+	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{})}
 
 	waMsg := &waE2E.Message{
 		PollCreationMessage: &waE2E.PollCreationMessage{

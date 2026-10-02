@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 
@@ -93,7 +94,7 @@ func (c *Client) storeGroupParticipants(ctx context.Context, chatJID types.JID, 
 		}
 	}
 	if err := c.store.ReplaceGroupParticipants(ctx, chatJID.String(), jids); err != nil {
-		c.log.Warnf("Failed to store participants for %s: %v", chatJID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Stringer("chat", chatJID).Msg("store participants")
 		return
 	}
 	c.markGroupParticipantsFresh(chatJID.String())
@@ -109,7 +110,7 @@ func (c *Client) applyGroupParticipantChanges(ctx context.Context, chatJID types
 			}
 		}
 		if err := c.store.AddGroupParticipants(ctx, chatID, jids); err != nil {
-			c.log.Warnf("Failed to add participants for %s: %v", chatID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("add participants")
 		}
 	}
 	if len(leave) > 0 {
@@ -120,7 +121,7 @@ func (c *Client) applyGroupParticipantChanges(ctx context.Context, chatJID types
 			}
 		}
 		if err := c.store.RemoveGroupParticipants(ctx, chatID, jids); err != nil {
-			c.log.Warnf("Failed to remove participants for %s: %v", chatID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("remove participants")
 		}
 	}
 }
@@ -177,7 +178,7 @@ func (c *Client) refreshGroupParticipants(ctx context.Context, chatJID types.JID
 	info, err := client.GetGroupInfo(ctx, chatJID)
 	if err != nil {
 		if ctx.Err() == nil {
-			c.log.Warnf("Failed to fetch group info for participants of %s: %v", chatJID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Stringer("chat", chatJID).Msg("fetch group info for participants")
 		}
 		return
 	}
@@ -195,7 +196,7 @@ func (c *Client) groupReceiptParticipants(ctx context.Context, chatJID types.JID
 	chatID := chatJID.String()
 	stored, err := c.store.ListGroupParticipants(ctx, chatID)
 	if err != nil {
-		c.log.Warnf("Failed to list participants for %s: %v", chatID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("list participants")
 		return nil, false
 	}
 
@@ -237,7 +238,7 @@ func (c *Client) startUnresolvedGroupNameBackfill(ctx context.Context) {
 func (c *Client) backfillUnresolvedGroupNames(ctx context.Context) {
 	chatIDs, err := c.store.ListRawGroupChatIDs(ctx, 200)
 	if err != nil {
-		c.log.Warnf("Failed to list unresolved group chat names: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("list unresolved group chat names")
 		return
 	}
 	for _, chatID := range chatIDs {
@@ -263,7 +264,7 @@ func (c *Client) refreshGroupName(ctx context.Context, jid types.JID) {
 	info, err := client.GetGroupInfo(ctx, jid)
 	if err != nil {
 		if ctx.Err() == nil {
-			c.log.Warnf("Failed to fetch group info for %s: %v", jid, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Stringer("chat", jid).Msg("fetch group info")
 		}
 		return
 	}
@@ -281,7 +282,7 @@ func (c *Client) ensureOrUpdateGroupName(ctx context.Context, jid types.JID, nam
 	chatID := jid.String()
 	chat, changed, err := c.store.UpdateChatNameWithSource(ctx, chatID, name, appstore.ChatNameSourceGroup)
 	if err != nil {
-		c.log.Warnf("Failed to update group chat name for %s: %v", chatID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("update group chat name")
 		return
 	}
 	if changed {
@@ -290,7 +291,7 @@ func (c *Client) ensureOrUpdateGroupName(ctx context.Context, jid types.JID, nam
 	}
 	chat, err = c.store.EnsureChatWithNameSource(ctx, chatID, name, appstore.ChatNameSourceGroup, true)
 	if err != nil {
-		c.log.Warnf("Failed to ensure group chat %s: %v", chatID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("ensure group chat")
 		return
 	}
 	if chat.ID != "" {

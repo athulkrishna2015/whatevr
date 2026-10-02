@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
@@ -25,7 +24,6 @@ func newMediaServerClient(t *testing.T) *Client {
 	t.Helper()
 	client := &Client{
 		daemon: app.NewDaemon(app.Paths{}),
-		log:    waLog.Noop,
 		paths:  app.Paths{MediaCacheDir: t.TempDir()},
 	}
 	if err := client.StartMediaServer(); err != nil {
@@ -202,7 +200,6 @@ func TestEnsureMediaStreamDoesNotRelockStreamMutex(t *testing.T) {
 
 	client := &Client{
 		daemon: app.NewDaemon(app.Paths{}),
-		log:    waLog.Noop,
 		paths:  app.Paths{MediaCacheDir: t.TempDir()},
 	}
 	message := appstore.Message{

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -88,7 +89,7 @@ type scriptedView struct {
 	faults *faultSet
 }
 
-func (v scriptedView) Open(params json.RawMessage, _ func()) (protocol.ViewSession, map[string]any, *protocol.Error) {
+func (v scriptedView) Open(_ context.Context, params json.RawMessage, _ func()) (protocol.ViewSession, map[string]any, *protocol.Error) {
 	var p struct {
 		View   string `json:"view"`
 		ChatID string `json:"chat_id"`

@@ -10,7 +10,6 @@ import (
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
-	waLog "go.mau.fi/whatsmeow/util/log"
 
 	"whatevrd/internal/app"
 	appstore "whatevrd/internal/store"
@@ -42,7 +41,7 @@ func TestFailedHistorySyncChunkPersistIsNotAcked(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{}), log: waLog.Noop}
+	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{})}
 
 	if !client.handleMessage(ctx, historySyncNotificationEvent("chunk-ok"), false) {
 		t.Fatal("a chunk that persisted refused the ack")

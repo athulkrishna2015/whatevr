@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types/events"
 
@@ -44,7 +45,7 @@ func (c *Client) commerceMessageInput(ctx context.Context, evt *events.Message, 
 
 	encoded, err := appstore.EncodePayload(appstore.MessagePayload{Commerce: payload})
 	if err != nil {
-		c.log.Warnf("Failed to encode commerce payload for %s: %v", base.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", base.ID).Msg("encode commerce payload")
 		return appstore.MediaMessageInput{}, false
 	}
 	base.PayloadJSON = encoded
@@ -283,7 +284,7 @@ func (c *Client) stickerPackMessageInput(ctx context.Context, evt *events.Messag
 
 	encoded, err := appstore.EncodePayload(appstore.MessagePayload{StickerPack: payload})
 	if err != nil {
-		c.log.Warnf("Failed to encode sticker pack payload for %s: %v", base.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", base.ID).Msg("encode sticker pack payload")
 		return appstore.MediaMessageInput{}, false
 	}
 	base.PayloadJSON = encoded
@@ -326,7 +327,7 @@ func (c *Client) callLogMessageInput(ctx context.Context, evt *events.Message, o
 
 	encoded, err := appstore.EncodePayload(appstore.MessagePayload{CallLog: payload})
 	if err != nil {
-		c.log.Warnf("Failed to encode call log payload for %s: %v", base.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", base.ID).Msg("encode call log payload")
 		return appstore.MediaMessageInput{}, false
 	}
 	base.PayloadJSON = encoded

@@ -606,7 +606,7 @@ func (c *Chat) newAttachment(from *Contact, a *Attachment, at time.Time) *Msg {
 	m := c.newMsg(from, a.text(), at)
 	media, err := c.w.srv.buildAttachment(a, m.ID)
 	if err != nil {
-		c.w.srv.log.Printf("attachment in %s: %v", c.Name, err)
+		c.w.srv.log.Warn().Err(err).Stringer("chat", c.JID).Msg("attachment")
 		return m
 	}
 	m.media = media

@@ -45,12 +45,12 @@ type privacyItem struct {
 	CallAdd      string `json:"call_add,omitempty"`
 }
 
-func (v privacyView) Open(_ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v privacyView) Open(ctx context.Context, _ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	if v.actions == nil {
 		return nil, nil, errorf(CodeInternal, "privacy view unavailable")
 	}
 	events, cancel := v.daemon.SubscribeDaemonEvents()
-	ctx, cancelCtx := context.WithCancel(context.Background())
+	ctx, cancelCtx := context.WithCancel(ctx)
 	s := &privacySession{actions: v.actions, eventsCancel: cancel, cancelCtx: cancelCtx, ctx: ctx, done: make(chan struct{})}
 	// The first load runs inside run (background): GetPrivacySettings reaches the
 	// network, so doing it synchronously here would stall the whole connection at
@@ -188,12 +188,12 @@ type preferencesItem struct {
 	AutoFetchMaps         bool   `json:"auto_fetch_maps"`
 }
 
-func (v preferencesView) Open(_ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v preferencesView) Open(ctx context.Context, _ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	if v.actions == nil {
 		return nil, nil, errorf(CodeInternal, "preferences view unavailable")
 	}
 	events, cancel := v.daemon.SubscribeDaemonEvents()
-	ctx, cancelCtx := context.WithCancel(context.Background())
+	ctx, cancelCtx := context.WithCancel(ctx)
 	s := &preferencesSession{actions: v.actions, eventsCancel: cancel, ctx: ctx, cancelCtx: cancelCtx, done: make(chan struct{})}
 	// Preferences are daemon-local (no network round-trip), so the first load
 	// stays synchronous; the session context still lets a disconnect cancel any
@@ -337,12 +337,12 @@ type blocklistItem struct {
 	AvatarPath string `json:"avatar_path,omitempty"`
 }
 
-func (v blocklistView) Open(_ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v blocklistView) Open(ctx context.Context, _ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	if v.actions == nil {
 		return nil, nil, errorf(CodeInternal, "blocklist view unavailable")
 	}
 	events, cancel := v.daemon.SubscribeDaemonEvents()
-	ctx, cancelCtx := context.WithCancel(context.Background())
+	ctx, cancelCtx := context.WithCancel(ctx)
 	s := &blocklistSession{
 		actions:      v.actions,
 		eventsCancel: cancel,

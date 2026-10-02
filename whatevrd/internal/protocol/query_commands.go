@@ -17,7 +17,7 @@ type searchChatsParams struct {
 	Limit *int   `json:"limit"`
 }
 
-func (h commandHandlers) searchChats(_ *conn, req request) (any, *Error) {
+func (h commandHandlers) searchChats(ctx context.Context, _ *conn, req request) (any, *Error) {
 	if err := h.requireActions(); err != nil {
 		return nil, err
 	}
@@ -33,7 +33,7 @@ func (h commandHandlers) searchChats(_ *conn, req request) (any, *Error) {
 	if err != nil {
 		return nil, err
 	}
-	chats, qerr := h.actions.SearchChats(context.Background(), query, limit)
+	chats, qerr := h.actions.SearchChats(ctx, query, limit)
 	if perr := mapCommandError(qerr); perr != nil {
 		return nil, perr
 	}
@@ -56,7 +56,7 @@ type searchMessageItem struct {
 	ChatName string `json:"chat_name,omitempty"`
 }
 
-func (h commandHandlers) searchMessages(_ *conn, req request) (any, *Error) {
+func (h commandHandlers) searchMessages(ctx context.Context, _ *conn, req request) (any, *Error) {
 	if err := h.requireActions(); err != nil {
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func (h commandHandlers) searchMessages(_ *conn, req request) (any, *Error) {
 	if err != nil {
 		return nil, err
 	}
-	results, qerr := h.actions.SearchMessages(context.Background(), query, strings.TrimSpace(p.ChatID), limit+1, strings.TrimSpace(p.BeforeMessageID))
+	results, qerr := h.actions.SearchMessages(ctx, query, strings.TrimSpace(p.ChatID), limit+1, strings.TrimSpace(p.BeforeMessageID))
 	if perr := mapCommandError(qerr); perr != nil {
 		return nil, perr
 	}
@@ -92,7 +92,7 @@ type searchStickersParams struct {
 	Limit *int   `json:"limit"`
 }
 
-func (h commandHandlers) searchStickers(_ *conn, req request) (any, *Error) {
+func (h commandHandlers) searchStickers(ctx context.Context, _ *conn, req request) (any, *Error) {
 	if err := h.requireActions(); err != nil {
 		return nil, err
 	}
@@ -107,7 +107,7 @@ func (h commandHandlers) searchStickers(_ *conn, req request) (any, *Error) {
 	if p.Limit == nil || *p.Limit <= 0 {
 		return nil, errorf(CodeInvalidParams, "limit must be positive")
 	}
-	stickers, qerr := h.actions.SearchStickers(context.Background(), query, *p.Limit)
+	stickers, qerr := h.actions.SearchStickers(ctx, query, *p.Limit)
 	if perr := mapCommandError(qerr); perr != nil {
 		return nil, perr
 	}

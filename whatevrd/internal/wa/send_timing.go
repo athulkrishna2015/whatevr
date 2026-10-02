@@ -1,7 +1,10 @@
 package wa
 
 import (
+	"context"
 	"time"
+
+	"github.com/rs/zerolog"
 )
 
 // sendTiming tracks one outgoing message's progress through the send
@@ -48,7 +51,7 @@ func (c *Client) finishSendTiming(messageID string) *sendTiming {
 
 // logSendTimeline emits a one-line stage breakdown for a sent message.
 // Debug-level normally; Info when the total exceeds slowSendTimelineThreshold.
-func (c *Client) logSendTimeline(messageID string, t *sendTiming) {
+func (c *Client) logSendTimeline(ctx context.Context, messageID string, t *sendTiming) {
 	if t == nil || t.queuePickup.IsZero() {
 		return
 	}
@@ -66,16 +69,15 @@ func (c *Client) logSendTimeline(messageID string, t *sendTiming) {
 		}
 		return to.Sub(from).Round(time.Millisecond)
 	}
-	logf := c.log.Debugf
+	evt := zerolog.Ctx(ctx).Debug()
 	if total >= slowSendTimelineThreshold {
-		logf = c.log.Infof
+		evt = zerolog.Ctx(ctx).Info()
 	}
-	logf("send timeline %s: insert=%s queue-wait=%s send=%s status-write=%s total=%s",
-		messageID,
-		stage(t.rpcArrival, t.insertDone),
-		stage(t.insertDone, t.queuePickup),
-		stage(t.queuePickup, t.ackReturn),
-		stage(t.ackReturn, t.statusWrite),
-		total.Round(time.Millisecond),
-	)
+	evt.Str("msg", messageID).
+		Dur("insert", stage(t.rpcArrival, t.insertDone)).
+		Dur("queue_wait", stage(t.insertDone, t.queuePickup)).
+		Dur("send", stage(t.queuePickup, t.ackReturn)).
+		Dur("status_write", stage(t.ackReturn, t.statusWrite)).
+		Dur("total", total).
+		Msg("send timeline")
 }

@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	waLog "go.mau.fi/whatsmeow/util/log"
-
 	"whatevrd/internal/app"
 	appstore "whatevrd/internal/store"
 )
@@ -21,7 +19,7 @@ func TestFillReactionSenderNamesResolvesAndPersists(t *testing.T) {
 		t.Fatalf("open db: %v", err)
 	}
 	defer db.Close()
-	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{}), log: waLog.Noop}
+	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{})}
 
 	const chatID = "15551234567@s.whatsapp.net"
 	messageID := internalMessageIDForChat(chatID, "msg-1")

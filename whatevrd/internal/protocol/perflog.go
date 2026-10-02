@@ -1,41 +1,31 @@
 package protocol
 
 import (
-	"log"
-	"os"
+	"context"
 	"time"
-)
 
-// The protocol layer's own logging is otherwise error-only, which left the
-// serving side of a chat open completely unmeasured: a `group_members` Open
-// that spent half a second resolving a roster looked identical to one that
-// returned instantly. WHATEVRD_PROTOCOL_PERF=1 turns on duration logging for
-// the two places that actually take time — opening a view and recomputing a
-// window — so a slow frontend can be attributed instead of guessed at.
-//
-// slowOpen is logged unconditionally (not only under the env var): an Open
-// this slow is a bug worth seeing in a default-level log, and it fires at most
-// once per subscription.
-var protocolPerf = os.Getenv("WHATEVRD_PROTOCOL_PERF") == "1"
+	"github.com/rs/zerolog"
+)
 
 // slowOpenThreshold mirrors store.slowOpThreshold: an Open that blocks this
 // long is a latency bug regardless of who asked for it.
 const slowOpenThreshold = 100 * time.Millisecond
 
-func logViewOpen(view string, start time.Time) {
+func logViewOpen(ctx context.Context, start time.Time) {
 	d := time.Since(start)
-	switch {
-	case d >= slowOpenThreshold:
-		log.Printf("protocol: slow view open %q took %s", view, d.Round(time.Millisecond))
-	case protocolPerf:
-		log.Printf("protocol: view open %q took %s", view, d.Round(time.Microsecond))
+	evt := zerolog.Ctx(ctx).Info()
+	if d >= slowOpenThreshold {
+		evt = zerolog.Ctx(ctx).Warn()
 	}
+	evt.Dur("dur", d).Msg("view open")
 }
 
-func logRecompute(sub int64, items int, start time.Time) {
-	if !protocolPerf {
-		return
+// logRecompute is the per-view diff: counts at info, the ids at debug.
+func logRecompute(ctx context.Context, items int, upserted, removed []string, start time.Time) {
+	l := zerolog.Ctx(ctx)
+	l.Info().Int("items", items).Int("upserts", len(upserted)).Int("removes", len(removed)).
+		Dur("dur", time.Since(start)).Msg("recompute")
+	if len(upserted)+len(removed) > 0 {
+		l.Debug().Strs("upserted", upserted).Strs("removed", removed).Msg("recompute diff")
 	}
-	log.Printf("protocol: recompute sub %d over %d items took %s",
-		sub, items, time.Since(start).Round(time.Microsecond))
 }

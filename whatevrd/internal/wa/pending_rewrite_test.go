@@ -10,7 +10,6 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
-	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 
 	"whatevrd/internal/app"
@@ -124,7 +123,7 @@ func rewriteFixture(t *testing.T) (context.Context, *appstore.DB, *Client) {
 		t.Fatalf("open db: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	return ctx, db, &Client{store: db, daemon: app.NewDaemon(app.Paths{}), log: waLog.Noop}
+	return ctx, db, &Client{store: db, daemon: app.NewDaemon(app.Paths{})}
 }
 
 func (c *Client) parkedRewrites() int {

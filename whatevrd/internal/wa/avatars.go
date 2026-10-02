@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -203,7 +204,7 @@ func (c *Client) ensureAvatarQueuedIfDue(ctx context.Context, subject appstore.A
 
 	avatar, err := c.ensureAvatar(ctx, subject)
 	if err != nil {
-		c.log.Warnf("Failed to ensure avatar %s/%s: %v", subject.Kind, subject.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("avatar_kind", string(subject.Kind)).Str("avatar", subject.ID).Msg("ensure avatar")
 		return false
 	}
 	if !c.avatarNeedsFetch(avatar, false) {
@@ -335,7 +336,7 @@ func (c *Client) RequestAvatars(ctx context.Context, subjects []appstore.AvatarS
 		seen[subject] = true
 		avatar, err := c.ensureAvatar(ctx, subject)
 		if err != nil {
-			c.log.Warnf("Failed to ensure requested avatar %s/%s: %v", subject.Kind, subject.ID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("avatar_kind", string(subject.Kind)).Str("avatar", subject.ID).Msg("ensure requested avatar")
 			continue
 		}
 		fetching := false
@@ -388,7 +389,7 @@ func (c *Client) runAvatarBackgroundRefresher(ctx context.Context) {
 		c.sweepOrphanAvatarFiles(ctx)
 		subjects, err := c.store.ListChatAvatarSubjects(ctx, refreshChatLimit)
 		if err != nil {
-			c.log.Warnf("Failed to list chats for avatar refresh: %v", err)
+			zerolog.Ctx(ctx).Warn().Err(err).Msg("list chats for avatar refresh")
 			continue
 		}
 		queued := 0
@@ -401,7 +402,7 @@ func (c *Client) runAvatarBackgroundRefresher(ctx context.Context) {
 			}
 		}
 		if queued > 0 {
-			c.log.Debugf("Avatar background refresh queued %d/%d subjects", queued, len(subjects))
+			zerolog.Ctx(ctx).Debug().Int("queued", queued).Int("subjects", len(subjects)).Msg("avatar background refresh queued")
 		}
 	}
 }
@@ -476,7 +477,7 @@ func (c *Client) updateAvatarError(ctx context.Context, subject appstore.AvatarS
 		return c.store.UpdateAvatarStatus(ctx, subject, status, err.Error(), time.Now().Add(ttl))
 	}
 	if !isTransientAvatarError(err) {
-		c.log.Warnf("Avatar refresh: failed for %s/%s: %v", subject.Kind, subject.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("avatar_kind", string(subject.Kind)).Str("avatar", subject.ID).Msg("avatar refresh failed")
 	}
 	return c.store.UpdateAvatarTransientError(ctx, subject, err.Error(), time.Now().Add(avatarTransientErrorBackoff(retryCount)))
 }
@@ -684,7 +685,7 @@ func (c *Client) sweepOrphanAvatarFiles(ctx context.Context) {
 	}
 	referenced, err := c.store.ListAvatarLocalPaths(ctx)
 	if err != nil {
-		c.log.Warnf("Failed to list avatar paths for sweep: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("list avatar paths for sweep")
 		return
 	}
 	refSet := make(map[string]bool, len(referenced))
@@ -710,7 +711,7 @@ func (c *Client) sweepOrphanAvatarFiles(ctx context.Context) {
 		}
 	}
 	if removed > 0 {
-		c.log.Debugf("Swept %d orphaned avatar files", removed)
+		zerolog.Ctx(ctx).Debug().Int("removed", removed).Msg("swept orphaned avatar files")
 	}
 }
 

@@ -67,12 +67,12 @@ type selfItem struct {
 	AvatarPath string `json:"avatar_path,omitempty"`
 }
 
-func (v selfView) Open(_ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v selfView) Open(ctx context.Context, _ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	if v.actions == nil {
 		return nil, nil, errorf(CodeInternal, "self view unavailable")
 	}
 	events, cancel := v.daemon.SubscribeDaemonEvents()
-	ctx, cancelCtx := context.WithCancel(context.Background())
+	ctx, cancelCtx := context.WithCancel(ctx)
 	s := &selfSession{actions: v.actions, eventsCancel: cancel, ctx: ctx, cancelCtx: cancelCtx, done: make(chan struct{})}
 	// Best-effort first load: SelfProfile errors while logged out, leaving the
 	// view empty until login completes and a refetch fires. Later refetches run
@@ -225,7 +225,7 @@ type contactItem struct {
 	AvatarPath   string `json:"avatar_path,omitempty"`
 }
 
-func (v contactView) Open(params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v contactView) Open(ctx context.Context, params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	var p contactParams
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -238,7 +238,7 @@ func (v contactView) Open(params json.RawMessage, invalidate func()) (ViewSessio
 	if v.actions == nil {
 		return nil, nil, errorf(CodeInternal, "contact view unavailable")
 	}
-	ctx, cancelCtx := context.WithCancel(context.Background())
+	ctx, cancelCtx := context.WithCancel(ctx)
 	// A bad jid (malformed, or a group jid) is the only failure GetContactInfo
 	// reports; a not-in-contacts user still returns a card from jid + phone.
 	info, err := v.actions.GetContactInfo(ctx, p.JID)

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/types"
 
 	appstore "whatevrd/internal/store"
@@ -81,10 +82,10 @@ func (c *Client) RequestOlderMessages(ctx context.Context, chatID string) (bool,
 	}
 	req.timer = time.AfterFunc(backfillRequestTimeout, func() {
 		if c.finishBackfillRequest(chatID) {
-			c.log.Debugf("On-demand history request for %s expired without a response", chatID)
+			zerolog.Ctx(ctx).Debug().Str("chat", chatID).Msg("on-demand history request expired without a response")
 		}
 	})
-	c.log.Infof("Requested %d older messages for %s before %s", backfillRequestCount, chatID, info.Timestamp.Format(time.RFC3339))
+	zerolog.Ctx(ctx).Info().Str("chat", chatID).Int("count", backfillRequestCount).Time("before", info.Timestamp).Msg("requested older messages")
 	return true, nil
 }
 
@@ -140,10 +141,10 @@ func (c *Client) resolveBackfillRequests(ctx context.Context, messagesByChat map
 		if !r.exhausted {
 			continue
 		}
-		c.log.Infof("On-demand history for %s returned less than requested; marking history exhausted", r.chatID)
+		zerolog.Ctx(ctx).Info().Str("chat", r.chatID).Msg("on-demand history returned less than requested, history exhausted")
 		chat, changed, err := c.store.UpdateChatHistoryExhausted(ctx, r.chatID, true)
 		if err != nil {
-			c.log.Warnf("Failed to mark history exhausted for %s: %v", r.chatID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("chat", r.chatID).Msg("mark history exhausted")
 			continue
 		}
 		if changed {

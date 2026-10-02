@@ -41,7 +41,7 @@ func (f *fakeSink) snapshot() []string {
 func startFakeSub(t *testing.T, view *memView, sink *fakeSink, window int) *subscription {
 	t.Helper()
 	sub := newSubscription(1, sink, window)
-	sess, _, err := view.Open(nil, sub.kick)
+	sess, _, err := view.Open(t.Context(), nil, sub.kick)
 	if err != nil {
 		t.Fatalf("open view: %v", err)
 	}

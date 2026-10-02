@@ -12,7 +12,6 @@ import (
 	waStore "go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
-	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 
 	"whatevrd/internal/app"
@@ -74,7 +73,6 @@ func newReceiptTestClient(t *testing.T) (*Client, *appstore.DB) {
 	return &Client{
 		store:  db,
 		daemon: app.NewDaemon(app.Paths{}),
-		log:    waLog.Noop,
 	}, db
 }
 

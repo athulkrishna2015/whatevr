@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	waLog "go.mau.fi/whatsmeow/util/log"
-
 	"whatevrd/internal/app"
 	appstore "whatevrd/internal/store"
 )
@@ -31,7 +29,7 @@ func TestHistorySyncStallWatchdog(t *testing.T) {
 	defer db.Close()
 
 	daemon := app.NewDaemon(app.Paths{})
-	client := &Client{store: db, daemon: daemon, log: waLog.Noop}
+	client := &Client{store: db, daemon: daemon}
 	events, unsubscribe := daemon.SubscribeDaemonEvents()
 	defer unsubscribe()
 

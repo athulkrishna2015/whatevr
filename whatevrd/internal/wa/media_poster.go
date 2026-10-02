@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	appstore "whatevrd/internal/store"
 )
 
@@ -88,7 +90,7 @@ func (c *Client) runVideoPosterWorker(ctx context.Context) {
 	// frontend subscriptions do not wait for it.
 	candidates, err := c.store.ListVideoPosterCandidates(ctx)
 	if err != nil {
-		c.log.Warnf("Failed to list video poster candidates: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("list video poster candidates")
 	} else {
 		for _, message := range candidates {
 			c.queueVideoPoster(message, posterPriorityBackfill)
@@ -146,21 +148,21 @@ func (c *Client) deriveAndPublishVideoPoster(ctx context.Context, message appsto
 			extractor = extractVideoPoster
 		}
 		if err := extractor(ctx, message.MediaLocalPath, posterPath); err != nil {
-			c.log.Debugf("Could not derive video poster for %s: %v", message.ID, err)
+			zerolog.Ctx(ctx).Debug().Err(err).Str("msg", message.ID).Msg("could not derive video poster")
 			return
 		}
 	}
 
 	updated, err := c.store.UpdateMessageMediaThumbnailLocalPath(ctx, message.ID, posterPath)
 	if err != nil {
-		c.log.Warnf("Failed to store video poster for %s: %v", message.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", message.ID).Msg("store video poster")
 		return
 	}
 	// Only once the row points at the new file: a crash between the two would
 	// otherwise leave the message naming a poster that has been deleted.
 	for _, stale := range supersededVideoPosterPaths(message.MediaLocalPath) {
 		if err := os.Remove(stale); err != nil && !os.IsNotExist(err) {
-			c.log.Debugf("Could not remove superseded poster %s: %v", stale, err)
+			zerolog.Ctx(ctx).Debug().Err(err).Str("path", stale).Msg("could not remove superseded poster")
 		}
 	}
 	c.daemon.PublishMessageUpdated(toDaemonMessage(updated))

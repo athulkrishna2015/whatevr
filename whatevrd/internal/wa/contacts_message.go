@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types/events"
 
@@ -58,7 +59,7 @@ func (c *Client) contactMessageInput(ctx context.Context, evt *events.Message, o
 
 	encoded, err := appstore.EncodePayload(appstore.MessagePayload{Contacts: &payload})
 	if err != nil {
-		c.log.Warnf("Failed to encode contacts payload for %s: %v", base.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", base.ID).Msg("encode contacts payload")
 		return appstore.MediaMessageInput{}, false
 	}
 

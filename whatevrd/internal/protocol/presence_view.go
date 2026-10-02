@@ -3,8 +3,9 @@ package protocol
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"sync"
+
+	"github.com/rs/zerolog"
 
 	"whatevrd/internal/app"
 )
@@ -39,7 +40,7 @@ type presenceParams struct {
 	ChatID string `json:"chat_id"`
 }
 
-func (v presenceView) Open(params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v presenceView) Open(ctx context.Context, params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	var p presenceParams
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -51,7 +52,7 @@ func (v presenceView) Open(params json.RawMessage, invalidate func()) (ViewSessi
 	}
 
 	events, cancel := v.daemon.SubscribeDaemonEvents()
-	ctx, cancelCtx := context.WithCancel(context.Background())
+	ctx, cancelCtx := context.WithCancel(ctx)
 	s := &presenceSession{
 		daemon:       v.daemon,
 		actions:      v.actions,
@@ -73,7 +74,7 @@ func (v presenceView) Open(params json.RawMessage, invalidate func()) (ViewSessi
 	// availability events on our subscription. Groups are a no-op upstream.
 	if v.actions != nil {
 		if err := v.actions.SubscribeChatPresence(ctx, p.ChatID); err != nil {
-			log.Printf("protocol: subscribe chat presence %s: %v", p.ChatID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("chat", p.ChatID).Msg("subscribe chat presence")
 		}
 	}
 	go s.run(events, invalidate)
@@ -174,7 +175,7 @@ func (s *presenceSession) apply(evt app.DaemonEvent) bool {
 		s.wasOnline = online
 		if reconnected && s.actions != nil {
 			if err := s.actions.SubscribeChatPresence(s.ctx, s.chatID); err != nil {
-				log.Printf("protocol: renew chat presence %s: %v", s.chatID, err)
+				zerolog.Ctx(s.ctx).Warn().Err(err).Str("chat", s.chatID).Msg("renew chat presence")
 			}
 		}
 		return false

@@ -94,7 +94,7 @@ func (s *session) handleIQ(ctx context.Context, node *waBinary.Node) error {
 		// Answering rather than dropping matters: an unanswered info query
 		// stalls the daemon for the full 60s command timeout. Later stages
 		// replace these with real data, and the log line is how we find them.
-		s.srv.log.Printf("unanswered iq xmlns=%q type=%q, replying empty", namespace, iqType)
+		s.srv.log.Warn().Str("xmlns", namespace).Str("type", iqType).Msg("unanswered iq, replying empty")
 		return s.sendNode(ctx, iqResult(node))
 	}
 }

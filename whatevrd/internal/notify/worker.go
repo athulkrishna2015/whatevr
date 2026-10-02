@@ -2,10 +2,10 @@ package notify
 
 import (
 	"context"
-	"log"
 	"sync"
 
 	"github.com/godbus/dbus/v5"
+	"github.com/rs/zerolog"
 
 	"whatevrd/internal/app"
 )
@@ -43,7 +43,7 @@ type queuedMessage struct {
 	opts    Options
 }
 
-func NewWorker(opener ChatOpener) (*Worker, error) {
+func NewWorker(ctx context.Context, opener ChatOpener) (*Worker, error) {
 	conn, err := dbus.SessionBus()
 	if err != nil {
 		return nil, err
@@ -55,7 +55,7 @@ func NewWorker(opener ChatOpener) (*Worker, error) {
 		active: make(map[uint32]string),
 		queue:  make(chan queuedMessage, 64),
 	}
-	w.refreshCapabilities()
+	w.refreshCapabilities(ctx)
 	return w, nil
 }
 
@@ -92,14 +92,14 @@ func (w *Worker) NotifyMessage(ctx context.Context, message app.Message, chat ap
 	case <-ctx.Done():
 	case w.queue <- queuedMessage{message: message, chat: chat, opts: opts}:
 	default:
-		log.Printf("notification queue full; dropping notification for chat %s", chat.ID)
+		zerolog.Ctx(ctx).Warn().Str("chat", chat.ID).Str("msg", message.ID).Msg("notification queue full, dropping a notification")
 	}
 }
 
-func (w *Worker) refreshCapabilities() {
+func (w *Worker) refreshCapabilities(ctx context.Context) {
 	var values []string
 	if err := w.obj.Call(interfaceName+".GetCapabilities", 0).Store(&values); err != nil {
-		log.Printf("notification capabilities unavailable: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("notification capabilities unavailable")
 		w.caps = Capabilities{}
 		return
 	}
@@ -125,9 +125,10 @@ func (w *Worker) send(ctx context.Context, message app.Message, chat app.Chat, o
 		defaultTimeoutMS,
 	)
 	if err := call.Store(&id); err != nil {
-		log.Printf("send notification: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chat.ID).Str("msg", message.ID).Msg("send notification")
 		return
 	}
+	zerolog.Ctx(ctx).Info().Str("chat", chat.ID).Str("msg", message.ID).Uint32("notification", id).Msg("notified")
 
 	// Play the sound ourselves rather than trusting the server to honour the
 	// sound-name hint — many notification daemons ignore or never advertise it.
@@ -157,7 +158,7 @@ func (w *Worker) handleSignal(ctx context.Context, signal *dbus.Signal) {
 		if !ok {
 			return
 		}
-		w.openChat(chatID)
+		w.openChat(ctx, chatID)
 	case interfaceName + ".NotificationClosed":
 		if len(signal.Body) < 1 {
 			return
@@ -174,7 +175,7 @@ func (w *Worker) handleSignal(ctx context.Context, signal *dbus.Signal) {
 		}
 		name, ok := signal.Body[0].(string)
 		if ok && name == busName {
-			w.refreshCapabilities()
+			w.refreshCapabilities(ctx)
 		}
 	}
 }
@@ -189,9 +190,9 @@ func (w *Worker) activeChat(id uint32) (string, bool) {
 // openChat hands a clicked notification to a running frontend. With none
 // connected there is nothing to open: a terminal frontend cannot be started
 // from a notification.
-func (w *Worker) openChat(chatID string) {
+func (w *Worker) openChat(ctx context.Context, chatID string) {
 	if w.opener != nil && w.opener.OpenChat(chatID) {
 		return
 	}
-	log.Printf("notification for chat %s clicked with no frontend connected", chatID)
+	zerolog.Ctx(ctx).Info().Str("chat", chatID).Msg("notification clicked with no frontend connected")
 }

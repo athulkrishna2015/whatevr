@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/types"
 
 	"whatevrd/internal/app"
@@ -108,7 +109,7 @@ func (c *Client) participantDisplay(ctx context.Context, jid string) (string, st
 	for _, id := range ids {
 		name, avatar, err := c.store.SenderDisplay(ctx, id)
 		if err != nil {
-			c.log.Warnf("Failed to load sender display for %s: %v", id, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("sender", id).Msg("load sender display")
 			continue
 		}
 		if fallbackName == "" && name != "" {
@@ -396,7 +397,7 @@ func (c *Client) ForwardMessage(ctx context.Context, sourceMessageID string, tar
 		}
 
 		if result.Inserted {
-			c.log.Infof("Queued forwarded message %s to %s", result.Message.ID, chatID)
+			zerolog.Ctx(ctx).Info().Str("msg", result.Message.ID).Str("chat", chatID).Msg("queued forwarded message")
 			c.daemon.PublishNewMessage(toDaemonMessage(result.Message), toDaemonChat(result.Chat))
 		}
 		c.refreshAvatarIfDue(ctx, appstore.AvatarSubject{Kind: appstore.AvatarSubjectChat, ID: chatID}, avatarPriorityVisible)

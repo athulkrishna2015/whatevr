@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	waLog "go.mau.fi/whatsmeow/util/log"
-
 	appstore "whatevrd/internal/store"
 )
 
@@ -37,7 +35,6 @@ func savePosterTestMessage(t *testing.T, db *appstore.DB, id, kind, localPath, t
 func TestDeriveVideoPosterPersistsAtomicOutput(t *testing.T) {
 	client, db := newTestMediaClient(t)
 	defer db.Close()
-	client.log = waLog.Noop
 
 	mediaPath := filepath.Join(t.TempDir(), "clip.mp4")
 	if err := os.WriteFile(mediaPath, []byte("fake video"), 0o600); err != nil {
@@ -78,7 +75,6 @@ func TestDeriveVideoPosterPersistsAtomicOutput(t *testing.T) {
 func TestDeriveVideoPosterFailureKeepsSenderThumbnail(t *testing.T) {
 	client, db := newTestMediaClient(t)
 	defer db.Close()
-	client.log = waLog.Noop
 
 	mediaPath := filepath.Join(t.TempDir(), "broken.mp4")
 	if err := os.WriteFile(mediaPath, []byte("broken"), 0o600); err != nil {
@@ -127,7 +123,6 @@ func TestPosterQueuePrioritizesNewDownloads(t *testing.T) {
 func TestDeriveVideoPosterSupersedesTheOlderOutput(t *testing.T) {
 	client, db := newTestMediaClient(t)
 	defer db.Close()
-	client.log = waLog.Noop
 
 	mediaPath := filepath.Join(t.TempDir(), "clip.mp4")
 	if err := os.WriteFile(mediaPath, []byte("fake video"), 0o600); err != nil {

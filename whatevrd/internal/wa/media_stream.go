@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow"
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
 
@@ -281,13 +282,13 @@ func (c *Client) finishMediaStream(messageID string, streamErr error) {
 		if errors.Is(streamErr, context.Canceled) {
 			return
 		}
-		c.log.Warnf("Media stream for %s failed: %v", messageID, streamErr)
+		zerolog.Ctx(ctx).Warn().Err(streamErr).Str("msg", messageID).Msg("media stream failed")
 		c.recoverMediaStream(ctx, messageID, entry, errors.Is(streamErr, mediastream.ErrRangeUnsupported))
 		return
 	}
 
 	if err := os.Rename(entry.partPath, entry.finalPath); err != nil {
-		c.log.Warnf("Failed to promote streamed media for %s: %v", messageID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", messageID).Msg("promote streamed media")
 		c.recoverMediaStream(ctx, messageID, entry, true)
 		return
 	}
@@ -307,7 +308,7 @@ func (c *Client) finishMediaStream(messageID string, streamErr error) {
 
 	updated, err := c.store.UpdateMessageMediaLocalPath(ctx, messageID, entry.finalPath)
 	if err != nil {
-		c.log.Warnf("Failed to record streamed media path for %s: %v", messageID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", messageID).Msg("record streamed media path")
 		c.finishMediaStreamRequesters(entry, app.MediaStreamUpdate{})
 		return
 	}
@@ -324,7 +325,7 @@ func (c *Client) recoverMediaStream(ctx context.Context, messageID string, entry
 	// message path before any requester is told to replace its source.
 	updated, err := c.DownloadMessageMedia(ctx, messageID)
 	if err != nil {
-		c.log.Warnf("Fallback download for %s failed: %v", messageID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", messageID).Msg("fallback download failed")
 		c.finishMediaStreamRequesters(entry, app.MediaStreamUpdate{MessageID: messageID, State: "failed", ErrorText: err.Error()})
 		return
 	}
@@ -432,7 +433,7 @@ func (c *Client) StartMediaServer() error {
 
 	go func() {
 		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			c.log.Warnf("Media stream server stopped: %v", err)
+			zerolog.Ctx(c.currentSession().detached()).Warn().Err(err).Msg("media stream server stopped")
 		}
 	}()
 	return nil

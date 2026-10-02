@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/types"
 	waEvents "go.mau.fi/whatsmeow/types/events"
 
@@ -125,7 +126,7 @@ func (c *Client) signalPrivacySettingsPublish() {
 			if settings, err := fetch(ctx); err == nil {
 				c.daemon.PublishPrivacySettingsChanged(settings)
 			} else if ctx.Err() == nil {
-				c.log.Warnf("Failed to read privacy settings after change event: %v", err)
+				zerolog.Ctx(ctx).Warn().Err(err).Msg("read privacy settings after change event")
 			}
 
 			c.privacyPublishMu.Lock()

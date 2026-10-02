@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 
 	appstore "whatevrd/internal/store"
@@ -182,12 +183,12 @@ func (c *Client) fetchLinkPreviewThumbnail(ctx context.Context, messageID, chatI
 	if err != nil {
 		// The card is already drawn with the inline picture, so this is a
 		// missed sharpening rather than a missing preview.
-		c.log.Debugf("Failed to fetch the full link preview picture for %s: %v", messageID, err)
+		zerolog.Ctx(ctx).Debug().Err(err).Str("msg", messageID).Msg("fetch the full link preview picture")
 		return
 	}
 	config, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
-		c.log.Debugf("The full link preview picture for %s did not decode: %v", messageID, err)
+		zerolog.Ctx(ctx).Debug().Err(err).Str("msg", messageID).Msg("the full link preview picture did not decode")
 		return
 	}
 	localPath := c.saveMessageThumbnailWithExtension(chatID, messageID, data, linkPreviewFullExtension)
@@ -197,7 +198,7 @@ func (c *Client) fetchLinkPreviewThumbnail(ctx context.Context, messageID, chatI
 
 	message, err := c.store.GetMessage(ctx, messageID)
 	if err != nil {
-		c.log.Warnf("Failed to read message %s back for its link preview picture: %v", messageID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", messageID).Msg("read message back for its link preview picture")
 		return
 	}
 	payload := appstore.DecodePayload(message.PayloadJSON)
@@ -209,12 +210,12 @@ func (c *Client) fetchLinkPreviewThumbnail(ctx context.Context, messageID, chatI
 	payload.LinkPreview.ThumbnailHeight = config.Height
 	encoded, err := appstore.EncodePayload(payload)
 	if err != nil {
-		c.log.Warnf("Failed to encode the link preview picture for %s: %v", messageID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", messageID).Msg("encode the link preview picture")
 		return
 	}
 	updated, err := c.store.UpdateMessagePayload(ctx, messageID, encoded, message.PayloadSummary)
 	if err != nil {
-		c.log.Warnf("Failed to store the link preview picture for %s: %v", messageID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", messageID).Msg("store the link preview picture")
 		return
 	}
 	c.daemon.PublishMessageUpdated(toDaemonMessage(updated))

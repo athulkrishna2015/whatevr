@@ -2,11 +2,13 @@ package protocol
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
-	"log"
 	"reflect"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog"
 )
 
 // eventEnvelope is the daemon→frontend event shape on the wire for events that
@@ -76,7 +78,9 @@ func (s sentItem) same(data any) bool {
 // against what the client already holds, and emits upserts/removes (and
 // `ready` after subscribe/extend fills).
 type subscription struct {
-	id   int64
+	id int64
+	// ctx only carries the logger with conn, sub and view
+	ctx  context.Context
 	sink frameSink
 	sess ViewSession
 	// dir is sess when it manages its own two-frontier window (anchored
@@ -97,7 +101,7 @@ type subscription struct {
 }
 
 func newSubscription(id int64, sink frameSink, window int) *subscription {
-	return &subscription{id: id, sink: sink, window: window}
+	return &subscription{id: id, ctx: context.Background(), sink: sink, window: window}
 }
 
 // kick schedules a window recomputation; views call it (via the invalidate
@@ -225,7 +229,8 @@ func (s *subscription) fetchItems(max int) ([]Item, error) {
 func (s *subscription) recompute(window int) (exhausted, reset bool) {
 	start := time.Now()
 	var items []Item
-	defer func() { logRecompute(s.id, len(items), start) }()
+	var upserted, removed []string
+	defer func() { logRecompute(s.ctx, len(items), upserted, removed, start) }()
 	// A session that owns its window answers Items(0) with the whole of it.
 	fetch := 0
 	if s.dir == nil && window > 0 {
@@ -238,8 +243,7 @@ func (s *subscription) recompute(window int) (exhausted, reset bool) {
 		// remove every one of them, which is how one store error blanked an open
 		// chat. Leave s.sent alone: what was delivered stays on screen, and the
 		// next invalidation recomputes against a store that may answer.
-		log.Printf("protocol: sub %d keeping %d delivered items after a failed read: %v",
-			s.id, len(s.sent), err)
+		zerolog.Ctx(s.ctx).Warn().Err(err).Int("kept", len(s.sent)).Msg("keeping delivered items after a failed read")
 		return exhausted, false
 	}
 	if s.dir != nil {
@@ -256,7 +260,7 @@ func (s *subscription) recompute(window int) (exhausted, reset bool) {
 	next := make(map[string]sentItem, len(items))
 	for _, it := range items {
 		if _, dup := next[it.ID]; dup {
-			log.Printf("protocol: view session yielded duplicate item id %q (sub %d)", it.ID, s.id)
+			zerolog.Ctx(s.ctx).Error().Str("item", it.ID).Msg("view session yielded a duplicate item id")
 			continue
 		}
 		// Most recomputes change nothing: an unrelated avatar landing re-reads
@@ -271,7 +275,7 @@ func (s *subscription) recompute(window int) (exhausted, reset bool) {
 		}
 		body, err := json.Marshal(it.Data)
 		if err != nil {
-			log.Printf("protocol: marshal view item %q (sub %d): %v", it.ID, s.id, err)
+			zerolog.Ctx(s.ctx).Error().Err(err).Str("item", it.ID).Msg("marshal view item")
 			continue
 		}
 		cur := sentItem{sort: it.Sort, body: body, value: it.Data}
@@ -279,6 +283,7 @@ func (s *subscription) recompute(window int) (exhausted, reset bool) {
 		if hadPrev && prev.sort == it.Sort && bytes.Equal(prev.body, body) {
 			continue
 		}
+		upserted = append(upserted, it.ID)
 		if s.emitUpsert(it.ID, it.Sort, body) {
 			return exhausted, true
 		}
@@ -287,6 +292,7 @@ func (s *subscription) recompute(window int) (exhausted, reset bool) {
 		if _, ok := next[id]; ok {
 			continue
 		}
+		removed = append(removed, id)
 		if s.emitRemove(id) {
 			return exhausted, true
 		}
@@ -301,7 +307,7 @@ func (s *subscription) emitUpsert(id, sort string, body []byte) (reset bool) {
 		// place. It means a view returned an Item with an empty Sort — a daemon
 		// bug. Log it loudly; the id-as-sort fallback keeps the frame well-formed
 		// so one buggy view cannot desync the whole subscription.
-		log.Printf("protocol: view emitted upsert with empty sort (sub=%d id=%q); falling back to id", s.id, id)
+		zerolog.Ctx(s.ctx).Error().Str("item", id).Msg("view emitted an upsert with an empty sort, falling back to the id")
 		sort = id
 	}
 	line, _ := json.Marshal(upsertEnvelope{Sub: s.id, Event: "upsert", Sort: sort, Item: body})

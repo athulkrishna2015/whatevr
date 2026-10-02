@@ -6,8 +6,6 @@ import (
 	"testing"
 	"time"
 
-	waLog "go.mau.fi/whatsmeow/util/log"
-
 	"whatevrd/internal/app"
 	appstore "whatevrd/internal/store"
 )
@@ -26,7 +24,7 @@ func TestAccountReplacementLeavesNoRowFromThePreviousAccount(t *testing.T) {
 	}
 	defer db.Close()
 
-	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{}), log: waLog.Noop}
+	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{})}
 	client.session = newAccountSession(context.Background())
 
 	if err := db.SetSelfJID(ctx, "111@s.whatsapp.net"); err != nil {

@@ -14,7 +14,7 @@ type sendTextParams struct {
 	Mentions []string `json:"mentions"`
 }
 
-func (h commandHandlers) sendText(_ *conn, req request) (any, *Error) {
+func (h commandHandlers) sendText(ctx context.Context, _ *conn, req request) (any, *Error) {
 	if err := h.requireActions(); err != nil {
 		return nil, err
 	}
@@ -34,7 +34,7 @@ func (h commandHandlers) sendText(_ *conn, req request) (any, *Error) {
 	if utf8.RuneCountInString(p.Text) > maxCommandTextRunes {
 		return nil, errorf(CodeInvalidParams, "text must be <= %d characters", maxCommandTextRunes)
 	}
-	saved, err := h.actions.SendText(context.Background(), strings.TrimSpace(p.ChatID), p.Text, strings.TrimSpace(p.ReplyTo), trimStringSlice(p.Mentions))
+	saved, err := h.actions.SendText(ctx, strings.TrimSpace(p.ChatID), p.Text, strings.TrimSpace(p.ReplyTo), trimStringSlice(p.Mentions))
 	if perr := mapCommandError(err); perr != nil {
 		return nil, perr
 	}
@@ -49,7 +49,7 @@ type sendMediaParams struct {
 	Mentions []string `json:"mentions"`
 }
 
-func (h commandHandlers) sendMedia(_ *conn, req request) (any, *Error) {
+func (h commandHandlers) sendMedia(ctx context.Context, _ *conn, req request) (any, *Error) {
 	if err := h.requireActions(); err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func (h commandHandlers) sendMedia(_ *conn, req request) (any, *Error) {
 	if utf8.RuneCountInString(p.Caption) > maxCommandCaptionRunes {
 		return nil, errorf(CodeInvalidParams, "caption must be <= %d characters", maxCommandCaptionRunes)
 	}
-	saved, err := h.actions.SendMediaWithMentions(context.Background(), strings.TrimSpace(p.ChatID), path, p.Caption, strings.TrimSpace(p.ReplyTo), trimStringSlice(p.Mentions))
+	saved, err := h.actions.SendMediaWithMentions(ctx, strings.TrimSpace(p.ChatID), path, p.Caption, strings.TrimSpace(p.ReplyTo), trimStringSlice(p.Mentions))
 	if perr := mapCommandError(err); perr != nil {
 		return nil, perr
 	}
@@ -176,7 +176,7 @@ func (h commandHandlers) messageRevoke(ctx context.Context, _ *conn, req request
 	return nil, mapCommandError(err)
 }
 
-func (h commandHandlers) messageDelete(_ *conn, req request) (any, *Error) {
+func (h commandHandlers) messageDelete(ctx context.Context, _ *conn, req request) (any, *Error) {
 	if err := h.requireActions(); err != nil {
 		return nil, err
 	}
@@ -187,7 +187,7 @@ func (h commandHandlers) messageDelete(_ *conn, req request) (any, *Error) {
 	if err := p.valid(); err != nil {
 		return nil, err
 	}
-	return nil, mapCommandError(h.actions.DeleteMessageForMe(context.Background(), strings.TrimSpace(p.MessageID)))
+	return nil, mapCommandError(h.actions.DeleteMessageForMe(ctx, strings.TrimSpace(p.MessageID)))
 }
 
 type messageStarParams struct {
@@ -245,7 +245,7 @@ type messageForwardParams struct {
 	ChatIDs   []string `json:"chat_ids"`
 }
 
-func (h commandHandlers) messageForward(_ *conn, req request) (any, *Error) {
+func (h commandHandlers) messageForward(ctx context.Context, _ *conn, req request) (any, *Error) {
 	if err := h.requireActions(); err != nil {
 		return nil, err
 	}
@@ -263,7 +263,7 @@ func (h commandHandlers) messageForward(_ *conn, req request) (any, *Error) {
 	if len(targets) > maxCommandForwardTargets {
 		return nil, errorf(CodeInvalidParams, "at most %d target chats per forward", maxCommandForwardTargets)
 	}
-	saved, err := h.actions.ForwardMessage(context.Background(), strings.TrimSpace(p.MessageID), targets)
+	saved, err := h.actions.ForwardMessage(ctx, strings.TrimSpace(p.MessageID), targets)
 	if perr := mapCommandError(err); perr != nil {
 		return nil, perr
 	}

@@ -1,8 +1,11 @@
 package protocol
 
 import (
+	"context"
 	"encoding/json"
 	"time"
+
+	"github.com/rs/zerolog"
 )
 
 // Item is one item of a view: a stable id, the daemon-computed opaque sort
@@ -24,7 +27,7 @@ type Item struct {
 // not hold locks that Items needs while doing so. meta, if non-nil, is
 // merged into the subscribe result next to `sub` (e.g. `anchor_id`).
 type View interface {
-	Open(params json.RawMessage, invalidate func()) (sess ViewSession, meta map[string]any, err *Error)
+	Open(ctx context.Context, params json.RawMessage, invalidate func()) (sess ViewSession, meta map[string]any, err *Error)
 }
 
 // ViewSession is one subscription's handle onto a view.
@@ -98,7 +101,7 @@ type subscribeParams struct {
 	Limit *int   `json:"limit"`
 }
 
-func (s *Server) handleSubscribe(c *conn, req request) (any, *Error) {
+func (s *Server) handleSubscribe(ctx context.Context, c *conn, req request) (any, *Error) {
 	var p subscribeParams
 	if len(req.Params) > 0 {
 		if err := json.Unmarshal(req.Params, &p); err != nil {
@@ -130,9 +133,12 @@ func (s *Server) handleSubscribe(c *conn, req request) (any, *Error) {
 	go func() {
 		start := time.Now()
 		sub := newSubscription(c.nextSubID(), c, window)
-		sess, meta, verr := view.Open(req.Params, sub.kick)
-		logViewOpen(p.View, start)
+		l := zerolog.Ctx(c.ctx).With().Int64("sub", sub.id).Str("view", p.View).Logger()
+		sub.ctx = l.WithContext(context.Background())
+		sess, meta, verr := view.Open(sub.ctx, req.Params, sub.kick)
+		logViewOpen(zerolog.Ctx(ctx).With().Int64("sub", sub.id).Str("view", p.View).Logger().WithContext(ctx), start)
 		if verr != nil {
+			logCommandError(ctx, verr)
 			c.respondError(req.ID, verr, false)
 			return
 		}
@@ -167,7 +173,7 @@ type extendParams struct {
 	Direction string `json:"direction"`
 }
 
-func (s *Server) handleExtend(c *conn, req request) (any, *Error) {
+func (s *Server) handleExtend(ctx context.Context, c *conn, req request) (any, *Error) {
 	var p extendParams
 	if len(req.Params) > 0 {
 		if err := json.Unmarshal(req.Params, &p); err != nil {
@@ -196,6 +202,7 @@ func (s *Server) handleExtend(c *conn, req request) (any, *Error) {
 	// Respond before growing the window so `ready` cannot precede the
 	// response (completion is signaled by ready, per PROTOCOL.md).
 	c.respondResult(req.ID, map[string]any{})
+	zerolog.Ctx(ctx).Info().Int64("sub", sub.id).Str("direction", p.Direction).Int("count", *p.Count).Msg("extend")
 	sub.applyExtend(p.Direction, *p.Count)
 	return responded{}, nil
 }
@@ -204,7 +211,7 @@ type unsubscribeParams struct {
 	Sub *int64 `json:"sub"`
 }
 
-func (s *Server) handleUnsubscribe(c *conn, req request) (any, *Error) {
+func (s *Server) handleUnsubscribe(ctx context.Context, c *conn, req request) (any, *Error) {
 	var p unsubscribeParams
 	if len(req.Params) > 0 {
 		if err := json.Unmarshal(req.Params, &p); err != nil {
@@ -222,5 +229,6 @@ func (s *Server) handleUnsubscribe(c *conn, req request) (any, *Error) {
 	// the wire after the unsubscribe completes.
 	c.q.closeSub(sub.id)
 	sub.close()
+	zerolog.Ctx(ctx).Info().Int64("sub", sub.id).Msg("unsubscribed")
 	return nil, nil
 }

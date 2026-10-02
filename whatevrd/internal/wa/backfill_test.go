@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	waHistorySync "go.mau.fi/whatsmeow/proto/waHistorySync"
-	waLog "go.mau.fi/whatsmeow/util/log"
 
 	"whatevrd/internal/app"
 	appstore "whatevrd/internal/store"
@@ -24,7 +23,7 @@ func TestResolveBackfillRequestsIgnoresOmittedChats(t *testing.T) {
 	}
 	defer db.Close()
 
-	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{}), log: waLog.Noop}
+	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{})}
 
 	const omitted = "111@s.whatsapp.net"
 	const answered = "222@s.whatsapp.net"

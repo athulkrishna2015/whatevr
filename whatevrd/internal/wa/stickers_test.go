@@ -10,7 +10,6 @@ import (
 	waHistorySync "go.mau.fi/whatsmeow/proto/waHistorySync"
 	waSyncAction "go.mau.fi/whatsmeow/proto/waSyncAction"
 	"go.mau.fi/whatsmeow/types/events"
-	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 
 	"whatevrd/internal/app"
@@ -29,7 +28,6 @@ func newTestStickerClient(t *testing.T) (*Client, *appstore.DB) {
 		store:            db,
 		paths:            app.Paths{MediaCacheDir: filepath.Join(t.TempDir(), "cache")},
 		daemon:           app.NewDaemon(app.Paths{}),
-		log:              waLog.Noop,
 		stickerDownloads: make(map[string]*stickerFileDownloadState),
 	}, db
 }

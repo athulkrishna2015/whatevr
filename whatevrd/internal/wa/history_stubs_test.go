@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	waWeb "go.mau.fi/whatsmeow/proto/waWeb"
-	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 
 	"whatevrd/internal/app"
@@ -24,7 +23,7 @@ func TestHistoryStubSystemPayload(t *testing.T) {
 	}
 	defer db.Close()
 
-	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{}), log: waLog.Noop}
+	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{})}
 
 	stub := func(kind waWeb.WebMessageInfo_StubType, params ...string) *waWeb.WebMessageInfo {
 		return &waWeb.WebMessageInfo{

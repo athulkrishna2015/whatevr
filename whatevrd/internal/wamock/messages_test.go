@@ -149,7 +149,7 @@ func TestScenarioMessagesArrive(t *testing.T) {
 // same-second messages differently and diff against each other.
 func TestMessageIDsAreDeterministic(t *testing.T) {
 	ids := func(seed int64) []string {
-		srv, err := New(Options{Seed: seed, Scenario: "test:conversation", Logger: discardLogger()})
+		srv, err := New(t.Context(), Options{Seed: seed, Scenario: "test:conversation"})
 		if err != nil {
 			t.Fatalf("new server: %v", err)
 		}

@@ -3,6 +3,7 @@ package wa
 import (
 	"context"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
@@ -21,14 +22,14 @@ func (c *Client) handleDeleteForMeEvent(ctx context.Context, evt *events.DeleteF
 	internalID := internalMessageIDForChat(chatID, types.MessageID(evt.MessageID))
 	message, chat, existed, err := c.store.DeleteMessageForMe(ctx, internalID)
 	if err != nil {
-		c.log.Warnf("Failed to delete message %s for phone-side delete-for-me: %v", internalID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", internalID).Msg("delete message for phone-side delete-for-me")
 		return
 	}
 	if !existed {
 		// The deletion may reference a message we never synced; ignore quietly.
 		return
 	}
-	c.log.Infof("Deleted message %s after phone-side delete-for-me", internalID)
+	zerolog.Ctx(ctx).Info().Str("msg", internalID).Msg("deleted message after phone-side delete-for-me")
 	if !evt.FromFullSync {
 		c.daemon.PublishMessageDeleted(message.ChatID, message.ID, toDaemonChat(chat))
 	}
@@ -44,13 +45,13 @@ func (c *Client) handleDeleteChatEvent(ctx context.Context, evt *events.DeleteCh
 	}
 	existed, err := c.store.DeleteChat(ctx, chatID)
 	if err != nil {
-		c.log.Warnf("Failed to delete chat %s for phone-side deletion: %v", chatID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("delete chat for phone-side deletion")
 		return
 	}
 	if !existed {
 		return
 	}
-	c.log.Infof("Deleted chat %s after phone-side deletion", chatID)
+	zerolog.Ctx(ctx).Info().Str("chat", chatID).Msg("deleted chat after phone-side deletion")
 	c.daemon.PublishChatDeleted(chatID)
 }
 
@@ -64,12 +65,12 @@ func (c *Client) handleClearChatEvent(ctx context.Context, evt *events.ClearChat
 	}
 	chat, existed, err := c.store.ClearChatMessages(ctx, chatID)
 	if err != nil {
-		c.log.Warnf("Failed to clear chat %s for phone-side clear: %v", chatID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("clear chat for phone-side clear")
 		return
 	}
 	if !existed {
 		return
 	}
-	c.log.Infof("Cleared chat %s after phone-side clear", chatID)
+	zerolog.Ctx(ctx).Info().Str("chat", chatID).Msg("cleared chat after phone-side clear")
 	c.daemon.PublishChatCleared(toDaemonChat(chat))
 }

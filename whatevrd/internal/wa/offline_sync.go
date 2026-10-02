@@ -3,6 +3,7 @@ package wa
 import (
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/types/events"
 
 	"whatevrd/internal/app"
@@ -37,7 +38,7 @@ func (c *Client) handleOfflineSyncPreview(evt *events.OfflineSyncPreview) {
 	snapshot := c.offlineSyncSnapshotLocked()
 	c.offlineSyncMu.Unlock()
 
-	c.log.Infof("Offline sync started: %d messages, %d events", totalMessages, totalEvents)
+	zerolog.Ctx(c.currentSession().detached()).Info().Uint32("messages", totalMessages).Uint32("events", totalEvents).Msg("offline sync started")
 	c.publishOfflineSyncProgress(snapshot, false)
 }
 
@@ -62,7 +63,7 @@ func (c *Client) handleOfflineSyncCompleted(evt *events.OfflineSyncCompleted) {
 
 	c.publishOfflineSyncBackfilled(snapshot.changedChats)
 	c.publishOfflineSyncProgress(snapshot, true)
-	c.log.Infof("Offline sync completed: %d messages, %d events", snapshot.processedMessages, snapshot.processedEvents)
+	zerolog.Ctx(c.currentSession().detached()).Info().Uint32("messages", snapshot.processedMessages).Uint32("events", snapshot.processedEvents).Msg("offline sync completed")
 }
 
 func (c *Client) offlineSyncInProgress() bool {

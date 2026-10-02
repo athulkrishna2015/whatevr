@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"sync"
 	"time"
+
+	"github.com/rs/zerolog"
 
 	"whatevrd/internal/app"
 	"whatevrd/internal/store"
@@ -47,7 +48,7 @@ type starredItem struct {
 	ChatName string `json:"chat_name,omitempty"`
 }
 
-func (v starredView) Open(params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v starredView) Open(ctx context.Context, params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	var p starredParams
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -55,7 +56,7 @@ func (v starredView) Open(params json.RawMessage, invalidate func()) (ViewSessio
 		}
 	}
 	events, cancel := v.daemon.SubscribeDaemonEvents()
-	ctx, cancelCtx := context.WithCancel(context.Background())
+	ctx, cancelCtx := context.WithCancel(ctx)
 	s := &starredSession{lister: v.lister, chatID: p.ChatID, eventsCancel: cancel, ctx: ctx, cancelCtx: cancelCtx, done: make(chan struct{})}
 	go s.run(events, invalidate)
 	return s, nil, nil
@@ -127,7 +128,7 @@ func (s *starredSession) ItemsErr(max int) ([]Item, error) {
 	}
 	rows, err := s.lister.ListStarredMessages(s.ctx, s.chatID, limit, "")
 	if err != nil {
-		log.Printf("protocol: list starred messages for view: %v", err)
+		zerolog.Ctx(s.ctx).Warn().Err(err).Msg("list starred messages")
 		return nil, err
 	}
 	items := make([]Item, 0, len(rows))
@@ -191,7 +192,7 @@ type pinnedParams struct {
 	ChatID string `json:"chat_id"`
 }
 
-func (v pinnedView) Open(params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v pinnedView) Open(ctx context.Context, params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	var p pinnedParams
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -202,7 +203,7 @@ func (v pinnedView) Open(params json.RawMessage, invalidate func()) (ViewSession
 		return nil, nil, errorf(CodeInvalidParams, "pinned params must carry a chat_id")
 	}
 	events, cancel := v.daemon.SubscribeDaemonEvents()
-	ctx, cancelCtx := context.WithCancel(context.Background())
+	ctx, cancelCtx := context.WithCancel(ctx)
 	s := &pinnedSession{lister: v.lister, chatID: p.ChatID, eventsCancel: cancel, ctx: ctx, cancelCtx: cancelCtx, invalidate: invalidate, done: make(chan struct{})}
 	go s.run(events, invalidate)
 	return s, nil, nil
@@ -262,7 +263,7 @@ func (s *pinnedSession) Items(int) []Item {
 	}
 	rows, err := s.lister.ListPinnedMessages(s.ctx, s.chatID)
 	if err != nil {
-		log.Printf("protocol: list pinned messages for view: %v", err)
+		zerolog.Ctx(s.ctx).Warn().Err(err).Msg("list pinned messages")
 		return nil
 	}
 	s.armExpiry(rows)

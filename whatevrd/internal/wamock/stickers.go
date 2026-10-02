@@ -130,7 +130,7 @@ func stickerEmojis(index int) []string {
 func (s *Server) handleStickerStore(w http.ResponseWriter, r *http.Request) {
 	catalogue, err := s.stickerStore()
 	if err != nil {
-		s.log.Printf("sticker store: %v", err)
+		s.log.Warn().Err(err).Msg("sticker store")
 		http.Error(w, "sticker store unavailable", http.StatusInternalServerError)
 		return
 	}

@@ -17,7 +17,6 @@ import (
 	waStore "go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
-	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 
 	"whatevrd/internal/app"
@@ -175,7 +174,6 @@ func TestHistorySyncMarkedUnreadPublishesChatUpdated(t *testing.T) {
 	client := &Client{
 		store:  db,
 		daemon: daemon,
-		log:    waLog.Noop,
 		client: &whatsmeow.Client{Store: &waStore.Device{}},
 	}
 	markedUnread := true
@@ -223,7 +221,6 @@ func TestHistorySyncExhaustionPublishesChatUpdated(t *testing.T) {
 	client := &Client{
 		store:  db,
 		daemon: daemon,
-		log:    waLog.Noop,
 		client: &whatsmeow.Client{Store: &waStore.Device{}},
 	}
 	syncType := waHistorySync.HistorySync_RECENT
@@ -267,7 +264,6 @@ func TestHistorySyncPreservesPinWhenPinnedFieldAbsent(t *testing.T) {
 	client := &Client{
 		store:  db,
 		daemon: app.NewDaemon(app.Paths{}),
-		log:    waLog.Noop,
 		client: &whatsmeow.Client{Store: &waStore.Device{}},
 	}
 	syncType := waHistorySync.HistorySync_RECENT
@@ -738,7 +734,6 @@ func newMediaIngestClient(t *testing.T) *Client {
 	return &Client{
 		store:  db,
 		daemon: app.NewDaemon(app.Paths{}),
-		log:    waLog.Noop,
 		paths:  app.Paths{MediaCacheDir: t.TempDir()},
 	}
 }
@@ -949,7 +944,7 @@ func TestWhitespaceOnlyTextIsStillText(t *testing.T) {
 		t.Fatalf("open db: %v", err)
 	}
 	defer db.Close()
-	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{}), log: waLog.Noop}
+	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{})}
 
 	evt := &events.Message{
 		Info: types.MessageInfo{
@@ -979,7 +974,7 @@ func TestEmptyTextIsNotTombstoned(t *testing.T) {
 		t.Fatalf("open db: %v", err)
 	}
 	defer db.Close()
-	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{}), log: waLog.Noop}
+	client := &Client{store: db, daemon: app.NewDaemon(app.Paths{})}
 
 	for name, message := range map[string]*waE2E.Message{
 		"conversation":  {Conversation: proto.String("")},

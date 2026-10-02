@@ -48,7 +48,7 @@ type groupItem struct {
 	Locked      bool   `json:"locked,omitempty"`
 }
 
-func (v groupView) Open(params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v groupView) Open(ctx context.Context, params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	chatID, verr := groupChatID(params, "group")
 	if verr != nil {
 		return nil, nil, verr
@@ -56,7 +56,7 @@ func (v groupView) Open(params json.RawMessage, invalidate func()) (ViewSession,
 	if v.actions == nil {
 		return nil, nil, errorf(CodeInternal, "group view unavailable")
 	}
-	ctx, cancelCtx := context.WithCancel(context.Background())
+	ctx, cancelCtx := context.WithCancel(ctx)
 	info, err := v.actions.GetGroupInfo(ctx, chatID)
 	if err != nil {
 		cancelCtx()
@@ -215,7 +215,7 @@ type groupMemberItem struct {
 	Role        string `json:"role"`
 }
 
-func (v groupMembersView) Open(params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v groupMembersView) Open(ctx context.Context, params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	chatID, verr := groupChatID(params, "group_members")
 	if verr != nil {
 		return nil, nil, verr
@@ -223,7 +223,7 @@ func (v groupMembersView) Open(params json.RawMessage, invalidate func()) (ViewS
 	if v.actions == nil {
 		return nil, nil, errorf(CodeInternal, "group_members view unavailable")
 	}
-	ctx, cancelCtx := context.WithCancel(context.Background())
+	ctx, cancelCtx := context.WithCancel(ctx)
 	info, err := v.actions.GetGroupInfo(ctx, chatID)
 	if err != nil {
 		cancelCtx()

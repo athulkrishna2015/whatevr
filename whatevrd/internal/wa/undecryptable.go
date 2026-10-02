@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -40,7 +41,7 @@ func (c *Client) waitingRowInput(ctx context.Context, evt *events.UndecryptableM
 	}
 	payloadJSON, err := appstore.EncodePayload(appstore.MessagePayload{Waiting: &payload})
 	if err != nil {
-		c.log.Warnf("Failed to encode waiting payload for %s: %v", internalID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", internalID).Msg("encode waiting payload")
 		return appstore.MediaMessageInput{}, false
 	}
 
@@ -114,7 +115,7 @@ func (c *Client) writeWaitingRow(ctx context.Context, evt *events.UndecryptableM
 	}
 	saved, err := c.store.SaveMediaMessage(ctx, input)
 	if err != nil {
-		c.log.Warnf("Failed to store placeholder for undecryptable message %s: %v", internalID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", internalID).Msg("store placeholder for undecryptable message")
 		return
 	}
 	c.daemon.PublishNewMessage(toDaemonMessage(saved.Message), toDaemonChat(saved.Chat))
@@ -176,7 +177,7 @@ func (c *Client) RequestMessageFromPhone(ctx context.Context, messageID string) 
 		// The request went out, which is the part that matters. Failing the
 		// command because the bookkeeping did not stick would invite a second
 		// request nobody needs.
-		c.log.Warnf("Failed to record the phone request for %s: %v", message.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", message.ID).Msg("record the phone request")
 		return nil
 	}
 	c.daemon.PublishMessageUpdated(toDaemonMessage(updated))

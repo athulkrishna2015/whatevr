@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
@@ -87,7 +88,7 @@ func (c *Client) SendText(ctx context.Context, chatID, text, replyToMessageID st
 
 	if saved.Inserted {
 		c.beginSendTiming(saved.Message.ID, rpcArrival)
-		c.log.Infof("Queued text message %s to %s", saved.Message.ID, chatID)
+		zerolog.Ctx(ctx).Info().Str("msg", saved.Message.ID).Str("chat", chatID).Msg("queued text message")
 		c.daemon.PublishNewMessage(toDaemonMessage(saved.Message), toDaemonChat(saved.Chat))
 	}
 	c.refreshAvatarIfDue(ctx, appstore.AvatarSubject{Kind: appstore.AvatarSubjectChat, ID: chatID}, avatarPriorityVisible)
@@ -206,7 +207,7 @@ func (c *Client) SendMediaWithMentions(ctx context.Context, chatID, filePath, ca
 
 	if saved.Inserted {
 		c.beginSendTiming(saved.Message.ID, rpcArrival)
-		c.log.Infof("Queued media message %s to %s", saved.Message.ID, chatID)
+		zerolog.Ctx(ctx).Info().Str("msg", saved.Message.ID).Str("chat", chatID).Msg("queued media message")
 		c.daemon.PublishNewMessage(toDaemonMessage(saved.Message), toDaemonChat(saved.Chat))
 	}
 	c.refreshAvatarIfDue(ctx, appstore.AvatarSubject{Kind: appstore.AvatarSubjectChat, ID: chatID}, avatarPriorityVisible)
@@ -522,9 +523,9 @@ func (c *Client) sendPendingMessage(ctx context.Context, client *whatsmeow.Clien
 		// Transient: back off and retry.
 		newAttempts := message.SendAttempts + 1
 		delay := sendQueueBackoff(newAttempts)
-		c.log.Warnf("Failed to send message %s (attempt %d), retry in %s: %v", message.ID, newAttempts, delay, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", message.ID).Int32("attempt", newAttempts).Dur("retry_in", delay).Msg("send message")
 		if dbErr := c.store.UpdateMessageSendAttempt(ctx, message.ID, newAttempts, err.Error(), time.Now().Add(delay)); dbErr != nil {
-			c.log.Warnf("Failed to record send attempt for %s: %v", message.ID, dbErr)
+			zerolog.Ctx(ctx).Warn().Err(dbErr).Str("msg", message.ID).Msg("record send attempt")
 		}
 		return fmt.Errorf("send text %s: %w", message.ID, err)
 	}
@@ -582,9 +583,9 @@ func (c *Client) sendPendingMediaMessage(ctx context.Context, client *whatsmeow.
 	if _, err := client.SendMessage(ctx, targetJID, &waE2E.Message{ImageMessage: imgMsg}, whatsmeow.SendRequestExtra{ID: externalID}); err != nil {
 		newAttempts := message.SendAttempts + 1
 		delay := sendQueueBackoff(newAttempts)
-		c.log.Warnf("Failed to send media %s (attempt %d), retry in %s: %v", message.ID, newAttempts, delay, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", message.ID).Int32("attempt", newAttempts).Dur("retry_in", delay).Msg("send media")
 		if dbErr := c.store.UpdateMessageSendAttempt(ctx, message.ID, newAttempts, err.Error(), time.Now().Add(delay)); dbErr != nil {
-			c.log.Warnf("Failed to record send attempt for %s: %v", message.ID, dbErr)
+			zerolog.Ctx(ctx).Warn().Err(dbErr).Str("msg", message.ID).Msg("record send attempt")
 		}
 		return fmt.Errorf("send media %s: %w", message.ID, err)
 	}
@@ -593,7 +594,7 @@ func (c *Client) sendPendingMediaMessage(ctx context.Context, client *whatsmeow.
 	// reply quoting our own image can be reconstructed losslessly.
 	if payload, marshalErr := proto.Marshal(imgMsg); marshalErr == nil {
 		if _, dbErr := c.store.UpdateMessageMediaPayload(ctx, message.ID, payload); dbErr != nil {
-			c.log.Warnf("Failed to persist sent image payload for %s: %v", message.ID, dbErr)
+			zerolog.Ctx(ctx).Warn().Err(dbErr).Str("msg", message.ID).Msg("persist sent image payload")
 		}
 	}
 
@@ -635,15 +636,15 @@ func (c *Client) sendPendingStickerMessage(ctx context.Context, client *whatsmeo
 		if err != nil {
 			newAttempts := message.SendAttempts + 1
 			delay := sendQueueBackoff(newAttempts)
-			c.log.Warnf("Failed to upload sticker %s (attempt %d), retry in %s: %v", message.ID, newAttempts, delay, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("msg", message.ID).Int32("attempt", newAttempts).Dur("retry_in", delay).Msg("upload sticker")
 			if dbErr := c.store.UpdateMessageSendAttempt(ctx, message.ID, newAttempts, err.Error(), time.Now().Add(delay)); dbErr != nil {
-				c.log.Warnf("Failed to record send attempt for %s: %v", message.ID, dbErr)
+				zerolog.Ctx(ctx).Warn().Err(dbErr).Str("msg", message.ID).Msg("record send attempt")
 			}
 			return fmt.Errorf("upload sticker %s: %w", message.ID, err)
 		}
 		if payload, marshalErr := proto.Marshal(stickerMsg); marshalErr == nil {
 			if dbErr := c.store.SetStickerUploadPayload(ctx, sticker.CacheKey, payload, time.Now()); dbErr != nil {
-				c.log.Warnf("Failed to cache sticker upload for %s: %v", sticker.CacheKey, dbErr)
+				zerolog.Ctx(ctx).Warn().Err(dbErr).Str("sticker", sticker.CacheKey).Msg("cache sticker upload")
 			}
 		}
 	}
@@ -658,14 +659,14 @@ func (c *Client) sendPendingStickerMessage(ctx context.Context, client *whatsmeo
 			// The cached upload may have expired server-side; force a fresh
 			// upload on the next attempt.
 			if dbErr := c.store.SetStickerUploadPayload(ctx, sticker.CacheKey, nil, time.Now()); dbErr != nil {
-				c.log.Warnf("Failed to invalidate sticker upload for %s: %v", sticker.CacheKey, dbErr)
+				zerolog.Ctx(ctx).Warn().Err(dbErr).Str("sticker", sticker.CacheKey).Msg("invalidate sticker upload")
 			}
 		}
 		newAttempts := message.SendAttempts + 1
 		delay := sendQueueBackoff(newAttempts)
-		c.log.Warnf("Failed to send sticker %s (attempt %d), retry in %s: %v", message.ID, newAttempts, delay, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", message.ID).Int32("attempt", newAttempts).Dur("retry_in", delay).Msg("send sticker")
 		if dbErr := c.store.UpdateMessageSendAttempt(ctx, message.ID, newAttempts, err.Error(), time.Now().Add(delay)); dbErr != nil {
-			c.log.Warnf("Failed to record send attempt for %s: %v", message.ID, dbErr)
+			zerolog.Ctx(ctx).Warn().Err(dbErr).Str("msg", message.ID).Msg("record send attempt")
 		}
 		return fmt.Errorf("send sticker %s: %w", message.ID, err)
 	}
@@ -674,7 +675,7 @@ func (c *Client) sendPendingStickerMessage(ctx context.Context, client *whatsmeo
 	// later reply quoting this sticker reconstructs losslessly.
 	if payload, marshalErr := proto.Marshal(stickerMsg); marshalErr == nil {
 		if _, dbErr := c.store.UpdateMessageMediaPayload(ctx, message.ID, payload); dbErr != nil {
-			c.log.Warnf("Failed to persist sent sticker payload for %s: %v", message.ID, dbErr)
+			zerolog.Ctx(ctx).Warn().Err(dbErr).Str("msg", message.ID).Msg("persist sent sticker payload")
 		}
 	}
 
@@ -736,9 +737,9 @@ func (c *Client) sendPendingMediaFromPayload(ctx context.Context, client *whatsm
 	if _, err := client.SendMessage(ctx, targetJID, outgoing, whatsmeow.SendRequestExtra{ID: externalID}); err != nil {
 		newAttempts := message.SendAttempts + 1
 		delay := sendQueueBackoff(newAttempts)
-		c.log.Warnf("Failed to send media payload %s (attempt %d), retry in %s: %v", message.ID, newAttempts, delay, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", message.ID).Int32("attempt", newAttempts).Dur("retry_in", delay).Msg("send media payload")
 		if dbErr := c.store.UpdateMessageSendAttempt(ctx, message.ID, newAttempts, err.Error(), time.Now().Add(delay)); dbErr != nil {
-			c.log.Warnf("Failed to record send attempt for %s: %v", message.ID, dbErr)
+			zerolog.Ctx(ctx).Warn().Err(dbErr).Str("msg", message.ID).Msg("record send attempt")
 		}
 		return true, fmt.Errorf("send media payload %s: %w", message.ID, err)
 	}
@@ -955,24 +956,24 @@ func (c *Client) markPendingMessageSent(ctx context.Context, messageID string) {
 	message, changed, err := c.store.UpdateMessageStatus(ctx, messageID, appstore.StatusSent)
 	if err != nil {
 		c.finishSendTiming(messageID)
-		c.log.Warnf("Failed to mark queued message %s sent: %v", messageID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", messageID).Msg("mark queued message sent")
 		return
 	}
 	c.markSendTiming(messageID, func(t *sendTiming) { t.statusWrite = time.Now() })
 	if changed {
 		c.publishMessageStatusUpdated(ctx, message)
 	}
-	c.logSendTimeline(messageID, c.finishSendTiming(messageID))
+	c.logSendTimeline(ctx, messageID, c.finishSendTiming(messageID))
 }
 
 func (c *Client) markPendingMessageFailed(ctx context.Context, messageID string, reason string) {
 	c.finishSendTiming(messageID)
 	message, changed, err := c.store.UpdateMessageStatus(ctx, messageID, appstore.StatusFailed)
 	if err != nil {
-		c.log.Warnf("Failed to mark queued message %s failed: %v", messageID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", messageID).Msg("mark queued message failed")
 		return
 	}
-	c.log.Warnf("Queued message %s permanently failed: %s", messageID, reason)
+	zerolog.Ctx(ctx).Warn().Str("msg", messageID).Str("reason", reason).Msg("queued message permanently failed")
 	if changed {
 		c.publishMessageStatusUpdated(ctx, message)
 	}
@@ -1030,7 +1031,7 @@ func (c *Client) handleReceipt(evt *events.Receipt, offlineSync bool) {
 				if errors.Is(err, sql.ErrNoRows) {
 					continue
 				}
-				c.log.Errorf("Failed to update message status for %s: %v", internalID, err)
+				zerolog.Ctx(ctx).Error().Err(err).Str("msg", internalID).Msg("update message status")
 				continue
 			}
 			if changed && !offlineSync {
@@ -1047,7 +1048,7 @@ func (c *Client) handleReceipt(evt *events.Receipt, offlineSync bool) {
 		}
 		messages, err := c.store.UpdateMessagesStatus(ctx, internalIDs, status)
 		if err != nil {
-			c.log.Errorf("Failed to update message status in %s: %v", chatID, err)
+			zerolog.Ctx(ctx).Error().Err(err).Str("chat", chatID).Msg("update message status")
 			return
 		}
 		if !offlineSync {
@@ -1068,7 +1069,7 @@ func (c *Client) handleReceipt(evt *events.Receipt, offlineSync bool) {
 		chat, changed, err := c.store.MarkMessagesReadByIDs(ctx, chatID, internalIDs)
 		if err != nil {
 			if !errors.Is(err, sql.ErrNoRows) {
-				c.log.Warnf("Failed to mark self-read messages in %s: %v", chatID, err)
+				zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("mark self-read messages")
 			}
 			return
 		}
@@ -1108,7 +1109,7 @@ func (c *Client) applyParticipantReceipt(ctx context.Context, internalID, partic
 	}
 
 	if err := c.store.UpsertMessageReceipt(ctx, internalID, message.ChatID, participant, kind, ts); err != nil {
-		c.log.Warnf("Failed to record receipt for %s from %s: %v", internalID, participant, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", internalID).Any("participant", participant).Msg("record receipt")
 	} else if !offlineSync {
 		// The per-member breakdown changed even when the aggregate status below
 		// does not; the `receipts` view keys off this to re-derive live. Skipped
@@ -1190,7 +1191,7 @@ func (c *Client) publishMessageStatusUpdated(ctx context.Context, message appsto
 
 	chat, err := c.store.GetChat(ctx, message.ChatID)
 	if err != nil {
-		c.log.Warnf("Failed to load chat after status update for %s: %v", message.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", message.ID).Msg("load chat after status update")
 		return
 	}
 	if chat.LastMessageTime != message.TimestampUnix {
@@ -1312,7 +1313,7 @@ func (c *Client) MarkMessagePlayed(ctx context.Context, messageID string) error 
 		sender = types.EmptyJID
 	}
 	if err := client.MarkRead(ctx, []types.MessageID{info.ID}, time.Now(), info.Chat, sender, types.ReceiptTypePlayed); err != nil {
-		c.log.Warnf("Failed to send played receipt for %s: %v", messageID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", messageID).Msg("send played receipt")
 	}
 	return nil
 }
@@ -1330,7 +1331,7 @@ func (c *Client) sendReadReceipts(ctx context.Context, chat types.JID, chatID st
 			continue
 		}
 		if err := client.MarkRead(ctx, batch.messageIDs, time.Now(), chat, batch.sender); err != nil {
-			c.log.Warnf("Failed to send read receipt for %s: %v", chatID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("send read receipt")
 		}
 	}
 }
@@ -1459,7 +1460,7 @@ func (c *Client) sendRegularLowAppState(ctx context.Context, client *whatsmeow.C
 		if !isAppStateConflictError(err) {
 			return err
 		}
-		c.log.Warnf("WhatsApp app state conflict while updating pins; resyncing regular_low and retrying: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("app state conflict while updating pins, resyncing regular_low and retrying")
 		if _, syncErr := fetchFullRegularLowAppState(ctx, client); syncErr != nil {
 			return app.NewCommandError(app.CommandErrorRejected, "WhatsApp sync conflict. Try again in a moment.")
 		}

@@ -2,13 +2,14 @@ package protocol
 
 import (
 	"context"
-	"log"
 	"strings"
+
+	"github.com/rs/zerolog"
 
 	"whatevrd/internal/app"
 )
 
-func (h commandHandlers) mediaDownload(_ *conn, req request) (any, *Error) {
+func (h commandHandlers) mediaDownload(ctx context.Context, _ *conn, req request) (any, *Error) {
 	if err := h.requireActions(); err != nil {
 		return nil, err
 	}
@@ -28,8 +29,8 @@ func (h commandHandlers) mediaDownload(_ *conn, req request) (any, *Error) {
 	// message, so a repeat call is harmless.
 	messageID := strings.TrimSpace(p.MessageID)
 	go func() {
-		if _, err := h.actions.DownloadMessageMedia(context.Background(), messageID); err != nil {
-			log.Printf("protocol: media.download %s: %v", messageID, err)
+		if _, err := h.actions.DownloadMessageMedia(ctx, messageID); err != nil {
+			zerolog.Ctx(ctx).Warn().Err(err).Str("msg", messageID).Msg("media download")
 		}
 	}()
 	return nil, nil
@@ -83,7 +84,7 @@ func (h commandHandlers) mediaFetchProfilePicture(ctx context.Context, _ *conn, 
 // lifecycle: the daemon fetches ranges on demand behind the URL, and the
 // message row still upserts with `media.path` once the whole file has landed
 // and verified, after which the frontend should use the path instead.
-func (h commandHandlers) mediaStreamCommand(c *conn, req request) (any, *Error) {
+func (h commandHandlers) mediaStreamCommand(ctx context.Context, c *conn, req request) (any, *Error) {
 	if err := h.requireActions(); err != nil {
 		return nil, err
 	}
@@ -96,7 +97,7 @@ func (h commandHandlers) mediaStreamCommand(c *conn, req request) (any, *Error) 
 	}
 	messageID := strings.TrimSpace(p.MessageID)
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), netCommandTimeout)
+		ctx, cancel := context.WithTimeout(ctx, netCommandTimeout)
 		defer cancel()
 		updates := make(chan app.MediaStreamUpdate, 1)
 		stream, err := h.actions.StreamMessageMedia(ctx, messageID, func(update app.MediaStreamUpdate) {

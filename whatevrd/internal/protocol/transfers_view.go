@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"context"
 	"encoding/json"
 	"sort"
 	"sync"
@@ -15,7 +16,7 @@ type transfersView struct {
 	daemon *app.Daemon
 }
 
-func (v transfersView) Open(_ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v transfersView) Open(ctx context.Context, _ json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	events, cancel := v.daemon.SubscribeDaemonEvents()
 	s := &transfersSession{
 		daemon:       v.daemon,

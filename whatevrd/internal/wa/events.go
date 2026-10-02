@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -25,9 +26,10 @@ func (c *Client) handleEvent(sess *accountSession, raw any) bool {
 	// handler to return, so a slow handler here delays every event behind it
 	// (incoming messages, receipts, presence).
 	start := time.Now()
+	ctx := eventContext(sess.detached(), raw)
 	defer func() {
 		if d := time.Since(start); d > slowEventHandlerThreshold {
-			c.log.Warnf("Slow event handler: %T took %s", raw, d.Round(time.Millisecond))
+			zerolog.Ctx(ctx).Warn().Dur("dur", d).Msg("slow event handler")
 		}
 	}()
 
@@ -50,7 +52,6 @@ func (c *Client) handleEvent(sess *accountSession, raw any) bool {
 	switch evt := raw.(type) {
 	case *events.Connected:
 		c.daemon.SetConnection(app.StateOnline, "Connected to WhatsApp", 0, 0, false)
-		ctx := sess.detached()
 		c.syncPresence(ctx, true)
 		c.signalSendQueue()
 		c.signalHistorySyncWorker()
@@ -63,7 +64,7 @@ func (c *Client) handleEvent(sess *accountSession, raw any) bool {
 		sess.spawn(c.migrateLIDChats)
 		sess.spawn(c.backfillAnimatedWebPFlags)
 	case *events.AppStateSyncComplete:
-		c.syncPresence(sess.detached(), true)
+		c.syncPresence(ctx, true)
 		// A fresh login reconciles app state on Connected, which is before the
 		// device has any: the snapshot comes back empty, and ReconcileChatPins
 		// is full authority, so it concludes nothing is pinned. This is the
@@ -75,10 +76,10 @@ func (c *Client) handleEvent(sess *accountSession, raw any) bool {
 	case *events.AppState:
 		// Typed app-state events (pins, mutes...) have their own cases;
 		// sticker favorites/recents only arrive through this generic event.
-		c.handleStickerAppState(sess.detached(), evt)
+		c.handleStickerAppState(ctx, evt)
 	case *events.AppStateSyncError:
 		if evt.Name == appstate.WAPatchRegularLow && isAppStateConflictError(evt.Error) {
-			c.log.Warnf("WhatsApp regular_low app state sync failed; recovering pinned chats: %v", evt.Error)
+			zerolog.Ctx(ctx).Warn().Err(evt.Error).Msg("regular_low app state sync failed, recovering pinned chats")
 			c.startPinnedChatRecoveryFromAppState()
 		}
 	case *events.Disconnected:
@@ -86,14 +87,14 @@ func (c *Client) handleEvent(sess *accountSession, raw any) bool {
 			// whatsmeow dispatches this on its own goroutine, so a Disconnected
 			// for a socket that is already gone can land after its replacement
 			// is up. The client itself is the authority, not arrival order.
-			c.log.Debugf("Ignoring a disconnect for a socket that is already replaced")
+			zerolog.Ctx(ctx).Debug().Msg("ignoring a disconnect for a socket that is already replaced")
 			break
 		}
 		c.daemon.SetConnection(app.StateReconnecting, "Connection lost. Reconnecting...", 0, 0, true)
 		c.requestReconnect(false)
 	case *events.KeepAliveTimeout:
 		if c.connectionIsLive() {
-			c.log.Debugf("Ignoring a keepalive timeout for a socket that is already replaced")
+			zerolog.Ctx(ctx).Debug().Msg("ignoring a keepalive timeout for a socket that is already replaced")
 			break
 		}
 		c.daemon.SetConnection(app.StateOffline, "Connection lost. Reconnecting...", 0, 0, true)
@@ -121,46 +122,46 @@ func (c *Client) handleEvent(sess *accountSession, raw any) bool {
 	case *events.TemporaryBan:
 		c.daemon.SetConnection(app.StateOffline, evt.String(), 0, 0, false)
 	case *events.Message:
-		return c.handleMessage(sess.detached(), evt, offlineSync)
+		return c.handleMessage(ctx, evt, offlineSync)
 	case *events.UndecryptableMessage:
-		c.handleUndecryptableMessage(sess.detached(), evt)
+		c.handleUndecryptableMessage(ctx, evt)
 	case *events.Receipt:
 		c.handleReceipt(evt, offlineSync)
 	case *events.HistorySync:
 		c.handleHistorySync(sess, evt)
 	case *events.MediaRetry:
-		c.handleMediaRetry(sess.detached(), evt)
+		c.handleMediaRetry(ctx, evt)
 	case *events.Pin:
-		c.handlePinEvent(sess.detached(), evt)
+		c.handlePinEvent(ctx, evt)
 	case *events.Archive:
-		c.handleArchiveEvent(sess.detached(), evt)
+		c.handleArchiveEvent(ctx, evt)
 	case *events.Mute:
-		c.handleMuteEvent(sess.detached(), evt)
+		c.handleMuteEvent(ctx, evt)
 	case *events.Star:
-		c.handleStarEvent(sess.detached(), evt)
+		c.handleStarEvent(ctx, evt)
 	case *events.MarkChatAsRead:
-		c.handleMarkChatAsReadEvent(sess.detached(), evt)
+		c.handleMarkChatAsReadEvent(ctx, evt)
 	case *events.DeleteForMe:
-		c.handleDeleteForMeEvent(sess.detached(), evt)
+		c.handleDeleteForMeEvent(ctx, evt)
 	case *events.DeleteChat:
-		c.handleDeleteChatEvent(sess.detached(), evt)
+		c.handleDeleteChatEvent(ctx, evt)
 	case *events.ClearChat:
-		c.handleClearChatEvent(sess.detached(), evt)
+		c.handleClearChatEvent(ctx, evt)
 	case *events.JoinedGroup:
-		c.handleJoinedGroup(sess.detached(), evt)
+		c.handleJoinedGroup(ctx, evt)
 	case *events.GroupInfo:
-		c.handleGroupInfoEvent(sess.detached(), evt)
+		c.handleGroupInfoEvent(ctx, evt)
 	case *events.Picture:
-		c.handlePictureEvent(sess.detached(), evt)
-		c.recordGroupPhotoChange(sess.detached(), evt)
+		c.handlePictureEvent(ctx, evt)
+		c.recordGroupPhotoChange(ctx, evt)
 		if c.isSelfJID(evt.JID) {
 			// Our own profile photo changed: refresh the settings profile page.
 			c.daemon.PublishSelfProfileChanged()
 		}
 	case *events.ChatPresence:
-		chatJID := c.normalizeJIDForChat(sess.detached(), evt.Chat)
+		chatJID := c.normalizeJIDForChat(ctx, evt.Chat)
 		isComposing := evt.State == types.ChatPresenceComposing
-		c.log.Infof("Received WhatsApp chat presence event: chat=%s sender=%s state=%s media=%s composing=%t", chatJID, evt.Sender, evt.State, evt.Media, isComposing)
+		zerolog.Ctx(ctx).Debug().Stringer("chat", chatJID).Stringer("sender", evt.Sender).Str("state", string(evt.State)).Str("media", string(evt.Media)).Bool("composing", isComposing).Msg("chat presence")
 		c.daemon.PublishChatPresence(chatJID.String(), evt.Sender.String(), isComposing)
 	case *events.IdentityChange:
 		// A contact's Signal identity changed (they reinstalled/re-registered
@@ -168,15 +169,15 @@ func (c *Client) handleEvent(sess *accountSession, raw any) bool {
 		// dropped the stale identity and session, so traffic self-heals; log the
 		// "security code changed" fact and publish it so a frontend notice can
 		// render without further daemon changes.
-		jid := c.normalizeJIDForChat(sess.detached(), evt.JID)
-		c.log.Warnf("WhatsApp identity changed for %s (implicit=%t)", jid, evt.Implicit)
+		jid := c.normalizeJIDForChat(ctx, evt.JID)
+		zerolog.Ctx(ctx).Warn().Stringer("jid", jid).Bool("implicit", evt.Implicit).Msg("identity changed")
 		c.daemon.PublishIdentityChanged(jid.ToNonAD().String())
 		// The notice above is transient. The transcript keeps the fact, because
 		// "when did this change" is the question somebody asks about a security
 		// code, and a banner that has already gone cannot answer it.
-		c.recordIdentityChange(sess.detached(), evt)
+		c.recordIdentityChange(ctx, evt)
 	case *events.Presence:
-		chatJID := c.normalizeJIDForChat(sess.detached(), evt.From)
+		chatJID := c.normalizeJIDForChat(ctx, evt.From)
 		availability := app.ContactAvailabilityOnline
 		var lastSeenUnix int64
 		if evt.Unavailable {
@@ -258,13 +259,13 @@ func (c *Client) handlePinEvent(ctx context.Context, evt *events.Pin) {
 		nameSource = appstore.ChatNameSourceGroup
 	}
 	if _, err := c.store.EnsureChatWithNameSource(ctx, chatID, name, nameSource, chatJID.Server == types.GroupServer); err != nil {
-		c.log.Warnf("Failed to ensure pinned chat %s: %v", chatID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("ensure pinned chat")
 		return
 	}
 
 	chat, changed, err := c.store.UpdateChatPinState(ctx, chatID, pinned, order)
 	if err != nil {
-		c.log.Warnf("Failed to update pinned state for %s: %v", chatID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("update pinned state")
 		return
 	}
 	if changed {
@@ -291,13 +292,13 @@ func (c *Client) handleArchiveEvent(ctx context.Context, evt *events.Archive) {
 		nameSource = appstore.ChatNameSourceGroup
 	}
 	if _, err := c.store.EnsureChatWithNameSource(ctx, chatID, name, nameSource, chatJID.Server == types.GroupServer); err != nil {
-		c.log.Warnf("Failed to ensure archived chat %s: %v", chatID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("ensure archived chat")
 		return
 	}
 
 	chat, changed, err := c.store.UpdateChatArchiveState(ctx, chatID, evt.Action.GetArchived())
 	if err != nil {
-		c.log.Warnf("Failed to update archive state for %s: %v", chatID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("update archive state")
 		return
 	}
 	if changed {
@@ -333,13 +334,13 @@ func (c *Client) handleMuteEvent(ctx context.Context, evt *events.Mute) {
 		nameSource = appstore.ChatNameSourceGroup
 	}
 	if _, err := c.store.EnsureChatWithNameSource(ctx, chatID, name, nameSource, chatJID.Server == types.GroupServer); err != nil {
-		c.log.Warnf("Failed to ensure muted chat %s: %v", chatID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("ensure muted chat")
 		return
 	}
 
 	chat, changed, err := c.store.UpdateChatMuteState(ctx, chatID, muted, muteEnd)
 	if err != nil {
-		c.log.Warnf("Failed to update mute state for %s: %v", chatID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("update mute state")
 		return
 	}
 	if changed {
@@ -396,7 +397,7 @@ func (c *Client) applyMarkChatAsRead(ctx context.Context, chatID string, read bo
 		chat, changed, err := c.store.MarkChatReadUpTo(ctx, chatID, uptoUnix)
 		if err != nil {
 			if !errors.Is(err, sql.ErrNoRows) {
-				c.log.Warnf("Failed to mark chat %s read from app state: %v", chatID, err)
+				zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("mark chat read from app state")
 			}
 			return
 		}
@@ -411,7 +412,7 @@ func (c *Client) applyMarkChatAsRead(ctx context.Context, chatID string, read bo
 	chat, err := c.store.GetChat(ctx, chatID)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			c.log.Warnf("Failed to load chat %s for mark-unread: %v", chatID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("load chat for mark-unread")
 		}
 		return
 	}
@@ -420,7 +421,7 @@ func (c *Client) applyMarkChatAsRead(ctx context.Context, chatID string, read bo
 	}
 	updated, changed, err := c.store.OverwriteChatUnreadCount(ctx, chatID, 1)
 	if err != nil {
-		c.log.Warnf("Failed to mark chat %s unread from app state: %v", chatID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chatID).Msg("mark chat unread from app state")
 		return
 	}
 	if changed {

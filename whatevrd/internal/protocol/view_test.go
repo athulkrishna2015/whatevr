@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -28,7 +29,7 @@ func newMemView() *memView {
 	}
 }
 
-func (v *memView) Open(params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
+func (v *memView) Open(_ context.Context, params json.RawMessage, invalidate func()) (ViewSession, map[string]any, *Error) {
 	if v.openErr != nil {
 		return nil, nil, v.openErr
 	}

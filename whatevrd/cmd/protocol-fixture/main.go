@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
-	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -12,13 +11,14 @@ import (
 	"time"
 
 	"whatevrd/internal/app"
+	"whatevrd/internal/logx"
 	"whatevrd/internal/protocol"
 	appstore "whatevrd/internal/store"
 )
 
 type conformanceView struct{ faults *faultSet }
 
-func (v conformanceView) Open(_ json.RawMessage, _ func()) (protocol.ViewSession, map[string]any, *protocol.Error) {
+func (v conformanceView) Open(_ context.Context, _ json.RawMessage, _ func()) (protocol.ViewSession, map[string]any, *protocol.Error) {
 	return conformanceSession{faults: v.faults}, map[string]any{"fixture": "conformance"}, nil
 }
 
@@ -167,17 +167,26 @@ func main() {
 	flag.StringVar(&faultSpec, "fault", "", "faults to arm: name[:one-in-N], comma separated, or all")
 	flag.Parse()
 
+	// the conformance harness pipes stderr without reading it, so stay at the
+	// daemon's stderr level (warn) unless asked
+	_, level, levelErr := logx.LevelsFromEnv()
+	log := logx.Console(os.Stderr, level)
+	if levelErr != nil {
+		log.Fatal().Err(levelErr).Msg("bad log level")
+	}
+
 	if socketPath == "" {
-		log.Fatal("--socket is required")
+		log.Fatal().Msg("--socket is required")
 	}
 
 	faults, err := parseFaults(faultSpec)
 	if err != nil {
-		log.Fatalf("--fault: %v", err)
+		log.Fatal().Err(err).Msg("--fault")
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	ctx = log.WithContext(ctx)
 
 	base := filepath.Dir(socketPath)
 	daemon := app.NewDaemon(app.Paths{
@@ -188,7 +197,7 @@ func main() {
 
 	server, err := protocol.New(socketPath, nil, daemon)
 	if err != nil {
-		log.Fatalf("start protocol fixture: %v", err)
+		log.Fatal().Err(err).Msg("start protocol fixture")
 	}
 	protocol.RegisterDaemonViews(server, daemon, nil, nil)
 	protocol.RegisterDaemonCommands(server, fixtureCommands{})
@@ -200,16 +209,16 @@ func main() {
 	if scriptPath != "" {
 		recorded, loadErr := loadScript(scriptPath)
 		if loadErr != nil {
-			log.Fatalf("--script: %v", loadErr)
+			log.Fatal().Err(loadErr).Msg("--script")
 		}
 		view := scriptedView{script: recorded, faults: faults}
 		for _, name := range recorded.views {
 			server.RegisterView(name, view)
 		}
-		log.Printf("replaying %d view(s) from %s", len(recorded.views), scriptPath)
+		log.Info().Int("views", len(recorded.views)).Str("script", scriptPath).Msg("replaying")
 	}
 	if faultSpec != "" {
-		log.Printf("faults armed: %s", faultSpec)
+		log.Info().Str("faults", faultSpec).Msg("faults armed")
 	}
 	// Accept only after registration; the ready file (which the conformance
 	// harness waits on before dialing) is written below, after Serve.
@@ -217,21 +226,21 @@ func main() {
 
 	if readyFile != "" {
 		if err := os.WriteFile(readyFile, []byte(socketPath+"\n"), 0o644); err != nil {
-			log.Fatalf("write ready file: %v", err)
+			log.Fatal().Err(err).Msg("write ready file")
 		}
 	}
-	log.Printf("protocol conformance fixture listening on %s", socketPath)
+	log.Info().Str("socket", socketPath).Msg("protocol conformance fixture listening")
 
 	select {
 	case <-ctx.Done():
 		for err := range server.Err() {
 			if err != nil {
-				log.Fatalf("protocol fixture shutdown: %v", err)
+				log.Fatal().Err(err).Msg("protocol fixture shutdown")
 			}
 		}
 	case err, ok := <-server.Err():
 		if ok && err != nil {
-			log.Fatalf("protocol fixture failed: %v", err)
+			log.Fatal().Err(err).Msg("protocol fixture failed")
 		}
 	}
 }

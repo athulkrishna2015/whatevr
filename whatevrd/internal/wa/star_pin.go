@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	waE2E "go.mau.fi/whatsmeow/proto/waE2E"
@@ -188,7 +189,7 @@ func (c *Client) handleStarEvent(ctx context.Context, evt *events.Star) {
 			c.parkPendingStar(internalID, starred, false)
 			return
 		}
-		c.log.Warnf("Failed to apply star to message %s: %v", internalID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", internalID).Msg("apply star")
 		return
 	}
 	if changed && !evt.FromFullSync {
@@ -253,14 +254,14 @@ func (c *Client) reconcilePendingStars(ctx context.Context, final bool) {
 		updated, changed, err := c.store.SetMessageStarred(ctx, internalID, starred)
 		if err != nil {
 			if !errors.Is(err, sql.ErrNoRows) {
-				c.log.Warnf("Failed to apply star to message %s: %v", internalID, err)
+				zerolog.Ctx(ctx).Warn().Err(err).Str("msg", internalID).Msg("apply star")
 				continue
 			}
 			if final {
 				// The sync is over and the message never came: it is older
 				// than the history this device was given, and there is nothing
 				// here to star.
-				c.log.Debugf("Dropping star for message %s, which was never synced", internalID)
+				zerolog.Ctx(ctx).Debug().Str("msg", internalID).Msg("dropping a star for a message that was never synced")
 				continue
 			}
 			c.parkPendingStar(internalID, starred, true)
@@ -308,7 +309,7 @@ func (c *Client) handlePinInChat(ctx context.Context, evt *events.Message, offli
 	updated, changed, err := c.store.SetMessagePinned(ctx, internalID, pinnedAt, pinnedUntil)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			c.log.Warnf("Failed to apply pin to message %s: %v", internalID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("msg", internalID).Msg("apply pin")
 		}
 		return true
 	}
@@ -329,7 +330,7 @@ func (c *Client) sendRegularHighAppState(ctx context.Context, client *whatsmeow.
 		if !isAppStateConflictError(err) {
 			return err
 		}
-		c.log.Warnf("WhatsApp app state conflict while updating stars; resyncing regular_high and retrying: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("app state conflict while updating stars, resyncing regular_high and retrying")
 		if _, syncErr := fetchFullRegularHighAppState(ctx, client); syncErr != nil {
 			return app.NewCommandError(app.CommandErrorRejected, "WhatsApp sync conflict. Try again in a moment.")
 		}

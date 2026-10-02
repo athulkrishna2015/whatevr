@@ -148,7 +148,7 @@ func (s *Server) StartControl(ctx context.Context, path string) error {
 			go s.serveControl(conn)
 		}
 	}()
-	s.log.Printf("control socket on %s", path)
+	s.log.Info().Str("path", path).Msg("control socket up")
 	return nil
 }
 

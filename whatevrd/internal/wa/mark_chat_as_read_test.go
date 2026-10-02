@@ -9,7 +9,6 @@ import (
 	waSyncAction "go.mau.fi/whatsmeow/proto/waSyncAction"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
-	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 
 	"whatevrd/internal/app"
@@ -23,7 +22,7 @@ func newMarkReadTestClient(t *testing.T) (*Client, *appstore.DB) {
 		t.Fatalf("open db: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	return &Client{store: db, daemon: app.NewDaemon(app.Paths{}), log: waLog.Noop}, db
+	return &Client{store: db, daemon: app.NewDaemon(app.Paths{})}, db
 }
 
 func seedUnreadMessages(t *testing.T, db *appstore.DB, chatID string, timestamps ...int64) {

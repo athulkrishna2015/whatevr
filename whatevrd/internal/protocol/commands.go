@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"whatevrd/internal/app"
 	appstore "whatevrd/internal/store"
 )
@@ -46,16 +48,17 @@ type ctxHandlerFunc func(ctx context.Context, c *conn, req request) (any, *Error
 // capturing req here does not alias the read loop's scanner buffer, and a
 // response pushed after close is a harmless drop.
 func backgroundNet(h ctxHandlerFunc, tieToConn bool) handlerFunc {
-	return func(c *conn, req request) (any, *Error) {
+	return func(reqCtx context.Context, c *conn, req request) (any, *Error) {
 		go func() {
-			parent := context.Background()
+			parent := reqCtx
 			if tieToConn {
-				parent = c.ctx
+				parent = zerolog.Ctx(reqCtx).WithContext(c.ctx)
 			}
 			ctx, cancel := context.WithTimeout(parent, netCommandTimeout)
 			defer cancel()
 			result, herr := h(ctx, c, req)
 			if herr != nil {
+				logCommandError(reqCtx, herr)
 				c.respondError(req.ID, herr, false)
 				return
 			}

@@ -31,7 +31,7 @@ const outboxDepth = 64
 // connection over to the scenario timeline.
 func (s *session) postLogin(ctx context.Context) {
 	if err := s.srv.awaitClientKeys(ctx); err != nil {
-		s.srv.log.Printf("delivery disabled: %v", err)
+		s.srv.log.Warn().Err(err).Msg("delivery disabled")
 		return
 	}
 
@@ -39,7 +39,7 @@ func (s *session) postLogin(ctx context.Context) {
 	// daemon asks for app state as soon as it is connected, and a key that
 	// arrives after that costs a failed fetch and a re-sync.
 	if err := s.sendAppStateKey(ctx); err != nil {
-		s.srv.log.Printf("app state key: %v", err)
+		s.srv.log.Warn().Err(err).Msg("app state key")
 	}
 
 	go s.pumpOutbox(ctx)
@@ -114,7 +114,7 @@ func (s *Server) clearLive(sess *session) {
 func (s *Server) deliverLive(m *Msg) {
 	sess := s.live()
 	if sess == nil {
-		s.log.Printf("dropping %q: nothing is connected", m.Text)
+		s.log.Warn().Str("msg", m.ID).Msg("dropping a message, nothing is connected")
 		return
 	}
 	sess.enqueueMessage(m, false)
@@ -145,7 +145,7 @@ func (s *session) pumpOutbox(ctx context.Context) {
 			err := fn(ctx)
 			s.srv.quiet.addWork(-1)
 			if err != nil {
-				s.srv.log.Printf("deliver: %v", err)
+				s.srv.log.Warn().Err(err).Msg("deliver")
 			}
 		case <-ctx.Done():
 			return

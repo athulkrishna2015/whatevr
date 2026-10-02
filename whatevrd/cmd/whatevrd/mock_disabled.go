@@ -4,9 +4,10 @@ package main
 
 import (
 	"context"
-	"log"
 	"os"
 	"strings"
+
+	"github.com/rs/zerolog"
 
 	"whatevrd/internal/app"
 )
@@ -16,14 +17,14 @@ import (
 // -tags whatevr_mock.
 type mockRun struct{}
 
-func mockPrepare() *mockRun {
+func mockPrepare(log zerolog.Logger) *mockRun {
 	for _, arg := range os.Args[1:] {
 		if arg == "--" {
 			break
 		}
 		name := strings.TrimLeft(arg, "-")
 		if name == "mock" || strings.HasPrefix(name, "mock=") || strings.HasPrefix(name, "mock-") {
-			log.Fatalf("this whatevrd was built without mock support; rebuild with -tags whatevr_mock")
+			log.Fatal().Msg("this whatevrd was built without mock support; rebuild with -tags whatevr_mock")
 		}
 	}
 	return nil

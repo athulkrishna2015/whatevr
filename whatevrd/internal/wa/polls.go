@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
@@ -72,7 +73,7 @@ func (c *Client) pollMessageInput(ctx context.Context, evt *events.Message, opts
 	}
 	encoded, err := appstore.EncodePayload(appstore.MessagePayload{Poll: payload})
 	if err != nil {
-		c.log.Warnf("Failed to encode poll payload for %s: %v", base.ID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", base.ID).Msg("encode poll payload")
 		return appstore.MediaMessageInput{}, false
 	}
 
@@ -102,7 +103,7 @@ func (c *Client) savePollOptions(ctx context.Context, messageID string, poll *wa
 		options = append(options, appstore.PollOption{Index: i, Name: name, SHA256: hashes[i]})
 	}
 	if err := c.store.SavePollOptions(ctx, messageID, options); err != nil {
-		c.log.Warnf("Failed to store poll options for %s: %v", messageID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", messageID).Msg("store poll options")
 		return
 	}
 	c.drainPendingPollVotes(ctx, messageID)
@@ -144,7 +145,7 @@ func (c *Client) handlePollUpdate(ctx context.Context, evt *events.Message) bool
 
 	applied, err := c.store.ApplyPollVote(ctx, pollID, voter, selections.GetSelectedOptions(), votedAt)
 	if err != nil {
-		c.log.Warnf("Failed to apply poll vote on %s: %v", pollID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", pollID).Msg("apply poll vote")
 		return true
 	}
 	// A vote the store judged stale changed nothing, so there is nothing to
@@ -167,7 +168,7 @@ func (c *Client) parkPollVote(ctx context.Context, chatID, pollID, voter string,
 		EncIV:         update.GetVote().GetEncIV(),
 		SenderTSMS:    votedAt,
 	}); err != nil {
-		c.log.Warnf("Failed to park poll vote for %s: %v", pollID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", pollID).Msg("park poll vote")
 	}
 }
 
@@ -177,7 +178,7 @@ func (c *Client) parkPollVote(ctx context.Context, chatID, pollID, voter string,
 func (c *Client) drainPendingPollVotes(ctx context.Context, pollID string) {
 	parked, err := c.store.TakePendingPollVotes(ctx, pollID)
 	if err != nil {
-		c.log.Warnf("Failed to take pending poll votes for %s: %v", pollID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", pollID).Msg("take pending poll votes")
 		return
 	}
 	if len(parked) == 0 {
@@ -231,12 +232,12 @@ func (c *Client) drainPendingPollVotes(ctx context.Context, pollID string) {
 		}
 		selections, err := client.DecryptPollVote(ctx, replay)
 		if err != nil {
-			c.log.Warnf("Failed to decrypt a parked vote for %s: %v", pollID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("msg", pollID).Msg("decrypt a parked vote")
 			continue
 		}
 		ok, err := c.store.ApplyPollVote(ctx, pollID, vote.VoterJID, selections.GetSelectedOptions(), vote.SenderTSMS)
 		if err != nil {
-			c.log.Warnf("Failed to apply a parked vote for %s: %v", pollID, err)
+			zerolog.Ctx(ctx).Warn().Err(err).Str("msg", pollID).Msg("apply a parked vote")
 			continue
 		}
 		if ok {
@@ -267,7 +268,7 @@ func (c *Client) handlePollAddOption(ctx context.Context, evt *events.Message) b
 	if add == nil {
 		inner, err := client.DecryptSecretEncryptedMessage(ctx, evt)
 		if err != nil {
-			c.log.Warnf("Failed to decrypt a secret message: %v", err)
+			zerolog.Ctx(ctx).Warn().Err(err).Msg("decrypt a secret message")
 			return true
 		}
 		add = inner.GetPollAddOptionMessage()
@@ -285,7 +286,7 @@ func (c *Client) handlePollAddOption(ctx context.Context, evt *events.Message) b
 	}
 	hashes := whatsmeow.HashPollOptions([]string{name})
 	if err := c.store.AddPollOption(ctx, pollID, name, hashes[0]); err != nil {
-		c.log.Warnf("Failed to add a poll option to %s: %v", pollID, err)
+		zerolog.Ctx(ctx).Warn().Err(err).Str("msg", pollID).Msg("add a poll option")
 		return true
 	}
 	c.publishPollUpdated(ctx, pollID)
@@ -388,7 +389,7 @@ func (c *Client) VotePoll(ctx context.Context, messageID string, optionIndexes [
 		// keep sitting in our own tally, so the previous selection goes back.
 		if selfJID != "" {
 			if _, undo := c.store.ApplyPollVote(ctx, messageID, selfJID, previous, time.Now().Unix()); undo != nil {
-				c.log.Warnf("Failed to undo an unsent vote on %s: %v", messageID, undo)
+				zerolog.Ctx(ctx).Warn().Err(undo).Str("msg", messageID).Msg("undo an unsent vote")
 			}
 			c.publishPollUpdated(ctx, messageID)
 		}
@@ -409,7 +410,7 @@ func (c *Client) recordSelfJID(ctx context.Context) {
 		return
 	}
 	if err := c.store.SetSelfJID(ctx, own.ToNonAD().String()); err != nil {
-		c.log.Warnf("Failed to record our own jid: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("record our own jid")
 	}
 }
 
@@ -417,6 +418,6 @@ func (c *Client) recordSelfJID(ctx context.Context) {
 func (c *Client) prunePendingPollVotes(ctx context.Context) {
 	if err := c.store.PrunePendingPollVotes(ctx, time.Now().Add(-pendingPollVoteRetention).Unix()); err != nil &&
 		!errors.Is(err, context.Canceled) {
-		c.log.Warnf("Failed to prune pending poll votes: %v", err)
+		zerolog.Ctx(ctx).Warn().Err(err).Msg("prune pending poll votes")
 	}
 }

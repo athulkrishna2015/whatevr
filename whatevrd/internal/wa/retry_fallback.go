@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
@@ -51,7 +52,7 @@ func (b *retryFallbackBuffer) GetOutgoingEvent(ctx context.Context, chatJID, alt
 		if marshalErr != nil {
 			continue
 		}
-		b.client.log.Infof("Answered retry for %s/%s from the daemon message store", jid.ToNonAD(), id)
+		zerolog.Ctx(ctx).Info().Stringer("chat", jid.ToNonAD()).Str("stanza", id).Msg("answered a retry from the daemon message store")
 		return "wa", encoded, nil
 	}
 
