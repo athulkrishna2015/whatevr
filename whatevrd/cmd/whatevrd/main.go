@@ -20,6 +20,9 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "pair" {
 		os.Exit(runPair(os.Args[2:], os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "logs" {
+		os.Exit(runLogs(os.Args[2:], os.Stdout, os.Stderr))
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
