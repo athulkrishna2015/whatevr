@@ -35,6 +35,17 @@ func mockSilencesNotifications(run *mockRun) bool {
 	return run != nil && !run.notify
 }
 
+// mockSilencesTray reports whether this run should keep its icon out of the
+// panel. A StatusNotifierItem registers with the watcher for the life of the
+// process and nothing takes it back when the process dies, so every mock daemon
+// a test run starts left an icon behind — permanently, in the user's own
+// panel, for a daemon that no longer exists. --mock-notify deliberately puts
+// notifications back; nothing puts the icon back, because a test that wanted a
+// tray icon would be testing the panel rather than the daemon.
+func mockSilencesTray(run *mockRun) bool {
+	return run != nil
+}
+
 // mockPrepare parses the mock flags and, in mock mode, repoints the XDG
 // directories at a scratch tree. It has to run before app.ResolvePaths, so the
 // real account database is never opened by a mock daemon.

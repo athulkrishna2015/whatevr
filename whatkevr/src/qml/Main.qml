@@ -231,16 +231,6 @@ Kirigami.ApplicationWindow {
                     }
                 }
 
-                QQC2.Button {
-                    flat: true
-                    Layout.fillWidth: true
-                    text: Whatevr.I18n.i18nc("@action:inmenu mark all chats read from tray", "Mark all as read")
-                    onClicked: {
-                        trayMenuWindow.visible = false
-                        Whatevr.ProtocolController.markAllChatsRead()
-                    }
-                }
-
                 Kirigami.Separator {
                     Layout.fillWidth: true
                 }

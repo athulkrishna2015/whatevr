@@ -125,8 +125,14 @@ func main() {
 	}
 
 	// Daemon tray icon (StatusNotifierItem): connection state + unread count.
-	// Best-effort — a missing session bus or watcher only logs.
-	go tray.Start(ctx, daemon, db, protocolServer)
+	// Best-effort — a missing session bus or watcher only logs. Never in mock
+	// mode: the registration outlives the process, so a test daemon would
+	// leave its icon in the user's panel forever.
+	if mockSilencesTray(mock) {
+		log.Print("tray icon disabled: mock mode")
+	} else {
+		go tray.Start(ctx, daemon, db, protocolServer)
+	}
 
 	waClient, err := wa.New(ctx, paths, daemon, db, notifier)
 	if err != nil {

@@ -36,3 +36,7 @@ func mockStart(context.Context, *mockRun, *app.Daemon) (func(), error) {
 // mockSilencesNotifications is never true in a release build: there is no mock
 // run to silence them for.
 func mockSilencesNotifications(*mockRun) bool { return false }
+
+// mockSilencesTray is never true in a release build, for the same reason. The
+// real daemon owns exactly one icon, and it is the one the user sees.
+func mockSilencesTray(*mockRun) bool { return false }
