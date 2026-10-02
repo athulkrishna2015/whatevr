@@ -22,6 +22,11 @@ func main() {
 	restoreBundle := flag.String("restore", "", "restore a backup bundle created by daemon.backup_export and exit (the daemon must be stopped)")
 	restorePassphrase := flag.String("restore-passphrase", "", "passphrase for an encrypted backup bundle (prefer WHATEVR_BACKUP_PASSPHRASE)")
 
+	// `pair` is a subcommand, not a flag, so it is dispatched before flag.Parse.
+	if len(os.Args) > 1 && os.Args[1] == "pair" {
+		os.Exit(runPair(os.Args[2:], os.Stdout, os.Stderr))
+	}
+
 	// Mock mode repoints the XDG directories at a scratch tree, so it has to
 	// settle before anything resolves a path. It also has to run before
 	// flag.Parse: under -tags whatevr_mock it is what registers the mock

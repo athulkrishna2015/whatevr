@@ -26,9 +26,29 @@ type composer struct {
 	// kill is the last thing cut, for ctrl+y, because a kill with nothing to
 	// put it back into is a trap rather than an editor.
 	kill []rune
-	// sendErr is what the daemon said about the last send, cleared the moment
-	// the reader types again.
-	sendErr string
+
+	// What this draft is about, if it is about an existing message: replyTo is
+	// the message it answers and editing is the message it replaces. Never
+	// both, because an edit is not an answer. The strip above the draft says
+	// which, and targetName and targetText are what it says.
+	replyTo    string
+	editing    string
+	targetName string
+	targetText string
+	// targetColour is the colour that message is known by: the sender's own,
+	// which is the same one their rule and their disc carry in the transcript.
+	targetColour vaxis.Color
+}
+
+// targeted reports whether the draft is aimed at an existing message.
+func (c *composer) targeted() bool { return c.replyTo != "" || c.editing != "" }
+
+// clearTarget puts the draft back to being a new message. Clearing the text
+// does not do this: cutting a line you were writing is not taking back the
+// reply you were writing it as.
+func (c *composer) clearTarget() {
+	c.replyTo, c.editing = "", ""
+	c.targetName, c.targetText, c.targetColour = "", "", 0
 }
 
 func (c *composer) empty() bool { return len(c.text) == 0 }
@@ -138,7 +158,6 @@ func (c *composer) multiline() bool {
 // enter and shift+enter split from every chat application. Nothing is a
 // whattui invention, which is the point.
 func (a *App) onComposerKey(k vaxis.Key) {
-	defer a.syncSlashModal()
 	a.mu.Lock()
 	c := &a.composer
 	a.mu.Unlock()
@@ -155,6 +174,15 @@ func (a *App) onComposerKey(k vaxis.Key) {
 	case k.Matches(vaxis.KeyEsc):
 		if !c.empty() {
 			c.clear()
+			return
+		}
+		// One level per press, outermost first: what is typed, then what it
+		// was going to be, then what is lit, then the pane.
+		if c.targeted() {
+			c.clearTarget()
+			return
+		}
+		if a.clearCursor() {
 			return
 		}
 		a.setFocus(FocusList)
@@ -194,15 +222,35 @@ func (a *App) onComposerKey(k vaxis.Key) {
 
 	// The arrows belong to the transcript while there is nothing typed, and
 	// to the text the moment there is. One rule, no mode.
+	//
+	// On an empty line they move the selection cursor, which is the gesture
+	// every chat application already taught: up is your last message, and
+	// everything you can do to it appears on the hint line once it is lit.
 	case k.Matches(vaxis.KeyUp):
-		if c.empty() || !c.multiline() {
+		if c.empty() {
+			a.moveCursor(1)
+			return
+		}
+		if !c.multiline() {
 			a.setFocus(FocusTranscript)
 			a.scrollTranscript(1)
 			return
 		}
 		c.moveLine(-1)
 	case k.Matches(vaxis.KeyDown):
-		if c.empty() || !c.multiline() {
+		if c.empty() {
+			// Up is what reaches into the transcript, because up is where the
+			// messages are. Down only ever walks back out of it: with nothing
+			// pointed at there is nothing to walk back towards, and lighting
+			// the newest message is a selection nobody asked for.
+			if a.cursor() != "" {
+				a.moveCursor(-1)
+				return
+			}
+			a.scrollTranscript(-1)
+			return
+		}
+		if !c.multiline() {
 			a.scrollTranscript(-1)
 			return
 		}
@@ -216,10 +264,22 @@ func (a *App) onComposerKey(k vaxis.Key) {
 	default:
 		// Anything that generated text is text. A control sequence generates
 		// none, so this needs no list of keys to exclude.
-		if k.Text != "" {
-			c.sendErr = ""
-			c.insert(k.Text)
+		if k.Text == "" {
+			return
 		}
+		// A slash on an empty line opens the command menu, and from there the
+		// menu keeps what is typed into it: the draft is not a command line.
+		// Typed, though, never pasted: text off a clipboard is text, whatever
+		// it happens to start with.
+		if k.Text == "/" && c.empty() && k.EventType != vaxis.EventPaste {
+			a.openModal(modalSlash)
+			return
+		}
+		// Typing is not pointing at a message. Letting go here is what keeps
+		// the cursor and a draft from ever being on screen at once, which is
+		// what makes both escape and a bare letter unambiguous.
+		a.clearCursor()
+		c.insert(k.Text)
 	}
 }
 
@@ -254,6 +314,7 @@ func (a *App) send() {
 	a.mu.Lock()
 	chat := a.activeChat
 	text := strings.TrimRight(a.composer.String(), "\n")
+	draft := a.composer
 	a.mu.Unlock()
 
 	if chat == "" || strings.TrimSpace(text) == "" {
@@ -262,24 +323,52 @@ func (a *App) send() {
 
 	a.mu.Lock()
 	a.composer.clear()
-	a.composer.sendErr = ""
+	a.composer.clearTarget()
 	a.mu.Unlock()
 
-	a.client.Do("send.text", proto.Params{"chat_id": chat, "text": text}, func(_ json.RawMessage, err *proto.Error) {
-		if err == nil {
-			return
+	request := a.request
+	if request == nil {
+		return
+	}
+	// An edit replaces a message rather than saying another one, so it is a
+	// different request with the same gesture behind it.
+	if draft.editing != "" {
+		request("message.edit", proto.Params{"message_id": draft.editing, "text": text},
+			func(_ json.RawMessage, err *proto.Error) { a.sent(draft, text, err) })
+		return
+	}
+
+	params := proto.Params{"chat_id": chat, "text": text}
+	if draft.replyTo != "" {
+		params["reply_to"] = draft.replyTo
+	}
+	request("send.text", params, func(_ json.RawMessage, err *proto.Error) { a.sent(draft, text, err) })
+}
+
+// sent puts the draft back when the daemon would not take it. Losing what
+// somebody typed because a socket blinked is the one unforgivable bug in a chat
+// client, and what it was an answer to is part of what they typed.
+//
+// Why it did not go is a toast rather than a line in the field: the field holds
+// the words, and a refusal that sits in it is a refusal standing where the
+// thing it is about should be. The draft comes back and is readable, and the
+// reason arrives in the corner every other answer arrives in.
+func (a *App) sent(draft composer, text string, err *proto.Error) {
+	if err == nil {
+		return
+	}
+	a.mu.Lock()
+	if a.composer.empty() {
+		a.composer.text = []rune(text)
+		a.composer.cursor = len(a.composer.text)
+		if !a.composer.targeted() {
+			a.composer.replyTo, a.composer.editing = draft.replyTo, draft.editing
+			a.composer.targetName, a.composer.targetText = draft.targetName, draft.targetText
+			a.composer.targetColour = draft.targetColour
 		}
-		a.mu.Lock()
-		// Put the words back. Losing what somebody typed because a socket
-		// blinked is the one unforgivable bug in a chat client.
-		if a.composer.empty() {
-			a.composer.text = []rune(text)
-			a.composer.cursor = len(a.composer.text)
-		}
-		a.composer.sendErr = err.Message
-		a.mu.Unlock()
-		a.vx.PostEvent(redraw{})
-	})
+	}
+	a.mu.Unlock()
+	a.refuse("not sent: " + err.Message)
 }
 
 // composerRows is how many rows the text needs, clamped to what the screen can
@@ -287,15 +376,21 @@ func (a *App) send() {
 func (a *App) composerRows(width int) int {
 	a.mu.Lock()
 	text := a.composer.String()
+	// The strip that says which message this draft is about is a row of the
+	// composer, so the pane has to be a row taller while it is there.
+	strip := 0
+	if a.composer.targeted() {
+		strip = 1
+	}
 	a.mu.Unlock()
 	if width < 4 || text == "" {
-		return 1
+		return 1 + strip
 	}
 	n := len(a.wrap(text, width-composerGutter))
 	if n < 1 {
 		n = 1
 	}
-	return minInt(n, maxComposerRows)
+	return minInt(n, maxComposerRows) + strip
 }
 
 // composerGutter is the prompt marker plus the space each side of the text,

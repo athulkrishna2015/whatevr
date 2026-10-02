@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"go.mau.fi/whatsmeow"
+
 	"whatevrd/internal/textutil"
 )
 
@@ -224,6 +226,30 @@ type Message struct {
 	// poll's tally is: installing a pack from the picker must not leave a card
 	// elsewhere in the transcript still offering to add it.
 	StickerPack *StickerPackState
+}
+
+// EditableUntil is the unix second WhatsApp stops accepting an edit of this
+// message, or 0 for one that was never editable: somebody else's, a deleted
+// one, or a kind with nothing to rewrite.
+//
+// It is on the wire (`edit_until`) because the deadline is the daemon's to
+// know. A frontend that carried the window itself would be carrying a WhatsApp
+// policy number, and would go quietly wrong the day WhatsApp moves it.
+//
+// Only a body and an image caption can be rewritten, which is what the edit
+// build allows. A row whose stored media proto has gone missing still fails at
+// send time, and nothing in a listing can see that, so the command error stays
+// the last word.
+func (m Message) EditableUntil() int64 {
+	if m.Direction != DirectionOutgoing || m.IsRevoked {
+		return 0
+	}
+	switch m.MediaKind {
+	case "", MediaKindImage:
+	default:
+		return 0
+	}
+	return m.TimestampUnix + int64(whatsmeow.EditWindow/time.Second)
 }
 
 // StickerPackState is the library's answer about a shared pack. Known is false

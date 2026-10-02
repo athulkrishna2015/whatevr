@@ -3,7 +3,7 @@ package notify
 import (
 	"context"
 	"log"
-	"net/url"
+"net/url"
 	"os/exec"
 	"strings"
 	"sync"
@@ -23,9 +23,8 @@ const (
 )
 
 // ChatOpener delivers an "open this chat" request to a running frontend. It
-// reports whether at least one frontend received it, so the worker knows
-// whether it still needs to cold-start one. The protocol Server implements it
-// by fanning out connection-directed open_chat events.
+// reports whether at least one frontend received it. The protocol Server
+// implements it by fanning out connection-directed open_chat events.
 type ChatOpener interface {
 	OpenChat(chatID string) bool
 }
@@ -218,6 +217,9 @@ func (w *Worker) activeChat(id uint32) (string, bool) {
 	return chatID, ok
 }
 
+// openChat hands a clicked notification to a running frontend. With none
+// connected there is nothing to open: a terminal frontend cannot be started
+// from a notification.
 func (w *Worker) openChat(ctx context.Context, chatID string) {
 	// Prefer a running frontend: pushing over the live session stream focuses
 	// the existing window and switches chats without spawning a second

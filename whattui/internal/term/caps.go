@@ -66,6 +66,14 @@ type Caps struct {
 	ColorThemeUpdate bool
 	ReportsBG        bool
 
+	// PlainFont marks a terminal drawing from a font of a couple of hundred
+	// glyphs: letters, line drawing, and no pictures in it at all. The kernel's
+	// own console is the one that matters, and it is a real terminal rather
+	// than a corner case. It is not the tier: colour and graphics are what the
+	// terminal can do, and this is what its font has, so a 256 colour terminal
+	// with emoji in its font is not this and a truecolor one without them is.
+	PlainFont bool
+
 	// Forced records that the tier came from the environment rather than from
 	// the terminal, which --caps should say out loud.
 	Forced bool
@@ -85,6 +93,7 @@ func Detect(vx *vaxis.Vaxis) Caps {
 		TextScale:     vx.CanTextScale(),
 		InBandResize:  vx.CanInBandResize(),
 		ReportsBG:     vx.CanReportBackgroundColor(),
+		PlainFont:     consoleFont(os.Getenv("TERM")),
 	}
 	c.Tier = tierFor(c)
 	return applyEnv(c)
@@ -103,14 +112,28 @@ func tierFor(c Caps) Tier {
 	}
 }
 
+// consoleFont reports whether the terminal is the kernel's own console, which
+// is the one terminal whose font is fixed, small, and has no pictures in it.
+// Named off TERM because there is nothing to probe: a glyph the font does not
+// have is drawn as a blank, and a blank answers no query.
+func consoleFont(term string) bool {
+	return term == "linux" || strings.HasPrefix(term, "linux-")
+}
+
 // applyEnv lets the environment override what was detected. NO_COLOR is the
 // standard and is honoured outright; WHATTUI_TIER exists so every tier can be
 // exercised on one machine, which is the only way the degradation stays
 // correct once nobody is testing it in foot every day. WHATTUI_NO_TEXT_SCALE
 // is there for the same reason and on its own axis: graphics and text sizing
 // are two different capabilities, and a terminal with the first and not the
-// second is a real terminal, not a corner case.
+// second is a real terminal, not a corner case. WHATTUI_PLAIN_FONT stands in a
+// terminal whose font has no pictures in it, which is the third axis and the
+// one nobody can test without walking to a virtual console.
 func applyEnv(c Caps) Caps {
+	if os.Getenv("WHATTUI_PLAIN_FONT") == "1" && !c.PlainFont {
+		c.PlainFont = true
+		c.Forced = true
+	}
 	if os.Getenv("WHATTUI_NO_TEXT_SCALE") == "1" && c.TextScale {
 		c.TextScale = false
 		c.Forced = true
@@ -185,6 +208,7 @@ func (c Caps) Report() string {
 		{"explicit width", c.ExplicitWidth, ""},
 		{"text scaling", c.TextScale, ""},
 		{"in-band resize", c.InBandResize, ""},
+		{"picture glyphs", !c.PlainFont, plainFontNote(c)},
 		{"reports background", c.ReportsBG, ""},
 	} {
 		mark := "no"
@@ -194,6 +218,13 @@ func (c Caps) Report() string {
 		fmt.Fprintf(&b, "%-20s%-5s%s\n", row.name, mark, row.note)
 	}
 	return b.String()
+}
+
+func plainFontNote(c Caps) string {
+	if c.PlainFont {
+		return "(the console font: what would be a picture is spelled out)"
+	}
+	return ""
 }
 
 func unicodeCoreNote(c Caps) string {

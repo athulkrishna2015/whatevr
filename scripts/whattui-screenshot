@@ -55,6 +55,8 @@ DEFAULT_ACCOUNT = "visual"
 account = DEFAULT_ACCOUNT
 # Environment whattui is started with, from --env.
 EXTRA_ENV: dict[str, str] = {}
+# Extra flags for the mock daemon, from --daemon-arg.
+DAEMON_ARGS: list[str] = []
 KITTY_CONFIG = ROOT / "scripts" / "whattui-kitty.conf"
 DEFAULT_SIZE = (120, 40)
 # The states worth a picture, each opened the way a user opens it and each
@@ -776,6 +778,7 @@ def start_daemon(
             account,
             "--mock-dir",
             str(root),
+            *DAEMON_ARGS,
         ],
         cwd=ROOT / "whatevrd",
         stdout=log,
@@ -921,6 +924,14 @@ def main() -> int:
         "WHATTUI_NO_TEXT_SCALE=1 (repeatable)",
     )
     parser.add_argument(
+        "--daemon-arg",
+        action="append",
+        default=[],
+        metavar="FLAG",
+        help="extra flag for the mock whatevrd, such as --mock-scan-delay=10m to "
+        "hold it on the pairing screen (repeatable)",
+    )
+    parser.add_argument(
         "--account",
         choices=sorted(ACCOUNTS),
         help=f"mock scenario to photograph (default {DEFAULT_ACCOUNT})",
@@ -969,6 +980,7 @@ def main() -> int:
             args.child_command = args.child_command[1:]
         return child_mode(args)
 
+    DAEMON_ARGS.extend(args.daemon_arg)
     for pair in args.env:
         key, sep, value = pair.partition("=")
         if not sep or not key:

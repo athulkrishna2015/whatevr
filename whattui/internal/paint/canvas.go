@@ -101,6 +101,32 @@ func (c *canvas) strokeShape(sdf func(x, y float64) float64, col color.NRGBA, w 
 	}
 }
 
+// blurShape paints a shape whose edge fades out over spread pixels instead of
+// stopping at it. It is how a shadow is drawn, and a shadow is the one piece of
+// chrome a cell grid has no way at all to express: not a shape with a colour
+// but a gradient under one, a few pixels wide, over whatever is already there.
+func (c *canvas) blurShape(sdf func(x, y float64) float64, col color.NRGBA, spread float64) {
+	if spread <= 0 {
+		c.fillShape(sdf, col)
+		return
+	}
+	for y := 0; y < c.h; y++ {
+		for x := 0; x < c.w; x++ {
+			d := sdf(float64(x)+0.5, float64(y)+0.5)
+			switch {
+			case d <= 0:
+				c.blend(x, y, col, 1)
+			case d < spread:
+				// Squared falloff: a shadow is dense against the thing casting
+				// it and gone well before its own edge, and a linear ramp reads
+				// as a grey halo rather than as light.
+				t := 1 - d/spread
+				c.blend(x, y, col, t*t)
+			}
+		}
+	}
+}
+
 // stamp puts an image in the middle of the canvas. Blended a pixel at a time
 // rather than composited by the standard library, for the same reason
 // everything else here is: this buffer is straight alpha and that compositor

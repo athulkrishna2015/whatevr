@@ -51,12 +51,16 @@ type Media struct {
 	Played   bool  `json:"played"`
 }
 
-// Reaction is one emoji and who put it there.
+// Reaction is one person's reaction: one emoji and who put it there. A message
+// with three thumbs carries three of these, because who reacted is a fact the
+// daemon has and a count is not. Grouping them by emoji to draw is the
+// frontend's business, the same way wrapping a line is.
 type Reaction struct {
-	Emoji       string   `json:"emoji"`
-	Count       int      `json:"count"`
-	Senders     []string `json:"senders"`
-	SelfReacted bool     `json:"self_reacted"`
+	Emoji      string `json:"emoji"`
+	SenderID   string `json:"sender_id"`
+	SenderName string `json:"sender_name"`
+	Timestamp  int64  `json:"timestamp"`
+	FromMe     bool   `json:"from_me"`
 }
 
 // ReplyQuote is the message a message is answering.
@@ -105,13 +109,23 @@ type MessageRow struct {
 	Revoked   bool        `json:"revoked"`
 	Starred   bool        `json:"starred"`
 	Forwarded bool        `json:"forwarded"`
-	Media     *Media      `json:"media"`
-	System    *System     `json:"system"`
-	CallLog   *CallLog    `json:"call_log"`
+	// EditUntil is when WhatsApp stops taking an edit of this message, and 0
+	// for one that cannot be edited at all. The daemon works it out; the window
+	// is WhatsApp's and a frontend holding its own copy of it would be wrong
+	// the day it moves.
+	EditUntil int64    `json:"edit_until"`
+	Media     *Media   `json:"media"`
+	System    *System  `json:"system"`
+	CallLog   *CallLog `json:"call_log"`
 }
 
 // Outgoing reports whether we sent this.
 func (m MessageRow) Outgoing() bool { return m.Direction == "outgoing" }
+
+// Editable reports whether an edit would still be taken, at the unix second
+// given. Asked per keystroke and per frame, so the answer goes stale by itself
+// without anything having to be re-delivered.
+func (m MessageRow) Editable(now int64) bool { return m.EditUntil > 0 && now <= m.EditUntil }
 
 // Centred reports whether the row draws in the middle of the transcript with
 // no bubble and no author, which is what a message nobody wrote looks like.
@@ -127,10 +141,13 @@ func (m MessageRow) Body() string {
 		return m.System.Text
 	case m.Kind == "text" && m.Text != "":
 		return m.Text
-	case m.Text != "":
+	case m.Text != "" && m.Fallback != "":
 		// A caption rides the item-level text for every kind, so a photo with
 		// words shows the words under whatever the fallback said it was.
 		return m.Fallback + "\n" + m.Text
+	case m.Text != "":
+		// A kind with nothing to say about itself: the caption is the message.
+		return m.Text
 	default:
 		return m.Fallback
 	}
@@ -142,6 +159,21 @@ type Connection struct {
 	State           string `json:"state"`
 	RetryInSecs     int    `json:"retry_in_secs"`
 	PendingOutgoing int    `json:"pending_outgoing"`
+}
+
+// Login is the login view's object: where pairing is, and the code to scan
+// while the daemon waits for a phone.
+type Login struct {
+	State  string   `json:"state"`
+	Detail string   `json:"detail"`
+	QR     *LoginQR `json:"qr"`
+}
+
+// LoginQR is one pairing code. The daemon swaps it for a fresh one before
+// expires_at, so this only ever says when the next one lands.
+type LoginQR struct {
+	Code      string `json:"code"`
+	ExpiresAt string `json:"expires_at"`
 }
 
 // Self is our own profile.

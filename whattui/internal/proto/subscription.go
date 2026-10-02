@@ -119,3 +119,18 @@ func (s *Subscription) orphan() {
 	defer s.mu.Unlock()
 	s.subID, s.haveID = 0, false
 }
+
+// discard empties the sink, which a re-issue does before the new window starts
+// arriving.
+//
+// What comes back is the window as it stands now, and the daemon only ever
+// names the rows that are in it. A row that fell out while the socket was down
+// is never mentioned again, so anything kept across the gap is a row nobody is
+// going to correct: a chat that was archived from the phone, sitting in the
+// list until the next restart. The window is the daemon's, and after an outage
+// ours is not a copy of it.
+func (s *Subscription) discard() {
+	if s.sink != nil {
+		s.sink.Reset()
+	}
+}

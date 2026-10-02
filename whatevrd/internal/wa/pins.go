@@ -35,6 +35,9 @@ func (c *Client) reconcileAfterHistorySync(ctx context.Context) {
 	}
 	c.migrateLIDChats(ctx)
 	c.reconcilePendingAppState(ctx, true)
+	// Last call for an edit or a revoke whose message never came: after this
+	// there is no more history to wait for.
+	c.reconcilePendingRewrites(ctx, true)
 }
 
 // pendingAppStateEntry parks pin/archive/mute state for a chat whose JID
@@ -90,6 +93,10 @@ func (c *Client) parkPendingAppState(jid types.JID, mutate func(*pendingAppState
 // settled: at that point an entry that still has no mapping belongs to a
 // genuine LID-only contact and is applied to the LID chat itself.
 func (c *Client) reconcilePendingAppState(ctx context.Context, final bool) {
+	// A star is app state too, and it is parked for the same kind of reason:
+	// the row it belongs to is not there yet. Same passes, same final one.
+	c.reconcilePendingStars(ctx, final)
+
 	c.pendingAppStateMu.Lock()
 	if len(c.pendingAppState) == 0 {
 		c.pendingAppStateMu.Unlock()
@@ -228,11 +235,12 @@ func (c *Client) reconcileRegularAppState(ctx context.Context) error {
 		return err
 	}
 
-	// Chat mutes live in the regular_high app state.
+	// Chat mutes and message stars both live in the regular_high app state.
 	highEvents, err := fetchFullRegularHighAppState(ctx, client)
 	if err != nil {
 		return fmt.Errorf("failed to fetch regular_high app state: %w", err)
 	}
+	c.reconcileStarsFromEvents(ctx, highEvents)
 	// Status mutes ride the same regular_high snapshot (IndexUserStatusMute);
 	// the regular_low snapshot above never carries them, so reconciling from
 	// it would wipe every mute on connect.

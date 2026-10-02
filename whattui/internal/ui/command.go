@@ -3,9 +3,13 @@ package ui
 import (
 	"sort"
 	"strings"
+	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"go.rockorager.dev/vaxis"
+
+	"whattui/internal/proto"
 )
 
 type commandID string
@@ -21,6 +25,28 @@ const (
 	cmdFocusPrevious commandID = "focus.previous"
 	cmdBoxes         commandID = "transcript.boxes"
 	cmdRedraw        commandID = "app.redraw"
+	cmdReply         commandID = "message.reply"
+	cmdReact         commandID = "message.react"
+	cmdForward       commandID = "message.forward"
+	cmdMenu          commandID = "message.menu"
+	cmdEditMessage   commandID = "message.edit"
+	cmdCopyMessage   commandID = "message.copy"
+	cmdStar          commandID = "message.star"
+	cmdDelete        commandID = "message.delete"
+	cmdDeleteForMe   commandID = "message.delete-for-me"
+	cmdRevoke        commandID = "message.delete-for-everyone"
+)
+
+// scope says where a direct binding is live. A binding with no scope belongs to
+// the whole application; one with a scope is resolved by whatever owns that
+// context, because a bare letter is only ever a binding while nobody is typing.
+type scope int
+
+const (
+	scopeGlobal scope = iota
+	// scopeMessage is live only while the selection cursor is on a message,
+	// which is only ever while the composer is empty.
+	scopeMessage
 )
 
 type command struct {
@@ -28,6 +54,7 @@ type command struct {
 	Title       string
 	Description string
 	Direct      string
+	Scope       scope
 	Leader      string
 	Slash       string
 	Enabled     func(commandState) (bool, string)
@@ -43,6 +70,11 @@ type commandState struct {
 	hasChat   bool
 	hasDraft  bool
 	chatCount int
+	// The message the selection cursor is on, and whether there is one. The
+	// row is carried rather than fetched: whether an action applies is asked
+	// under App.mu, and asking the collection under App.mu is a deadlock.
+	hasMessage bool
+	message    proto.MessageRow
 }
 
 func newCommandRegistry(commands []command) commandRegistry {
@@ -63,6 +95,25 @@ func (a *App) initCommands() {
 	hasChat := func(state commandState) (bool, string) {
 		if !state.hasChat {
 			return false, "open a chat first"
+		}
+		return true, ""
+	}
+	hasMessage := func(state commandState) (bool, string) {
+		if !state.hasMessage {
+			return false, "point at a message with the arrows first"
+		}
+		return true, ""
+	}
+	// What is left of a message somebody deleted for everybody is a sentence
+	// saying one was here. There is nothing to answer, copy, star, react to or
+	// pass on, and the only thing anybody can still do to it is take the note
+	// off this device, which is what the delete command is for.
+	hasLiveMessage := func(state commandState) (bool, string) {
+		if ok, why := hasMessage(state); !ok {
+			return false, why
+		}
+		if state.message.Revoked {
+			return false, "that message is already deleted"
 		}
 		return true, ""
 	}
@@ -88,6 +139,42 @@ func (a *App) initCommands() {
 		{ID: cmdFocusPrevious, Title: "Focus previous pane", Description: "Move focus anticlockwise", Direct: "s-tab", Slash: "focus-previous", Run: func() { a.cycleFocus(-1) }},
 		{ID: cmdBoxes, Title: "Toggle message boxes", Description: "Draw a panel per message instead of a rule per run", Leader: "b", Slash: "boxes", Run: a.toggleBoxes},
 		{ID: cmdRedraw, Title: "Redraw the screen", Description: "Throw away what the terminal is showing and draw it again", Direct: "^l", Slash: "redraw", Run: a.redraw},
+		{ID: cmdReply, Title: "Reply to message", Description: "Answer the message the cursor is on", Direct: "r", Scope: scopeMessage, Slash: "reply", Enabled: hasLiveMessage, Run: a.replySelected},
+		{ID: cmdReact, Title: "React to message", Description: "Put an emoji on the message, or take yours off", Direct: "+", Scope: scopeMessage, Slash: "react", Enabled: hasLiveMessage, Run: a.reactSelected},
+		{ID: cmdForward, Title: "Forward message", Description: "Send the message on to other chats", Direct: "f", Scope: scopeMessage, Slash: "forward", Enabled: hasLiveMessage, Run: a.forwardSelected},
+		{ID: cmdMenu, Title: "Actions on this message", Description: "Open the menu of everything the message can do", Direct: "m", Scope: scopeMessage, Slash: "menu", Enabled: hasLiveMessage, Run: a.menuSelected},
+		{ID: cmdEditMessage, Title: "Edit message", Description: "Rewrite a message you sent", Direct: "e", Scope: scopeMessage, Slash: "edit", Enabled: func(state commandState) (bool, string) {
+			if ok, why := hasMessage(state); !ok {
+				return false, why
+			}
+			// Asked before the composer ever loads the message, so a window
+			// that has closed is an answer in the corner rather than an edit
+			// that looks like it started and then bounces off the daemon.
+			switch {
+			case !state.message.Outgoing():
+				return false, "you can only edit your own messages"
+			case state.message.Revoked:
+				return false, "that message is already deleted"
+			case state.message.EditUntil == 0:
+				return false, "this kind of message cannot be edited"
+			case !state.message.Editable(time.Now().Unix()):
+				return false, "too late, the edit window has closed"
+			}
+			return true, ""
+		}, Run: a.editSelected},
+		{ID: cmdCopyMessage, Title: "Copy message", Description: "Put the message on the clipboard", Direct: "y", Scope: scopeMessage, Slash: "copy", Enabled: hasLiveMessage, Run: a.copySelected},
+		{ID: cmdStar, Title: "Star message", Description: "Star the message, or take the star off", Direct: "s", Scope: scopeMessage, Slash: "star", Enabled: hasLiveMessage, Run: a.starSelected},
+		{ID: cmdDelete, Title: "Delete message", Description: "Ask which kind of delete this is", Direct: "d", Scope: scopeMessage, Slash: "delete", Enabled: hasMessage, Run: a.deleteSelected},
+		{ID: cmdDeleteForMe, Title: "Delete for me", Description: "Take the message off this device only", Slash: "delete-for-me", Enabled: hasMessage, Run: a.deleteSelectedForMe},
+		{ID: cmdRevoke, Title: "Delete for everyone", Description: "Take the message away from everybody in the chat", Slash: "delete-for-everyone", Enabled: func(state commandState) (bool, string) {
+			if ok, why := hasMessage(state); !ok {
+				return false, why
+			}
+			if !state.message.Outgoing() {
+				return false, "you can only delete your own messages for everyone"
+			}
+			return true, ""
+		}, Run: a.revokeSelected},
 		{ID: cmdInterrupt, Title: "Clear draft or quit", Description: "Clear typed text, otherwise quit", Direct: "^c", Slash: "clear", Run: a.interrupt},
 		{ID: cmdQuit, Title: "Quit", Description: "Close whattui", Direct: "^q", Leader: "q", Slash: "quit", Run: a.quitApp},
 	})
@@ -101,7 +188,7 @@ func (a *App) execute(id commandID) bool {
 	}
 	if c.Enabled != nil {
 		if ok, why := c.Enabled(a.commandState()); !ok {
-			a.toast(why)
+			a.refuse(why)
 			return true
 		}
 	}
@@ -128,6 +215,9 @@ func (a *App) interrupt() {
 func (a *App) directCommand(k vaxis.Key) (commandID, bool) {
 	a.initCommands()
 	for _, c := range a.commands.ordered {
+		if c.Scope != scopeGlobal {
+			continue
+		}
 		// Textual and focus-dependent bindings are resolved by their pane.
 		if c.Direct != "?" && c.Direct != "enter" && matchesBinding(k, c.Direct) {
 			return c.ID, true
@@ -136,25 +226,60 @@ func (a *App) directCommand(k vaxis.Key) (commandID, bool) {
 	return "", false
 }
 
+// messageCommand resolves a bare letter against the actions that act on the
+// message the cursor is on. Only the caller knows whether there is one, and
+// there is only ever one while nothing is typed: that is what makes a letter
+// safe to spend here.
+func (a *App) messageCommand(k vaxis.Key) (commandID, bool) {
+	a.initCommands()
+	// Pasted text is text, whatever letters are in it. Shift is allowed because
+	// the shifted glyph is already in the text: a binding on "+" is a binding
+	// on the key somebody actually pressed to get one.
+	if k.Modifiers&^vaxis.ModShift != 0 || k.Text == "" || k.EventType == vaxis.EventPaste {
+		return "", false
+	}
+	for _, c := range a.commands.ordered {
+		if c.Scope == scopeMessage && c.Direct == k.Text {
+			return c.ID, true
+		}
+	}
+	return "", false
+}
+
+// matchesBinding reads a command's own spelling of its key. The registry is
+// where a binding is written down, so the spelling is what has to be
+// understood here: a switch over the bindings that happened to exist when it
+// was written silently drops the next one somebody adds, which is a command
+// the palette offers, the help lists, the hint bar names, and the key does
+// nothing about.
 func matchesBinding(k vaxis.Key, binding string) bool {
 	switch binding {
-	case "^q":
-		return k.Matches('q', vaxis.ModCtrl)
-	case "^c":
-		return k.Matches('c', vaxis.ModCtrl)
-	case "^p":
-		return k.Matches('p', vaxis.ModCtrl)
+	case "":
+		return false
 	case "tab":
 		return k.Matches(vaxis.KeyTab)
 	case "s-tab":
 		return k.Matches(vaxis.KeyTab, vaxis.ModShift)
 	case "enter":
 		return k.Matches(vaxis.KeyEnter)
-	case "?":
-		return k.Matches('?')
-	default:
+	case "esc":
+		return k.Matches(vaxis.KeyEsc)
+	}
+	if ctrl, ok := strings.CutPrefix(binding, "^"); ok {
+		if r, ok := oneRune(ctrl); ok {
+			return k.Matches(r, vaxis.ModCtrl)
+		}
 		return false
 	}
+	if r, ok := oneRune(binding); ok {
+		return k.Matches(r)
+	}
+	return false
+}
+
+func oneRune(s string) (rune, bool) {
+	r, size := utf8.DecodeRuneInString(s)
+	return r, size == len(s) && r != utf8.RuneError
 }
 
 func (a *App) commandForDirect(binding string) (commandID, bool) {
@@ -234,6 +359,34 @@ func (a *App) commandChoicesFor(query string, slashOnly, help bool, state comman
 	return out
 }
 
+// messageChoicesLocked is what a context menu holds: every action that applies
+// to the message the cursor is on, with the key that does it beside it.
+//
+// The registry again rather than a list of its own, so an action added anywhere
+// turns up here as well, and a menu can never offer something the key would
+// refuse. The menu itself is left out of it: a row that opens the menu you are
+// looking at is a row that does nothing.
+func (a *App) messageChoicesLocked() []modalChoice {
+	state := a.commandStateLocked()
+	var out []modalChoice
+	for _, c := range a.commands.ordered {
+		if c.Scope != scopeMessage || c.ID == cmdMenu {
+			continue
+		}
+		if c.Enabled != nil {
+			if ok, _ := c.Enabled(state); !ok {
+				continue
+			}
+		}
+		label := c.Title
+		if c.ID == cmdStar && state.message.Starred {
+			label = "Unstar message"
+		}
+		out = append(out, modalChoice{Command: c.ID, Label: label, Detail: c.Direct})
+	}
+	return out
+}
+
 func (a *App) commandState() commandState {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -241,11 +394,29 @@ func (a *App) commandState() commandState {
 }
 
 func (a *App) commandStateLocked() commandState {
+	message, hasMessage := a.selectedMessageLocked()
 	return commandState{
-		hasChat:   a.activeChat != "",
-		hasDraft:  strings.TrimSpace(a.composer.String()) != "",
-		chatCount: a.chats.Len(),
+		hasChat:    a.activeChat != "",
+		hasDraft:   strings.TrimSpace(a.composer.String()) != "",
+		chatCount:  a.chats.Len(),
+		hasMessage: hasMessage,
+		message:    message,
 	}
+}
+
+// enabled is whether a command applies right now, for the surfaces that show
+// only the ones that do.
+func (a *App) enabled(id commandID, state commandState) bool {
+	a.initCommands()
+	c := a.commands.byID[id]
+	if c == nil {
+		return false
+	}
+	if c.Enabled == nil {
+		return true
+	}
+	ok, _ := c.Enabled(state)
+	return ok
 }
 
 func commandBindings(c command) string {

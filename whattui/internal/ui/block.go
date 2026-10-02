@@ -5,6 +5,7 @@ import (
 
 	"go.rockorager.dev/vaxis"
 
+	"whattui/internal/paint"
 	"whattui/internal/term"
 )
 
@@ -52,14 +53,40 @@ type block struct {
 	// time tucked after the words is a time that lands somewhere new on every
 	// message.
 	stamp string
-	width int
+	// muted draws the words quietly. A message nobody can read any more is not
+	// a message anybody said.
+	muted bool
+	// mark is how far a message you sent got, and status is which state that
+	// is. The glyph and the colour are separated from the time because they
+	// are a different fact in a different ink: the time is faint whatever
+	// happens, and a read message is the one thing in the gutter worth a
+	// colour of its own.
+	mark   string
+	status string
+	// outgoing hangs the message off the rule on the right. Everything in it
+	// then lines up against that edge rather than against the left of the
+	// widest thing in it: a short answer under a long quote is part of the
+	// same message, and left where the quote starts it reads as adrift in the
+	// middle of the column.
+	outgoing bool
+	// reacts is what people put on the message, on a row of its own under the
+	// words. Under rather than after them, because a reaction is about the
+	// whole message: a strip that follows the last word moves every time the
+	// message is rewrapped, and lands in the middle of the column on a short
+	// last line.
+	reacts []pill
+	width  int
 }
 
 // rows is how tall the block is. The words and nothing else: the time is in
-// the gutter and the shape is the run's.
+// the gutter, the shape is the run's, and what is true about the message is
+// drawn in space the message was never using.
 func (b block) rows() int {
 	n := len(b.body) * b.scale
 	if b.quote != "" {
+		n++
+	}
+	if len(b.reacts) > 0 {
 		n++
 	}
 	return n
@@ -87,34 +114,157 @@ func (a *App) layoutBlock(quote, body, stamp string, max int) block {
 // drawBlock paints one message down a column, and answers the row after it.
 func (a *App) drawBlock(pane vaxis.Window, b block, col, row, width int, ground vaxis.Color) int {
 	text := vaxis.Style{Foreground: a.theme.Text, Background: ground}
+	if b.muted {
+		text = vaxis.Style{
+			Foreground: a.theme.TextMuted, Background: ground, Attribute: vaxis.AttrItalic,
+		}
+	}
 	faint := vaxis.Style{Foreground: a.theme.TextFaint, Background: ground}
 
 	if b.quote != "" {
-		a.print(pane, col, row, faint, b.quote)
+		a.print(pane, b.hang(col, width, a.width(b.quote)), row, faint, b.quote)
 		row++
+	}
+
+	// The words are one column, whatever the widest line in the message is.
+	// The quote and the reactions are measured separately, because each is a
+	// thing of its own hanging off the same edge.
+	words := 0
+	for _, l := range b.body {
+		words = maxInt(words, a.lineWidth(l))
 	}
 
 	if b.scale > 1 {
 		// The block is claimed whatever the terminal can do: without the
 		// scale key vaxis paints the reserved cells and draws the glyph small
 		// in the top left, so nothing moves.
+		_, page := pane.Size()
 		for _, l := range b.body {
-			pane.New(col, row, width, b.scale).PrintScaled(0, vaxis.Segment{
+			at := b.hang(col, width, a.lineWidth(l)*b.scale)
+			if row < 0 || row+b.scale > page {
+				// A scaled character is written once, at its top left, and
+				// owns every cell under it. Half of one is not half a glyph:
+				// the top left is off the pane, so nothing is ever written to
+				// the rows of it that are on the pane and whatever was there
+				// stays. A run scrolls a row at a time, and a message with a
+				// quote over it puts the block across that edge, so this is
+				// the common position and not the corner. Draw the small
+				// glyph in the space the layout already reserved, which is
+				// what a terminal that cannot scale shows anyway.
+				a.printLine(pane, b.hang(col, width, a.lineWidth(l)), row, text, l)
+				row += b.scale
+				continue
+			}
+			pane.New(at, row, width-(at-col), b.scale).PrintScaled(0, vaxis.Segment{
 				Text:  lineText(l),
 				Style: text,
 				Size:  vaxis.Scaled(b.scale, 0),
 			})
 			row += b.scale
 		}
-		return row
+		return a.drawPills(pane, b, col, row, width, ground)
 	}
 
-	a.noteBlock(pane, col, row, width, len(b.body))
+	at := b.hang(col, width, words)
+	a.noteBlock(pane, at, row, words, len(b.body))
 	for _, l := range b.body {
-		a.printLine(pane, col, row, text, l)
+		a.printLine(pane, at, row, text, l)
 		row++
 	}
-	return row
+	return a.drawPills(pane, b, col, row, width, ground)
+}
+
+// hang is the column one part of a message starts in: the left of the block for
+// a message that came in, and flush against the right of it for one that went
+// out, which is the edge the rule stands on.
+func (b block) hang(col, width, part int) int {
+	if !b.outgoing || part >= width {
+		return col
+	}
+	return col + width - part
+}
+
+// drawPills writes the reaction strip under a message, and answers the row
+// after it.
+//
+// Each reaction gets a shape of its own, because without one a strip of emoji
+// under a message is a line of the message: the same ground, the same column,
+// nothing saying where the words stop and what people thought of them starts. A
+// chip is the shape every other client uses for exactly that reason.
+//
+// The one this account put there wears the material an outgoing message wears
+// and is underlined besides. The underline is not decoration: an emoji is drawn
+// by the font in the font's own colours, so a foreground and a weight say
+// nothing at all about a 🔥, and a rule under the cells is the one mark a
+// terminal can put on a glyph it does not get to colour.
+func (a *App) drawPills(pane vaxis.Window, b block, col, row, width int, ground vaxis.Color) int {
+	if len(b.reacts) == 0 {
+		return row
+	}
+	strip := -pillGap
+	for _, p := range b.reacts {
+		strip += a.cells(p) + pillGap
+	}
+	col = b.hang(col, width, strip)
+	for _, p := range b.reacts {
+		width := a.cells(p)
+		chip := a.drawChip(pane, col, row, width, p.mine, ground)
+		style := vaxis.Style{Foreground: a.theme.TextMuted, Background: chip}
+		if p.mine {
+			style = vaxis.Style{Foreground: a.theme.Text, Background: chip, Attribute: vaxis.AttrBold}
+		}
+		a.print(pane, col+pillPad, row, style, p.text)
+		col += width + pillGap
+	}
+	return row + 1
+}
+
+// drawChip is the rounded chrome behind one reaction, and answers the cell
+// colour its glyphs stand on.
+//
+// Where there are pixels the shape is drawn and the cells keep the page's own
+// ground, so what falls outside the curve is the page rather than a square
+// corner. Where there are not, the same cells are filled flat: the chip loses
+// its corners and keeps its size, its colour and its place, which is the whole
+// of the tier rule.
+func (a *App) drawChip(pane vaxis.Window, col, row, width int, mine bool, ground vaxis.Color) vaxis.Color {
+	fill, edge, cell := a.theme.PaintChip, a.theme.PaintChipEdge, a.theme.Chip
+	if mine {
+		fill, edge, cell = a.theme.PaintChipMine, a.theme.PaintChipMineEdge, a.theme.ChipMine
+	}
+	if a.painted() {
+		a.blank(pane, col, row, width, vaxis.Style{Background: ground})
+		a.paintRect(pane, col, row, width, 1, func(pw, ph int) paint.Spec {
+			// The air a chip needs is inside it, not around it. The cells it
+			// was given already hold a column of padding at each end; taking
+			// another two thirds of a column off the sides here spends that
+			// padding on the gap instead, which is how a strip ends up as
+			// small boxes far apart with the glyphs jammed against their
+			// edges. A hairline is all the sides want: enough that two chips
+			// never share a pixel column, and the column of padding is then
+			// what the emoji sits in.
+			//
+			// An emoji is drawn down to the bottom of its cell, so a chip with
+			// air under it is a chip the glyph hangs out of. It takes its air
+			// off the top instead, where the row above holds letters rather
+			// than pictures and their descenders stop well short of it, and
+			// stands on the bottom of its own row, where the next row's letters
+			// start well below.
+			x, top, bottom := 1, maxInt(ph/7, 2), 0
+			// A corner taken off, not a side rounded away. The radius every
+			// other shape here uses is most of this one's height, and a shape
+			// as round as it is tall is a lozenge: a quarter of the height is
+			// the same curve read at the size a chip actually is.
+			return paint.Chip{
+				W: pw, H: ph, InsetX: x, InsetTop: top, InsetBottom: bottom,
+				Fill: fill, Edge: edge,
+				Radius: maxInt(minInt(a.bubbleRadius(), (ph-top-bottom)/4), 2),
+			}
+		})
+		return ground
+	}
+	a.blank(pane, col, row, width, vaxis.Style{Background: cell})
+	return cell
 }
 
 func (a *App) pad(s string, width int) string {

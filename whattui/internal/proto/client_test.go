@@ -252,6 +252,45 @@ func TestReconnectReissuesEveryLiveSubscription(t *testing.T) {
 	}
 }
 
+// A re-issued subscription starts from nothing. The daemon answers a subscribe
+// with the window as it stands and names only the rows in it, so a row that
+// left while the socket was down is never mentioned again: kept, it is a chat
+// nobody is ever going to correct.
+func TestAReissuedSubscriptionThrowsAwayTheWindowItHad(t *testing.T) {
+	c, d, _ := connectedClient(t)
+	sink := newRecordSink()
+	c.Subscribe("chats", nil, sink)
+
+	first := d.expect("subscribe")
+	d.sendLines(map[string]any{"id": first["id"], "result": map[string]any{"sub": 1}})
+	d.sendLines(
+		map[string]any{"sub": 1, "event": "upsert", "sort": "0-a", "item": map[string]any{"id": "gone@s.whatsapp.net"}},
+		map[string]any{"sub": 1, "event": "ready"},
+	)
+	sink.waitReady(t)
+
+	d.dropConnection()
+	d.waitForConnection()
+	d.helloOK(d.expect("hello"))
+
+	again := d.expect("subscribe")
+	d.sendLines(map[string]any{"id": again["id"], "result": map[string]any{"sub": 2}})
+	d.sendLines(
+		map[string]any{"sub": 2, "event": "upsert", "sort": "0-b", "item": map[string]any{"id": "still@s.whatsapp.net"}},
+		map[string]any{"sub": 2, "event": "ready"},
+	)
+	sink.waitReady(t)
+
+	sink.mu.Lock()
+	defer sink.mu.Unlock()
+	if _, held := sink.items["gone@s.whatsapp.net"]; held {
+		t.Errorf("the window still holds a row from the connection before it: %q", strings.Join(sink.calls, " "))
+	}
+	if _, held := sink.items["still@s.whatsapp.net"]; !held {
+		t.Errorf("the window lost the row the daemon just sent: %q", strings.Join(sink.calls, " "))
+	}
+}
+
 func TestEveryCallbackFiresExactlyOnceAcrossADisconnect(t *testing.T) {
 	c, d, _ := connectedClient(t)
 

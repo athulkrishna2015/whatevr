@@ -202,3 +202,18 @@ func TestBroadcastOverflowCoalescesToResync(t *testing.T) {
 		t.Fatalf("buffered %d events, want <= %d (backlog did not coalesce)", drained, daemonSubscriberBuffer)
 	}
 }
+
+// A logout empties the store in one go rather than a chat at a time, so the
+// only thing that can tell an open view about it is a resync. Without one the
+// frontends went on drawing the chat list of the account that just left.
+func TestResetAccountStateTellsEveryViewToReRead(t *testing.T) {
+	d := NewDaemon(Paths{})
+	events, cancel := d.SubscribeDaemonEvents()
+	defer cancel()
+	drainInitialDaemonEvent(t, events)
+
+	d.ResetAccountState()
+	if event := nextDaemonEvent(t, events); event.Kind != DaemonEventResync {
+		t.Fatalf("event kind = %v, want %v", event.Kind, DaemonEventResync)
+	}
+}

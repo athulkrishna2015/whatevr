@@ -101,23 +101,26 @@ func TestSlashMenuAndContextualHelp(t *testing.T) {
 	if got := a.composer.String(); got != "?" || a.modal.kind != modalNone {
 		t.Fatalf("composer ? gave draft %q modal %d", got, a.modal.kind)
 	}
+	// A slash on an empty line opens the menu, and from there the menu keeps
+	// what is typed into it. The draft is not a command line.
 	a.composer.clear()
 	a.onKey(key('/'))
 	if a.modal.kind != modalSlash {
 		t.Fatalf("slash modal = %d, want slash", a.modal.kind)
 	}
 	a.onKey(key('h'))
-	if got := a.composer.String(); got != "/h" || string(a.modal.query) != "h" {
-		t.Fatalf("slash typing gave draft %q query %q", got, a.modal.query)
+	if got := a.composer.String(); got != "" || string(a.modal.query) != "h" {
+		t.Fatalf("slash typing gave draft %q query %q, want it all in the menu", got, a.modal.query)
 	}
 	a.onKey(vaxis.Key{Keycode: vaxis.KeyEsc})
-	if got := a.composer.String(); got != "/h" {
-		t.Fatalf("escape changed slash draft to %q", got)
+	if got := a.composer.String(); got != "" {
+		t.Fatalf("escaping the menu left %q on the draft", got)
 	}
 	if a.modal.kind != modalNone {
 		t.Fatalf("escape left modal %d", a.modal.kind)
 	}
-	a.onKey(vaxis.Key{Keycode: vaxis.KeyBackspace})
+
+	a.onKey(key('/'))
 	a.onKey(key('h'))
 	a.onKey(vaxis.Key{Keycode: vaxis.KeyEnter})
 	if a.modal.kind != modalHelp || !a.composer.empty() {
@@ -125,11 +128,71 @@ func TestSlashMenuAndContextualHelp(t *testing.T) {
 	}
 	a.closeModal()
 
+	// Rubbing out the slash that opened it closes it again.
+	a.composer.clear()
+	a.onKey(key('/'))
+	a.onKey(vaxis.Key{Keycode: vaxis.KeyBackspace})
+	if a.modal.kind != modalNone {
+		t.Fatalf("backspacing the slash left modal %d", a.modal.kind)
+	}
+
 	a.composer.clear()
 	a.focus = FocusList
 	a.onKey(key('?'))
 	if a.modal.kind != modalHelp {
 		t.Fatalf("list ? modal = %d, want help", a.modal.kind)
+	}
+}
+
+// The one thing that opens the command menu is a slash typed onto an empty
+// line. Text that arrives any other way is text, which is what makes pasting a
+// path or a url into a chat safe.
+func TestOnlyATypedSlashOnAnEmptyLineOpensTheMenu(t *testing.T) {
+	a := stubApp(80, 24, 2, 0)
+	a.focus = FocusComposer
+
+	pasted := "/ajwndj"
+	for _, r := range pasted {
+		k := key(r)
+		k.EventType = vaxis.EventPaste
+		a.onKey(k)
+	}
+	if a.modal.kind != modalNone {
+		t.Fatalf("a pasted slash opened modal %d", a.modal.kind)
+	}
+	if got := a.composer.String(); got != pasted {
+		t.Fatalf("the paste left %q on the draft, want %q", got, pasted)
+	}
+
+	// Typed, but not onto an empty line.
+	a.onKey(key('/'))
+	if a.modal.kind != modalNone {
+		t.Fatalf("a slash inside a draft opened modal %d", a.modal.kind)
+	}
+	if got := a.composer.String(); got != pasted+"/" {
+		t.Fatalf("the draft is %q, want the slash typed into it", got)
+	}
+}
+
+// A paste is text even when a message is lit, or pasting anything with an r in
+// it would answer a message instead.
+func TestPastedLettersAreNeverMessageActions(t *testing.T) {
+	a := stubApp(100, 26, 4, 6)
+	calls := records(a)
+	a.paint()
+	a.onKey(arrow(vaxis.KeyUp))
+	if a.cursor() == "" {
+		t.Fatal("nothing was pointed at")
+	}
+
+	k := key('r')
+	k.EventType = vaxis.EventPaste
+	a.onKey(k)
+	if a.composer.targeted() || len(*calls) != 0 {
+		t.Fatalf("a pasted letter acted on the message: %+v", *calls)
+	}
+	if got := a.composer.String(); got != "r" {
+		t.Fatalf("the draft is %q, want the pasted letter", got)
 	}
 }
 
@@ -147,10 +210,19 @@ func TestPaletteChatSearchPreservesDaemonOrderAndIgnoresStaleResponses(t *testin
 		calls = append(calls, call{params["query"].(string), cb})
 	}
 	a.openModal(modalPalette)
+	// The slash alone is not a search for nothing: the daemon answers an empty
+	// query with an empty list, and the chats we hold are already the chats.
 	a.onKey(key('/'))
+	if len(calls) != 0 {
+		t.Fatalf("an empty query asked the daemon: %#v", calls)
+	}
+	if len(a.modal.selector.Items()) != 2 {
+		t.Fatalf("the slash showed %d chats, want the list we hold", len(a.modal.selector.Items()))
+	}
 	a.onKey(key('a'))
-	if len(calls) != 2 || calls[1].query != "a" {
-		t.Fatalf("calls = %#v, want queries empty then a", calls)
+	a.onKey(key('b'))
+	if len(calls) != 2 || calls[0].query != "a" || calls[1].query != "ab" {
+		t.Fatalf("calls = %#v, want queries a then ab", calls)
 	}
 
 	respond := func(c call, chats ...proto.ChatRow) {
@@ -173,9 +245,11 @@ func TestPaletteIgnoresResponseFromPreviousOpen(t *testing.T) {
 	a.request = func(_ string, _ proto.Params, cb proto.ResponseFunc) { callbacks = append(callbacks, cb) }
 	a.openModal(modalPalette)
 	a.onKey(key('/'))
+	a.onKey(key('a'))
 	a.closeModal()
 	a.openModal(modalPalette)
 	a.onKey(key('/'))
+	a.onKey(key('a'))
 
 	raw, _ := json.Marshal(struct {
 		Chats []proto.ChatRow `json:"chats"`
@@ -225,9 +299,26 @@ func TestModalMouseHoverClickWheelAndTinyPaint(t *testing.T) {
 	if a.modal.selector.top == 0 && len(a.modal.selector.items) > a.modal.visible {
 		t.Fatal("wheel did not scroll modal")
 	}
-	a.onModalMouse(vaxis.Mouse{Col: m.Col, Row: m.Row, Button: vaxis.MouseLeftButton, EventType: vaxis.EventRelease})
-	if a.modal.kind != modalPalette {
-		t.Fatalf("click executed modal %d, want palette", a.modal.kind)
+	// A click runs the row it lands on, wherever the wheel happens to have left
+	// it, which is the whole contract between the pointer and the registry.
+	at, target := -1, modalChoice{}
+	for i, item := range a.modal.selector.Visible(a.modal.visible) {
+		if item.Disabled == "" {
+			at, target = i, item
+			break
+		}
+	}
+	if at < 0 {
+		t.Fatal("no runnable row in the panel")
+	}
+	ran := false
+	a.commands.byID[target.Command].Run = func() { ran = true }
+	a.onModalMouse(vaxis.Mouse{
+		Col: m.Col, Row: a.modal.list.Row + at,
+		Button: vaxis.MouseLeftButton, EventType: vaxis.EventRelease,
+	})
+	if !ran {
+		t.Fatalf("a click on %q ran nothing", target.Command)
 	}
 }
 
@@ -251,4 +342,49 @@ func TestEveryCommandHasASlashName(t *testing.T) {
 	if got := len(a.commandChoices("", true, false)); got != len(a.commands.ordered) {
 		t.Errorf("an empty slash query listed %d of %d commands", got, len(a.commands.ordered))
 	}
+}
+
+// A binding is written down once, in the registry, and every surface reads it
+// from there. So the thing that reads it has to understand what is written
+// rather than a list of what happened to be there when it was written: ^l was
+// in the palette, in the help and on the hint line, and the key did nothing.
+func TestEveryBindingTheRegistryWritesDownIsAKeyThatWorks(t *testing.T) {
+	a := stubApp(90, 26, 4, 0)
+	a.initCommands()
+	for _, c := range a.commands.ordered {
+		if c.Direct == "" {
+			continue
+		}
+		key, ok := keyNamed(c.Direct)
+		if !ok {
+			t.Errorf("%s binds %q, which nothing here knows how to press", c.ID, c.Direct)
+			continue
+		}
+		if !matchesBinding(key, c.Direct) {
+			t.Errorf("%s binds %q and pressing it does nothing", c.ID, c.Direct)
+		}
+	}
+}
+
+// keyNamed builds the key a binding names, the way a reader of the registry
+// would press it.
+func keyNamed(binding string) (vaxis.Key, bool) {
+	switch binding {
+	case "tab":
+		return vaxis.Key{Keycode: vaxis.KeyTab}, true
+	case "s-tab":
+		return vaxis.Key{Keycode: vaxis.KeyTab, Modifiers: vaxis.ModShift}, true
+	case "enter":
+		return vaxis.Key{Keycode: vaxis.KeyEnter}, true
+	case "esc":
+		return vaxis.Key{Keycode: vaxis.KeyEsc}, true
+	}
+	runes := []rune(binding)
+	if len(runes) == 2 && runes[0] == '^' {
+		return vaxis.Key{Keycode: runes[1], Modifiers: vaxis.ModCtrl}, true
+	}
+	if len(runes) == 1 {
+		return vaxis.Key{Keycode: runes[0], Text: binding}, true
+	}
+	return vaxis.Key{}, false
 }

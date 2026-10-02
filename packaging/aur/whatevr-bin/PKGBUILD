@@ -3,7 +3,7 @@ pkgname=whatevr-bin
 _pkgname=whatevr
 pkgver=0.10.0
 pkgrel=1
-pkgdesc="Native WhatsApp client for Linux (prebuilt whatevrd daemon + whatkevr Qt/Kirigami frontend)"
+pkgdesc="Native WhatsApp client for Linux (prebuilt whatevrd daemon + whatkevr desktop and whattui terminal frontends)"
 arch=('x86_64')
 url="https://github.com/codelif/whatevr"
 license=('BSD-3-Clause')
@@ -11,7 +11,8 @@ depends=('qt6-base' 'qt6-declarative' 'qt6-multimedia' 'qt6-shadertools'
          'kcoreaddons' 'kdbusaddons' 'ki18n' 'kirigami' 'prison' 'qqc2-desktop-style' 'kirigami-addons'
          'kquickimageeditor' 'rlottie' 'mpv' 'ffmpeg' 'sqlite' 'glibc'
          'desktop-file-utils' 'shared-mime-info' 'xdg-utils')
-provides=('whatevr' 'whatevrd' 'whatkevr')
+provides=('whatevr' 'whatevrd' 'whatkevr' 'whattui')
+optdepends=('ffmpeg: video posters and voice note waveforms')
 conflicts=('whatevr' 'whatevr-git')
 install="$_pkgname.install"
 source_x86_64=("$_pkgname-$pkgver-linux-x86_64.tar.zst::$url/releases/download/v$pkgver/$_pkgname-$pkgver-linux-x86_64.tar.zst")

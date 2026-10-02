@@ -47,8 +47,12 @@ type conversation struct {
 	// runs is the window gathered into runs, newest first, which is the order
 	// the transcript draws them in.
 	runs []run
-	// selected is the message the actions act on, by id, or empty for none.
-	selected string
+	// selected is the message the actions act on, by id, or empty for none,
+	// and selectedRow is that message as of the last time anything about it
+	// changed. The copy is what lets an action ask whether it applies without
+	// asking the collection: see setCursor.
+	selected    string
+	selectedRow proto.MessageRow
 
 	atLiveEdge   bool
 	canLoadOlder bool
@@ -107,9 +111,7 @@ func (a *App) openChat(chatID string) {
 	a.focus = FocusComposer
 	a.mu.Unlock()
 
-	// Telling the daemon which chat is open is what makes its notifier stay
-	// quiet about the one the reader is looking at.
-	a.client.Do("session.update", proto.Params{"focused": true, "active_chat_id": chatID}, nil)
+	a.updateSession()
 }
 
 const messagePageSize = 60

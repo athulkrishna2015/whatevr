@@ -125,3 +125,29 @@ func TestDecodePayloadSurvivesGarbage(t *testing.T) {
 		t.Fatalf("DecodePayload(blank) = %+v, want the zero payload", got)
 	}
 }
+
+// The two one-line renderings of a captioned photo are not the same line. What
+// a chat row shows is what the message said, because that is the line WhatsApp
+// itself shows there. What a message row's fallback says is what the message
+// is, because the caption is already on that row and a frontend drawing both
+// would otherwise draw the caption twice and never say it was a photo.
+func TestACaptionStandsInForTheLabelOnlyWhereNothingElseDrawsIt(t *testing.T) {
+	facts := PreviewFacts{
+		Text:         "3 min Plank",
+		MediaKind:    MediaKindVideo,
+		DurationSecs: 4,
+	}
+	if got := PreviewLine(facts); got != "3 min Plank" {
+		t.Errorf("the chat row reads %q, want the caption", got)
+	}
+	facts.KindWins = true
+	if got := PreviewLine(facts); got != "\U0001F3A5 Video (0:04)" {
+		t.Errorf("the fallback reads %q, want the kind", got)
+	}
+	// With no caption there is nothing to choose between, and one kind of line
+	// is what both want.
+	facts.Text, facts.KindWins = "", false
+	if got := PreviewLine(facts); got != "\U0001F3A5 Video (0:04)" {
+		t.Errorf("an uncaptioned video reads %q", got)
+	}
+}

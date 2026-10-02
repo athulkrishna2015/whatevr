@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"os"
 	"strings"
 
 	"go.rockorager.dev/vaxis"
@@ -78,3 +79,16 @@ func bigEmojiScale(count int) int {
 		return 2
 	}
 }
+
+// bigEmoji is whether an emoji-only message is drawn larger at all.
+//
+// Off unless asked for, which is not what this wants to be. A scaled glyph is
+// the one thing on the frame whose landing place the terminal decides: it
+// claims a block of cells, it is dropped outright when the block does not fit,
+// and it is moved to the next line when its width does not. Get one of those
+// back and the model is wrong about a whole region of the screen, and nothing
+// short of a repaint says so, which is what a reader sees as the rest of the
+// transcript breaking up around a big emoji. Two of those holes are now closed
+// in the fork, and this stays off until a real terminal has gone a while
+// without finding a third.
+func bigEmojiWanted() bool { return os.Getenv("WHATTUI_BIG_EMOJI") == "1" }

@@ -576,6 +576,12 @@ type messageItem struct {
 	// never stored as media (phone-only tombstone), so this only appears on
 	// outgoing rows.
 	ViewOnce bool `json:"view_once,omitempty"`
+	// EditUntil is when WhatsApp stops accepting an edit of this row, absent
+	// for one that cannot be edited at all. A frontend gates its edit action on
+	// it and never has to know how long the window is, which is the whole
+	// reason it crosses: the alternative is every frontend holding its own copy
+	// of a number WhatsApp owns.
+	EditUntil int64 `json:"edit_until,omitempty"`
 	// Kept marks a disappearing message somebody asked to keep in the chat.
 	Kept  bool          `json:"kept,omitempty"`
 	Media *messageMedia `json:"media,omitempty"`
@@ -851,6 +857,7 @@ func messageItemFromStore(m store.Message) messageItem {
 		Forwarded:   m.IsForwarded,
 		PinnedUntil: m.PinnedUntil,
 		ViewOnce:    m.IsViewOnce,
+		EditUntil:   m.EditableUntil(),
 		Reactions:   messageReactions(m.Reactions),
 		Mentions:    messageMentions(m.Mentions),
 		Media:       messageMediaFromStore(m),
@@ -897,10 +904,23 @@ func mediaKindToWire(mediaKind string) string {
 }
 
 // messageFallback is the one-line human rendering a frontend shows for any kind
-// it does not implement (and the natural preview for the ones it does). It is
-// the same rendering the chat row's preview uses, from the same table.
+// it does not implement. It says what the message is, from the same table the
+// chat row's preview comes from, and it parts with that preview on one point: a
+// caption never stands in for the kind here. The row carries `text` as well, so
+// a frontend that draws both would otherwise draw the caption twice and never
+// say the thing was a video.
 func messageFallback(m store.Message) string {
-	return store.MessagePreviewLine(m)
+	return store.PreviewLine(store.PreviewFacts{
+		Text:           m.Text,
+		PayloadSummary: m.PayloadSummary,
+		MediaKind:      m.MediaKind,
+		MediaMimeType:  m.MediaMimeType,
+		MediaFileName:  m.MediaFileName,
+		DurationSecs:   m.MediaDurationSecs,
+		Revoked:        m.IsRevoked,
+		ViewOnce:       m.IsViewOnce,
+		KindWins:       true,
+	})
 }
 
 // attachMessagePayload hangs the row's kind-specific object off the item. It is

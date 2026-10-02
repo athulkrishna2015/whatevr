@@ -185,6 +185,42 @@ func TestMessagesViewExtendReachesOlder(t *testing.T) {
 	c.expectReady(sub, true)
 }
 
+// The window WhatsApp allows an edit in belongs to the daemon, and a frontend
+// greys out its edit action on the deadline rather than on a copy of the
+// number. So the row has to carry it, and only for a message an edit could
+// actually reach.
+func TestMessagesViewCarriesTheEditDeadline(t *testing.T) {
+	socketPath, _, db := startChatsTestServer(t)
+	chat := "c@s.whatsapp.net"
+	sent := time.Now().Add(-time.Minute).Truncate(time.Second)
+	mine := "mine-1"
+	if _, err := db.SaveTextMessage(context.Background(), store.TextMessageInput{
+		ID: mine, ChatID: chat, Text: "mine", Timestamp: sent, Direction: store.DirectionOutgoing,
+	}); err != nil {
+		t.Fatalf("seed our own message: %v", err)
+	}
+	theirs := seedTextMessage(t, db, chat, "theirs", sent.Add(time.Second))
+
+	c := dialTest(t, socketPath)
+	c.hello()
+	sub := c.subscribe(2, fmt.Sprintf(`{"view":"messages","chat_id":%q}`, chat))
+
+	items := map[string]map[string]any{}
+	for i := 0; i < 2; i++ {
+		msg := c.recvEvent()
+		item := msg["item"].(map[string]any)
+		items[item["id"].(string)] = item
+	}
+	want := float64(sent.Unix() + int64(20*time.Minute/time.Second))
+	if got := items[mine]["edit_until"]; got != want {
+		t.Fatalf("our own message says edit_until %v, want %v", got, want)
+	}
+	if got, ok := items[theirs]["edit_until"]; ok {
+		t.Fatalf("somebody else's message carries edit_until %v", got)
+	}
+	c.expectReady(sub, true)
+}
+
 func TestMessagesViewImageItemShape(t *testing.T) {
 	socketPath, _, db := startChatsTestServer(t)
 	base := time.Unix(1_700_000_000, 0)
@@ -215,8 +251,14 @@ func TestMessagesViewImageItemShape(t *testing.T) {
 	if item["kind"] != "image" {
 		t.Fatalf("kind = %v, want image", item["kind"])
 	}
-	if item["fallback"] != "a caption" {
-		t.Fatalf("fallback = %v, want caption", item["fallback"])
+	// The fallback says what the message is, not what it says. The caption is
+	// already on the row as `text`, and a frontend that drew both would
+	// otherwise draw the caption twice and never say it was a photo.
+	if item["fallback"] != "\U0001F4F7 Photo" {
+		t.Fatalf("fallback = %v, want the kind", item["fallback"])
+	}
+	if item["text"] != "a caption" {
+		t.Fatalf("text = %v, want the caption", item["text"])
 	}
 	media, ok := item["media"].(map[string]any)
 	if !ok {

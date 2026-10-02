@@ -86,7 +86,7 @@ problem), `internal`. Methods may document additional codes.
 The first request on a connection must be `hello`:
 
 ```jsonc
-{"id": 1, "method": "hello", "params": {"client": "whatkevr", "protocol": 1}}
+{"id": 1, "method": "hello", "params": {"client": "whattui", "protocol": 1}}
 {"id": 1, "result": {"daemon": "whatevrd", "version": "0.6.0", "protocol": 1,
                      "state": "online", "data_dir": "...", "cache_dir": "..."}}
 ```
@@ -294,7 +294,7 @@ views.
 | `send.sticker` | `chat_id`, `cache_key`, `reply_to` | `{message_id}` |
 | `send.cancel` | `message_id` | `{}`: marks a still-pending outgoing message failed so the send worker skips it. Fails `rejected` when the message already left the queue |
 | `message.react` | `message_id`, `emoji` ("" removes) | `{}` |
-| `message.edit` | `message_id`, `text` | `{}`: may fail `expired` |
+| `message.edit` | `message_id`, `text` | `{}`: may fail `expired`; the row's `edit_until` says when that starts |
 | `message.revoke` | `message_id` | `{}`: may fail `expired` |
 | `message.delete` | `message_id` | `{}`: local delete-for-me |
 | `message.star` | `message_id`, `starred` | `{}` |
@@ -420,6 +420,13 @@ A message item has a `kind`, kind-specific fields, and always:
   the `unsupported` tombstone kind with a "View once …" fallback, keeping
   their keys only so an explicit `media.save` can fetch them),
   `kept` (somebody asked for a disappearing message to stay).
+- `edit_until`: the unix second WhatsApp stops accepting an edit of this
+  message, absent for one that cannot be edited at all (somebody else's, a
+  deleted one, a kind with nothing to rewrite). A frontend greys out its edit
+  action on it rather than offering an edit the daemon will answer `expired`.
+  It crosses as a deadline rather than a flag because the row would otherwise
+  have to be re-sent the moment the window closed, and because a frontend that
+  held the window itself would be holding a number WhatsApp owns.
 
 The kinds: `text`, `image`, `sticker`, `video`, `gif`, `voice`, `audio`,
 `document`, `video_note`, `location`, `live_location`, `contact`, `contacts`,
@@ -496,7 +503,7 @@ Events without `sub`, sent to specific connections:
 
 | event | data | meaning |
 | --- | --- | --- |
-| `open_chat` | `chat_id` | the user asked the system to surface a chat (notification click, `whatevr://chat/…` URL); sent to the most recently focused frontend (per `session.update`), which should raise its window and open the chat. If no frontend is currently focused, it falls back to the most recently active session, so a notification click raises an existing but unfocused window instead of cold-starting a duplicate |
+| `open_chat` | `chat_id` | a notification was clicked; sent to the most recently focused frontend (per `session.update`), which should open the chat. If none is focused it goes to the most recently active session; with no frontend connected nothing is sent |
 | `media_stream_update` | `stream_id`, `message_id`, `state`, plus `path` for `local` or `error` for `failed` | terminal recovery after a late failure of the matching `media.stream`. `local` means the daemon completed and verified a separate whole-file fallback, persisted `media.path`, and the player should replace its source with `path`. `failed` means that fallback also failed. The event is sent only to the connection that requested `stream_id`, after that command's response, and at most once for that id. No event is sent when ranged streaming completes normally |
 
 ## Example session

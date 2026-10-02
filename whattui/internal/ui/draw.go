@@ -2,6 +2,7 @@ package ui
 
 import (
 	"image"
+	"image/color"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"whattui/internal/layout"
 	"whattui/internal/paint"
 	"whattui/internal/proto"
+	"whattui/internal/term"
 	"whattui/internal/theme"
 	"whattui/internal/view"
 )
@@ -40,6 +42,13 @@ func (a *App) paint() {
 	win := a.vx.Window()
 	l := a.layout()
 
+	if a.pairing() {
+		a.drawPairing(win)
+		a.drawModal(win)
+		a.drawToast(win, layout.Layout{})
+		return
+	}
+
 	a.drawChatList(win, l)
 	if !l.Header.Empty() {
 		a.drawHeader(win, l.Header)
@@ -59,6 +68,143 @@ func (a *App) paint() {
 	}
 	a.paintSelection()
 	a.drawModal(win)
+	// Last, so it is over the panel as well. A toast is usually the answer to
+	// something pressed on a panel, and an answer behind the question is no
+	// answer.
+	a.drawToast(win, l)
+}
+
+// drawToast is the line that says what just happened, in the top right corner,
+// over whatever is there.
+//
+// A corner rather than a row of its own: it is gone in two seconds, and a strip
+// that appears and disappears would move every message on the screen twice for
+// every copied line. Over the top right because that is the one part of a chat
+// window nothing is ever being read in, and because the eye that just pressed a
+// key is at the bottom, where a toast would be in the way of the next thing
+// typed.
+func (a *App) drawToast(win vaxis.Window, l layout.Layout) {
+	msg, refused, life := a.toastNow()
+	if msg == "" {
+		return
+	}
+	w, h := win.Size()
+	// The words sit in the middle of the card with the same air either side of
+	// them, and the air is a pill's own rule: a shape with fully round ends pads
+	// its sides to its height rather than to a flat unit.
+	room := w - 2*toastPad - 2
+	if room < 8 {
+		return
+	}
+	msg = a.clip(msg, room)
+	width := a.width(msg) + 2*toastPad
+
+	// The card is taller than the row its words are on, so it claims the row
+	// above and the row below as well: half a row of air over the letters, half
+	// under them, and the shadow into what is left. Without pixels there is no
+	// card to give air to and the toast is the one row it writes in.
+	top := 0
+	if !l.Header.Empty() {
+		// Under the header, which is already saying something about the chat.
+		top = l.Header.Row + l.Header.Height
+	}
+	claimed, textRow := 1, top
+	if a.painted() && top+toastRows <= h {
+		claimed, textRow = toastRows, top+1
+	}
+	rect := layout.Rect{Col: w - width - 1, Row: top, Width: width, Height: claimed}
+	if rect.Col < 0 || rect.Row+rect.Height > h {
+		return
+	}
+
+	// It leaves the way a thing that was never part of the page leaves: by
+	// going, rather than by being switched off. Everything it is made of mixes
+	// toward the ground over the last moment of its life, cells and pixels
+	// alike, which is the one piece of motion in the whole application and the
+	// only place one belongs.
+	fade := 100
+	if life < toastFade {
+		fade = int(life * 100 / toastFade)
+	}
+	if fade <= 0 {
+		return
+	}
+
+	// The edge and the words carry which kind of answer this is. Colour is the
+	// whole of it here and that is allowed: there is only ever one toast, it
+	// says what happened in words, and the words are the other signal.
+	edge := a.theme.Accent
+	ink := a.theme.Text
+	if refused {
+		edge, ink = a.theme.Warning, a.theme.Warning
+	}
+	ink = a.mixInk(ink, a.theme.Background, fade)
+
+	// A run and a bubble are both images over the cell background, so the toast
+	// has to take the ones it covers with it, exactly as a panel does.
+	a.occlude(rect)
+	a.occludeSurfaces(rect)
+
+	// The ground under the whole claim is the page's own, not the card's: what
+	// falls outside a rounded corner has to be the page or the corner is a
+	// square. The card's own colour is in the card.
+	ground := a.theme.Background
+	if claimed == 1 {
+		ground = a.mixInk(a.theme.BackgroundPanel, a.theme.Background, fade)
+	}
+	fill(sub(win, rect), ground)
+	a.drawCard(win, rect, edge, fade)
+	a.print(sub(win, layout.Rect{Col: rect.Col, Row: textRow, Width: width, Height: 1}),
+		toastPad, 0, vaxis.Style{Foreground: ink, Background: ground}, msg)
+}
+
+const (
+	// toastPad is the air either side of a toast's words, in columns.
+	toastPad = 2
+	// toastRows is what a toast claims where there are pixels: the row its
+	// words are on, a row of air above it, and the room its shadow falls into
+	// below.
+	toastRows = 3
+)
+
+// drawCard is the pill a toast floats on, where there are pixels to draw one
+// with. Below that the cells it stands in are the whole of it, and the only
+// thing lost is the shape.
+func (a *App) drawCard(win vaxis.Window, r layout.Rect, edge vaxis.Color, fade int) {
+	if !a.painted() || r.Height < toastRows {
+		return
+	}
+	fill, ok := theme.Paint(a.theme.Background, a.theme.BackgroundPanel, 1)
+	if !ok {
+		return
+	}
+	rim, _ := theme.Paint(a.theme.Background, edge, 1)
+	_, ch := a.cellPix()
+
+	spec := func(pw, ph int) paint.Spec {
+		card := paint.Card{
+			W: pw, H: ph,
+			// Half a row above the words and half a row below, which puts the
+			// middle of the card on the middle of the row they are on.
+			Top:  ch / 2,
+			Body: 2 * ch,
+			Fill: fill, Edge: rim,
+			// The same curve every other corner in the application has, and
+			// the same one the palette's own frame draws with a box glyph: a
+			// corner taken off, not a semicircle. A card as round as it is
+			// tall is a lozenge, and a lozenge belongs to a different
+			// application than the one behind it.
+			Radius: a.bubbleRadius(),
+			Shadow: maxInt(ch/3, 3),
+			Drop:   maxInt(ch/6, 2),
+		}
+		if fade < 100 {
+			ground := color.NRGBA{a.theme.InkGround[0], a.theme.InkGround[1], a.theme.InkGround[2], 0xff}
+			return paint.Fade{Spec: card, Toward: ground, Percent: fade}
+		}
+		return card
+	}
+	a.paintRect(sub(win, r), 0, 0, r.Width, r.Height, spec)
 }
 
 // sub is a vaxis window for a layout rect.
@@ -83,6 +229,7 @@ func (a *App) drawChatList(win vaxis.Window, l layout.Layout) {
 
 	a.mu.Lock()
 	selected, top, focus, active, hovered := a.selected, a.listTop, a.focus, a.activeChat, a.hovered
+	live := a.transport == proto.Ready && a.linkedLocked()
 	a.mu.Unlock()
 
 	rail := l.Shape == layout.ShapeRail && !l.ListFocused
@@ -98,6 +245,19 @@ func (a *App) drawChatList(win vaxis.Window, l layout.Layout) {
 			},
 		})
 		w--
+	}
+
+	// Nothing is drawn off a socket that is gone, and nothing off an account
+	// that is. Every row in the list is the daemon's claim about right now: who
+	// said what last, how much of it is unread, which order any of it is in.
+	// With nothing on the other end those are claims nobody is standing behind,
+	// and a list that cannot change is worse than no list, because it looks
+	// exactly like one that can. A phone somebody unpaired is the same thing
+	// from the other side: the rows are a stranger's now.
+	if !live {
+		fill(pane.New(0, 0, w, h), a.theme.BackgroundPanel)
+		a.drawEmptyList(pane, false)
+		return
 	}
 
 	perRow := l.ChatRowHeight()
@@ -133,10 +293,16 @@ func (a *App) drawChatList(win vaxis.Window, l layout.Layout) {
 func (a *App) drawEmptyList(pane vaxis.Window, ready bool) {
 	style := vaxis.Style{Foreground: a.theme.TextMuted, Background: a.theme.BackgroundPanel}
 	a.mu.Lock()
-	transport := a.transport
+	transport, linked := a.transport, a.linkedLocked()
 	a.mu.Unlock()
 	if transport != proto.Ready {
 		a.print(pane, 1, 1, style, "waiting for whatevrd")
+		return
+	}
+	// The same words the notice beside it uses, so the two halves of the screen
+	// are saying one thing.
+	if !linked {
+		a.print(pane, 1, 1, style, "not paired with a phone")
 		return
 	}
 	if !ready {
@@ -170,7 +336,6 @@ func (a *App) ground(st rowState) vaxis.Color {
 func (a *App) drawChatRow(pane vaxis.Window, row, w, height int, c proto.ChatRow, st rowState) {
 	bg := a.ground(st)
 	fill(pane.New(0, row, w, height), bg)
-	a.noteBlock(pane, 1, row, w-1, height)
 	line := pane.New(0, row, w, 1)
 
 	unread := c.Unread > 0
@@ -246,7 +411,7 @@ func (a *App) drawChatRow(pane vaxis.Window, row, w, height int, c proto.ChatRow
 	// The preview shares the name's left edge rather than the avatar's, so the
 	// two lines of a row line up as one block.
 	a.printLine(preview, col, 0, vaxis.Style{Foreground: a.theme.TextMuted, Background: bg},
-		a.clipLine(a.linkLine(c.Preview), room))
+		a.clipLine(a.linkLine(a.spelled(c.Preview)), room))
 	if badge != "" {
 		a.print(preview, w-badgeW-1, 0, vaxis.Style{
 			Foreground: a.theme.Accent, Background: bg, Attribute: vaxis.AttrBold,
@@ -378,14 +543,20 @@ func (a *App) drawHeader(win vaxis.Window, r layout.Rect) {
 
 	a.mu.Lock()
 	active := a.activeChat
+	live := a.transport == proto.Ready && a.linkedLocked()
 	a.mu.Unlock()
 
 	style := vaxis.Style{
 		Foreground: a.theme.Text, Background: a.theme.BackgroundPanel,
 		Attribute: vaxis.AttrBold,
 	}
+	// Our own name while there is no socket and no account, for the same reason
+	// the list is empty: the chat this was open on is a chat nothing is reading
+	// any more.
+	// The name is the one thing on the frame saying a conversation is in front
+	// of you, and it says it long after it stopped being true.
 	title := "whattui"
-	if active != "" {
+	if active != "" && live {
 		if it, ok := a.chats.Get(active); ok {
 			title = it.Value.Name
 		}
@@ -494,15 +665,29 @@ func (a *App) layoutMessage(m proto.MessageRow, paneWidth int) block {
 	if m.ReplyTo != nil {
 		quote = m.ReplyTo.Text
 		if quote == "" {
-			quote = m.ReplyTo.Fallback
+			quote = a.spelled(m.ReplyTo.Fallback)
 		}
 	}
 
-	b := a.layoutBlock(quote, m.Body(), a.messageStamp(m), a.runRoom(paneWidth))
+	b := a.layoutBlock(quote, a.body(m), a.messageStamp(m), a.runRoom(paneWidth))
+	b.muted = m.Revoked
+	b.outgoing = m.Outgoing()
+	b.mark, b.status = a.statusMark(m), m.Status
+
+	// A message nobody can read any more carries no reactions: WhatsApp drops
+	// them when it goes, and a row of applause under a deleted message is
+	// applause for a sentence that is not there.
+	if !m.Revoked {
+		room := a.runRoom(paneWidth)
+		var strip int
+		b.reacts, strip = a.pillsFor(groupReactions(m.Reactions), room)
+		b.width = minInt(maxInt(b.width, strip), room)
+	}
 
 	// A message that is nothing but emoji draws big, the way it does in every
 	// other chat client, because the size is what the message means.
-	if n := emojiOnlyCount(m.Text); n > 0 && !m.Revoked && len(b.body) == 1 && a.caps.TextScale {
+	if n := emojiOnlyCount(m.Text); n > 0 && !m.Revoked && len(b.body) == 1 &&
+		a.caps.TextScale && bigEmojiWanted() {
 		// Clamped to the room the column can grow into, not the room it
 		// currently occupies: the message is sized by its content, and at
 		// this point the content is about to get three times bigger.
@@ -513,35 +698,53 @@ func (a *App) layoutMessage(m proto.MessageRow, paneWidth int) block {
 		room := a.runRoom(paneWidth)
 		glyphs := lineText(b.body[0])
 		b.scale = layout.Clamp(bigEmojiScale(n), a.width(glyphs), room, a.transcriptPage())
-		b.width = minInt(a.width(glyphs)*b.scale, room)
+		// Never narrower than the reaction strip under it, which is laid out
+		// against the same room and is not part of the words.
+		b.width = minInt(maxInt(a.width(glyphs)*b.scale, b.width), room)
 	}
 	return b
 }
 
-// messageStamp is what stands in the gutter beside a message: when it was
-// sent, whether it has been edited, and where it got to.
-//
-// Every state is its own glyph, not just its own colour: one tick sent, two
-// delivered, two filled read. Colour reinforces it rather than carrying it, so
-// the state survives NO_COLOR, a colour-blind reader, and the plain tier.
+// messageStamp is when a message was sent. It stands in the gutter beside the
+// message rather than at the end of its words, which is what makes a column of
+// times down the edge of the transcript readable as a column.
 func (a *App) messageStamp(m proto.MessageRow) string {
-	stamp := time.Unix(m.Timestamp, 0).Format("15:04")
-	// The pencil takes the space the ticks would have had, so an edited
-	// message is no wider than any other and the gutter stays the width of
-	// what it actually holds.
-	switch {
-	case m.Edited:
-		stamp += "✎"
-	case m.Outgoing():
-		stamp += " "
-	}
-	if !m.Outgoing() {
-		return stamp
-	}
-	return stamp + statusGlyph(m.Status)
+	return time.Unix(m.Timestamp, 0).Format("15:04")
 }
 
-func statusGlyph(status string) string {
+// statusMark is how far a message you sent got, and nothing at all for one you
+// did not: a message somebody else wrote has no delivery state of yours.
+func (a *App) statusMark(m proto.MessageRow) string {
+	if !m.Outgoing() {
+		return ""
+	}
+	return a.statusGlyph(m.Status)
+}
+
+// statusGlyph is the mark itself. Every state is its own glyph and not just its
+// own colour: one tick sent, two delivered, two heavy read. Colour reinforces
+// it rather than carrying it, so the state survives NO_COLOR and a reader who
+// cannot tell two of them apart.
+//
+// A font without dingbats in it draws a tick as a hole, and two holes beside
+// two holes say nothing whatever colour they are. The letter every font has
+// carries the same count there, and capitals carry the weight the heavy tick
+// carries everywhere else.
+func (a *App) statusGlyph(status string) string {
+	if a.caps.PlainFont {
+		switch status {
+		case "read":
+			return "VV"
+		case "delivered":
+			return "vv"
+		case "sent":
+			return "v"
+		case "failed":
+			return "!"
+		default:
+			return "."
+		}
+	}
 	switch status {
 	case "read":
 		return "✔✔"
@@ -556,13 +759,29 @@ func statusGlyph(status string) string {
 	}
 }
 
+// statusInk is the mark's colour. Read is the accent, which is where every
+// chat application puts it, and a send that failed is the one delivery state
+// worth interrupting somebody over.
+func (a *App) statusInk(status string) vaxis.Color {
+	switch status {
+	case "read":
+		return a.theme.Accent
+	case "failed":
+		return a.theme.Error
+	default:
+		return a.theme.TextFaint
+	}
+}
+
 func (a *App) drawComposer(win vaxis.Window, r layout.Rect) {
 	pane := sub(win, r)
 	w, h := pane.Size()
 
 	a.mu.Lock()
 	active, focus := a.activeChat, a.focus
-	text, cursor, sendErr := a.composer.String(), a.composer.cursor, a.composer.sendErr
+	text, cursor := a.composer.String(), a.composer.cursor
+	editing, targetName, targetText := a.composer.editing != "", a.composer.targetName, a.composer.targetText
+	targetColour, targeted := a.composer.targetColour, a.composer.targeted()
 	a.mu.Unlock()
 
 	// The field carries its own ground where there is something to draw it
@@ -578,45 +797,73 @@ func (a *App) drawComposer(win vaxis.Window, r layout.Rect) {
 	}
 	a.drawField(pane, 1, 0, w-2, h, focus == FocusComposer)
 
+	// The strip takes the top row of the field, so the draft starts under it.
+	top, rows := 0, h
+	if targeted {
+		a.drawTarget(pane, w, editing, targetName, targetText, targetColour, ground)
+		top, rows = 1, h-1
+	}
+	if rows < 1 {
+		return
+	}
+
 	marker := vaxis.Style{Foreground: a.theme.Border, Background: ground}
 	if focus == FocusComposer {
 		marker = vaxis.Style{Foreground: a.theme.Accent, Background: ground}
 	}
-	a.print(pane, 2, 0, marker, "\u203a")
-
-	if sendErr != "" {
-		a.print(pane, composerText, 0, vaxis.Style{
-			Foreground: a.theme.Error, Background: ground,
-		}, a.clip("not sent: "+sendErr, w-composerGutter))
-		return
-	}
+	a.print(pane, 2, top, marker, "\u203a")
 
 	if text == "" {
-		a.print(pane, composerText, 0, vaxis.Style{
+		a.print(pane, composerText, top, vaxis.Style{
 			Foreground: a.theme.TextFaint, Background: ground,
 		}, "type a message")
 		if focus == FocusComposer {
-			win.ShowCursor(r.Col+composerText, r.Row, vaxis.CursorBeam)
+			win.ShowCursor(r.Col+composerText, r.Row+top, vaxis.CursorBeam)
 		}
 		return
 	}
 
 	style := vaxis.Style{Foreground: a.theme.Text, Background: ground}
 	lines := a.wrap(text, w-composerGutter)
-	a.noteBlock(pane, composerText, 0, w-composerGutter, h)
+	a.noteBlock(pane, composerText, top, w-composerGutter, rows)
 	// The tail is what is being written, so that is the end that stays on
 	// screen when the draft outgrows the rows it has.
-	if len(lines) > h {
-		lines = lines[len(lines)-h:]
+	if len(lines) > rows {
+		lines = lines[len(lines)-rows:]
 	}
 	for i, line := range lines {
-		a.print(pane, composerText, i, style, line)
+		a.print(pane, composerText, top+i, style, line)
 	}
 
 	if focus == FocusComposer {
-		col, row := a.cursorCell(text, cursor, w-composerGutter, len(lines), h)
-		win.ShowCursor(r.Col+composerText+col, r.Row+row, vaxis.CursorBeam)
+		col, row := a.cursorCell(text, cursor, w-composerGutter, len(lines), rows)
+		win.ShowCursor(r.Col+composerText+col, r.Row+top+row, vaxis.CursorBeam)
 	}
+}
+
+// drawTarget is the line above a draft that says which message it is about:
+// the one being answered, or the one being rewritten. It shares the draft's
+// left edge, because the two are one block and a reader should see one.
+//
+// Nothing else says so. Without it an edit looks exactly like a new message
+// until it lands on top of an old one.
+func (a *App) drawTarget(pane vaxis.Window, w int, editing bool, name, text string, accent, ground vaxis.Color) {
+	mark := "↩"
+	if editing {
+		mark = "✎"
+	}
+	if a.caps.Tier <= term.TierPlain {
+		mark = ">"
+		if editing {
+			mark = "*"
+		}
+	}
+	a.print(pane, 2, 0, vaxis.Style{Foreground: accent, Background: ground}, mark)
+	col := a.print(pane, composerText, 0, vaxis.Style{
+		Foreground: accent, Background: ground, Attribute: vaxis.AttrBold,
+	}, a.clip(name, maxInt(w/3, 8)))
+	a.print(pane, col+1, 0, vaxis.Style{Foreground: a.theme.TextMuted, Background: ground},
+		a.clip(text, maxInt(w-col-3, 1)))
 }
 
 // drawField is the rounded box a draft is typed into. A terminal cannot set a
@@ -671,6 +918,13 @@ func (a *App) cursorCell(text string, at, width, shown, height int) (int, int) {
 	return minInt(col, width-1), row
 }
 
+// hint is one thing the hint line offers: a registry command, which brings its
+// own key with it, or a bare phrase for the gestures no command owns.
+type hint struct {
+	id   commandID
+	text string
+}
+
 func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 	pane := sub(win, r)
 	fill(pane, a.theme.Background)
@@ -680,6 +934,7 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 	typed := !a.composer.empty()
 	leader := a.leader
 	modal := a.modal.kind
+	message, pointing := a.selectedMessageLocked()
 	a.mu.Unlock()
 
 	newline := "s-\u23ce"
@@ -696,23 +951,49 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 		return
 	}
 
-	if msg := a.toastNow(); msg != "" {
-		// A toast takes the hint line rather than a corner of its own: it is
-		// gone in a moment, and the hints are the thing worth its place.
-		a.print(pane, 1, 0, vaxis.Style{Foreground: a.theme.Success}, a.clip(msg, r.Width-2))
-		return
-	}
-
-	type hint struct {
-		id   commandID
-		text string
-	}
 	var hints []hint
 	switch {
 	// An open panel owns the keyboard, so the line says what the panel does
 	// rather than what the pane behind it would have done.
 	case modal != modalNone:
 		hints = []hint{{"", "\u2191\u2193 move"}, {"", "\u23ce run"}, {"", "esc close"}}
+		if modal == modalForward {
+			// The one panel that takes more than one answer has to say so:
+			// nothing else on the screen suggests a list can be marked.
+			hints = []hint{
+				{"", "\u2191\u2193 move"}, {"", "\u21e5 mark"},
+				{"", "\u23ce forward"}, {"", "esc close"},
+			}
+		}
+	// A lit message owns the letters, so the line is what those letters do to
+	// it. Only the ones that apply: an edit hint over somebody else's message
+	// is a key that answers with an excuse. Only in the panes the message is
+	// in, because at the chat list those letters are not live.
+	case pointing && focus != FocusList:
+		star := "star"
+		if message.Starred {
+			star = "unstar"
+		}
+		// What the marks in the transcript mean, in words, for the one message
+		// they are about. The column and the underline are what you notice; the
+		// line is where you find out what you noticed.
+		for _, said := range flagWords(message) {
+			hints = append(hints, hint{"", said})
+		}
+		state := a.commandState()
+		for _, h := range []hint{
+			{cmdReply, "reply"}, {cmdReact, "react"}, {cmdForward, "forward"},
+			{cmdEditMessage, "edit"}, {cmdCopyMessage, "copy"},
+			{cmdStar, star}, {cmdDelete, "delete"},
+			// Last, because what it opens is this same list with room for all
+			// of it, which is worth least on the line that already has room.
+			{cmdMenu, "more"},
+		} {
+			if a.enabled(h.id, state) {
+				hints = append(hints, h)
+			}
+		}
+		hints = append(hints, hint{"", "esc drop"})
 	case focus == FocusList:
 		hints = []hint{{cmdOpenChat, "open"}, {"", "\u2191\u2193 move"}, {cmdFocusNext, "chat"}, {cmdQuit, "quit"}}
 	case focus == FocusTranscript:
@@ -726,20 +1007,61 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 
 	w, _ := pane.Size()
 	col := 1
-	for _, hint := range hints {
-		h := hint.text
-		if hint.id != "" {
-			a.initCommands()
-			if c := a.commands.byID[hint.id]; c != nil && c.Direct != "" {
-				h = c.Direct + " " + hint.text
+	style := vaxis.Style{Foreground: a.theme.TextFaint}
+	for i, h := range hints {
+		text := a.hintText(h)
+		if col+a.width(text) >= w {
+			// The line ran out mid-list. What is left of it goes to the menu if
+			// the menu fits, because one key that leads to everything still to
+			// come beats two words of the next action and silence about the
+			// rest.
+			if more, ok := a.hintMore(hints[i:]); ok && col+a.width(more) < w {
+				a.print(pane, col, 0, style, more)
 			}
-		}
-		if col+a.width(h) >= w {
 			break
 		}
-		col = a.print(pane, col, 0, vaxis.Style{Foreground: a.theme.TextFaint}, h)
-		col += 2
+		col = a.print(pane, col, 0, style, text) + 2
 	}
+}
+
+// hintText is one hint as it reads on the line: the key the registry gives it,
+// then what it does.
+func (a *App) hintText(h hint) string {
+	if h.id == "" {
+		return h.text
+	}
+	a.initCommands()
+	if c := a.commands.byID[h.id]; c != nil && c.Direct != "" {
+		return c.Direct + " " + h.text
+	}
+	return h.text
+}
+
+// hintMore is the menu's own hint, if it is among the ones that did not fit.
+func (a *App) hintMore(left []hint) (string, bool) {
+	for _, h := range left {
+		if h.id == cmdMenu {
+			return a.hintText(h), true
+		}
+	}
+	return "", false
+}
+
+// flagWords says what the transcript's marks mean, for the message the cursor
+// is on. Each one leads with the mark it explains, so the line reads as a
+// legend rather than as another key to press.
+func flagWords(m proto.MessageRow) []string {
+	if m.Revoked {
+		return nil
+	}
+	var out []string
+	if m.Starred {
+		out = append(out, "★ starred")
+	}
+	if m.Edited {
+		out = append(out, "edited")
+	}
+	return out
 }
 
 // drawLeaderHints projects the registry's leader bindings onto the hint line,

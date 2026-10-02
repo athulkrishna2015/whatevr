@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -215,6 +216,151 @@ func TestAModalTakesTheRunsUnderItWithIt(t *testing.T) {
 	}
 }
 
+// oneMessage is a transcript holding exactly one row, for the tests about how
+// one message is drawn.
+func oneMessage(t *testing.T, a *App, m proto.MessageRow) entry {
+	t.Helper()
+	c := a.conversation
+	c.msgs.Reset()
+	m.Sender = proto.Sender{ID: "x", Name: "someone"}
+	c.msgs.Upsert("00000000000000000001", mustJSON(m))
+	c.msgs.Ready(true, true)
+	a.paint()
+	return c.cache[m.ID]
+}
+
+// cellSaying is the style of the first cell on a row holding a grapheme.
+func (a *App) cellSaying(row int, grapheme string) (vaxis.Style, bool) {
+	cols, _ := a.vx.Window().Size()
+	for col := 0; col < cols; col++ {
+		if c := a.vx.Cell(col, row); c.Grapheme == grapheme {
+			return c.Style, true
+		}
+	}
+	return vaxis.Style{}, false
+}
+
+// A message nobody can read any more is not something anybody said, and it has
+// to read that way rather than sitting there in full strength text.
+func TestADeletedMessageIsDrawnQuietly(t *testing.T) {
+	a := stubApp(100, 26, 4, 0)
+	e := oneMessage(t, a, proto.MessageRow{
+		ID: "m", Kind: "text", Direction: "incoming", Revoked: true, Edited: true, Starred: true,
+	})
+
+	if !e.block.muted {
+		t.Error("a deleted message is drawn like any other")
+	}
+	// And what was done to it before it went is no longer news.
+	if e.starred || e.edited {
+		t.Error("a deleted message still carries its flags")
+	}
+
+	style, ok := a.cellSaying(a.messages[0].at.Row, "T")
+	if !ok {
+		t.Fatal("the deleted placeholder is not on the frame")
+	}
+	if style.Foreground != a.theme.TextMuted {
+		t.Errorf("the placeholder is %v, want the muted ink %v", style.Foreground, a.theme.TextMuted)
+	}
+	if style.Attribute&vaxis.AttrItalic == 0 {
+		t.Error("the placeholder is not italic, so it reads as something somebody wrote")
+	}
+}
+
+// A flag says something about a message without being part of it. It must cost
+// the message nothing: not a column of its width, not a row of its height, and
+// not a cell of the rail, which is exactly as wide as a time and its ticks.
+func TestFlagsCostAMessageNothing(t *testing.T) {
+	a := stubApp(100, 26, 4, 0)
+	plain := oneMessage(t, a, proto.MessageRow{
+		ID: "m", Kind: "text", Direction: "incoming", Text: "short",
+	})
+	flagged := oneMessage(t, a, proto.MessageRow{
+		ID: "m", Kind: "text", Direction: "incoming", Text: "short", Edited: true, Starred: true,
+	})
+
+	if !flagged.starred || !flagged.edited {
+		t.Fatal("the flags did not survive the layout")
+	}
+	if flagged.block.width != plain.block.width || flagged.block.rows() != plain.block.rows() {
+		t.Errorf("a flagged message is %dx%d and the same message plain is %dx%d",
+			flagged.block.width, flagged.block.rows(), plain.block.width, plain.block.rows())
+	}
+	if flagged.block.stamp != plain.block.stamp {
+		t.Errorf("the rail says %q when flagged and %q when not", flagged.block.stamp, plain.block.stamp)
+	}
+	if got := a.width(flagged.block.stamp); got > runGutterIn {
+		t.Errorf("the rail is %d cells wide, want no more than %d", got, runGutterIn)
+	}
+}
+
+// The star stands in the one column between the time and the rule, which every
+// message has and none of them uses, and it runs the height of the message it
+// marks.
+func TestTheStarMarksTheColumnBesideTheRule(t *testing.T) {
+	a := stubApp(100, 26, 4, 0)
+	room := a.runRoom(a.layout().Transcript.Width)
+	e := oneMessage(t, a, proto.MessageRow{
+		ID: "m", Kind: "text", Direction: "incoming", Text: strings.Repeat("a", room*2), Starred: true,
+	})
+	if got := e.block.rows(); got < 2 {
+		t.Fatalf("this message is %d rows, want one worth a ribbon", got)
+	}
+
+	// Incoming, so the rule is on the left and the flag column is the cell
+	// before it.
+	at := a.messages[0].at
+	col := at.Col + runLead + runGutterIn
+	head := a.vx.Cell(col, at.Row)
+	if head.Grapheme != "▏" {
+		t.Fatalf("the column beside the rule says %q on the first row, want the mark", head.Grapheme)
+	}
+	if head.Style.Foreground != a.theme.Warning {
+		t.Errorf("the mark is %v, want the amber %v", head.Style.Foreground, a.theme.Warning)
+	}
+	// The ribbon under it, at the tier that has no pixels to draw one with.
+	if tail := a.vx.Cell(col, at.Row+1).Grapheme; tail != "▏" {
+		t.Errorf("the row under the star says %q, want the ribbon", tail)
+	}
+	// And the words are where they would be without it.
+	plain := oneMessage(t, a, proto.MessageRow{
+		ID: "m", Kind: "text", Direction: "incoming", Text: strings.Repeat("a", room*2),
+	})
+	if plain.block.width != e.block.width {
+		t.Error("the star took a column from the words")
+	}
+}
+
+// An edit is the claim that the words are not the words that were said at that
+// time, so the mark goes on the time. Every terminal can underline.
+func TestAnEditMarksTheTime(t *testing.T) {
+	a := stubApp(100, 26, 4, 0)
+	e := oneMessage(t, a, proto.MessageRow{
+		ID: "m", Kind: "text", Direction: "incoming", Text: "short", Edited: true,
+	})
+
+	digit := string([]rune(e.block.stamp)[0])
+	style, ok := a.cellSaying(a.messages[0].at.Row, digit)
+	if !ok {
+		t.Fatalf("no time on the frame to mark, wanted %q", e.block.stamp)
+	}
+	if style.UnderlineStyle != vaxis.UnderlineDotted {
+		t.Errorf("the time is underlined %v, want the dotted mark", style.UnderlineStyle)
+	}
+	if style.UnderlineColor != a.theme.Warning {
+		t.Errorf("the mark is %v, want the amber %v", style.UnderlineColor, a.theme.Warning)
+	}
+
+	// And an unedited message's time carries no mark at all.
+	oneMessage(t, a, proto.MessageRow{
+		ID: "m", Kind: "text", Direction: "incoming", Text: "short",
+	})
+	if style, ok := a.cellSaying(a.messages[0].at.Row, digit); ok && style.UnderlineStyle != vaxis.UnderlineOff {
+		t.Errorf("an unedited time is underlined %v", style.UnderlineStyle)
+	}
+}
+
 // A run is one shape. Pointing at it has to say which message in it you are
 // pointing at, or a run of five looks like one thing you cannot act on.
 func TestThePointerLightsOneMessageOfARun(t *testing.T) {
@@ -259,5 +405,45 @@ func TestThePointerFindsTheMessageItIsOver(t *testing.T) {
 	}
 	if off := a.messageUnder(vaxis.Mouse{Col: 0, Row: 0}); off != "" {
 		t.Fatalf("pointer on the chat list found message %q", off)
+	}
+}
+
+// A message you sent hangs off the rule on the right, and everything in it
+// lines up against that edge. A short answer under a long quote, left where
+// the quote starts, reads as adrift in the middle of the column rather than as
+// the end of the conversation.
+func TestAnOutgoingMessageHangsOffTheRuleItStandsOn(t *testing.T) {
+	a := stubApp(90, 26, 4, 0)
+	c := a.conversation
+	c.msgs.Reset()
+	c.msgs.Upsert("00000000000000000001", mustJSON(proto.MessageRow{
+		ID: "m", Kind: "text", Direction: "outgoing", Status: "read", Text: "Haath mai",
+		Sender: proto.Sender{ID: "me", Name: "me"},
+		ReplyTo: &proto.ReplyQuote{
+			MessageID: "q", Sender: proto.Sender{ID: "x", Name: "someone"},
+			Text: "a quoted line long enough to set the width of the whole message",
+		},
+	}))
+	c.msgs.Ready(true, true)
+	a.paint()
+
+	words := ""
+	for _, line := range strings.Split(a.transcriptRowsText(), "\n") {
+		if strings.Contains(line, "Haath mai") {
+			words = line
+		}
+	}
+	if words == "" {
+		t.Fatalf("the message did not draw:\n%s", a.transcriptRowsText())
+	}
+	// The rule is the edge the message hangs off, so the last of the words is
+	// the cell before it.
+	rule := strings.Index(words, "\u258e")
+	end := strings.Index(words, "Haath mai") + len("Haath mai")
+	if rule < 0 {
+		t.Fatalf("the run drew no rule: %q", words)
+	}
+	if end != rule {
+		t.Errorf("the words end at column %d and the rule stands at %d: %q", end, rule, words)
 	}
 }

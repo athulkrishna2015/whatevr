@@ -14,12 +14,18 @@ talk over a documented protocol on a unix socket, and writing one is a fun weeke
 ![whatkevr2](https://github.com/user-attachments/assets/be7e52a0-491c-4f96-972c-b264fa66887b)
 ![whatkevr](https://github.com/user-attachments/assets/46f96ee9-32a7-4e1d-8cae-1d0e82371f8f)
 
+`whatkevr` is the Qt/Kirigami desktop frontend and the one that owns pixels on a
+desktop: the daemon-owned tray icon, its right-click menu, the image/video
+viewer and the pre-send photo editor all live here.
 
 <details>
     <summary>Other Frontends</summary>
-    
+
 ### WhatGevr
 ![whatgevr](https://github.com/user-attachments/assets/785ed14e-77e5-48c2-a7da-ba2f61b1f951)
+
+### WhatTui
+The terminal frontend, in Go on a fork of vaxis.
 </details>
 
 ## Getting it
@@ -48,7 +54,7 @@ with `git clone --recursive`, or run
 
 **Daemon:** Go 1.26+, just, a C compiler, SQLite dev files, pkg-config.
 **Terminal frontend:** the same Go toolchain, nothing else.
-**Frontend:** C++20 compiler, CMake 3.21+, Ninja, Qt 6.8+, KDE Frameworks 6.5+
+**Frontend (whatkevr):** C++20 compiler, CMake 3.21+, Ninja, Qt 6.8+, KDE Frameworks 6.5+
 (KCoreAddons, KDBusAddons, KI18n, Kirigami, Prison, QQC2 Desktop Style),
 Kirigami Addons 1.0+, KQuickImageEditor, rlottie, Vulkan headers.
 
@@ -77,6 +83,8 @@ sudo apt install golang just gcc g++ libsqlite3-dev pkg-config cmake ninja-build
   libkquickimageeditor-dev librlottie-dev ffmpeg
 ```
 
+**Optional at runtime:** ffmpeg, for video posters and voice note waveforms.
+
 #### 2. Build and install
 
 ```sh
@@ -87,9 +95,9 @@ just install "$HOME/.local"           # user-local release install
 sudo just install /usr
 ```
 
-`just install` places the `whatevrd`, `whatkevr` and `whattui` binaries, desktop entry,
-icon, AppStream metainfo and the systemd user units under the selected prefix.
-Make sure the chosen `bin` directory is on your `PATH` (e.g. `~/.local/bin`).
+`just install` places the `whatevrd`, `whatkevr` and `whattui` binaries, desktop
+entry, icon, AppStream metainfo and the systemd user units under the selected
+prefix. Make sure the chosen `bin` directory is on your `PATH` (e.g. `~/.local/bin`).
 
 Other handy targets: `just version`, `just validate`, `just artifacts`, and
 `just clean`.
@@ -103,6 +111,9 @@ whatevrd      # or run it via systemd (below)
 whatkevr      # desktop
 whattui       # terminal
 ```
+
+The first time, link your phone: `whattui` shows the QR code to scan, or run
+`whatevrd pair` to print it in any terminal.
 
 `whattui` is keyboard and mouse driven and needs nothing memorised: `ctrl+p`
 opens the command palette, `/` in the composer opens the same commands inline,
@@ -140,29 +151,6 @@ systemctl --user daemon-reload
 
 Distro packages install both units to `/usr/lib/systemd/user/` (shipped disabled).
 
-#### Notification deep links
-
-Clicking a message notification opens that chat directly via the
-`whatevr://chat/<id>` URL scheme. Distro packages register the handler
-automatically; for a manual install, register it once:
-
-```sh
-update-desktop-database ~/.local/share/applications
-xdg-mime default in.codelif.Whatevr.desktop x-scheme-handler/whatevr
-```
-
-#### Other frontends: whatgevr (unmaintained)
-
-The GTK4/libadwaita frontend is not actively maintained and is excluded from the
-main build and packaging. Build it manually if you want to hack on it:
-
-```sh
-# deps: rust, gtk4, libadwaita, pkg-config
-cd whatgevr
-cargo build --release
-install -Dm755 target/release/whatevr ~/.local/bin/whatevr
-```
-
 </details>
 
 
@@ -174,7 +162,7 @@ The **protocol**, on the other hand, is stable at version 1: new views, commands
 and message kinds will be added, but nothing already in PROTOCOL.md changes
 shape. A frontend written against it today keeps working.
 
-Now with that, here is the current feature map, this is for whatevrd+whatkevr.
+Now with that, here is the current feature map for whatevrd.
 <details>
   <summary>Feature Map</summary>
   
@@ -240,10 +228,8 @@ and never keep durable state of their own; several can run at once against the
 same daemon, and each sees the same rows in the same order because the daemon
 computed that order.
 
-The daemon is Go (`whatevrd/`); the flagship frontend is `whatkevr`, in
-C++20/QML on Qt 6 and Kirigami; the terminal frontend is `whattui`, in Go on a
-fork of vaxis (`whattui/`). `whatgevr`, a primitive GTK4/libadwaita frontend, is
-unmaintained and excluded from the build. A scriptable CLI is wanted and
+The daemon is Go (`whatevrd/`); the terminal frontend is `whattui`, in Go on a
+fork of vaxis (`whattui/`). A scriptable CLI is wanted and
 unclaimed (see *Write a frontend* above); that work needs no changes to the
 daemon.
 
@@ -287,6 +273,7 @@ $ socat - UNIX-CONNECT:"$XDG_RUNTIME_DIR/whatevr/whatevrd.sock"
 Whatevr stands on the shoulders of:
 
 - [whatsmeow](https://github.com/tulir/whatsmeow): WhatsApp Web multidevice protocol library (MPL-2.0)
+- [vaxis](https://git.sr.ht/~rockorager/vaxis): terminal UI library that whattui runs on a fork of (Apache-2.0)
 - [Qt](https://www.qt.io): cross-platform application framework (LGPL-3.0)
 - [KDE Frameworks](https://kde.org) / [Kirigami](https://develop.kde.org/frameworks/kirigami/): UI toolkit and helpers (LGPL)
 - [Kirigami Addons](https://invent.kde.org/libraries/kirigami-addons): convergent UI components (LGPL)

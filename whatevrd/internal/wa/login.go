@@ -476,6 +476,13 @@ func (c *Client) backupBeforeWipe(ctx context.Context) {
 // resetInMemoryAccountState drops in-memory caches keyed by account data so
 // nothing bleeds into the next login. The run context must be cancelled
 // (workers stopped) before calling.
+//
+// A map here is emptied and never removed: cleared where nothing else wants
+// what was in it, and swapped for a fresh one where the old entries still have
+// to be closed out. Writing to a nil map is a panic, and half of these are
+// written by work that is already in flight when the account goes. A media
+// download that landed after a logout took the whole daemon down with it,
+// which is the one failure no frontend can do anything about.
 func (c *Client) resetInMemoryAccountState() {
 	c.avatarMu.Lock()
 	c.avatarHigh = nil
@@ -489,7 +496,7 @@ func (c *Client) resetInMemoryAccountState() {
 	c.offlineSyncTotalMessages = 0
 	c.offlineSyncProcessedEvents = 0
 	c.offlineSyncProcessedMessages = 0
-	c.offlineSyncChangedChats = nil
+	clear(c.offlineSyncChangedChats)
 	c.offlineSyncLastPublish = time.Time{}
 	c.offlineSyncMu.Unlock()
 
@@ -510,8 +517,16 @@ func (c *Client) resetInMemoryAccountState() {
 	c.callsMu.Unlock()
 
 	c.pendingAppStateMu.Lock()
-	c.pendingAppState = nil
+	clear(c.pendingAppState)
 	c.pendingAppStateMu.Unlock()
+
+	c.pendingStarsMu.Lock()
+	clear(c.pendingStars)
+	c.pendingStarsMu.Unlock()
+
+	c.pendingRewritesMu.Lock()
+	clear(c.pendingRewrites)
+	c.pendingRewritesMu.Unlock()
 
 	c.clearHistorySyncStallWatch()
 	c.historySyncMu.Lock()
@@ -521,7 +536,7 @@ func (c *Client) resetInMemoryAccountState() {
 
 	c.backfillMu.Lock()
 	pendingBackfills := c.backfillInFlight
-	c.backfillInFlight = nil
+	c.backfillInFlight = make(map[string]*backfillRequest)
 	c.backfillMu.Unlock()
 	for _, req := range pendingBackfills {
 		if req.timer != nil {
@@ -532,7 +547,7 @@ func (c *Client) resetInMemoryAccountState() {
 	c.posterMu.Lock()
 	c.posterHigh = nil
 	c.posterLow = nil
-	c.posterQueued = nil
+	clear(c.posterQueued)
 	c.posterMu.Unlock()
 
 	// The cancels belong to downloads started on the previous session's
@@ -540,7 +555,7 @@ func (c *Client) resetInMemoryAccountState() {
 	// waiters instead of leaving them on a channel nobody will close.
 	c.mediaDownloadMu.Lock()
 	downloads := c.mediaDownloads
-	c.mediaDownloads = nil
+	c.mediaDownloads = make(map[string]*mediaDownloadState)
 	c.mediaDownloadMu.Unlock()
 	for _, download := range downloads {
 		if download.cancel != nil {
@@ -549,21 +564,21 @@ func (c *Client) resetInMemoryAccountState() {
 	}
 
 	c.mediaRetryMu.Lock()
-	c.mediaRetries = nil
+	clear(c.mediaRetries)
 	c.mediaRetryMu.Unlock()
 
 	c.mediaStreamMu.Lock()
-	c.mediaStreams = nil
+	clear(c.mediaStreams)
 	c.mediaStreamMu.Unlock()
 
 	c.messageStickerMu.Lock()
-	c.messageStickerLocks = nil
+	clear(c.messageStickerLocks)
 	c.messageStickerMu.Unlock()
 
 	c.stickerMu.Lock()
-	c.stickerDownloads = nil
+	clear(c.stickerDownloads)
 	stickerTimers := c.stickerLibraryTimers
-	c.stickerLibraryTimers = nil
+	c.stickerLibraryTimers = make(map[app.StickerSource]*time.Timer)
 	c.stickerMu.Unlock()
 	for _, timer := range stickerTimers {
 		timer.Stop()

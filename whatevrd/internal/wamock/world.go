@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"go.mau.fi/whatsmeow/appstate"
+	waCommon "go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
@@ -233,6 +234,16 @@ type Msg struct {
 	// moment the message was made. Nil for an ordinary text message.
 	media *waE2E.Message
 
+	// control is a payload that is not something anybody said: an edit or a
+	// revoke, which travel as protocol messages about another message and are
+	// swallowed by the client rather than shown.
+	control *waE2E.Message
+
+	// quoted is the message this one is a reply to. A reply is an ordinary
+	// text message that carries the quoted one inside its context, which is
+	// what lets every device draw the quote without looking anything up.
+	quoted *Msg
+
 	// starred and the rest are app state the account already had, which the
 	// client can also change from a frontend.
 	starred bool
@@ -240,8 +251,20 @@ type Msg struct {
 
 // payload is what goes inside the Signal envelope.
 func (m *Msg) payload() *waE2E.Message {
-	if m.media != nil {
+	switch {
+	case m.control != nil:
+		return m.control
+	case m.media != nil:
 		return m.media
+	case m.quoted != nil:
+		return &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
+			Text: proto.String(m.Text),
+			ContextInfo: &waE2E.ContextInfo{
+				StanzaID:      proto.String(m.quoted.ID),
+				Participant:   proto.String(m.quoted.From.JID.String()),
+				QuotedMessage: m.quoted.payload(),
+			},
+		}}
 	}
 	return &waE2E.Message{Conversation: proto.String(m.Text)}
 }
@@ -253,6 +276,73 @@ func (m *Msg) stanzaType() string {
 		return "media"
 	}
 	return "text"
+}
+
+// Edit rewrites a message the way editing it on the phone does: a protocol
+// message pointing at the original, which every other device applies to what it
+// already has. The words on the wire are the new ones; what the original said
+// is only ever in the copy each device kept.
+func (m *Msg) Edit(text string, at time.Time) *Msg {
+	edit := m.Chat.newMsg(m.From, text, at)
+	edit.control = &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{
+		Key:           m.key(),
+		Type:          waE2E.ProtocolMessage_MESSAGE_EDIT.Enum(),
+		EditedMessage: &waE2E.Message{Conversation: proto.String(text)},
+		TimestampMS:   proto.Int64(at.UnixMilli()),
+	}}
+	m.Chat.deliver(edit)
+	return m
+}
+
+// Revoke deletes a message for everybody, which is a protocol message naming it
+// and nothing else: the words are gone and every device is expected to keep the
+// hole rather than the message.
+func (m *Msg) Revoke(at time.Time) *Msg {
+	gone := m.Chat.newMsg(m.From, "", at)
+	gone.control = &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{
+		Key:  m.key(),
+		Type: waE2E.ProtocolMessage_REVOKE.Enum(),
+	}}
+	m.Chat.deliver(gone)
+	return m
+}
+
+// React puts an emoji on a message, from somebody. It travels as a message of
+// its own naming the one it is about, which every device then hangs off that
+// message rather than showing as a line in the chat. An empty emoji is a
+// reaction taken back, which is the same message with nothing in it.
+//
+// WhatsApp keeps one reaction per person, so reacting twice from the same
+// contact replaces the first rather than adding to it, exactly as it would on a
+// phone.
+func (m *Msg) React(from *Contact, emoji string, at time.Time) *Msg {
+	r := m.Chat.newMsg(from, "", at)
+	r.control = &waE2E.Message{ReactionMessage: &waE2E.ReactionMessage{
+		Key:               m.key(),
+		Text:              proto.String(emoji),
+		SenderTimestampMS: proto.Int64(at.UnixMilli()),
+	}}
+	m.Chat.deliver(r)
+	return m
+}
+
+// ReactFromMe is React by the account itself, which is the reaction a frontend
+// draws as its own and offers to take back.
+func (m *Msg) ReactFromMe(emoji string, at time.Time) *Msg {
+	return m.React(m.Chat.w.self, emoji, at)
+}
+
+// key is how another message refers to this one.
+func (m *Msg) key() *waCommon.MessageKey {
+	key := &waCommon.MessageKey{
+		RemoteJID: proto.String(m.Chat.JID.String()),
+		FromMe:    proto.Bool(m.FromMe),
+		ID:        proto.String(m.ID),
+	}
+	if m.Chat.IsGroup && !m.FromMe {
+		key.Participant = proto.String(m.From.JID.String())
+	}
+	return key
 }
 
 // Star marks the message starred, the way it would be if somebody had starred
@@ -483,6 +573,15 @@ func (c *Chat) HistoryFromMe(text string, at time.Time) *Msg {
 // message typed on the phone reaches a linked device.
 func (c *Chat) SayFromMe(text string, at time.Time) *Msg {
 	return c.add(c.w.self, text, at)
+}
+
+// Quote says something as a reply to another message. It is an ordinary text
+// message with the quoted one inside its context, which is how a reply travels.
+func (c *Chat) Quote(from *Contact, to *Msg, text string, at time.Time) *Msg {
+	m := c.newMsg(from, text, at)
+	m.quoted = to
+	c.deliver(m)
+	return m
 }
 
 func (c *Chat) newMsg(from *Contact, text string, at time.Time) *Msg {

@@ -195,11 +195,18 @@ _install profile prefix destdir:
     install -Dm644 packaging/systemd/whatevrd.socket \
         "$destdir$user_unit_dir/whatevrd.socket"
 
+# git archive leaves submodules out, and without vaxis there is no whattui.
 _source-tarball:
+    @just _require-vaxis
     @version="{{version}}"; \
     mkdir -p {{build_dir}}; \
     git archive --format=tar --prefix="whatevr-$version/" HEAD \
         > "{{build_dir}}/whatevr-$version.tar"; \
+    git -C whattui/vaxis archive --format=tar \
+        --prefix="whatevr-$version/whattui/vaxis/" HEAD \
+        > "{{build_dir}}/vaxis.tar"; \
+    tar -Af "{{build_dir}}/whatevr-$version.tar" "{{build_dir}}/vaxis.tar"; \
+    rm -f "{{build_dir}}/vaxis.tar"; \
     printf '%s\n' "$version" > {{build_dir}}/VERSION; \
     tar --transform "s,^,whatevr-$version/," \
         -rf "{{build_dir}}/whatevr-$version.tar" -C {{build_dir}} VERSION; \

@@ -19,6 +19,11 @@ import (
 // The one thing the screen cannot tell us is a rasterised word, whose cells
 // are blank by design, so those are remembered as they are drawn and put back
 // here.
+//
+// A pane opts in by recording blocks. The chat list does not: a row there is a
+// button, a drag across it is a drag across a column of buttons, and the name
+// and preview it would hand you are the daemon's summary rather than anything
+// anybody wrote.
 
 // point is a cell on the screen, absolute.
 type point struct{ col, row int }
@@ -58,9 +63,9 @@ type drag struct {
 const clickBurst = 400 * time.Millisecond
 
 // blocks are the runs of text a triple click can take whole: a message's
-// words, a chat row, the composer. Recorded as they are drawn, because the
-// thing that knows where a message's text landed is the thing that put it
-// there.
+// words, the chat name in the header, the draft. Recorded as they are drawn,
+// because the thing that knows where a message's text landed is the thing that
+// put it there. A pane that records none cannot be selected at all.
 func (a *App) noteBlock(win vaxis.Window, col, row, w, h int) {
 	// Clamped to the window, because a message taller than the pane hangs off
 	// both ends of it and an unclamped block would claim rows belonging to

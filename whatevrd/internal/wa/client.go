@@ -43,6 +43,20 @@ type Client struct {
 	pendingAppStateMu sync.Mutex
 	pendingAppState   map[types.JID]pendingAppStateEntry
 
+	// pendingStars parks stars for messages that have not been synced yet, by
+	// internal message id. App state lands seconds after connecting and history
+	// sync takes minutes, so on a fresh pairing every star in the account
+	// arrives before the message it marks. Replayed by reconcilePendingStars as
+	// history sync chunks land; see star_pin.go.
+	pendingStarsMu sync.Mutex
+	pendingStars   map[string]bool
+
+	// pendingRewrites parks edits and revokes whose target message has not been
+	// synced yet, by internal message id, for the same reason and on the same
+	// passes; see pending_rewrite.go.
+	pendingRewritesMu sync.Mutex
+	pendingRewrites   map[string]pendingRewrite
+
 	// lifecycleMu serializes start/logout/close; sessionMu guards the handle
 	// itself so any goroutine can ask which account it is working for.
 	lifecycleMu sync.Mutex

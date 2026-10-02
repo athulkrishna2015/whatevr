@@ -72,6 +72,16 @@ func buildVisual(w *World) {
 	group.SayFromMe("this side is the account itself", Ago(3*time.Hour-3*time.Minute))
 	group.Say(meera, "and this one wraps far enough to exercise a second line of text in the transcript", Ago(3*time.Hour-5*time.Minute))
 	group.Say(asha, "short", Ago(2*time.Hour))
+	// Nothing but emoji, which is the one message in a chat a frontend may
+	// draw larger than the words around it. Two of them, because three or
+	// fewer is one size and more than that is another.
+	group.Say(ravi, "\U0001F389", Ago(110*time.Minute))
+	group.SayFromMe("\U0001F602\U0001F525\U0001F44D\U0001F389", Ago(105*time.Minute))
+	// An emoji-only reply, which is the one message that is drawn larger and
+	// hangs under a line of somebody else's words at the same time.
+	dinner := group.Say(meera, "dinner at eight \U0001F642, bring whatever you like", Ago(100*time.Minute))
+	group.Quote(asha, dinner, "\U0001F44D", Ago(99*time.Minute))
+	group.Quote(w.Self(), dinner, "\U0001F602", Ago(98*time.Minute))
 
 	direct := w.DM(asha)
 	direct.Say(asha, "a one to one chat, for the header without a member count", Ago(90*time.Minute))

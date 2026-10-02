@@ -43,6 +43,9 @@ type App struct {
 	conn    *view.Object[proto.Connection]
 	connSub *proto.Subscription
 
+	login    *view.Object[proto.Login]
+	loginSub *proto.Subscription
+
 	// The rasteriser for the scripts a cell grid cannot hold, and the images
 	// it has already produced. shaping is snapshotted once per frame so
 	// measuring and drawing cannot disagree across the moment it comes up.
@@ -71,10 +74,12 @@ type App struct {
 	// it is over. A run is one shape; this is what tells its messages apart.
 	messages []messageAt
 
-	// toastText is the transient line that says what just happened, and
-	// toastUntil is when it stops being true.
-	toastText  string
-	toastUntil time.Time
+	// toastText is the transient line that says what just happened, toastUntil
+	// is when it stops being true, and toastRefused is whether what happened
+	// was nothing.
+	toastText    string
+	toastRefused bool
+	toastUntil   time.Time
 
 	// State the UI owns. Presentation only: scroll positions, what is
 	// selected, what is typed. Everything renderable lives in a view.
@@ -95,22 +100,31 @@ type App struct {
 	boxed bool
 	// shape is the mouse cursor the terminal was last told to wear.
 	shape vaxis.MouseShape
+	// Which pane the wheel is moving, when the last notch arrived, how long it
+	// was after the one before it, and when the burst started. A glide outlives
+	// the fingers that started it, so the pane it moves is decided once rather
+	// than per notch, and the interval is what says a hand is back on the pad.
+	wheelList  bool
+	wheelAt    time.Time
+	wheelGap   time.Duration
+	wheelSince time.Time
 	// cellW and cellH are the terminal's cell in pixels as of the last frame,
 	// so a font size change can be noticed.
 	cellW, cellH int
 	transport    proto.State
 	lastErr      error
 	quit         bool
+	// focused is whether the terminal is the window in front, as the terminal
+	// last reported it. It starts true because somebody just ran this, and the
+	// first focus event corrects it if they did something else since.
+	focused bool
 
-	composer composer
-	commands commandRegistry
-	modal    modalState
-	leader   bool
-	// slashDismissed prevents an escaped slash menu reopening until the draft
-	// changes. Escape closes UI, never text.
-	slashDismissed string
-	request        func(string, proto.Params, proto.ResponseFunc)
-	searchRequest  uint64
+	composer      composer
+	commands      commandRegistry
+	modal         modalState
+	leader        bool
+	request       func(string, proto.Params, proto.ResponseFunc)
+	searchRequest uint64
 
 	conversation *conversation
 }
@@ -124,7 +138,9 @@ func New(vx *vaxis.Vaxis, caps term.Caps, client *proto.Client) *App {
 		client:  client,
 		chats:   view.NewCollection[proto.ChatRow](),
 		conn:    view.NewObject[proto.Connection](),
+		login:   view.NewObject[proto.Login](),
 		focus:   FocusList,
+		focused: true,
 		hovered: -1,
 		shape:   vaxis.MouseShapeDefault,
 		images:  map[imgKey]*vaxis.KittyImage{},
@@ -192,26 +208,48 @@ func itoa(n int) string { return strconv.Itoa(n) }
 
 // toast says what just happened, briefly, without taking the screen. It is
 // posted from wherever the thing happened, including off the event loop.
-func (a *App) toast(msg string) {
+func (a *App) toast(msg string) { a.say(msg, false) }
+
+// refuse is a toast for the answer "no": a key pressed where it does not
+// apply, a command run against nothing, a request the daemon turned down. The
+// same line in the same corner, in the ink that means it did not happen.
+func (a *App) refuse(msg string) { a.say(msg, true) }
+
+func (a *App) say(msg string, refused bool) {
 	a.mu.Lock()
 	a.toastText = msg
+	a.toastRefused = refused
 	a.toastUntil = time.Now().Add(toastLife)
 	a.mu.Unlock()
-	// One wake-up when it expires, so the line actually leaves rather than
+	// Nothing else here draws twice for one event, so the frames the fade needs
+	// are asked for here and nowhere else: one per step through the last of the
+	// toast's life, and one at the end so the line actually leaves rather than
 	// sitting there until the next keystroke.
-	time.AfterFunc(toastLife, func() { a.vx.PostEvent(redraw{}) })
+	for at := toastLife - toastFade; at <= toastLife; at += toastFade / toastSteps {
+		time.AfterFunc(at, func() { a.vx.PostEvent(redraw{}) })
+	}
 	a.vx.PostEvent(redraw{})
 }
 
-const toastLife = 2500 * time.Millisecond
+const (
+	toastLife = 2500 * time.Millisecond
+	// toastFade is how long it takes to go, and toastSteps is how many frames
+	// that is. Five is enough for a fade to read as one and few enough that the
+	// cost of it is nothing.
+	toastFade  = 500 * time.Millisecond
+	toastSteps = 5
+)
 
-func (a *App) toastNow() string {
+// toastNow is what the toast says, whether it is the answer "no", and how long
+// it has left.
+func (a *App) toastNow() (string, bool, time.Duration) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if time.Now().After(a.toastUntil) {
-		return ""
+	left := time.Until(a.toastUntil)
+	if left <= 0 {
+		return "", false, 0
 	}
-	return a.toastText
+	return a.toastText, a.toastRefused, left
 }
 
 func atoi(s string) int {
@@ -264,6 +302,11 @@ func (a *App) onTransport(s proto.State, _ *proto.ServerInfo, err error) {
 		a.lastErr = nil
 	}
 	a.mu.Unlock()
+	// A reconnected daemon has never heard of this window: the session is the
+	// connection's, so it goes out again with the connection.
+	if s == proto.Ready {
+		a.updateSession()
+	}
 	a.vx.PostEvent(redraw{})
 }
 
@@ -278,6 +321,9 @@ func (a *App) Run() error {
 	defer a.client.Stop()
 
 	a.connSub = a.client.Subscribe("connection", nil, a.conn)
+	// held for the whole run: a phone can unlink at any time, and the code
+	// has to be on screen the moment it does
+	a.loginSub = a.client.Subscribe("login", nil, a.login)
 	a.subscribeChats()
 
 	a.draw()
@@ -336,6 +382,10 @@ func (a *App) handle(ev vaxis.Event) bool {
 		// A resize can also be a font size change, and every rasterised word
 		// is measured off the cell.
 		a.recell()
+	case vaxis.FocusIn:
+		return a.windowFocus(true)
+	case vaxis.FocusOut:
+		return a.windowFocus(false)
 	case vaxis.VisibilityUpdate:
 		// Nothing was drawn while the window was hidden, and a terminal is
 		// free to reflow or clear what is on it in the meantime. Coming back
@@ -400,7 +450,7 @@ func (a *App) status() (string, vaxis.Color, bool) {
 	case "online":
 		return "", 0, false
 	case "need_login":
-		return "not logged in: run whatkevr to pair, or wait for the qr screen", a.theme.Warning, true
+		return "not linked to a phone: scan the code", a.theme.Warning, true
 	case "connecting", "starting":
 		return "connecting to whatsapp", a.theme.TextMuted, true
 	case "reconnecting":
@@ -460,6 +510,18 @@ func (a *App) hover(chat int) bool {
 	return true
 }
 
+// linkedLocked reports whether there is an account behind the socket. A daemon
+// waiting to be paired has emptied its store, so anything still on the screen
+// from the account that left is about somebody who is not there.
+//
+// The object view is its own lock and is never asked anything under App.mu
+// elsewhere; this one is safe because an object view answers from a field it
+// holds, with no collection to read and no callback to run.
+func (a *App) linkedLocked() bool {
+	c, ok := a.conn.Value()
+	return !ok || c.State != "need_login"
+}
+
 // notice is the panel that replaces the transcript when there is nothing to
 // show and a reason for it. It returns nothing at all when the reason is that
 // the reader has simply not picked a chat yet, which the transcript says in
@@ -479,13 +541,6 @@ func (a *App) notice() (title string, colour vaxis.Color, body []string, ok bool
 			return "", 0, nil, false
 		}
 		switch c.State {
-		case "need_login":
-			return "not paired with a phone", a.theme.Warning, []string{
-				"whattui cannot show a chat until whatevr is linked",
-				"to your phone. pair it, then come back:",
-				"",
-				"  whatkevr",
-			}, true
 		case "offline":
 			return "whatsapp is offline", a.theme.Error, []string{
 				"the daemon is running and is not connected.",
