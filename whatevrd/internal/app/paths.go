@@ -25,6 +25,8 @@ type Paths struct {
 	SessionDir    string
 	SessionDBPath string
 	MediaCacheDir string
+	// LogDir holds one jsonl file per run, see internal/logx.
+	LogDir string
 }
 
 func ResolvePaths() (Paths, error) {
@@ -48,6 +50,11 @@ func ResolvePaths() (Paths, error) {
 		cacheBase = filepath.Join(home, ".cache")
 	}
 
+	stateBase := os.Getenv("XDG_STATE_HOME")
+	if stateBase == "" {
+		stateBase = filepath.Join(home, ".local", "state")
+	}
+
 	socketDir := filepath.Join(runtimeBase, "whatevr")
 	lockDir := filepath.Join(runtimeBase, "whatevrd")
 	dataDir := filepath.Join(dataBase, "whatevrd")
@@ -65,11 +72,12 @@ func ResolvePaths() (Paths, error) {
 		SessionDir:    filepath.Join(dataDir, "session"),
 		SessionDBPath: filepath.Join(dataDir, "session", "whatsmeow.db"),
 		MediaCacheDir: filepath.Join(cacheDir, "media"),
+		LogDir:        filepath.Join(stateBase, "whatevr", "logs"),
 	}, nil
 }
 
 func (p Paths) Ensure() error {
-	for _, dir := range []string{p.SocketDir, p.LockDir, p.DataDir, p.SessionDir, p.CacheDir, p.MediaCacheDir} {
+	for _, dir := range []string{p.SocketDir, p.LockDir, p.DataDir, p.SessionDir, p.CacheDir, p.MediaCacheDir, p.LogDir} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return err
 		}

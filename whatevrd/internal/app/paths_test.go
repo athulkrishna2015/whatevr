@@ -15,6 +15,7 @@ func TestResolvePathsSocketAndLockLocations(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", runtimeDir)
 	t.Setenv("XDG_DATA_HOME", filepath.Join(runtimeDir, "data"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(runtimeDir, "cache"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(runtimeDir, "state"))
 
 	paths, err := ResolvePaths()
 	if err != nil {
@@ -28,10 +29,14 @@ func TestResolvePathsSocketAndLockLocations(t *testing.T) {
 		t.Errorf("LockPath = %q, want %q", paths.LockPath, want)
 	}
 
+	if want := filepath.Join(runtimeDir, "state", "whatevr", "logs"); paths.LogDir != want {
+		t.Errorf("LogDir = %q, want %q", paths.LogDir, want)
+	}
+
 	if err := paths.Ensure(); err != nil {
 		t.Fatalf("ensure directories: %v", err)
 	}
-	for _, dir := range []string{paths.SocketDir, paths.LockDir} {
+	for _, dir := range []string{paths.SocketDir, paths.LockDir, paths.LogDir} {
 		info, err := os.Stat(dir)
 		if err != nil {
 			t.Fatalf("stat %s: %v", dir, err)
