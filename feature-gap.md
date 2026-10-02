@@ -570,6 +570,60 @@ remains:
 - whatgevr (the Rust/GTK frontend) trails whatkevr on nearly all of §0; decide
   whether it's a showcase or a maintained peer, and say so in the README.
 
+## 15b. whattui parity notes (frontend-only debt)
+
+The daemon speaks every command below; whattui is simply not calling it yet.
+Counted from `PROTOCOL.md`, whattui wired **9 of 83** commands and **4 of 40+**
+views before the chat actions landed; it is at 16 commands now. None of this is
+blocked on the protocol — it is all frontend work.
+
+**Done 2026-10-02:** chat actions — `chat.pin`, `chat.mute`, `chat.archive`,
+`chat.favorite`, `contact.block`, `chat.mark_read`, `chat.mark_all_read`, plus
+a right-click context menu over a chat row.
+
+Still unwired, in rough order of daily use:
+
+- **Media**: `send.media`, `send.media_batch`, `send.sticker`,
+  `media.download`, `media.stream`, `media.save`, `media.cancel_download`, and
+  the `transfers` view. The README already claims image paste; wiring
+  `send.media` is what makes that true.
+- **Settings and account**: `preferences.set`, `privacy.set`,
+  `privacy.set_default_timer`, `self.set_about`, `daemon.reconnect`,
+  `daemon.shutdown`, `account.logout`, `daemon.logs`, `daemon.backup_export`.
+  All of it is a page over views that already exist.
+- **Reactions and polls are half-done**: `message.react` is wired,
+  `poll.vote` is not, so a poll renders but cannot be voted in.
+- **Search**: `search.messages` and `search.stickers` are unwired;
+  `search.chats` is the only search.
+- **Scheduled sends**: `schedule.text`, `send.cancel`.
+- **Groups and communities**: `group.create`, `group.invite_link`,
+  `group.join_link`, `group.leave`, `group.members`, `group.set_*`,
+  `community.link`/`unlink`/`subgroups`, plus the `group` and `group_members`
+  views.
+- **Channels**: `channels.refresh`, `channel.follow`/`unfollow`,
+  `channel.mute`, `channel.react`, and the channel views.
+- **Status/stories**: `status.post`, `status.download`, `status.mark_viewed`,
+  `status.muted`, `status.mute_sender`, and the `status` views.
+- **Calls**: `call.reject` and the `calls`/`call_history` views. Answering a
+  call needs no media stack, so rejecting one is buildable; placing one is
+  blocked upstream (§17).
+- **Views still unsubscribed**: `chat_folders`, `starred`, `pinned`,
+  `receipts`, `presence`, `typing`, `contacts`, `contact`, `blocklist` (now
+  subscribed, but nothing draws it), `self`, `privacy`, `preferences`,
+  `sync`, `transfers`, `notifications`, `chat_media`.
+
+**Deliberately not ported** — a terminal has no pixels for them:
+
+- The **tray icon** and its menu. `internal/tray` is daemon-owned, so the icon
+  itself keeps working with only `whatkevr` running; whattui can only answer
+  the menu it is sent, and it does not.
+- The **pre-send photo editor** (`KQuickImageEditor`). Attaching a file works;
+  cropping it in-terminal does not.
+- **Embedded audio and video playback**. Playing through an external `mpv` is
+  possible and would need progress reported through the `transfers` view; it is
+  not built. Inline images already work where the terminal speaks the kitty or
+  iterm graphics protocol.
+
 ## 16. Bugs & rough edges (from this audit)
 
 - ~~**Ephemeral wrapper not unwrapped**~~ **Stale (verified 2026-07-04):** whatsmeow
