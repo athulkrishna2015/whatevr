@@ -14,6 +14,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/rs/zerolog"
+	waBinary "go.mau.fi/whatsmeow/binary"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/util/keys"
 
@@ -135,6 +136,11 @@ type Server struct {
 
 	// replay is set when the run plays a capture
 	replay *replay
+
+	// unacked is every message stanza the client has not acked yet, in send
+	// order. a real server hands them over again on the next connection.
+	ackMu   sync.Mutex
+	unacked []waBinary.Node
 
 	mu          sync.Mutex
 	sessions    map[*session]struct{}

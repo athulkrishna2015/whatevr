@@ -5,6 +5,7 @@ package wamock
 import (
 	"context"
 	"fmt"
+	"maps"
 	"time"
 
 	waBinary "go.mau.fi/whatsmeow/binary"
@@ -44,6 +45,12 @@ func (s *session) postLogin(ctx context.Context) {
 
 	go s.pumpOutbox(ctx)
 	s.srv.setLive(s)
+
+	// what the last connection never acked comes first, the same ciphertext
+	// again, as the real server's offline queue does
+	for _, node := range s.srv.stillUnacked() {
+		s.enqueue(func(ctx context.Context) error { return s.sendNode(ctx, node) })
+	}
 
 	world := s.srv.world
 	if world == nil {
@@ -214,11 +221,40 @@ func (s *session) sendMessage(ctx context.Context, m *Msg, offline bool) error {
 		attrs["offline"] = "1"
 	}
 
-	return s.sendNode(ctx, waBinary.Node{
-		Tag:     "message",
-		Attrs:   attrs,
-		Content: []waBinary.Node{enc},
-	})
+	node := waBinary.Node{Tag: "message", Attrs: attrs, Content: []waBinary.Node{enc}}
+	s.srv.noteUnacked(node)
+	return s.sendNode(ctx, node)
+}
+
+func (s *Server) noteUnacked(node waBinary.Node) {
+	s.ackMu.Lock()
+	defer s.ackMu.Unlock()
+	s.unacked = append(s.unacked, node)
+}
+
+func (s *Server) acked(id string) {
+	s.ackMu.Lock()
+	defer s.ackMu.Unlock()
+	for i, n := range s.unacked {
+		if n.Attrs["id"] == id {
+			s.unacked = append(s.unacked[:i], s.unacked[i+1:]...)
+			return
+		}
+	}
+}
+
+// stillUnacked copies what is waiting for an ack, marked offline the way a
+// redelivery is.
+func (s *Server) stillUnacked() []waBinary.Node {
+	s.ackMu.Lock()
+	defer s.ackMu.Unlock()
+	out := make([]waBinary.Node, len(s.unacked))
+	for i, n := range s.unacked {
+		attrs := maps.Clone(n.Attrs)
+		attrs["offline"] = "1"
+		out[i] = waBinary.Node{Tag: n.Tag, Attrs: attrs, Content: n.Content}
+	}
+	return out
 }
 
 // encryptionJID is the address the client will decrypt a sender under, which is

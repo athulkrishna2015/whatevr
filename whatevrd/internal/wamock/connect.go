@@ -72,7 +72,10 @@ func (s *session) handleNode(ctx context.Context, node *waBinary.Node) error {
 	case "iq":
 		return s.handleIQ(ctx, node)
 	case "ack":
-		// The client acking something we sent. Nothing to do yet.
+		if class, _ := node.Attrs["class"].(string); class == "message" {
+			id, _ := node.Attrs["id"].(string)
+			s.srv.acked(id)
+		}
 		return nil
 	case "ib":
 		// Info blob the client volunteers about itself. Nothing to answer.
