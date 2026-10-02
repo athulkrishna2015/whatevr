@@ -10,8 +10,7 @@ type Mention struct {
 }
 
 // ExpandMentions rewrites "@<userpart>" tokens in text to "@<DisplayName>",
-// keyed by the user-part (the substring before '@') of each mention's JID. It
-// mirrors the frontend's mention rendering (whatkevr messagemarkup) for use in
+// keyed by the user-part (the substring before '@') of each mention's JID, for
 // plain-text previews and notifications. It is a no-op when there are no
 // mentions with a name or the text contains no '@'.
 func ExpandMentions(text string, mentions []Mention) string {

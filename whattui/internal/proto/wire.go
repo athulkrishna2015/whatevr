@@ -82,8 +82,7 @@ type removeFrame struct {
 	ItemID string `json:"id"`
 }
 
-// OpenChat asks the frontend to surface a chat: a notification click, or a
-// whatevr://chat/... url.
+// OpenChat asks the frontend to surface a chat after a notification click.
 type OpenChat struct {
 	ChatID string `json:"chat_id"`
 }

@@ -92,7 +92,7 @@ Send to the same recipient in each configuration and record steps 2–4:
 
 | axis | cells | what a divergence means |
 | --- | --- | --- |
-| frontend | `examples/shell-frontend.sh` vs whatkevr (gRPC) | The two paths are code-identical (`wa.Client.SendText`); a difference implicates environment/daemon instance, not code. |
+| frontend | `examples/shell-frontend.sh` vs whattui | The two paths are code-identical (`wa.Client.SendText`); a difference implicates environment/daemon instance, not code. |
 | chat age | long-standing chat vs fresh contact | Fresh contact exercises new-session establishment. |
 | daemon lifecycle | up throughout vs restarted between send and retry | Validates buffer persistence + the daemon-store fallback. |
 | addressing | recipient with vs without a `whatsmeow_lid_map` row | Exercises the alternate-JID retry lookup. |

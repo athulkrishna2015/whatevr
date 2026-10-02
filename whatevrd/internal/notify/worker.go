@@ -3,8 +3,6 @@ package notify
 import (
 	"context"
 	"log"
-	"net/url"
-	"os/exec"
 	"sync"
 
 	"github.com/godbus/dbus/v5"
@@ -22,9 +20,8 @@ const (
 )
 
 // ChatOpener delivers an "open this chat" request to a running frontend. It
-// reports whether at least one frontend received it, so the worker knows
-// whether it still needs to cold-start one. The protocol Server implements it
-// by fanning out connection-directed open_chat events.
+// reports whether at least one frontend received it. The protocol Server
+// implements it by fanning out connection-directed open_chat events.
 type ChatOpener interface {
 	OpenChat(chatID string) bool
 }
@@ -160,7 +157,7 @@ func (w *Worker) handleSignal(ctx context.Context, signal *dbus.Signal) {
 		if !ok {
 			return
 		}
-		w.openChat(ctx, chatID)
+		w.openChat(chatID)
 	case interfaceName + ".NotificationClosed":
 		if len(signal.Body) < 1 {
 			return
@@ -189,15 +186,12 @@ func (w *Worker) activeChat(id uint32) (string, bool) {
 	return chatID, ok
 }
 
-func (w *Worker) openChat(ctx context.Context, chatID string) {
-	// Prefer a running frontend: pushing over the live session stream focuses
-	// the existing window and switches chats without spawning a second
-	// instance. Only when no frontend is connected do we cold-start one.
+// openChat hands a clicked notification to a running frontend. With none
+// connected there is nothing to open: a terminal frontend cannot be started
+// from a notification.
+func (w *Worker) openChat(chatID string) {
 	if w.opener != nil && w.opener.OpenChat(chatID) {
 		return
 	}
-	uri := "whatevr://chat/" + url.PathEscape(chatID)
-	if err := exec.CommandContext(ctx, "xdg-open", uri).Start(); err != nil {
-		log.Printf("open notification chat %s: %v", chatID, err)
-	}
+	log.Printf("notification for chat %s clicked with no frontend connected", chatID)
 }

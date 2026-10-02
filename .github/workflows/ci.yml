@@ -26,7 +26,6 @@ jobs:
     outputs:
       go: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.go == 'true' }}
       whattui: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.whattui == 'true' }}
-      validate: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.validate == 'true' }}
       build: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.build == 'true' }}
       aur: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.aur == 'true' }}
     steps:
@@ -62,19 +61,14 @@ jobs:
               # mode, so a daemon change can move them.
               - 'whatevrd/**'
               - '.github/workflows/**'
-            validate:
-              - 'justfile'
-              - 'VERSION'
-              - 'scripts/release.py'
-              - 'whatkevr/data/**'
-              - '.github/workflows/**'
             build:
               - 'justfile'
               - 'VERSION'
               - 'PROTOCOL.md'
               - 'scripts/conformance'
+              - '.gitmodules'
               - 'whatevrd/**'
-              - 'whatkevr/**'
+              - 'whattui/**'
               - 'packaging/systemd/**'
               - '.github/workflows/**'
             aur:
@@ -206,27 +200,6 @@ jobs:
           go test -tags kittyonly ./...
           go vet ./...
 
-  validate:
-    name: Validate metadata
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: changes
-    if: ${{ needs.changes.outputs.validate == 'true' }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Install validators
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            just desktop-file-utils appstream libxml2-utils
-
-      - name: Validate desktop entry and metainfo
-        run: just validate
-
   build-arch:
     name: Build and install (Arch)
     runs-on: ubuntu-latest
@@ -237,12 +210,7 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
-          pacman -Syu --noconfirm --needed \
-            git sudo base-devel go just cmake ninja ccache extra-cmake-modules zstd vulkan-headers \
-            qt6-base qt6-declarative qt6-multimedia qt6-shadertools mpv ffmpeg appstream \
-            kcoreaddons kdbusaddons ki18n kirigami kirigami-addons prison qqc2-desktop-style sqlite
-          useradd -m -G wheel builduser
-          printf 'builduser ALL=(ALL) NOPASSWD: ALL\n' >> /etc/sudoers
+          pacman -Syu --noconfirm --needed git base-devel go just zstd python
 
       - name: Checkout
         uses: actions/checkout@v6
@@ -255,34 +223,6 @@ jobs:
       - name: Mark workspace safe for Git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Set rlottie cache key
-        id: rlottie-cache-key
-        run: printf 'week=%s\n' "$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore rlottie package
-        uses: actions/cache@v5
-        with:
-          path: .cache/aur/rlottie
-          key: arch-rlottie-${{ steps.rlottie-cache-key.outputs.week }}
-
-      - name: Install rlottie
-        run: |
-          install -d "$GITHUB_WORKSPACE/.cache/aur/rlottie"
-          shopt -s nullglob
-          cached=("$GITHUB_WORKSPACE"/.cache/aur/rlottie/rlottie-*.pkg.tar*)
-          if ((${#cached[@]})) && pacman -U --noconfirm "${cached[@]}"; then
-            exit 0
-          fi
-
-          rm -f "$GITHUB_WORKSPACE"/.cache/aur/rlottie/rlottie-*.pkg.tar*
-          rm -rf "$RUNNER_TEMP/rlottie"
-          git clone https://aur.archlinux.org/rlottie.git "$RUNNER_TEMP/rlottie"
-          chown -R builduser:builduser "$RUNNER_TEMP/rlottie"
-          cd "$RUNNER_TEMP/rlottie"
-          sudo -u builduser makepkg -s --noconfirm
-          cp rlottie-*.pkg.tar* "$GITHUB_WORKSPACE/.cache/aur/rlottie/"
-          pacman -U --noconfirm "$GITHUB_WORKSPACE"/.cache/aur/rlottie/rlottie-*.pkg.tar*
-
       - name: Restore Go caches
         uses: actions/cache@v5
         with:
@@ -292,22 +232,8 @@ jobs:
           key: arch-go-${{ hashFiles('whatevrd/go.sum') }}
           restore-keys: arch-go-
 
-      - name: Restore ccache
-        uses: actions/cache@v5
-        with:
-          path: .cache/ccache
-          key: arch-ccache-${{ github.sha }}
-          restore-keys: arch-ccache-
-
-      - name: Build application and tests
-        env:
-          CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
-          CCACHE_MAXSIZE: 500M
-          CMAKE_CXX_COMPILER_LAUNCHER: ccache
-        run: |
-          just build
-          cmake -S whatkevr -B build/debug/whatkevr -DWHATEVR_BUILD_TESTS=ON
-          cmake --build build/debug/whatkevr
+      - name: Build
+        run: just build
 
       - name: Test protocol conformance
         run: scripts/conformance
@@ -332,85 +258,11 @@ jobs:
           EOF
           scripts/conformance --replay "$RUNNER_TEMP/synthetic.ndjson" --soak 300 --fault all:7
 
-      - name: Test frontend
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: ctest --test-dir build/debug/whatkevr --output-on-failure
-
       - name: Install smoke test
         run: just install-dev /usr "$RUNNER_TEMP/pkgroot"
 
       - name: Show resolved version
         run: just version
-
-  sanitizers:
-    name: Frontend sanitizers (ASan/UBSan)
-    runs-on: ubuntu-latest
-    container: archlinux:latest
-    timeout-minutes: 60
-    needs: changes
-    if: ${{ needs.changes.outputs.build == 'true' }}
-    steps:
-      - name: Install dependencies
-        run: |
-          pacman -Syu --noconfirm --needed \
-            git base-devel just cmake ninja ccache extra-cmake-modules vulkan-headers \
-            qt6-base qt6-declarative qt6-multimedia qt6-shadertools mpv ffmpeg \
-            kcoreaddons kdbusaddons ki18n kirigami kirigami-addons prison qqc2-desktop-style sqlite
-
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Set rlottie cache key
-        id: rlottie-cache-key
-        run: printf 'week=%s\n' "$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore rlottie package
-        uses: actions/cache@v5
-        with:
-          path: .cache/aur/rlottie
-          key: arch-rlottie-${{ steps.rlottie-cache-key.outputs.week }}
-
-      - name: Install rlottie
-        run: |
-          install -d "$GITHUB_WORKSPACE/.cache/aur/rlottie"
-          shopt -s nullglob
-          cached=("$GITHUB_WORKSPACE"/.cache/aur/rlottie/rlottie-*.pkg.tar*)
-          if ((${#cached[@]})) && pacman -U --noconfirm "${cached[@]}"; then
-            exit 0
-          fi
-
-          rm -f "$GITHUB_WORKSPACE"/.cache/aur/rlottie/rlottie-*.pkg.tar*
-          rm -rf "$RUNNER_TEMP/rlottie"
-          git clone https://aur.archlinux.org/rlottie.git "$RUNNER_TEMP/rlottie"
-          useradd -m -G wheel builduser || true
-          printf 'builduser ALL=(ALL) NOPASSWD: ALL\n' >> /etc/sudoers
-          chown -R builduser:builduser "$RUNNER_TEMP/rlottie"
-          cd "$RUNNER_TEMP/rlottie"
-          sudo -u builduser makepkg -s --noconfirm
-          cp rlottie-*.pkg.tar* "$GITHUB_WORKSPACE/.cache/aur/rlottie/"
-          pacman -U --noconfirm "$GITHUB_WORKSPACE"/.cache/aur/rlottie/rlottie-*.pkg.tar*
-
-      - name: Restore ccache
-        uses: actions/cache@v5
-        with:
-          path: .cache/ccache
-          key: arch-asan-ccache-${{ github.sha }}
-          restore-keys: arch-asan-ccache-
-
-      # Memory safety, not leak accounting: Qt and KDE hold singletons to exit,
-      # so leak detection here would only ever report their teardown. What this
-      # is for is use-after-free and undefined behaviour, and both abort.
-      - name: Build and run the sanitized tests
-        env:
-          CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
-          CCACHE_MAXSIZE: 500M
-          CMAKE_CXX_COMPILER_LAUNCHER: ccache
-        run: scripts/asan
-
 
   aur:
     name: AUR metadata

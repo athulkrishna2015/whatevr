@@ -2,7 +2,6 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 build_dir := "build"
 version := `scripts/version.py full`
-version_numeric := `scripts/version.py numeric`
 
 default:
     @just --list
@@ -29,15 +28,13 @@ artifacts arch=`uname -m`:
     @just _binary-tarball "{{arch}}"
     @just _checksums
 
-# Run tests. Target: all, daemon, whattui, frontend, protocol, asan.
-test target="all" dir=build_dir:
+# Run tests. Target: all, daemon, whattui, protocol.
+test target="all":
     @case "{{target}}" in \
-        all) just _test-daemon && just _test-whattui && just _test-frontend "{{dir}}" && scripts/conformance ;; \
+        all) just _test-daemon && just _test-whattui && scripts/conformance ;; \
         daemon) just _test-daemon ;; \
         whattui) just _test-whattui ;; \
-        frontend) just _test-frontend "{{dir}}" ;; \
         protocol) scripts/conformance ;; \
-        asan) scripts/asan "{{dir}}" ;; \
         *) printf 'unknown target: %s\n' "{{target}}" >&2; exit 1 ;; \
     esac
 
@@ -56,13 +53,6 @@ _test-whattui:
     @cd whattui && go test ./...
     @cd whattui && go test -race ./...
 
-# The tests are off in a plain build so it does not need Qt6::Test; asking for
-# them here turns them on for good in this tree.
-_test-frontend dir=build_dir:
-    @just _build-frontend debug "{{dir}}" --tests
-    @just build "{{dir}}"
-    @ctest --test-dir "{{dir}}/debug/whatkevr" --output-on-failure
-
 # Photograph whattui at any size and state, in kitty on a dummy monitor.
 # Needs a compositor, so it is not in `just test`.
 #
@@ -76,34 +66,20 @@ _test-frontend dir=build_dir:
 screenshot *args:
     @scripts/whattui-screenshot {{args}}
 
-validate:
-    @desktop-file-validate whatkevr/data/in.codelif.Whatevr.desktop
-    @appstreamcli validate --no-net whatkevr/data/in.codelif.Whatevr.metainfo.xml
-    @xmllint --noout whatkevr/data/in.codelif.Whatevr.xml
-
 version:
     @printf '%s\n' '{{version}}'
 
-# Update metadata, validate, commit, and tag. Does not push. x.y.z
+# Update metadata, commit, and tag. Does not push. x.y.z
 release version:
     @uv run scripts/release.py "{{version}}"
-
-# Regenerate the bundled chat-wallpaper doodle (seed defaults to the version).
-gen-doodle seed=version_numeric:
-    @scripts/gen_doodle.py --seed "{{seed}}"
 
 uninstall prefix="/usr/local" destdir="":
     @prefix="{{prefix}}"; \
     destdir="{{destdir}}"; \
     rm -f "$destdir$prefix/bin/whatevrd"; \
     rm -f "$destdir$prefix/bin/whattui"; \
-    rm -f "$destdir$prefix/bin/whatkevr"; \
     rm -f "$destdir$prefix/lib/systemd/user/whatevrd.service"; \
-    rm -f "$destdir$prefix/lib/systemd/user/whatevrd.socket"; \
-    rm -f "$destdir$prefix/share/applications/in.codelif.Whatevr.desktop"; \
-    rm -f "$destdir$prefix/share/metainfo/in.codelif.Whatevr.metainfo.xml"; \
-    rm -f "$destdir$prefix/share/mime/packages/in.codelif.Whatevr.xml"; \
-    rm -f "$destdir$prefix/share/icons/hicolor/scalable/apps/in.codelif.Whatevr.svg"
+    rm -f "$destdir$prefix/lib/systemd/user/whatevrd.socket"
 
 clean:
     @rm -rf {{build_dir}}
@@ -112,11 +88,10 @@ _build profile dir=build_dir:
     @test "{{profile}}" = debug -o "{{profile}}" = release
     @just _build-daemon "{{profile}}" "{{dir}}"
     @just _build-whattui "{{profile}}" "{{dir}}"
-    @just _build-frontend "{{profile}}" "{{dir}}"
 
 # whattui builds against the vaxis fork in whattui/vaxis, which is a submodule.
-# A release tarball is `git archive`, which carries no submodule, so a build
-# from one skips whattui rather than failing.
+# The source tarball carries it; a clone without it skips whattui rather than
+# failing.
 _require-vaxis:
     @if [ ! -f whattui/vaxis/go.mod ]; then \
         printf 'whattui/vaxis is empty: run git submodule update --init --recursive\n' >&2; \
@@ -165,16 +140,6 @@ _build-daemon profile dir=build_dir:
     CGO_ENABLED=1 go -C whatevrd build "${go_flags[@]}" -ldflags "$ldflags" \
         -o "$out_dir/whatevrd" ./cmd/whatevrd
 
-_build-frontend profile dir=build_dir tests="":
-    @profile="{{profile}}"; \
-    if [ "$profile" = release ]; then build_type=Release; else build_type=Debug; fi; \
-    scripts/configure-frontend \
-        --build "{{dir}}/$profile/whatkevr" \
-        --build-type "$build_type" \
-        --version {{version_numeric}} \
-        --version-full {{version}} {{tests}}; \
-    cmake --build "{{dir}}/$profile/whatkevr"
-
 _install profile prefix destdir:
     @just _build "{{profile}}"
     @profile="{{profile}}"; \
@@ -187,7 +152,6 @@ _install profile prefix destdir:
     if [ -f "$build_root/whattui" ]; then \
         install -Dm755 "$build_root/whattui" "$destdir$bindir/whattui"; \
     fi; \
-    DESTDIR="$destdir" cmake --install "$build_root/whatkevr" --prefix "$prefix"; \
     sed "s|@BINDIR@|$bindir|g" packaging/systemd/whatevrd.service.in \
         > "$build_root/whatevrd.service"; \
     install -Dm644 "$build_root/whatevrd.service" \
@@ -195,11 +159,18 @@ _install profile prefix destdir:
     install -Dm644 packaging/systemd/whatevrd.socket \
         "$destdir$user_unit_dir/whatevrd.socket"
 
+# git archive leaves submodules out, and without vaxis there is no whattui.
 _source-tarball:
+    @just _require-vaxis
     @version="{{version}}"; \
     mkdir -p {{build_dir}}; \
     git archive --format=tar --prefix="whatevr-$version/" HEAD \
         > "{{build_dir}}/whatevr-$version.tar"; \
+    git -C whattui/vaxis archive --format=tar \
+        --prefix="whatevr-$version/whattui/vaxis/" HEAD \
+        > "{{build_dir}}/vaxis.tar"; \
+    tar -Af "{{build_dir}}/whatevr-$version.tar" "{{build_dir}}/vaxis.tar"; \
+    rm -f "{{build_dir}}/vaxis.tar"; \
     printf '%s\n' "$version" > {{build_dir}}/VERSION; \
     tar --transform "s,^,whatevr-$version/," \
         -rf "{{build_dir}}/whatevr-$version.tar" -C {{build_dir}} VERSION; \
@@ -217,7 +188,6 @@ _binary-tarball arch:
     if [ -f "$root/usr/bin/whattui" ]; then \
         strip --strip-unneeded "$root/usr/bin/whattui"; \
     fi; \
-    strip --strip-unneeded "$root/usr/bin/whatkevr"; \
     install -Dm644 LICENSE "$root/usr/share/licenses/whatevr/LICENSE"; \
     mkdir -p "$dist_dir"; \
     cp -a "$root/usr" "$dist_dir/"; \

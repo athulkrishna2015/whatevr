@@ -159,7 +159,6 @@ func (c *Client) maybeFetchLinkPreviewThumbnail(ctx context.Context, message app
 	if payload == nil {
 		return
 	}
-	// The same two types the card draws a hero for; see LinkPreviewCard.qml.
 	if payload.Type != "video" && payload.Type != "image" {
 		return
 	}

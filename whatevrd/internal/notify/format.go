@@ -79,10 +79,8 @@ func FormatMessage(caps Capabilities, message app.Message, chat app.Chat, opts O
 
 	content := Content{
 		Summary: chatName,
-		Icon:    "in.codelif.Whatevr",
 		Hints: map[string]any{
-			"desktop-entry": "in.codelif.Whatevr",
-			"category":      "im.received",
+			"category": "im.received",
 		},
 	}
 

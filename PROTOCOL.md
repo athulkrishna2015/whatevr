@@ -86,7 +86,7 @@ problem), `internal`. Methods may document additional codes.
 The first request on a connection must be `hello`:
 
 ```jsonc
-{"id": 1, "method": "hello", "params": {"client": "whatkevr", "protocol": 1}}
+{"id": 1, "method": "hello", "params": {"client": "whattui", "protocol": 1}}
 {"id": 1, "result": {"daemon": "whatevrd", "version": "0.6.0", "protocol": 1,
                      "state": "online", "data_dir": "...", "cache_dir": "..."}}
 ```
@@ -406,7 +406,7 @@ Events without `sub`, sent to specific connections:
 
 | event | data | meaning |
 | --- | --- | --- |
-| `open_chat` | `chat_id` | the user asked the system to surface a chat (notification click, `whatevr://chat/…` URL); sent to the most recently focused frontend (per `session.update`), which should raise its window and open the chat. If no frontend is currently focused, it falls back to the most recently active session, so a notification click raises an existing but unfocused window instead of cold-starting a duplicate |
+| `open_chat` | `chat_id` | a notification was clicked; sent to the most recently focused frontend (per `session.update`), which should open the chat. If none is focused it goes to the most recently active session; with no frontend connected nothing is sent |
 | `media_stream_update` | `stream_id`, `message_id`, `state`, plus `path` for `local` or `error` for `failed` | terminal recovery after a late failure of the matching `media.stream`. `local` means the daemon completed and verified a separate whole-file fallback, persisted `media.path`, and the player should replace its source with `path`. `failed` means that fallback also failed. The event is sent only to the connection that requested `stream_id`, after that command's response, and at most once for that id. No event is sent when ranged streaming completes normally |
 
 ## Example session
