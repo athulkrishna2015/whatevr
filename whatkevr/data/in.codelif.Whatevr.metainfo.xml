@@ -19,6 +19,33 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.11.0" date="2026-10-02">
+      <description>
+        <p><em>Highlights</em></p>
+        <ul>
+          <li><em>The tray menu now reads like Telegram's.</em> tdesktop's <code>rebuildMenu</code> is three rows: a show/hide row whose label follows the window state, one notification toggle phrased as the action it performs, then Quit. Ours had two checkboxes both writing <code>notifications_enabled</code>, so they could show contradictory states, and no way to hide the window from the menu at all.</li>
+          <li><em>whattui can finally act on a chat.</em> It was calling 9 of the 83 commands in <code>PROTOCOL.md</code>. Pin, mute, archive, favourite, block, mark read and mark all read are wired now, plus a right-click context menu over a chat row that acts on <em>that</em> row rather than on whichever chat happens to be open.</li>
+          <li><em>Merged upstream <code>main</code> whole</em>, bringing the terminal frontend up to date: <code>whatevrd pair</code> for linking a phone from any terminal, parked edits and revokes that survive a message arriving late, <code>edit_until</code> so a frontend stops offering an edit the daemon will refuse, and a long tail of whattui rendering fixes.</li>
+        </ul>
+        <p><em>Added</em></p>
+        <ul>
+          <li>The tray menu leads with a <code>Show Whatevr</code> / <code>Minimize to tray</code> row driven by the window's real state, and its notification toggle is a single button labelled with the action it performs, hidden while the app-lock PIN is up.</li>
+          <li>whattui chat actions: <code>chat.pin</code>, <code>chat.mute</code>, <code>chat.archive</code>, <code>chat.favorite</code>, <code>contact.block</code>, <code>chat.mark_read</code> and <code>chat.mark_all_read</code>. Each is a registry command, so each is a palette row and a slash command too.</li>
+          <li>whattui right-clicks a chat row for a context menu over that chat, with each toggle labelled with what pressing it will do — <code>Unpin chat</code> over a chat that is already pinned.</li>
+          <li><code>whatevrd pair</code>, so a phone can be linked from any terminal without starting a frontend.</li>
+          <li>The daemon now tells frontends when a message stops being editable, and parks an edit or revoke that outran its message instead of dropping it.</li>
+        </ul>
+        <p><em>Fixed</em></p>
+        <ul>
+          <li><em>Four tray icons where there should be one.</em> A <code>StatusNotifierItem</code> registration is the watcher's to keep — nothing takes it back when the process dies — so every <code>whattui</code> golden-frame run left its mock daemon's icon in the panel permanently. A mock daemon now stays off the session bus entirely, the way it already stayed off notifications.</li>
+          <li>An edit or revoke that arrived before its message was parked and replayed rather than lost. Dropping one is not cosmetic: nothing ever says it again, so a message somebody deleted for everybody stayed in the transcript for good.</li>
+          <li>The account's maps are emptied on logout and every view re-reads the store after it, rather than the maps being taken away underneath them.</li>
+          <li>Stars an account already had are applied on connect.</li>
+          <li>A captioned message's one-line summary says what the message <em>is</em> rather than what it says, which is the line WhatsApp itself shows.</li>
+          <li>The README feature map now says it is a map of the daemon, and <code>feature-gap.md</code> tracks the frontend gaps per frontend — including the whattui work still owed and the features deliberately not ported to a terminal.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.10.0" date="2026-09-28">
       <description>
         <p>Received photos and videos can be turned in the full-screen viewer, and attachments can be edited before they are sent.</p>
