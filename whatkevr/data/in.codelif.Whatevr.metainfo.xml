@@ -19,6 +19,14 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.11.1" date="2026-10-02">
+      <description>
+        <ul>
+          <li><em>Right-clicking the tray icon shows the menu, and not the main window.</em> The handler was calling <code>root.show()</code> before it showed its own menu, so the first thing the icon did was raise the whole app. That is exactly what a right-click should not do: the app underneath is left alone and a three-row menu (Minimize to tray / Disable notifications / Quit) appears where the pointer was. This is the shape of Telegram's tray menu, in phrasing, not just in looks.</li>
+          <li>The tray menu window is no longer a 1×1 dot. Its size was bound to a plain <code>Rectangle</code>'s <code>implicitWidth/implicitHeight</code>, which is always zero, so it mapped at 0.8×0.8 before it even got a chance to render. It computes its size from the button content now.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.11.0" date="2026-10-02">
       <description>
         <p><em>Highlights</em></p>
