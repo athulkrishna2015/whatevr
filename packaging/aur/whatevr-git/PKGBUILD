@@ -14,13 +14,15 @@ provides=('whatevr' 'whatevrd' 'whattui')
 conflicts=('whatevr' 'whatevr-bin')
 install="$_pkgname.install"
 source=("$_pkgname::git+https://github.com/codelif/whatevr.git"
-        "vaxis::git+https://git.sr.ht/~codelif/vaxis")
-sha256sums=('SKIP' 'SKIP')
+        "vaxis::git+https://git.sr.ht/~codelif/vaxis"
+        "whatsmeow::git+https://git.sr.ht/~codelif/whatsmeow")
+sha256sums=('SKIP' 'SKIP' 'SKIP')
 
 prepare() {
 	cd "$srcdir/$_pkgname"
 	git submodule init
 	git config submodule.whattui/vaxis.url "$srcdir/vaxis"
+	git config submodule.whatevrd/whatsmeow.url "$srcdir/whatsmeow"
 	git -c protocol.file.allow=always submodule update
 }
 

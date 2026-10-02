@@ -51,6 +51,7 @@ jobs:
             go:
               - 'justfile'
               - 'VERSION'
+              - '.gitmodules'
               - 'whatevrd/**'
               - '.github/workflows/**'
             whattui:
@@ -87,6 +88,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          # whatevrd builds against the whatsmeow fork, which is a submodule.
+          submodules: recursive
           persist-credentials: false
 
       - name: Set up Go
@@ -98,7 +101,7 @@ jobs:
       - name: Check formatting
         working-directory: whatevrd
         run: |
-          files="$(gofmt -l .)"
+          files="$(gofmt -l . | grep -v '^whatsmeow/' || true)"
           if [ -n "$files" ]; then
             printf '%s\n' "$files"
             exit 1
@@ -126,6 +129,12 @@ jobs:
       # and trusts a private CA. It must never reach a shipped binary.
       - name: Check mock build gate
         run: scripts/check-mock-gate
+
+      - name: Test the whatsmeow fork
+        working-directory: whatevrd/whatsmeow
+        run: |
+          go vet ./...
+          go test ./...
 
   whattui:
     name: Terminal frontend

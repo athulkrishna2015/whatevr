@@ -21,6 +21,8 @@ pkgbase = whatevr-git
 	conflicts = whatevr-bin
 	source = whatevr::git+https://github.com/codelif/whatevr.git
 	source = vaxis::git+https://git.sr.ht/~codelif/vaxis
+	source = whatsmeow::git+https://git.sr.ht/~codelif/whatsmeow
+	sha256sums = SKIP
 	sha256sums = SKIP
 	sha256sums = SKIP
 

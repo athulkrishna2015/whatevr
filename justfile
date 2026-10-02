@@ -39,6 +39,7 @@ test target="all":
     esac
 
 _test-daemon:
+    @just _require-whatsmeow
     @cd whatevrd && go test -tags sqlite_fts5 ./...
     @cd whatevrd && go test -tags "sqlite_fts5 whatevr_mock" ./internal/wamock/...
     @scripts/check-mock-gate
@@ -98,6 +99,14 @@ _require-vaxis:
         exit 1; \
     fi
 
+# whatevrd builds against our whatsmeow fork in whatevrd/whatsmeow, also a
+# submodule. there is no daemon without it, so its absence is fatal.
+_require-whatsmeow:
+    @if [ ! -f whatevrd/whatsmeow/go.mod ]; then \
+        printf 'whatevrd/whatsmeow is empty: run git submodule update --init --recursive\n' >&2; \
+        exit 1; \
+    fi
+
 _build-whattui profile dir=build_dir:
     @if [ ! -f whattui/vaxis/go.mod ]; then \
         printf 'skipping whattui: whattui/vaxis is not checked out\n' >&2; \
@@ -120,6 +129,7 @@ _build-whattui profile dir=build_dir:
         -o "$out_dir/whattui" ./cmd/whattui
 
 _build-daemon profile dir=build_dir:
+    @just _require-whatsmeow
     @profile="{{profile}}"; \
     build_root="{{dir}}"; \
     case "$build_root" in \
@@ -159,9 +169,10 @@ _install profile prefix destdir:
     install -Dm644 packaging/systemd/whatevrd.socket \
         "$destdir$user_unit_dir/whatevrd.socket"
 
-# git archive leaves submodules out, and without vaxis there is no whattui.
+# git archive leaves submodules out, so both forks are appended by hand.
 _source-tarball:
     @just _require-vaxis
+    @just _require-whatsmeow
     @version="{{version}}"; \
     mkdir -p {{build_dir}}; \
     git archive --format=tar --prefix="whatevr-$version/" HEAD \
@@ -169,8 +180,12 @@ _source-tarball:
     git -C whattui/vaxis archive --format=tar \
         --prefix="whatevr-$version/whattui/vaxis/" HEAD \
         > "{{build_dir}}/vaxis.tar"; \
+    git -C whatevrd/whatsmeow archive --format=tar \
+        --prefix="whatevr-$version/whatevrd/whatsmeow/" HEAD \
+        > "{{build_dir}}/whatsmeow.tar"; \
     tar -Af "{{build_dir}}/whatevr-$version.tar" "{{build_dir}}/vaxis.tar"; \
-    rm -f "{{build_dir}}/vaxis.tar"; \
+    tar -Af "{{build_dir}}/whatevr-$version.tar" "{{build_dir}}/whatsmeow.tar"; \
+    rm -f "{{build_dir}}/vaxis.tar" "{{build_dir}}/whatsmeow.tar"; \
     printf '%s\n' "$version" > {{build_dir}}/VERSION; \
     tar --transform "s,^,whatevr-$version/," \
         -rf "{{build_dir}}/whatevr-$version.tar" -C {{build_dir}} VERSION; \

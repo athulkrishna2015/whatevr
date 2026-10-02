@@ -2,6 +2,9 @@ module whatevrd
 
 go 1.26.0
 
+// our fork in a submodule, kept current by merging upstream main into it.
+replace go.mau.fi/whatsmeow => ./whatsmeow
+
 require (
 	github.com/coder/websocket v1.8.15
 	github.com/godbus/dbus/v5 v5.2.2

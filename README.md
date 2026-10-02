@@ -29,8 +29,8 @@ For other systems, for now you can follow the build instructions below:
 whatevr builds through a single top-level `justfile` that compiles the daemon
 (`whatevrd`) and the terminal frontend (`whattui`). The daemon must be running for any frontend to work.
 
-`whattui` builds against a fork of vaxis carried as a git submodule, so clone
-with `git clone --recursive`, or run
+`whatevrd` builds against a fork of whatsmeow and `whattui` against a fork of
+vaxis, both carried as git submodules, so clone with `git clone --recursive`, or run
 `git submodule update --init --recursive` in an existing checkout.
 
 #### 1. Install dependencies
@@ -235,7 +235,7 @@ $ socat - UNIX-CONNECT:"$XDG_RUNTIME_DIR/whatevr/whatevrd.sock"
 ## Acknowledgements
 Whatevr stands on the shoulders of:
 
-- [whatsmeow](https://github.com/tulir/whatsmeow): WhatsApp Web multidevice protocol library (MPL-2.0)
+- [whatsmeow](https://github.com/tulir/whatsmeow): WhatsApp Web multidevice protocol library that whatevrd runs on a fork of (MPL-2.0)
 - [vaxis](https://git.sr.ht/~rockorager/vaxis): terminal UI library that whattui runs on a fork of (Apache-2.0)
 
 ## License
