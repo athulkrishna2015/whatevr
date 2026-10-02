@@ -19,6 +19,15 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.11.2" date="2026-10-02">
+      <description>
+        <ul>
+          <li><em>Left-clicking the tray icon opens the window again.</em> The status-notifier item advertised <code>ItemIsMenu: true</code>, which tells the panel "this icon is a menu: a click should open the menu, not activate the application". The panel then never called <code>Activate</code> at all, so a left-click did nothing — and since the item exports no <code>com.canonical.dbusmenu</code> for the panel to render, there was no menu on that click either. The daemon log made it plain: 44 right-clicks (<code>ContextMenu</code>), zero <code>Activate</code>. It is now <code>false</code>, which is the standard split the app was written against: left-click raises the window, right-click opens the tray menu.</li>
+          <li><em>Qt and QML warnings now show up in the Logs tab.</em> They only ever reached the frontend's stderr, so a warning in the running app was invisible unless you happened to be watching a terminal — which is exactly what the Logs tab is for. Diagnostics are now forwarded to the daemon over a new <code>daemon.log</code> command and land in the same in-memory ring the Logs page already tails, prefixed <code>frontend:</code> so the two sources stay tellable apart. Severity is still inferred from the message text, so a <code>QML MouseArea:</code> line renders as a warning and an mpv failure as an error.</li>
+          <li><em>The media viewer's circular hit area works.</em> <code>MediaViewer.qml</code> gave its <code>containmentMask</code> an untyped <code>contains(point)</code>. Qt looks the mask up by the exact signature <code>contains(QPointF)</code>; an untyped QML function registers as taking a <code>QVariant</code>, so Qt ignored the mask and logged <code>Object set as mask does not have an invokable contains method</code>. The mask is now typed, which is what actually makes a round video note ignore its own corners instead of playing and pausing from the backdrop around it. <code>ChatBubble.qml</code> already declared its types and had this right.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.11.1" date="2026-10-02">
       <description>
         <ul>
