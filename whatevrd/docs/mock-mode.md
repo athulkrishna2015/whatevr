@@ -71,6 +71,10 @@ Unix socket paths cap out at 108 bytes. A deep `--mock-dir` fails at bind with
 | `--mock-now <rfc3339>` | pin the clock every scenario timestamp hangs off |
 | `--mock-control <path>` | bind the quiescence socket here |
 | `--mock-notify` | let a mock run raise desktop notifications |
+| `--mock-capture <name or path>` | play back a capture instead of a scenario, see [captures.md](captures.md) |
+| `--mock-segment <n>` | which daemon run of the capture to play (default 1) |
+| `--mock-speed <x>` | replay pace against the recorded clock, 0 is as fast as the gates allow |
+| `--mock-gate <d>` | how long a replayed push waits for the client to catch up (default 5s) |
 
 `--mock-scan-delay` is the one worth knowing about: it is how you get a QR to
 sit on screen long enough to look at, instead of pairing instantly.
@@ -226,6 +230,9 @@ of sleeping long enough to be fairly sure.
 | `{"cmd":"scenario"}` | the name, the seed and the pinned clock |
 | `{"cmd":"list"}` | the registry |
 | `{"cmd":"say","chat":"Asha","text":"..."}` | put a message in from outside the scenario |
+| `{"cmd":"replay"}` | a replay's progress: done, position, misses, gate timeouts, junk payloads, the id map |
+
+A replay keeps `sync` blocked until its segment is fully played.
 
 `sync` is only the server's half. Whether a view has emitted `ready`, and
 whether the daemon has finished ingesting what it was sent, are things only the
