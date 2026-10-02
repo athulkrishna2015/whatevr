@@ -18,9 +18,20 @@ type ChatRow struct {
 	Pinned               bool   `json:"pinned"`
 	Archived             bool   `json:"archived"`
 	Muted                bool   `json:"muted"`
+	Favorite             bool   `json:"favorite"`
 	MuteEndTimestamp     int64  `json:"mute_end_timestamp"`
 	HistoryExhausted     bool   `json:"history_exhausted"`
 	AvatarPath           string `json:"avatar_path"`
+}
+
+// BlockedContact is one row of the blocklist view. ID is the jid, which is also
+// what contact.block takes.
+type BlockedContact struct {
+	ID         string `json:"id"`
+	JID        string `json:"jid"`
+	Name       string `json:"name"`
+	Phone      string `json:"phone"`
+	AvatarPath string `json:"avatar_path"`
 }
 
 // Sender is who wrote a message.

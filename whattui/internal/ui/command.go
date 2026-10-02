@@ -35,6 +35,13 @@ const (
 	cmdDelete        commandID = "message.delete"
 	cmdDeleteForMe   commandID = "message.delete-for-me"
 	cmdRevoke        commandID = "message.delete-for-everyone"
+	cmdPin           commandID = "chat.pin"
+	cmdUnmute        commandID = "chat.mute"
+	cmdArchive       commandID = "chat.archive"
+	cmdFavorite      commandID = "chat.favorite"
+	cmdBlock         commandID = "contact.block"
+	cmdMarkRead      commandID = "chat.mark-read"
+	cmdMarkAllRead   commandID = "chat.mark-all-read"
 )
 
 // scope says where a direct binding is live. A binding with no scope belongs to
@@ -175,6 +182,13 @@ func (a *App) initCommands() {
 			}
 			return true, ""
 		}, Run: a.revokeSelected},
+		{ID: cmdPin, Title: "Pin chat", Description: "Pin the chat to the top of the list, or take the pin off", Slash: "pin", Enabled: hasChat, Run: a.onOpenChat(a.togglePin)},
+		{ID: cmdUnmute, Title: "Mute chat", Description: "Stop notifications for this chat, or let them through again", Slash: "mute", Enabled: hasChat, Run: a.onOpenChat(a.toggleMute)},
+		{ID: cmdArchive, Title: "Archive chat", Description: "Move the chat out of the list, or bring it back", Slash: "archive", Enabled: hasChat, Run: a.onOpenChat(a.toggleArchive)},
+		{ID: cmdFavorite, Title: "Favourite chat", Description: "Mark the chat a favourite, or take the mark off", Slash: "favorite", Enabled: hasChat, Run: a.onOpenChat(a.toggleFavorite)},
+		{ID: cmdBlock, Title: "Block contact", Description: "Stop receiving messages from this contact, or allow them again", Slash: "block", Enabled: hasChat, Run: a.onOpenChat(a.toggleBlock)},
+		{ID: cmdMarkRead, Title: "Mark chat read", Description: "Mark everything in this chat read", Slash: "mark-read", Enabled: hasChat, Run: a.onOpenChat(a.markRead)},
+		{ID: cmdMarkAllRead, Title: "Mark all read", Description: "Mark every unread message in every chat read", Slash: "mark-all-read", Run: a.markAllRead},
 		{ID: cmdInterrupt, Title: "Clear draft or quit", Description: "Clear typed text, otherwise quit", Direct: "^c", Slash: "clear", Run: a.interrupt},
 		{ID: cmdQuit, Title: "Quit", Description: "Close whattui", Direct: "^q", Leader: "q", Slash: "quit", Run: a.quitApp},
 	})

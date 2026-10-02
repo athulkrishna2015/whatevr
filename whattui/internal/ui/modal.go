@@ -45,6 +45,10 @@ type modalChoice struct {
 	// Mine marks the reaction this account already put on the message, which is
 	// the row that takes it off again.
 	Mine bool
+	// Target is the chat a chat action acts on, for the menu opened on a chat
+	// row. It is not ChatID: that one means "open this chat", and a row in a
+	// chat menu that opened the chat would be a row that undid the menu.
+	Target string
 }
 
 type modalState struct {
@@ -56,6 +60,9 @@ type modalState struct {
 	// the cursor is on. Held rather than asked for again, so the panel acts on
 	// the message it was opened for whatever has happened to the cursor since.
 	message string
+	// chat is the same idea for a menu opened on a chat row: it acts on the
+	// chat it was opened for, not on whichever one is open now.
+	chat string
 	// marked is the chats a forward has been pointed at, by id, and it is keyed
 	// rather than indexed because the list under it is re-filtered on every
 	// keystroke.
@@ -102,6 +109,26 @@ func (a *App) openMessageModal(kind modalKind, at point) {
 	}
 }
 
+// openChatMenu is the context menu over one chat row, at the cell it was
+// asked for. The row is named rather than the open conversation, so the menu
+// is about the chat under the pointer even when another one is open.
+func (a *App) openChatMenu(at int, where point) {
+	a.initCommands()
+	var id string
+	a.chats.Read(func(items []view.Item[proto.ChatRow], _ view.State) {
+		if at >= 0 && at < len(items) {
+			id = items[at].ID
+		}
+	})
+	if id == "" {
+		return
+	}
+	a.mu.Lock()
+	a.modal = modalState{kind: modalMenu, chat: id, at: where}
+	a.refreshModalLocked()
+	a.mu.Unlock()
+}
+
 // modalPage is how many rows of results a panel shows when what it holds could
 // be anything.
 const modalPage = 10
@@ -132,8 +159,13 @@ func (a *App) refreshModalLocked() (string, uint64, bool) {
 	case modalHelp:
 		a.modal.selector.Set(a.commandChoicesFor(query, false, true, a.commandStateLocked()))
 	case modalMenu:
-		// The menu is the registry, filtered to the message it was opened on.
-		// It is not typed into, so it is built once and never refiltered.
+		// The menu is the registry, filtered to whatever it was opened on: the
+		// message under the pointer, or the chat row beside it. It is not typed
+		// into, so it is built once and never refiltered.
+		if a.modal.chat != "" {
+			a.modal.selector.Set(a.chatChoicesLocked(a.modal.chat))
+			return "", 0, false
+		}
 		a.modal.selector.Set(a.messageChoicesLocked())
 	case modalReact:
 		message, _ := a.selectedMessageLocked()
@@ -213,7 +245,7 @@ func (a *App) showChats(choices []modalChoice, generation uint64) {
 // the pointer come through here, so the two can never disagree about what a row
 // does.
 func (a *App) chooseLocked(choice modalChoice) func() {
-	kind, message := a.modal.kind, a.modal.message
+	kind, message, chat := a.modal.kind, a.modal.message, a.modal.chat
 	marked := make([]string, 0, len(a.modal.marked))
 	for id := range a.modal.marked {
 		marked = append(marked, id)
@@ -241,10 +273,41 @@ func (a *App) chooseLocked(choice modalChoice) func() {
 		}
 		return func() { a.forward(message, marked) }
 	}
+	if choice.Target != "" {
+		// A chat action, on the chat its menu was opened over rather than on
+		// whichever chat is open: the one thing a context menu must never do
+		// is act on something else.
+		return func() { a.runChatAction(choice.Command, choice.Target) }
+	}
+	if kind == modalMenu && chat != "" {
+		return func() { a.runChatAction(choice.Command, chat) }
+	}
 	if choice.ChatID != "" {
 		return func() { a.openChat(choice.ChatID) }
 	}
 	return func() { a.execute(choice.Command) }
+}
+
+// runChatAction is one row of a chat menu, pressed by its own key or chosen
+// with enter. It resolves through the registry so the row and the palette can
+// never drift apart, and acts on the chat named rather than the open one.
+func (a *App) runChatAction(id commandID, chatID string) {
+	switch id {
+	case cmdMarkRead:
+		a.markRead(chatID)
+	case cmdPin:
+		a.togglePin(chatID)
+	case cmdUnmute:
+		a.toggleMute(chatID)
+	case cmdArchive:
+		a.toggleArchive(chatID)
+	case cmdFavorite:
+		a.toggleFavorite(chatID)
+	case cmdBlock:
+		a.toggleBlock(chatID)
+	default:
+		a.execute(id)
+	}
 }
 
 // menuKeyLocked resolves a keystroke against the actions a menu is showing.
@@ -316,8 +379,13 @@ func (a *App) onModalKey(k vaxis.Key) bool {
 	// is the other way of choosing the row. It is not typed into otherwise.
 	case a.modal.kind == modalMenu:
 		if id, ok := a.menuKeyLocked(k); ok {
+			chat := a.modal.chat
 			a.modal = modalState{}
 			a.mu.Unlock()
+			if chat != "" {
+				a.runChatAction(id, chat)
+				return true
+			}
 			a.execute(id)
 			return true
 		}
@@ -571,6 +639,9 @@ func (a *App) drawModal(win vaxis.Window) {
 		title, prompt = "React", "> "
 	case modalMenu:
 		title = "Message"
+		if a.modal.chat != "" {
+			title = "Chat"
+		}
 	case modalForward:
 		title, prompt = "Forward to", "> "
 		if len(marked) > 0 {

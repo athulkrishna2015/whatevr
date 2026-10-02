@@ -40,6 +40,12 @@ type App struct {
 	chats    *view.Collection[proto.ChatRow]
 	chatsSub *proto.Subscription
 
+	// blocklist is who this account has blocked, and the only thing that
+	// answers whether a chat is already blocked without a round trip per
+	// keystroke in the menu.
+	blocklist    *view.Collection[proto.BlockedContact]
+	blocklistSub *proto.Subscription
+
 	conn    *view.Object[proto.Connection]
 	connSub *proto.Subscription
 
@@ -132,21 +138,22 @@ type App struct {
 // New wires an app to a terminal and a daemon. It does not connect.
 func New(vx *vaxis.Vaxis, caps term.Caps, client *proto.Client) *App {
 	a := &App{
-		vx:      vx,
-		caps:    caps,
-		theme:   paletteFor(vx, caps),
-		client:  client,
-		chats:   view.NewCollection[proto.ChatRow](),
-		conn:    view.NewObject[proto.Connection](),
-		login:   view.NewObject[proto.Login](),
-		focus:   FocusList,
-		focused: true,
-		hovered: -1,
-		shape:   vaxis.MouseShapeDefault,
-		images:  map[imgKey]*vaxis.KittyImage{},
-		seen:    map[imgKey]bool{},
-		glyphs:  map[glyphKey]*image.NRGBA{},
-		drag:    drag{chat: -1},
+		vx:        vx,
+		caps:      caps,
+		theme:     paletteFor(vx, caps),
+		client:    client,
+		chats:     view.NewCollection[proto.ChatRow](),
+		blocklist: view.NewCollection[proto.BlockedContact](),
+		conn:      view.NewObject[proto.Connection](),
+		login:     view.NewObject[proto.Login](),
+		focus:     FocusList,
+		focused:   true,
+		hovered:   -1,
+		shape:     vaxis.MouseShapeDefault,
+		images:    map[imgKey]*vaxis.KittyImage{},
+		seen:      map[imgKey]bool{},
+		glyphs:    map[glyphKey]*image.NRGBA{},
+		drag:      drag{chat: -1},
 	}
 	a.shaper = shaperFor(vx, caps)
 	a.request = client.Do
@@ -419,6 +426,12 @@ func (a *App) subscribeChats() {
 		"archived": false,
 		"limit":    chatPageSize,
 	}, a.chats)
+
+	if a.blocklistSub != nil {
+		a.blocklistSub.Close()
+		a.blocklist.Reset()
+	}
+	a.blocklistSub = a.client.Subscribe("blocklist", proto.Params{}, a.blocklist)
 }
 
 const chatPageSize = 50

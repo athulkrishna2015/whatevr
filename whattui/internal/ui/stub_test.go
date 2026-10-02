@@ -26,19 +26,20 @@ func stubApp(cols, rows, chats, msgs int) *App {
 	// something to measure off. Whether it does is the tier's business.
 	win := vaxis.NewOffscreenWindowPixels(cols, rows, 10, 20)
 	a := &App{
-		vx:      win.Vx,
-		caps:    term.Caps{Tier: term.TierColor, RGB: true},
-		theme:   theme.Derive(vaxis.RGBColor(0x12, 0x14, 0x18), vaxis.RGBColor(0xe4, 0xe4, 0xe6)),
-		chats:   view.NewCollection[proto.ChatRow](),
-		conn:    view.NewObject[proto.Connection](),
-		login:   view.NewObject[proto.Login](),
-		focus:   FocusComposer,
-		focused: true,
-		hovered: -1,
-		images:  map[imgKey]*vaxis.KittyImage{},
-		seen:    map[imgKey]bool{},
-		glyphs:  map[glyphKey]*image.NRGBA{},
-		drag:    drag{chat: -1},
+		vx:        win.Vx,
+		caps:      term.Caps{Tier: term.TierColor, RGB: true},
+		theme:     theme.Derive(vaxis.RGBColor(0x12, 0x14, 0x18), vaxis.RGBColor(0xe4, 0xe4, 0xe6)),
+		chats:     view.NewCollection[proto.ChatRow](),
+		blocklist: view.NewCollection[proto.BlockedContact](),
+		conn:      view.NewObject[proto.Connection](),
+		login:     view.NewObject[proto.Login](),
+		focus:     FocusComposer,
+		focused:   true,
+		hovered:   -1,
+		images:    map[imgKey]*vaxis.KittyImage{},
+		seen:      map[imgKey]bool{},
+		glyphs:    map[glyphKey]*image.NRGBA{},
+		drag:      drag{chat: -1},
 	}
 	// A client that has never dialled, which is what the frame asks about
 	// when it has to tell the reader the daemon is not there.
