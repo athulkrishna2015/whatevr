@@ -3,7 +3,7 @@ package notify
 import (
 	"context"
 	"log"
-"net/url"
+	"net/url"
 	"os/exec"
 	"strings"
 	"sync"
