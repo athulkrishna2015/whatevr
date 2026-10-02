@@ -39,37 +39,41 @@ just install /home/admin/.local                # release, user-writable prefix
 just install-dev /home/admin/.local            # debug, user-writable prefix
 ```
 
-### After install: restart both processes
+### After install: it restarts itself
 
-A new build takes effect only after both processes run the new binaries.
-Each time a new version is installed, fully close the app and relaunch both
-the daemon and the UI: quit the frontend via the tray menu → Quit (a window
-hidden via close-to-tray keeps the old binary alive), restart the user
-daemon, then launch the UI again.
+A new build takes effect only once both processes run the new binaries, so
+`just install` restarts them for you. There is nothing to remember and no
+second command: an install that leaves the old daemon running is an install
+that has not happened yet.
 
 ```sh
-systemctl --user restart whatevrd.service
+just install /home/admin/.local
+```
+
+It kills the frontend (a window hidden to tray is still running, so it is
+killed rather than asked), restarts `whatevrd.service`, and relaunches the UI.
+It only does this when something was actually running, and never into a
+staging root: a `DESTDIR` install is packaging, and CI skips it.
+
+`just restart /home/admin/.local` is the same thing on its own, for a rebuild
+or a `git pull` that changed code you had installed.
+
+**The prefix is a positional argument**, not `prefix=…`: the installed `just`
+(1.58) reads `just install prefix=/path` as a literal prefix of that name and
+installs into a directory called `prefix=…` inside the repo, reporting success.
+
+Verify what is actually running — the version string comes from `git describe`,
+so it carries `-dirty` whenever the tree is not clean:
+
+```sh
+ps -o pid,lstart,cmd -C whatkevr -C whatevrd
+/home/admin/.local/bin/whatkevr --version
 ```
 
 Verifying against a stale daemon or a stale hidden UI produces misleading
-results — always restart both before testing an install.
-
-Full quit (tray icon included — the icon is daemon-owned, so quitting the UI
-alone leaves it behind):
-
-```sh
-pkill -f '/home/admin/.local/bin/whatkevr'
-systemctl --user stop whatevrd.service
-```
-
-Relaunch and verify:
-
-```sh
-systemctl --user start whatevrd.service
-setsid nohup /home/admin/.local/bin/whatkevr > /tmp/whatkevr-ui.log 2>&1 < /dev/null &
-ps -o pid,lstart,cmd -C whatkevr -C whatevrd
-qdbus org.kde.StatusNotifierWatcher /StatusNotifierWatcher org.kde.StatusNotifierWatcher.RegisteredStatusNotifierItems
-```
+results. If a release build fails to configure with a non-existent path under
+`/tmp`, the release build dir is holding a `CMAKE_PREFIX_PATH` from an older
+session: `rm -rf build/release/whatkevr` and install again.
 
 `whatevrd.socket` stays active after a stop, so the daemon also
 socket-activates on the next UI launch.

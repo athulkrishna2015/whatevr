@@ -15,13 +15,21 @@ build dir=build_dir:
 build-release dir=build_dir:
     @just _build release "{{dir}}"
 
-# Build and install an optimized release.
+# Build and install an optimized release, then restart what it replaced.
 install prefix="/usr/local" destdir="":
     @just _install release "{{prefix}}" "{{destdir}}"
+    @just _restart_if_live "{{prefix}}" "{{destdir}}"
 
-# Build and install a debug build for smoke tests.
+# Build and install a debug build for smoke tests, then restart what it replaced.
 install-dev prefix="/usr/local" destdir="":
     @just _install debug "{{prefix}}" "{{destdir}}"
+    @just _restart_if_live "{{prefix}}" "{{destdir}}"
+
+# Restart the daemon and the frontend so both run the build just installed.
+# `install` and `install-dev` already do this; this is for a rebuild, or for a
+# pull that changed code you had installed.
+restart prefix="/usr/local":
+    @just _restart "{{prefix}}"
 
 # Build release source/binary artifacts and checksums.
 artifacts arch=`uname -m`:
@@ -174,6 +182,34 @@ _build-frontend profile dir=build_dir tests="":
         --version {{version_numeric}} \
         --version-full {{version}} {{tests}}; \
     cmake --build "{{dir}}/$profile/whatkevr"
+
+# Restart only when something is actually running, and never into a staging
+# root: a DESTDIR install is packaging, where starting a daemon nobody asked
+# for would be wrong rather than helpful. CI sets CI and lands here too.
+_restart_if_live prefix destdir:
+    @if [ -n "{{destdir}}" ] || [ -n "${CI:-}" ]; then exit 0; fi; \
+    if systemctl --user is-active --quiet whatevrd.service 2>/dev/null \
+        || pgrep -x -f "{{prefix}}/bin/(whatkevr|whattui)" >/dev/null 2>&1; then \
+        just _restart "{{prefix}}"; \
+    fi
+
+# Both processes hold the old binary until they are replaced, and a frontend
+# hidden to the tray is still running: quitting the window is not quitting the
+# app, so it is killed rather than asked.
+_restart prefix:
+    @prefix="{{prefix}}"; \
+    pkill -f "$prefix/bin/whatkevr" 2>/dev/null || true; \
+    pkill -f "$prefix/bin/whattui" 2>/dev/null || true; \
+    sleep 1; \
+    systemctl --user restart whatevrd.service 2>/dev/null \
+        || printf 'whatevrd.service is not enabled here; run: %s/bin/whatevrd &\n' "$prefix"; \
+    if [ -x "$prefix/bin/whatkevr" ]; then \
+        setsid nohup "$prefix/bin/whatkevr" >/tmp/whatkevr-ui.log 2>&1 </dev/null & \
+        sleep 1; \
+        printf 'restarted: %s\n' "$prefix"; \
+    else \
+        printf 'installed to %s; nothing was running to restart\n' "$prefix"; \
+    fi
 
 _install profile prefix destdir:
     @just _build "{{profile}}"
