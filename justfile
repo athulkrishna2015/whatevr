@@ -44,6 +44,7 @@ _test-daemon:
     @cd whatevrd && go test -tags "sqlite_fts5 whatevr_mock" ./internal/wamock/...
     @cd whatevrd && go test -tags "sqlite_fts5 whatevr_mock whatevr_capture" ./cmd/whatevrd/
     @scripts/check-mock-gate
+    @scripts/replay --self-test
 
 # Race is not optional: the protocol client, the view models and the render
 # loop are three goroutines over one model.

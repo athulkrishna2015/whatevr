@@ -54,6 +54,7 @@ jobs:
               - '.gitmodules'
               - 'whatevrd/**'
               - 'scripts/check-mock-gate'
+              - 'scripts/replay'
               - 'scripts/record-stream'
               - 'scripts/conformance'
               - '.github/workflows/**'
@@ -139,6 +140,11 @@ jobs:
       # plaintext. Neither may reach a shipped binary.
       - name: Check mock and capture build gates
         run: scripts/check-mock-gate
+
+      # Captures a synthetic scenario and plays it back through the mock:
+      # never the real account.
+      - name: Replay self-test
+        run: scripts/replay --self-test
 
       - name: Test the whatsmeow fork
         working-directory: whatevrd/whatsmeow

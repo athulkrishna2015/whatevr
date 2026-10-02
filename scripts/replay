@@ -1,0 +1,541 @@
+#!/usr/bin/env python3
+"""Play a capture back through wamock and check what the daemon makes of it.
+
+    scripts/replay NAME|PATH            every segment, compared with CAPTURE/expected
+    scripts/replay --accept NAME|PATH   write CAPTURE/expected from this replay
+    scripts/replay --self-test          capture mock scenarios, replay them, compare
+
+A segment is one daemon run of the capture. Each one runs a fresh mock daemon
+(--mock-capture, --mock-segment, the same scratch dir kept between segments),
+waits for the replay to finish, snapshots every view, stops the daemon and
+checks the databases. The self-test never touches the real account: it records
+runs of synthetic scenarios and expects their replay to hand the daemon the
+same whatsmeow events, with nothing missed, held back or undecryptable.
+
+Captures hold real messages. So does what this prints and writes.
+"""
+
+from __future__ import annotations
+
+import argparse
+import collections
+import difflib
+import gzip
+import json
+import os
+import shutil
+import signal
+import socket
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+TAGS = "sqlite_fts5 whatevr_mock whatevr_capture"
+# pinned so two runs agree on "now"
+MOCK_NOW = "2026-10-01T12:00:00Z"
+
+GLOBAL_VIEWS: list[dict[str, object]] = [
+    {"view": "connection"},
+    {"view": "sync"},
+    {"view": "self"},
+    {"view": "chats", "limit": 10000},
+    {"view": "chats", "limit": 10000, "archived": True},
+    {"view": "typing"},
+    {"view": "privacy"},
+    {"view": "preferences"},
+    {"view": "blocklist"},
+    {"view": "starred", "limit": 10000},
+    {"view": "stickers", "source": "all", "limit": 10000},
+    {"view": "sticker_packs"},
+]
+CHAT_VIEWS: list[dict[str, object]] = [
+    {"view": "chat"},
+    {"view": "messages", "limit": 10000, "anchor": "latest"},
+    {"view": "pinned"},
+    {"view": "live_locations"},
+    {"view": "chat_media", "limit": 10000},
+]
+GROUP_VIEWS: list[dict[str, object]] = [
+    {"view": "group"},
+    {"view": "group_members"},
+]
+
+# fields that come from the daemon's own clock or the scratch dir, not from
+# the capture
+VOLATILE = {"next_retry", "next_retry_unix", "retry_attempt", "updated_at", "fetched_at", "expires_at"}
+
+
+class Failure(Exception):
+    pass
+
+
+def log(msg: str) -> None:
+    print("replay: " + msg, file=sys.stderr, flush=True)
+
+
+def build(out: Path) -> Path:
+    binary = out / "whatevrd"
+    log("building whatevrd (%s)" % TAGS)
+    subprocess.run(["go", "-C", str(ROOT / "whatevrd"), "build", "-tags", TAGS, "-o", str(binary), "./cmd/whatevrd"],
+                   check=True, env=dict(os.environ, CGO_ENABLED="1"))
+    return binary
+
+
+class Control:
+    def __init__(self, path: Path, wait: float = 30) -> None:
+        deadline = time.time() + wait
+        while True:
+            try:
+                self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                self.sock.connect(str(path))
+                break
+            except OSError:
+                self.sock.close()
+                if time.time() > deadline:
+                    raise Failure("no mock control socket at %s" % path)
+                time.sleep(0.1)
+        self.buf = b""
+
+    def ask(self, req: dict[str, object], timeout: float = 600) -> dict[str, object]:
+        self.sock.settimeout(timeout)
+        self.sock.sendall(json.dumps(req).encode() + b"\n")
+        while b"\n" not in self.buf:
+            chunk = self.sock.recv(65536)
+            if not chunk:
+                raise Failure("control socket closed")
+            self.buf += chunk
+        line, self.buf = self.buf.split(b"\n", 1)
+        return json.loads(line)
+
+    def close(self) -> None:
+        self.sock.close()
+
+
+class Daemon:
+    """One mock daemon run in a kept scratch dir."""
+
+    def __init__(self, binary: Path, scratch: Path, args: list[str], keep: bool) -> None:
+        self.scratch = scratch
+        self.control = scratch.with_name(scratch.name + ".ctl")
+        cmd = [str(binary), *args, "--mock-dir", str(scratch), "--mock-control", str(self.control), "--mock-now", MOCK_NOW]
+        if keep:
+            cmd.append("--mock-keep")
+        self.errlog = open(scratch.with_name(scratch.name + ".stderr"), "ab")
+        env = dict(os.environ, WHATEVRD_LOG_STDERR="error")
+        self.proc = subprocess.Popen(cmd, stdout=self.errlog, stderr=self.errlog, env=env)
+
+    @property
+    def socket_path(self) -> Path:
+        return self.scratch / "run" / "whatevr" / "whatevrd.sock"
+
+    def settle(self, timeout_ms: int) -> dict[str, object]:
+        ctl = Control(self.control)
+        try:
+            deadline = time.time() + timeout_ms / 1000
+            while True:
+                if self.proc.poll() is not None:
+                    raise Failure("daemon exited with %s, see %s" % (self.proc.returncode, self.errlog.name))
+                resp = ctl.ask({"cmd": "sync", "timeout_ms": 5000, "idle_ms": 500})
+                if resp.get("ok"):
+                    break
+                if time.time() > deadline:
+                    raise Failure("mock never settled: %s" % resp.get("blocked_on"))
+            replay = ctl.ask({"cmd": "replay"})
+            return replay if "error" not in replay else {}
+        finally:
+            ctl.close()
+
+    def stop(self) -> None:
+        if self.proc.poll() is None:
+            self.proc.send_signal(signal.SIGTERM)
+            try:
+                self.proc.wait(30)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait()
+        self.errlog.close()
+
+
+class Snapshot:
+    """Subscribes to every view and keeps each one's final items."""
+
+    def __init__(self, path: Path) -> None:
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        deadline = time.time() + 30
+        while True:
+            try:
+                self.sock.connect(str(path))
+                break
+            except OSError:
+                if time.time() > deadline:
+                    raise Failure("no daemon socket at %s" % path)
+                time.sleep(0.1)
+        self.buf = b""
+        self.next_id = 1
+        self.pending: dict[int, str] = {}
+        self.windows: dict[int, str] = {}
+        self.items: dict[str, dict[str, object]] = {}
+        self.unready: set[int] = set()
+        self.errors: list[str] = []
+
+    def send(self, method: str, params: dict[str, object]) -> int:
+        rid = self.next_id
+        self.next_id += 1
+        self.sock.sendall(json.dumps({"id": rid, "method": method, "params": params}).encode() + b"\n")
+        return rid
+
+    def read(self, timeout: float) -> dict[str, object] | None:
+        self.sock.settimeout(timeout)
+        while b"\n" not in self.buf:
+            try:
+                chunk = self.sock.recv(1 << 20)
+            except (TimeoutError, socket.timeout):
+                return None
+            if not chunk:
+                raise Failure("daemon closed the socket")
+            self.buf += chunk
+        line, self.buf = self.buf.split(b"\n", 1)
+        return json.loads(line)
+
+    def subscribe(self, params: dict[str, object]) -> None:
+        name = params["view"]
+        if "chat_id" in params:
+            name = "%s %s" % (name, params["chat_id"])
+        if params.get("archived"):
+            name += " archived"
+        self.pending[self.send("subscribe", params)] = str(name)
+
+    def take(self) -> None:
+        hello = self.send("hello", {"client": "replay", "protocol": 1})
+        while True:
+            msg = self.read(30)
+            if msg is None:
+                raise Failure("no hello answer")
+            if msg.get("id") == hello:
+                break
+        for params in GLOBAL_VIEWS:
+            self.subscribe(dict(params))
+        opened: set[str] = set()
+        quiet_since = time.time()
+        while True:
+            msg = self.read(0.5)
+            if msg is None:
+                if not self.pending and not self.unready and time.time() - quiet_since > 1.0:
+                    return
+                continue
+            quiet_since = time.time()
+            if "id" in msg and "sub" not in msg:
+                name = self.pending.pop(msg["id"], None)
+                if name is None:
+                    continue
+                if "error" in msg:
+                    self.errors.append("%s: %s" % (name, msg["error"]))
+                    continue
+                sub = msg["result"]["sub"]
+                self.windows[sub] = name
+                self.items.setdefault(name, {})
+                self.unready.add(sub)
+                continue
+            sub = msg.get("sub")
+            name = self.windows.get(sub)
+            if name is None:
+                continue
+            event = msg.get("event")
+            if event == "upsert":
+                item = msg["item"]
+                self.items[name][str(item.get("id"))] = {"sort": msg.get("sort"), "item": item}
+                if name.startswith("chats") and item.get("id") not in opened:
+                    chat = str(item["id"])
+                    opened.add(chat)
+                    for params in CHAT_VIEWS + (GROUP_VIEWS if chat.endswith("@g.us") else []):
+                        self.subscribe(dict(params, chat_id=chat))
+            elif event == "remove":
+                self.items[name].pop(str(msg.get("id")), None)
+            elif event == "reset":
+                self.items[name] = {}
+            elif event == "ready":
+                self.unready.discard(sub)
+
+    def close(self) -> None:
+        self.sock.close()
+
+
+def normalize(value: object, scratch: str) -> object:
+    if isinstance(value, dict):
+        return {k: normalize(v, scratch) for k, v in sorted(value.items()) if k not in VOLATILE}
+    if isinstance(value, list):
+        return [normalize(v, scratch) for v in value]
+    if isinstance(value, str) and scratch and scratch in value:
+        return value.replace(scratch, "$DIR")
+    return value
+
+
+def snapshot(daemon: Daemon) -> dict[str, object]:
+    snap = Snapshot(daemon.socket_path)
+    try:
+        snap.take()
+    finally:
+        snap.close()
+    views = {name: normalize(items, str(daemon.scratch)) for name, items in sorted(snap.items.items())}
+    return {"views": views, "errors": snap.errors}
+
+
+def check_db(scratch: Path) -> list[str]:
+    problems = []
+    for db in [scratch / "data" / "whatevrd" / "whatevrd.db", scratch / "data" / "whatevrd" / "session" / "whatsmeow.db"]:
+        if not db.exists():
+            problems.append("%s missing" % db.name)
+            continue
+        try:
+            con = sqlite3.connect("file:%s?mode=ro" % db, uri=True)
+            ok = con.execute("PRAGMA integrity_check").fetchall()
+            if ok != [("ok",)]:
+                problems.append("%s integrity: %s" % (db.name, ok[:5]))
+            fk = con.execute("PRAGMA foreign_key_check").fetchall()
+            if fk:
+                problems.append("%s foreign keys: %s" % (db.name, fk[:5]))
+            con.close()
+        except sqlite3.Error as err:
+            problems.append("%s: %s" % (db.name, err))
+    return problems
+
+
+def conformance(daemon: Daemon, out: Path) -> list[str]:
+    stream = out / "stream.ndjson"
+    rec = subprocess.run([str(ROOT / "scripts" / "record-stream"), "--socket", str(daemon.socket_path),
+                          "--out", str(stream), "--seconds", "3", "--chats", "5"], capture_output=True, text=True)
+    if rec.returncode != 0:
+        return ["record-stream: %s" % rec.stderr.strip()]
+    conf = subprocess.run([str(ROOT / "scripts" / "conformance"), "--replay", str(stream)], capture_output=True, text=True)
+    if conf.returncode != 0:
+        return ["conformance: %s" % (conf.stdout + conf.stderr).strip()[-2000:]]
+    return []
+
+
+def diff(expected: dict[str, object], got: dict[str, object], label: str) -> list[str]:
+    a = json.dumps(expected, indent=1, sort_keys=True).splitlines()
+    b = json.dumps(got, indent=1, sort_keys=True).splitlines()
+    lines = list(difflib.unified_diff(a, b, "expected " + label, "replay " + label, lineterm="", n=2))
+    return lines
+
+
+# what whatsmeow handed the daemon, one line per event in the run log. it
+# depends only on what came over the wire, so the original run and a faithful
+# replay have the same multiset whatever order the daemon processed it in.
+EVENT_SKIP = {"time", "level", "run", "message"}
+# whatsmeow makes these on a goroutine from what its store already holds,
+# which depends on how far the daemon got, not on the wire
+STORE_EVENTS = {"PushName", "BusinessName"}
+
+
+def run_events(logdir: Path) -> collections.Counter[str]:
+    runs = sorted(logdir.glob("whatevrd-*.jsonl*"))
+    if not runs:
+        raise Failure("no run log in %s" % logdir)
+    newest = runs[-1].name.split("-")[-1].split(".")[0]
+    out: collections.Counter[str] = collections.Counter()
+    for part in runs:
+        if newest not in part.name:
+            continue
+        opener = gzip.open if part.suffix == ".gz" else open
+        with opener(part, "rt") as f:
+            for line in f:
+                rec = json.loads(line)
+                if rec.get("message") == "event" and rec.get("event") not in STORE_EVENTS:
+                    out[json.dumps({k: v for k, v in rec.items() if k not in EVENT_SKIP}, sort_keys=True)] += 1
+    return out
+
+
+def event_diff(original: collections.Counter[str], replayed: collections.Counter[str]) -> list[str]:
+    lines = []
+    for ev, n in sorted((original - replayed).items()):
+        lines.append("only in the original (%d): %s" % (n, ev))
+    for ev, n in sorted((replayed - original).items()):
+        lines.append("only in the replay (%d): %s" % (n, ev))
+    return lines
+
+
+def capture_segments(capture: Path) -> list[int]:
+    segs = sorted(int(p.stem) for p in (capture / "segments").glob("*.jsonl"))
+    if not segs:
+        raise Failure("%s has no segments" % capture)
+    return segs
+
+
+def replay(binary: Path, capture: Path, work: Path, speed: float, scratch: Path | None = None) -> list[dict[str, object]]:
+    scratch = scratch or work / "r"
+    results = []
+    for i, seg in enumerate(capture_segments(capture)):
+        log("segment %d" % seg)
+        args = ["--mock-capture", str(capture), "--mock-segment", str(seg)]
+        if speed:
+            args += ["--mock-speed", str(speed)]
+        daemon = Daemon(binary, scratch, args, keep=i > 0)
+        try:
+            stats = daemon.settle(3_600_000)
+            snap = snapshot(daemon)
+            problems = conformance(daemon, work)
+        finally:
+            daemon.stop()
+        problems += check_db(scratch)
+        snap["problems"] = problems
+        results.append({"segment": seg, "stats": stats, "snapshot": snap,
+                        "events": run_events(scratch / "state" / "whatevr" / "logs")})
+        log("segment %d: %s pushes, %s misses, %s gate timeouts, %s junk, %d problem(s)" % (
+            seg, stats.get("total"), stats.get("misses", 0), stats.get("gate_timeouts", 0), stats.get("junk", 0), len(problems)))
+        for p in problems:
+            log("  " + p)
+    return results
+
+
+def resolve(arg: str) -> Path:
+    if "/" in arg:
+        return Path(arg).resolve()
+    state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state")
+    return state / "whatevr" / "captures" / arg
+
+
+def send_text(daemon: Daemon, chat: str, text: str) -> None:
+    snap = Snapshot(daemon.socket_path)
+    try:
+        hello = snap.send("hello", {"client": "replay", "protocol": 1})
+        req = snap.send("send.text", {"chat_id": chat, "text": text})
+        while True:
+            msg = snap.read(30)
+            if msg is None:
+                raise Failure("send.text never answered")
+            if msg.get("id") == req:
+                if "error" in msg:
+                    raise Failure("send.text: %s" % msg["error"])
+                return
+    finally:
+        snap.close()
+
+
+# scenario -> what each daemon run of the original does after it settles
+SELF_TESTS: dict[str, list[list[tuple[str, str]]]] = {
+    # app state, groups, history, offline and live traffic, one run
+    "busy": [[]],
+    # sends and their receipts and replies, across a restart
+    "echo": [
+        [("917770000001@s.whatsapp.net", "first run")],
+        [("917770000001@s.whatsapp.net", "second run")],
+    ],
+}
+
+
+def self_test(binary: Path, work: Path, scenario: str, verbose: bool) -> bool:
+    scratch = work / ("o-" + scenario)
+    runs = SELF_TESTS.get(scenario, [[]])
+    originals = []
+    for i, sends in enumerate(runs):
+        log("capturing the %s scenario, run %d" % (scenario, i + 1))
+        daemon = Daemon(binary, scratch, ["--mock", scenario, "--capture", "selftest"], keep=i > 0)
+        try:
+            daemon.settle(120_000)
+            for chat, text in sends:
+                send_text(daemon, chat, text)
+                daemon.settle(120_000)
+            originals.append(snapshot(daemon))
+        finally:
+            daemon.stop()
+        originals[-1]["events"] = run_events(scratch / "state" / "whatevr" / "logs")
+    capture = scratch / "state" / "whatevr" / "captures" / "selftest"
+    replay_dir = work / ("r-" + scenario)
+    results = replay(binary, capture, work, 0, replay_dir)
+    failed = False
+    for original, result in zip(originals, results):
+        seg = result["segment"]
+        got = result["snapshot"]
+        failed = failed or bool(got["problems"])
+        stats = result["stats"]
+        if stats.get("misses") or stats.get("gate_timeouts") or stats.get("junk"):
+            log("segment %d: the replay of a mock run should be exact: %s" % (seg, stats))
+            failed = True
+        # sent messages carry new ids in a replay, the mock says which
+        ids = stats.get("ids") or {}
+        mapped: collections.Counter[str] = collections.Counter()
+        for ev, n in original["events"].items():
+            for old, new in ids.items():
+                ev = ev.replace(old, new)
+            mapped[ev] += n
+        events = event_diff(mapped, result["events"])
+        if events:
+            failed = True
+            log("segment %d: whatsmeow events differ:" % seg)
+            print("\n".join(events))
+        # the old core folds history chunks on its own goroutine, so how they
+        # interleave with live messages differs run to run: shown, not judged
+        views = json.dumps(original["views"])
+        for old, new in ids.items():
+            views = views.replace(old, new)
+        lines = diff(json.loads(views), got["views"], "segment %d" % seg)
+        if lines:
+            log("segment %d: views differ in %d diff lines, order and clock effects of the old core%s" % (
+                seg, len(lines), "" if verbose else " (--verbose shows them)"))
+            if verbose:
+                print("\n".join(lines))
+    log("self-test %s: %s" % (scenario, "FAIL" if failed else "pass"))
+    return not failed
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("capture", nargs="?", help="capture name (under $XDG_STATE_HOME/whatevr/captures) or path")
+    parser.add_argument("--accept", action="store_true", help="write CAPTURE/expected from this replay")
+    parser.add_argument("--self-test", action="store_true", help="capture a mock scenario and replay it")
+    parser.add_argument("--scenario", action="append", help="scenario for --self-test, repeatable (default: %s)" % ", ".join(SELF_TESTS))
+    parser.add_argument("--speed", type=float, default=0, help="replay pace, 1 is the recorded clock, 0 as fast as possible")
+    parser.add_argument("--bin", help="use this whatevrd instead of building one (needs the mock and capture tags)")
+    parser.add_argument("--keep", action="store_true", help="leave the scratch dir behind")
+    parser.add_argument("--verbose", action="store_true", help="--self-test: print the view differences it does not judge")
+    args = parser.parse_args()
+    if args.self_test == bool(args.capture):
+        parser.error("give a capture or --self-test")
+
+    # short on purpose: the daemon's unix socket lives under it
+    work = Path(tempfile.mkdtemp(prefix="whatevr-replay-"))
+    try:
+        binary = Path(args.bin).resolve() if args.bin else build(work)
+        if args.self_test:
+            ok = [self_test(binary, work, sc, args.verbose) for sc in (args.scenario or list(SELF_TESTS))]
+            return 0 if all(ok) else 1
+        capture = resolve(args.capture)
+        results = replay(binary, capture, work, args.speed)
+        expected_dir = capture / "expected"
+        if args.accept:
+            expected_dir.mkdir(exist_ok=True)
+            for r in results:
+                path = expected_dir / ("segment-%04d.json" % r["segment"])
+                path.write_text(json.dumps(r["snapshot"], indent=1, sort_keys=True) + "\n")
+            log("wrote %s" % expected_dir)
+            return 0
+        failed = False
+        for r in results:
+            failed = failed or bool(r["snapshot"]["problems"])
+            path = expected_dir / ("segment-%04d.json" % r["segment"])
+            if not path.exists():
+                log("segment %d has no expected snapshot yet, review it and run with --accept" % r["segment"])
+                continue
+            lines = diff(json.loads(path.read_text()), r["snapshot"], "segment %d" % r["segment"])
+            if lines:
+                failed = True
+                print("\n".join(lines))
+        log("FAIL" if failed else "pass")
+        return 1 if failed else 0
+    except Failure as err:
+        log("error: %s" % err)
+        return 1
+    finally:
+        if args.keep:
+            log("scratch kept at %s" % work)
+        else:
+            shutil.rmtree(work, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
