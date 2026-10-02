@@ -127,7 +127,11 @@ jobs:
 
       - name: Test mock server
         working-directory: whatevrd
-        run: go test -tags "sqlite_fts5 whatevr_mock" ./internal/wamock/...
+        run: go test -tags "sqlite_fts5 whatevr_mock" ./internal/wamock/... ./internal/ingest/...
+
+      - name: Race the new core
+        working-directory: whatevrd
+        run: go test -tags sqlite_fts5 -race ./internal/core/... ./internal/ingest/...
 
       - name: Vet and test captures
         working-directory: whatevrd
