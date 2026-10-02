@@ -177,8 +177,10 @@ Kirigami.ApplicationWindow {
         color: "transparent"
         visible: false
 
-        width: Math.max(1, trayMenuCard.implicitWidth)
-        height: Math.max(1, trayMenuCard.implicitHeight)
+        // The window sizes itself from its content the moment it shows, so the
+        // initial size is valid on Wayland before the first frame.
+        width: 1
+        height: 1
 
         Rectangle {
             id: trayMenuCard
@@ -190,6 +192,8 @@ Kirigami.ApplicationWindow {
             border.color: Qt.alpha(Kirigami.Theme.textColor, 0.2)
 
             ColumnLayout {
+                id: trayMenuColumn
+
                 anchors.fill: parent
                 anchors.margins: Kirigami.Units.smallSpacing
                 spacing: 0
@@ -247,11 +251,26 @@ Kirigami.ApplicationWindow {
         function showAt(sx, sy) {
             const screenW = Screen.desktopAvailableWidth > 0 ? Screen.desktopAvailableWidth : Screen.width
             const screenH = Screen.desktopAvailableHeight > 0 ? Screen.desktopAvailableHeight : Screen.height
-            const w = trayMenuWindow.width
-            const h = trayMenuWindow.height
-            trayMenuWindow.x = sx > 0 ? Math.max(0, Math.min(sx - w / 2, screenW - w)) : screenW - w
+            // The anchors-based column fills the window, so before any size is
+            // set there is nothing to read. Size the window from the buttons'
+            // own implicit sizes, then the column and card fill it.
+            var w = 0, h = 0
+            const pad = Kirigami.Units.smallSpacing * 2
+            for (let i = 0; i < trayMenuColumn.children.length; ++i) {
+                const child = trayMenuColumn.children[i]
+                if (child.visible === false) {
+                    continue
+                }
+                w = Math.max(w, child.implicitWidth)
+                h += child.implicitHeight + trayMenuColumn.spacing
+            }
+            trayMenuWindow.width = w + pad
+            trayMenuWindow.height = h + pad - trayMenuColumn.spacing
+            const w2 = trayMenuWindow.width
+            const h2 = trayMenuWindow.height
+            trayMenuWindow.x = sx > 0 ? Math.max(0, Math.min(sx - w2 / 2, screenW - w2)) : screenW - w2
             // Open upward from the click: panel trays sit at a screen edge.
-            trayMenuWindow.y = sy > 0 ? Math.max(0, sy - h) : Math.max(0, screenH - h)
+            trayMenuWindow.y = sy > 0 ? Math.max(0, sy - h2) : Math.max(0, screenH - h2)
             trayMenuWindow.visible = true
         }
     }
@@ -709,11 +728,10 @@ Kirigami.ApplicationWindow {
             root.activateWindow()
         }
 
-        // Tray right-click: show the tray menu window at the click point (see
-        // above). show() alone unhides a hidden main window without stealing
-        // focus; the menu positions itself.
+        // Tray right-click: show only the tray menu window, never the main one.
+        // Telegram's behaviour: the window behind the panel is not touched by a
+        // menu click, so the menu is the whole of the response.
         function onShowTrayMenuRequested(x, y) {
-            root.show()
             trayMenuWindow.showAt(x, y)
         }
 

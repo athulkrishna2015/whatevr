@@ -100,6 +100,7 @@ type statusItem struct {
 // Activate forwards a left-click to the frontend: if a frontend is connected
 // it receives an activate_window event, otherwise xdg-open launches one.
 func (s *statusItem) Activate(x, y int32) *dbus.Error {
+	log.Printf("tray: Activate(%d,%d)", x, y)
 	if s.activator != nil && s.activator.ActivateWindow() {
 		return nil
 	}
@@ -115,12 +116,11 @@ func (s *statusItem) Scroll(delta int32, orientation string) *dbus.Error {
 // ContextMenu forwards a right-click to the frontend so it can show its
 // tray menu. If no frontend is connected, cold-start one so the menu appears.
 func (s *statusItem) ContextMenu(x, y int32) *dbus.Error {
+	log.Printf("tray: ContextMenu(%d,%d)", x, y)
 	if s.activator != nil && s.activator.ShowTrayMenu(x, y) {
 		return nil
 	}
-	// A right-click with no connected frontend cannot render the in-app menu;
-	// cold-starting is the only useful fallback and the new frontend will show
-	// the complete menu as soon as it connects.
+	log.Printf("tray: no active frontend for ContextMenu, cold-starting")
 	protocol.ColdStartApp()
 	return nil
 }
