@@ -189,17 +189,21 @@ _build-frontend profile dir=build_dir tests="":
 _restart_if_live prefix destdir:
     @if [ -n "{{destdir}}" ] || [ -n "${CI:-}" ]; then exit 0; fi; \
     if systemctl --user is-active --quiet whatevrd.service 2>/dev/null \
-        || pgrep -x -f "{{prefix}}/bin/(whatkevr|whattui)" >/dev/null 2>&1; then \
+        || pgrep -f "^{{prefix}}/bin/(whatkevr|whattui)$" >/dev/null 2>&1; then \
         just _restart "{{prefix}}"; \
     fi
 
 # Both processes hold the old binary until they are replaced, and a frontend
 # hidden to the tray is still running: quitting the window is not quitting the
 # app, so it is killed rather than asked.
+#
+# The patterns are anchored. An unanchored -f matches any command line that
+# merely *mentions* the path, which includes the shell running this recipe — so
+# `just install … && whatkevr --version` would kill its own caller.
 _restart prefix:
     @prefix="{{prefix}}"; \
-    pkill -f "$prefix/bin/whatkevr" 2>/dev/null || true; \
-    pkill -f "$prefix/bin/whattui" 2>/dev/null || true; \
+    pkill -f "^$prefix/bin/whatkevr$" 2>/dev/null || true; \
+    pkill -f "^$prefix/bin/whattui$" 2>/dev/null || true; \
     sleep 1; \
     systemctl --user restart whatevrd.service 2>/dev/null \
         || printf 'whatevrd.service is not enabled here; run: %s/bin/whatevrd &\n' "$prefix"; \
