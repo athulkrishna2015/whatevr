@@ -22,13 +22,13 @@ const (
 )
 
 type appendReq struct {
-	in   Input
+	ins  []Input
 	done chan appendRes
 }
 
 type appendRes struct {
-	seq int64
-	err error
+	seqs []int64
+	err  error
 }
 
 // writer is the only goroutine that writes. it owns the one write connection
@@ -70,24 +70,39 @@ func startWriter(ctx context.Context, db *DB) (*writer, error) {
 // Append logs in and returns its seq once the commit is durable. an error
 // means it is not in the log, and whoever handed it over must not ack it.
 func (db *DB) Append(ctx context.Context, in Input) (int64, error) {
-	if in.Kind == "" {
-		return 0, errors.New("core: input without a kind")
+	seqs, err := db.AppendBatch(ctx, []Input{in})
+	if err != nil {
+		return 0, err
 	}
-	req := appendReq{in: in, done: make(chan appendRes, 1)}
+	return seqs[0], nil
+}
+
+// AppendBatch logs every input in one commit, in order: all of them land or
+// none do.
+func (db *DB) AppendBatch(ctx context.Context, ins []Input) ([]int64, error) {
+	if len(ins) == 0 {
+		return nil, nil
+	}
+	for _, in := range ins {
+		if in.Kind == "" {
+			return nil, errors.New("core: input without a kind")
+		}
+	}
+	req := appendReq{ins: ins, done: make(chan appendRes, 1)}
 	select {
 	case db.w.appends <- req:
 	case <-db.w.done:
-		return 0, ErrClosed
+		return nil, ErrClosed
 	case <-ctx.Done():
-		return 0, ctx.Err()
+		return nil, ctx.Err()
 	}
 	select {
 	case res := <-req.done:
-		return res.seq, res.err
+		return res.seqs, res.err
 	case <-ctx.Done():
 		// it may still commit. the caller does not ack, whatsmeow hands it
 		// over again, and the fold takes the duplicate as a no-op.
-		return 0, ctx.Err()
+		return nil, ctx.Err()
 	}
 }
 
@@ -165,17 +180,18 @@ func (w *writer) commit(batch []appendReq) {
 		if err != nil {
 			req.done <- appendRes{err: err}
 		} else {
-			req.done <- appendRes{seq: seqs[i]}
+			req.done <- appendRes{seqs: seqs[i]}
 		}
 	}
 	if err != nil {
-		w.db.log.Error().Err(err).Int("inputs", len(batch)).Msg("core: append failed")
+		w.db.log.Error().Err(err).Int("requests", len(batch)).Msg("core: append failed")
 		return
 	}
-	w.db.appended.Store(seqs[len(seqs)-1])
+	last := seqs[len(seqs)-1]
+	w.db.appended.Store(last[len(last)-1])
 }
 
-func (w *writer) commitTx(batch []appendReq) ([]int64, error) {
+func (w *writer) commitTx(batch []appendReq) ([][]int64, error) {
 	if err := w.pragma("FULL"); err != nil {
 		return nil, err
 	}
@@ -189,23 +205,26 @@ func (w *writer) commitTx(batch []appendReq) ([]int64, error) {
 		return nil, err
 	}
 	defer stmt.Close()
-	seqs := make([]int64, len(batch))
+	now := w.db.opts.Clock.Now()
+	seqs := make([][]int64, len(batch))
 	for i, req := range batch {
-		in := req.in
-		at := in.At
-		if at.IsZero() {
-			at = w.db.opts.Clock.Now()
-		}
-		var head any
-		if len(in.Head) > 0 {
-			head = string(in.Head)
-		}
-		res, err := stmt.ExecContext(w.ctx, in.Kind, in.V, at.UnixMilli(), head, in.Body)
-		if err != nil {
-			return nil, err
-		}
-		if seqs[i], err = res.LastInsertId(); err != nil {
-			return nil, err
+		seqs[i] = make([]int64, len(req.ins))
+		for j, in := range req.ins {
+			at := in.At
+			if at.IsZero() {
+				at = now
+			}
+			var head any
+			if len(in.Head) > 0 {
+				head = string(in.Head)
+			}
+			res, err := stmt.ExecContext(w.ctx, in.Kind, in.V, at.UnixMilli(), head, in.Body)
+			if err != nil {
+				return nil, err
+			}
+			if seqs[i][j], err = res.LastInsertId(); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return seqs, tx.Commit()

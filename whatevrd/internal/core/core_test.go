@@ -360,3 +360,18 @@ func TestAppendsDoNotWaitBehindAFoldBacklog(t *testing.T) {
 		t.Fatal("the backlog was folded before the appends, the test proved nothing")
 	}
 }
+
+func TestAppendBatchLandsWholeAndInOrder(t *testing.T) {
+	db := open(t, filepath.Join(t.TempDir(), "core.db"), Options{})
+	defer db.Close()
+	seqs, err := db.AppendBatch(context.Background(), []Input{noteInput(note{"x", 1, "a"}), noteInput(note{"y", 1, "a"}), noteInput(note{"x", 2, "b"})})
+	if err != nil || !reflect.DeepEqual(seqs, []int64{1, 2, 3}) {
+		t.Fatalf("seqs %v %v", seqs, err)
+	}
+	if _, err := db.AppendBatch(context.Background(), []Input{noteInput(note{"z", 1, "a"}), {}}); err == nil {
+		t.Fatal("a batch with a kindless input was taken")
+	}
+	if _, appended := db.Progress(); appended != 3 {
+		t.Fatalf("a refused batch moved the log to %d", appended)
+	}
+}
