@@ -1,8 +1,12 @@
 package protocol
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"log"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1402,6 +1406,38 @@ func TestOpenChatRoutesToFocusedProtocolSession(t *testing.T) {
 	}
 	if _, hasSub := evt["sub"]; hasSub {
 		t.Fatalf("open_chat must be connection-directed, got sub in %v", evt)
+	}
+}
+
+func TestDaemonLogPutsFrontendLinesInTheLogsRing(t *testing.T) {
+	// The Logs tab tails the standard logger (logfile.Handle installs itself as
+	// log's output), so capturing that output is the whole contract: a frontend
+	// diagnostic has to show up there to be visible in the UI at all.
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	actions := &fakeCommandActions{}
+	socketPath, _ := startCommandTestServer(t, actions)
+	c := dialTest(t, socketPath)
+	c.hello()
+
+	c.sendLine(`{"id":2,"method":"daemon.log","params":{"message":"MediaViewer.qml:12: mask ignored"}}`)
+	if _, ok := c.recv()["result"].(map[string]any); !ok {
+		t.Fatalf("daemon.log failed: %v", buf.String())
+	}
+	if got := buf.String(); !strings.Contains(got, "frontend: MediaViewer.qml:12: mask ignored") {
+		t.Fatalf("line missing from the log the Logs tab tails: %q", got)
+	}
+
+	// An empty message is not a log line; it must not produce one.
+	buf.Reset()
+	c.sendLine(`{"id":3,"method":"daemon.log","params":{"message":"   "}}`)
+	if _, ok := c.recv()["result"].(map[string]any); !ok {
+		t.Fatalf("daemon.log with blank message should still ack: %v", buf.String())
+	}
+	if got := buf.String(); strings.Contains(got, "frontend:") {
+		t.Fatalf("blank message wrote a log line: %q", got)
 	}
 }
 

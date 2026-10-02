@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"context"
+	"log"
 	"strings"
 	"time"
 )
@@ -60,6 +61,24 @@ func (h commandHandlers) daemonShutdown(_ *conn, req request) (any, *Error) {
 		time.Sleep(300 * time.Millisecond)
 		server.Shutdown()
 	}()
+	return map[string]any{}, nil
+}
+
+// daemon.log appends a frontend-side line to the ring the `daemon.logs` view
+// tails. Qt and QML diagnostics go to the frontend's stderr, which the daemon
+// never sees, so without this the Logs page shows only the daemon's half of the
+// story. The prefix keeps the two sources tellable apart, and parseLogLine's
+// keyword scan still picks the level out of the message text.
+func (h commandHandlers) daemonLog(_ *conn, req request) (any, *Error) {
+	var p struct {
+		Message string `json:"message"`
+	}
+	if err := decodeParams(req.Params, &p); err != nil {
+		return nil, err
+	}
+	if msg := strings.TrimSpace(p.Message); msg != "" {
+		log.Printf("frontend: %s", msg)
+	}
 	return map[string]any{}, nil
 }
 

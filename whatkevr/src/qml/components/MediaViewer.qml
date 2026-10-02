@@ -616,8 +616,12 @@ QQC2.Popup {
                 // though its bounds are square. Without this, a quarter of the
                 // circle's bounding box played and paused a picture that was
                 // not under the pointer.
+                // The parameter and return types are declared because Qt looks
+                // the mask up by the exact signature `contains(QPointF)`; an
+                // untyped QML function is registered as taking a QVariant and
+                // is silently ignored.
                 containmentMask: QtObject {
-                    function contains(point) {
+                    function contains(point: point): bool {
                         if (!root.isVideoNote) {
                             return point.x >= 0 && point.y >= 0
                                 && point.x <= pictureHit.width && point.y <= pictureHit.height

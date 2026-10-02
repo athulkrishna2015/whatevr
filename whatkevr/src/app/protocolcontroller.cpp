@@ -4736,6 +4736,16 @@ void ProtocolController::shutdownDaemon()
     m_client->request(QStringLiteral("daemon.shutdown"), {}, [](const QJsonObject &, const ProtocolError &) {});
 }
 
+void ProtocolController::logToDaemon(const QString &line)
+{
+    if (!m_client || line.trimmed().isEmpty()) {
+        return;
+    }
+    m_client->request(QStringLiteral("daemon.log"),
+                      QJsonObject{{QStringLiteral("message"), line}},
+                      [](const QJsonObject &, const ProtocolError &) {});
+}
+
 // --- history-sync strip (D2b2) --------------------------------------------
 
 void ProtocolController::recomputeHistorySync()

@@ -9,6 +9,8 @@
 #include <QSGRendererInterface>
 #include <QTimer>
 
+#include <functional>
+
 #include <KAboutData>
 #include <KDBusService>
 #include <KLocalizedQmlContext>
@@ -25,6 +27,15 @@
 namespace
 {
 QtMessageHandler g_previousMessageHandler = nullptr;
+
+// Set once the controller exists: Qt's message handler is a plain function with
+// no access to it, and forwarding to the daemon is what puts frontend
+// diagnostics in the Logs tab (which tails the daemon's ring).
+std::function<void(const QString &)> g_forwardToLogsTab;
+// Re-entrancy guard. Several protocol error paths qWarning(), and forwarding
+// sends a request — so a request that itself fails would warn, re-enter the
+// handler, and send again. One flag ends that loop class outright.
+bool g_forwarding = false;
 
 // KirigamiAddons' ConfigurationView builds its module pages (FormCard
 // ScrollablePages, the formcard AboutPage's license sheets, MessageDialog)
@@ -48,8 +59,14 @@ void filterKirigamiNullPropertyWarnings(QtMsgType type, const QMessageLogContext
     // qInstallMessageHandler() returns nullptr when the *default* handler was in
     // place, so there is nothing to chain to: format and emit the message the way
     // Qt would have, or everything the app logs disappears.
-    fprintf(stderr, "%s\n", qFormatLogMessage(type, context, message).toLocal8Bit().constData());
+    const QByteArray formatted = qFormatLogMessage(type, context, message).toLocal8Bit();
+    fprintf(stderr, "%s\n", formatted.constData());
     fflush(stderr);
+    if (g_forwardToLogsTab && !g_forwarding) {
+        g_forwarding = true;
+        g_forwardToLogsTab(QString::fromUtf8(formatted));
+        g_forwarding = false;
+    }
 }
 }
 
@@ -165,6 +182,12 @@ int main(int argc, char *argv[])
         socketPath.isEmpty() ? ProtocolController::daemonSocketPath() : socketPath, nullptr);
     ProtocolController::setInstance(&protocolController);
 
+    // Qt diagnostics into the daemon's log ring, so the Logs tab shows both
+    // halves of the story instead of only the daemon's.
+    g_forwardToLogsTab = [&protocolController](const QString &line) {
+        protocolController.logToDaemon(line);
+    };
+
     // A stream that finishes downloading mid-playback is swapped onto its
     // completed file here, once, in the session that is actually decoding it.
     // The views only record the new path; two QML handlers used to race each
@@ -238,5 +261,9 @@ int main(int argc, char *argv[])
     // Process the URL this instance was launched with, if any.
     protocolController.handleCommandLine(app.arguments());
 
-    return app.exec();
+    const int rc = app.exec();
+    // The controller is a local above and dies before this handler could stop
+    // being reachable, so drop the forwarding first.
+    g_forwardToLogsTab = nullptr;
+    return rc;
 }

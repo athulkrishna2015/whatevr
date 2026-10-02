@@ -257,6 +257,7 @@ correlation (e.g. to scroll to your own just-sent message when it upserts).
 | `session.update` | `focused` (bool), `active_chat_id` | `{}`: feeds notification suppression and `open_chat` routing |
 | `daemon.reconnect` | none | `{}` |
 | `daemon.shutdown` | none | `{}`: stops the daemon after the ack flushes (Quit path; tray icon is daemon-owned) |
+| `daemon.log` | `message` | `{}`: appends one frontend-side line (Qt/QML diagnostics, which otherwise only reach the frontend's stderr) to the same ring `daemon.logs` tails, so the Logs tab shows both. Blank messages are dropped. Level is still inferred by keyword from the text |
 | `account.logout` | none | `{}` |
 
 **Chats**

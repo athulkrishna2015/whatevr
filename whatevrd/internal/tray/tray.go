@@ -147,13 +147,19 @@ func (s *statusItem) GetAll(iface string) (map[string]dbus.Variant, *dbus.Error)
 	status, title := s.status, s.title
 	s.mu.Unlock()
 	return map[string]dbus.Variant{
-		"Category":   dbus.MakeVariant("ApplicationStatus"),
-		"Id":         dbus.MakeVariant("whatevr"),
-		"Title":      dbus.MakeVariant(title),
-		"Status":     dbus.MakeVariant(status),
-		"WindowId":   dbus.MakeVariant(int32(0)),
-		"IconName":   dbus.MakeVariant("in.codelif.Whatevr"),
-		"ItemIsMenu": dbus.MakeVariant(true),
+		"Category": dbus.MakeVariant("ApplicationStatus"),
+		"Id":       dbus.MakeVariant("whatevr"),
+		"Title":    dbus.MakeVariant(title),
+		"Status":   dbus.MakeVariant(status),
+		"WindowId": dbus.MakeVariant(int32(0)),
+		"IconName": dbus.MakeVariant("in.codelif.Whatevr"),
+		// False, and it has to be: the flag means "this item is a menu, so a
+		// click should open the menu instead of activating the application",
+		// and the host then never calls Activate at all. We render no
+		// com.canonical.dbusmenu for it to show, so left-click went nowhere.
+		// False gets the standard split — left-click calls Activate (raise the
+		// window), right-click calls ContextMenu (the tray menu).
+		"ItemIsMenu": dbus.MakeVariant(false),
 		"ToolTip":    dbus.MakeVariant([]any{"in.codelif.Whatevr", title, ""}),
 	}, nil
 }

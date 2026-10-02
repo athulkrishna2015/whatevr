@@ -185,6 +185,7 @@ func RegisterDaemonCommands(s *Server, actions CommandActions) {
 	s.RegisterCommand("session.update", cmd.sessionUpdate)
 	s.RegisterCommand("daemon.reconnect", cmd.daemonReconnect)
 	s.RegisterCommand("daemon.shutdown", cmd.daemonShutdown)
+	s.RegisterCommand("daemon.log", cmd.daemonLog)
 	s.RegisterCommand("account.logout", backgroundNet(cmd.accountLogout, false))
 	s.RegisterCommand("chat.mark_read", backgroundNet(cmd.chatMarkRead, false))
 	s.RegisterCommand("chat.mark_all_read", backgroundNet(cmd.chatMarkAllRead, false))

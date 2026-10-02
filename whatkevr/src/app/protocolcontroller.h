@@ -675,6 +675,13 @@ public:
     // Fire-and-forget: safe to call when the daemon is already gone.
     Q_INVOKABLE void shutdownDaemon();
 
+    // Hands one Qt/QML diagnostic to the daemon so it lands in the same ring
+    // the Logs page tails. Fire-and-forget: ProtocolClient queues requests made
+    // before hello, so startup warnings flush once the socket is up, and drops
+    // the oldest if the daemon stays unreachable. Either way stderr still has
+    // every line.
+    void logToDaemon(const QString &line);
+
     // Composer send paths (D4a): map straight to `send.text`/`send.media`; the
     // daemon acks with an id only, the rendered message arrives via the
     // `messages` view. mentionedJids/replyToMessageId/caption may be empty.
