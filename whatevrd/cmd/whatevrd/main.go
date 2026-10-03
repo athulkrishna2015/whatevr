@@ -18,6 +18,8 @@ import (
 )
 
 func main() {
+	memstatusOff()
+	limitMemory()
 	if len(os.Args) > 1 && os.Args[1] == "pair" {
 		os.Exit(runPair(os.Args[2:], os.Stdout, os.Stderr))
 	}
