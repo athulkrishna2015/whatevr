@@ -760,6 +760,9 @@ func dropMessage(tx *core.Tx, chat, id string) error {
 	if _, err := tx.Exec(`DELETE FROM msg_wait WHERE chat = ? AND id = ?`, chat, id); err != nil {
 		return err
 	}
+	if err := dropLocal(tx, chat, id); err != nil {
+		return err
+	}
 	tx.Touch("message", chat+":"+id)
 	tx.Touch("chat", chat)
 	return nil

@@ -10,5 +10,5 @@ import "whatevrd/internal/core"
 // app state and identity before messages, which consult both. the chat list
 // sums up the rest, so it goes last.
 func Domains() []core.Domain {
-	return []core.Domain{identityDomain, appStateDomain, historyDomain, groupsDomain, accountDomain, messagesDomain, outboxDomain, syncDomain, chatlistDomain}
+	return []core.Domain{identityDomain, appStateDomain, historyDomain, groupsDomain, accountDomain, messagesDomain, outboxDomain, localDomain, syncDomain, chatlistDomain}
 }

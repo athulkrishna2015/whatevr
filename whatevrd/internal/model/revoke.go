@@ -322,6 +322,9 @@ func tombstone(tx *core.Tx, chat, id string) error {
 	if _, err := tx.Exec(`DELETE FROM msg_wait WHERE id = ? AND `+sameChatSQL("chat"), id, chat, chat, chat); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(`DELETE FROM msg_local WHERE id = ? AND `+sameChatSQL("chat"), id, chat, chat, chat); err != nil {
+		return err
+	}
 	edits, err := tx.Query(`SELECT seq FROM f_edit WHERE target = ? AND `+sameChatSQL("chat"), id, chat, chat, chat)
 	if err != nil {
 		return err

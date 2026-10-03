@@ -178,6 +178,15 @@ func scenario() []core.Input {
 		in(core.KindPrivacy, core.PrivacyHead{Settings: map[string]string{"last": "contacts"}}, nil, at(100)),
 		in(core.KindBlocklist, core.BlocklistHead{Changes: []core.BlocklistChange{{JID: "917770000005@s.whatsapp.net", Action: "block"}}}, nil, at(101)),
 		in(core.KindSyncState, core.SyncStateHead{Domain: "app_state:regular_low", Version: 5, Count: 3}, nil, at(102)),
+		in(core.KindLocal, core.LocalHead{Chat: ashaL, ID: "M1", Op: core.MediaError, Error: "timeout"}, nil, at(110)),
+		in(core.KindLocal, core.LocalHead{Chat: ashaL, ID: "M1", Op: core.MediaFile, Path: "/m/M1.jpg", W: 4, H: 3}, nil, at(111)),
+		in(core.KindLocal, core.LocalHead{Chat: ashaL, ID: "M1", Op: core.MediaFile, Path: "/m/M1b.jpg"}, nil, at(112)),
+		in(core.KindLocal, core.LocalHead{Chat: ashaL, ID: "M3", Op: core.MediaFile, Path: "/m/M3.jpg"}, nil, at(113)),
+		in(core.KindAvatar, core.AvatarHead{JID: boL, Status: core.AvatarError, Error: "500"}, nil, at(114)),
+		in(core.KindAvatar, core.AvatarHead{JID: boL, Status: core.AvatarOK, PictureID: "p1", Path: "/a/bo"}, nil, at(115)),
+		in(core.KindAvatar, core.AvatarHead{JID: boL, Status: core.AvatarError, Error: "timeout"}, nil, at(116)),
+		in(core.KindPrefs, core.PrefsHead{Prefs: json.RawMessage(`{"notify":true}`)}, nil, at(117)),
+		in(core.KindPrefs, core.PrefsHead{Prefs: json.RawMessage(`{"notify":false}`)}, nil, at(118)),
 	}
 }
 

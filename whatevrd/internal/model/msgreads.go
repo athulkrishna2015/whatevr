@@ -65,6 +65,7 @@ type Facts struct {
 	Votes    []Sealed
 	Events   []Sealed
 	Receipts []Receipt
+	Local    Local
 }
 
 type Reaction struct {

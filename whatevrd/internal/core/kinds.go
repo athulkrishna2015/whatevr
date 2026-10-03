@@ -1,5 +1,7 @@
 package core
 
+import "encoding/json"
+
 // Input kinds, one per kind of fact. A head is the json in Input.Head; a body,
 // where a kind has one, is whatsapp's own protobuf.
 const (
@@ -29,6 +31,11 @@ const (
 	KindLIDMapping          = "lid_mapping"
 	// a send this daemon queued, cancelled or tried
 	KindOutbox = "outbox"
+
+	// what this daemon did on its own: files it fetched or made, settings
+	KindLocal  = "local"
+	KindAvatar = "avatar"
+	KindPrefs  = "prefs"
 )
 
 // Times in heads are whatsapp's, unix seconds; 0 when whatsapp gave none,
@@ -299,3 +306,56 @@ const (
 	OutboxCancel  = "cancel"
 	OutboxAttempt = "attempt"
 )
+
+// LocalHead is one thing this daemon learned about a message on its own: its
+// media, or what the group invite in it points at. Op says which; a newer one
+// of the same op replaces the older.
+type LocalHead struct {
+	Chat string `json:"chat"`
+	ID   string `json:"id"`
+	Op   string `json:"op"`
+	// Path is the local file for file, poster, map and preview; "" is gone
+	Path string `json:"path,omitempty"`
+	W    int32  `json:"w,omitempty"`
+	H    int32  `json:"h,omitempty"`
+	// Error is why a download failed; "" on an error op clears it
+	Error    string `json:"error,omitempty"`
+	Waveform []byte `json:"waveform,omitempty"`
+	// DirectPath is where the phone re-uploaded media the server had lost
+	DirectPath string `json:"direct_path,omitempty"`
+	// Invite is the group an invite resolved to, Error why it did not
+	Invite json.RawMessage `json:"invite,omitempty"`
+}
+
+const (
+	MediaFile     = "file"
+	MediaError    = "error"
+	MediaPlayed   = "played"
+	MediaPoster   = "poster"
+	MediaWaveform = "waveform"
+	MediaMap      = "map"
+	MediaPreview  = "preview"
+	MediaDirect   = "direct"
+	LocalInvite   = "invite"
+)
+
+// AvatarHead is one picture fetch and how it went.
+type AvatarHead struct {
+	JID       string `json:"jid"`
+	PictureID string `json:"picture_id,omitempty"`
+	Path      string `json:"path,omitempty"`
+	Status    string `json:"status"`
+	Error     string `json:"error,omitempty"`
+}
+
+const (
+	AvatarOK     = "ok"
+	AvatarNone   = "none"
+	AvatarHidden = "hidden"
+	AvatarError  = "error"
+)
+
+// PrefsHead is every preference after a change.
+type PrefsHead struct {
+	Prefs json.RawMessage `json:"prefs"`
+}
