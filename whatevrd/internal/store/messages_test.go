@@ -2427,3 +2427,56 @@ func TestOverwriteChatUnreadCountKeepsLiveMessages(t *testing.T) {
 		t.Fatalf("unread = %d, want an exact overwrite", chat.UnreadCount)
 	}
 }
+
+func TestMessageOverlaysMatchGetMessage(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(ctx, filepath.Join(t.TempDir(), "whatevrd.db"))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer db.Close()
+	for _, id := range []string{"chat-1:a", "chat-1:b"} {
+		if _, err := db.SaveMediaMessage(ctx, MediaMessageInput{
+			TextMessageInput: TextMessageInput{ID: id, ChatID: "chat-1", ChatName: "Test Chat", SenderID: "sender-1", Timestamp: time.Unix(100, 0)},
+			MediaKind:        MediaKindAudio, MediaMimeType: "audio/ogg",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := db.UpdateMessageMediaLocalPath(ctx, "chat-1:a", "/tmp/a.ogg"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SetMessageMediaWaveform(ctx, "chat-1:a", []byte{1, 2, 3}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := db.MarkMessageMediaPlayed(ctx, "chat-1:a"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.SetMessageMediaDownloadError(ctx, "chat-1:b", "gone"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.MessageOverlays(ctx, []string{"chat-1:a", "chat-1:b", "chat-1:missing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d rows, want 2", len(got))
+	}
+	for _, id := range []string{"chat-1:a", "chat-1:b"} {
+		full, err := db.GetMessage(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		o := got[id]
+		want := Message{ID: full.ID, SenderAvatarLocalPath: full.SenderAvatarLocalPath, Status: full.Status, MediaKind: full.MediaKind,
+			MediaLocalPath: full.MediaLocalPath, MediaThumbnailLocalPath: full.MediaThumbnailLocalPath, MediaDownloadError: full.MediaDownloadError,
+			MediaWaveform: full.MediaWaveform, MediaPlayed: full.MediaPlayed, PayloadJSON: full.PayloadJSON, PayloadSummary: full.PayloadSummary,
+			SendAttempts: full.SendAttempts, LastSendError: full.LastSendError, NextSendAttempt: full.NextSendAttempt}
+		if !reflect.DeepEqual(o, want) {
+			t.Fatalf("%s:\n got %+v\nwant %+v", id, o, want)
+		}
+	}
+	if !got["chat-1:a"].MediaPlayed || got["chat-1:a"].MediaLocalPath != "/tmp/a.ogg" || got["chat-1:b"].MediaDownloadError != "gone" {
+		t.Fatalf("overlay lost a field: %+v", got)
+	}
+}

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/mattn/go-sqlite3"
+
+	"whatevrd/internal/sqlitex"
 )
 
 const schemaVersion = 7
@@ -71,10 +73,18 @@ func (db *DB) reader() *sql.DB {
 
 func init() {
 	sql.Register(SQLiteDriverName, &sqlite3.SQLiteDriver{
-		ConnectHook: registerNamePriorityFuncs,
+		ConnectHook: func(conn *sqlite3.SQLiteConn) error {
+			if err := sqlitex.StablePlans(conn); err != nil {
+				return err
+			}
+			return registerNamePriorityFuncs(conn)
+		},
 	})
 	sql.Register(SQLiteReadDriverName, &sqlite3.SQLiteDriver{
 		ConnectHook: func(conn *sqlite3.SQLiteConn) error {
+			if err := sqlitex.StablePlans(conn); err != nil {
+				return err
+			}
 			if err := registerNamePriorityFuncs(conn); err != nil {
 				return err
 			}
@@ -125,7 +135,7 @@ func sqliteChatNameSourcePriority(value any) int64 {
 }
 
 func Open(ctx context.Context, path string) (*DB, error) {
-	conn, err := sql.Open(SQLiteDriverName, path)
+	conn, err := sql.Open(SQLiteDriverName, sqlitex.DSN(path, 128))
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +155,7 @@ func Open(ctx context.Context, path string) (*DB, error) {
 	// committed writes immediately and runs concurrently with the writer. The
 	// RO driver's ConnectHook applies the per-connection pragmas to every
 	// connection in the pool.
-	readConn, err := sql.Open(SQLiteReadDriverName, path)
+	readConn, err := sql.Open(SQLiteReadDriverName, sqlitex.DSN(path, 64))
 	if err != nil {
 		conn.Close()
 		return nil, err

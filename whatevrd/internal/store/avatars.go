@@ -190,3 +190,15 @@ func (db *DB) ClearAvatar(ctx context.Context, subject AvatarSubject, status str
 	}
 	return db.GetAvatar(ctx, subject)
 }
+
+// ChatAvatar is a chat row's avatar alone, as GetChatForView has it.
+func (db *DB) ChatAvatar(ctx context.Context, chatID string) (path, pictureID, status string, checkedAt int64, err error) {
+	err = db.reader().QueryRowContext(ctx, `
+		SELECT COALESCE(NULLIF(a.local_path, ''), c.avatar_local_path), COALESCE(NULLIF(a.picture_id, ''), c.avatar_picture_id),
+		       COALESCE(NULLIF(a.status, ''), c.avatar_status), COALESCE(NULLIF(a.checked_at, 0), c.avatar_checked_at)
+		FROM chats c
+		LEFT JOIN avatars a ON a.subject_kind = 'chat' AND a.subject_id = c.id
+		WHERE c.id = ?
+	`, chatID).Scan(&path, &pictureID, &status, &checkedAt)
+	return
+}

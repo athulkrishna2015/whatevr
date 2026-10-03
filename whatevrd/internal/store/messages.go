@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -825,6 +826,19 @@ func previewSummary(input TextMessageInput, summary string) string {
 	return author + ": " + summary
 }
 
+// ChatPreview is a stored message as the chat list shows it.
+func ChatPreview(m Message, isGroup bool) string {
+	if m.IsRevoked {
+		return RevokedPreview
+	}
+	return previewSummary(TextMessageInput{
+		IsGroup:    isGroup,
+		Direction:  m.Direction,
+		SenderName: m.SenderName,
+		Mentions:   m.Mentions,
+	}, MessagePreviewLine(m))
+}
+
 func toTextutilMentions(mentions []MessageMention) []textutil.Mention {
 	if len(mentions) == 0 {
 		return nil
@@ -1287,6 +1301,52 @@ func (db *DB) GetMessage(ctx context.Context, id string) (Message, error) {
 		return message, err
 	}
 	return message, nil
+}
+
+// MessageOverlays is, per id, the part of each row the new core leaves to
+// this store: media paths and state, the sender's avatar, live share
+// payloads and send state. ids not here are missing.
+func (db *DB) MessageOverlays(ctx context.Context, ids []string) (map[string]Message, error) {
+	defer db.timeOp("MessageOverlays", time.Now())
+	list, err := json.Marshal(ids)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.reader().QueryContext(ctx, `
+		SELECT m.id,
+		       COALESCE(NULLIF(sa.local_path, ''), NULLIF(ca.local_path, ''), NULLIF(s.avatar_local_path, ''), NULLIF(c.avatar_local_path, ''), ''),
+		       m.status, m.media_kind, m.media_local_path, m.media_thumbnail_local_path, m.media_download_error,
+		       m.media_waveform, m.media_played, m.payload_json, m.payload_summary,
+		       m.send_attempts, m.last_send_error, m.next_send_attempt
+		FROM messages m
+		LEFT JOIN senders s ON s.id = m.sender_id
+		LEFT JOIN chats c ON c.id = m.sender_id
+		LEFT JOIN avatars sa ON sa.subject_kind = 'sender' AND sa.subject_id = m.sender_id
+		LEFT JOIN avatars ca ON ca.subject_kind = 'chat' AND ca.subject_id = m.sender_id
+		WHERE m.id IN (SELECT value FROM json_each(?))
+	`, string(list))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]Message, len(ids))
+	for rows.Next() {
+		var m Message
+		if err := rows.Scan(&m.ID, &m.SenderAvatarLocalPath, &m.Status, &m.MediaKind, &m.MediaLocalPath,
+			&m.MediaThumbnailLocalPath, &m.MediaDownloadError, &m.MediaWaveform, &m.MediaPlayed, &m.PayloadJSON,
+			&m.PayloadSummary, &m.SendAttempts, &m.LastSendError, &m.NextSendAttempt); err != nil {
+			return nil, err
+		}
+		out[m.ID] = m
+	}
+	return out, rows.Err()
+}
+
+// RetryPendingNow makes every queued send due now.
+func (db *DB) RetryPendingNow(ctx context.Context) error {
+	_, err := db.conn.ExecContext(ctx, `UPDATE messages SET next_send_attempt = 0
+		WHERE direction = ? AND status = ? AND next_send_attempt > 0`, DirectionOutgoing, StatusPending)
+	return err
 }
 
 func (db *DB) ListPendingOutgoingMessages(ctx context.Context, limit int, now time.Time) ([]Message, error) {
