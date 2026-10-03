@@ -52,14 +52,18 @@ type replay struct {
 	lid   types.JID
 	items []replayItem
 
-	answers   *answerBook
+	answers *answerBook
+	// borrowed holds the answers to get queries from the other segments
+	borrowed  *answerBook
 	decrypted map[uint64]map[int]*capture.Payload
 	// gens is the identity generation of each payload's sender, see identities
-	gens     map[uint64]map[int]int
-	http     map[string][]*capture.HTTP
-	httpUsed map[string]int
-	httpMu   sync.Mutex
-	front    *frontendPlayer
+	gens map[uint64]map[int]int
+	http map[string][]*capture.HTTP
+	// httpByPath is http keyed without the host
+	httpByPath map[string][]*capture.HTTP
+	httpUsed   map[string]int
+	httpMu     sync.Mutex
+	front      *frontendPlayer
 
 	sessions chan *session
 	cur      *session
@@ -131,13 +135,15 @@ func loadReplay(srv *Server) (*replay, error) {
 	}
 	r := &replay{
 		srv: srv, cap: c, seg: seg, acct: acct, pn: pn, lid: lid,
-		answers:   newAnswerBook(),
-		decrypted: map[uint64]map[int]*capture.Payload{},
-		gens:      map[uint64]map[int]int{},
-		http:      map[string][]*capture.HTTP{},
-		httpUsed:  map[string]int{},
-		sessions:  make(chan *session, 8),
-		have:      map[string]int{}, want: map[string]int{}, forgiven: map[string]int{},
+		answers:    newAnswerBook(),
+		borrowed:   newAnswerBook(),
+		decrypted:  map[uint64]map[int]*capture.Payload{},
+		gens:       map[uint64]map[int]int{},
+		http:       map[string][]*capture.HTTP{},
+		httpByPath: map[string][]*capture.HTTP{},
+		httpUsed:   map[string]int{},
+		sessions:   make(chan *session, 8),
+		have:       map[string]int{}, want: map[string]int{}, forgiven: map[string]int{},
 		wake: make(chan struct{}, 1),
 		sent: map[string][]string{}, ids: map[string]string{}, newID: map[string]bool{}, ackT: map[string]string{},
 	}
@@ -148,18 +154,23 @@ func loadReplay(srv *Server) (*replay, error) {
 		return nil, err
 	}
 	// http answers come from every segment: a body fetched once is cached
-	// by the original daemon and may be asked for in a later run of a replay
+	// by the original daemon and may be asked for in a later run of a replay.
+	// so may a query whose answer it kept, or one it got round to asking only
+	// after a restart: a get the replay asks in another run than the capture
+	// did is answered from that run
 	for _, n := range c.Segments {
 		other := recs
 		if n != seg {
 			if other, err = c.Records(n); err != nil {
 				return nil, err
 			}
+			getAnswers(other, r.borrowed)
 		}
 		for i := range other {
 			if h := other[i].HTTP; h != nil && h.Err == "" {
 				k := httpKey(h.Method, h.URL, h.Range)
 				r.http[k] = append(r.http[k], h)
+				r.httpByPath[pathKey(k)] = append(r.httpByPath[pathKey(k)], h)
 			}
 		}
 	}
@@ -242,6 +253,28 @@ func (r *replay) index(recs []capture.Record) error {
 	return nil
 }
 
+// getAnswers adds the answer to every get query in recs to book.
+func getAnswers(recs []capture.Record, book *answerBook) {
+	requests := map[string]*waBinary.Node{}
+	for i := range recs {
+		rec := &recs[i]
+		if rec.Kind != capture.KindSend && rec.Kind != capture.KindRecv {
+			continue
+		}
+		node, err := waBinary.Unmarshal(rec.Frame.Data)
+		if err != nil || node.Tag != "iq" {
+			continue
+		}
+		id, _ := node.Attrs["id"].(string)
+		switch t, _ := node.Attrs["type"].(string); {
+		case rec.Kind == capture.KindSend && t == "get":
+			requests[id] = node
+		case rec.Kind == capture.KindRecv && t == "result" && requests[id] != nil:
+			book.add(requestKey(requests[id]), rec.Frame.Data)
+		}
+	}
+}
+
 func hasChild(n *waBinary.Node, tag string) bool {
 	_, ok := n.GetOptionalChildByTag(tag)
 	return ok
@@ -253,6 +286,15 @@ func httpKey(method, raw, rng string) string {
 		return method + " " + raw + "|" + rng
 	}
 	return method + " " + strings.ToLower(u.Host) + u.RequestURI() + "|" + rng
+}
+
+// pathKey is an http key without its host.
+func pathKey(k string) string {
+	method, rest, _ := strings.Cut(k, " ")
+	if i := strings.IndexByte(rest, '/'); i >= 0 {
+		rest = rest[i:]
+	}
+	return method + " " + rest
 }
 
 // hosts are the recorded http hosts, the dial guard lets them through.
@@ -275,6 +317,11 @@ func (r *replay) serveHTTP(w http.ResponseWriter, req *http.Request) bool {
 	k := httpKey(req.Method, "https://"+req.Host+req.URL.RequestURI(), req.Header.Get("Range"))
 	r.httpMu.Lock()
 	list := r.http[k]
+	if len(list) == 0 {
+		// whatsmeow falls back to another media host for the same object
+		k = pathKey(k)
+		list = r.httpByPath[k]
+	}
 	i := r.httpUsed[k]
 	if i >= len(list) {
 		i = len(list) - 1
@@ -434,6 +481,7 @@ func (r *replay) run(ctx context.Context) {
 		r.pos.Store(int64(i))
 		it := &r.items[i]
 		r.pace(ctx, wallStart, recStart, it.rec.T)
+		replayedAt.Store(it.rec.T.UnixNano())
 		switch it.rec.Kind {
 		case capture.KindSend:
 			if class := stanzaClass(it.node); class != "" {
@@ -683,9 +731,22 @@ func (r *replay) reencrypt(ctx context.Context, s *session, it *replayItem) (waB
 // answer is a recorded reply to the client's request, false when the capture
 // never saw it asked.
 func (r *replay) answer(ctx context.Context, s *session, req *waBinary.Node) bool {
-	frame, ok := r.answers.take(requestKey(req))
+	key := requestKey(req)
+	frame, ok := r.answers.take(key)
+	if !ok && req.Attrs["type"] == "get" {
+		if frame, ok = r.borrowed.take(key); ok {
+			r.log().Info().Str("request", key).Msg("replay answers from another segment")
+		}
+	}
 	if !ok {
 		return false
+	}
+	id, _ := req.Attrs["id"].(string)
+	if out, ok := withID(frame, id); ok {
+		if err := s.sendRaw(ctx, out); err != nil {
+			r.log().Warn().Err(err).Msg("replay answer")
+		}
+		return true
 	}
 	resp, err := waBinary.Unmarshal(frame)
 	if err != nil {

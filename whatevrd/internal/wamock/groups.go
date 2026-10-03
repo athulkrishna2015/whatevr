@@ -53,7 +53,7 @@ func (s *Server) groupNode(chat *Chat) waBinary.Node {
 	}
 	participants := make([]waBinary.Node, 0, len(chat.Members))
 	for _, member := range chat.Members {
-		attrs := waBinary.Attrs{"jid": member.JID, "lid": lidFor(member.JID)}
+		attrs := waBinary.Attrs{"jid": member.JID, "lid": s.lidOf(member.JID)}
 		if member == owner {
 			attrs["type"] = "superadmin"
 		}
@@ -214,7 +214,7 @@ func (s *Server) usyncUserNode(req *waBinary.Node, wanted map[string]bool) waBin
 	if wanted["lid"] {
 		content = append(content, waBinary.Node{
 			Tag:   "lid",
-			Attrs: waBinary.Attrs{"val": lidFor(lookup)},
+			Attrs: waBinary.Attrs{"val": s.lidOf(lookup)},
 		})
 	}
 	if wanted["devices"] {

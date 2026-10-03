@@ -13,6 +13,7 @@ import (
 	"go.mau.fi/whatsmeow/appstate"
 	waCommon "go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	waWeb "go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
 )
@@ -247,6 +248,23 @@ type Msg struct {
 	// starred and the rest are app state the account already had, which the
 	// client can also change from a frontend.
 	starred bool
+
+	// status is what history says became of a message of ours, nil for the
+	// usual (read)
+	status *waWeb.WebMessageInfo_Status
+}
+
+// Pending marks a message of ours history carries as never sent from the
+// phone: it sat in the phone's outbox when the device was linked.
+func (m *Msg) Pending() *Msg {
+	m.status = waWeb.WebMessageInfo_PENDING.Enum()
+	return m
+}
+
+// Failed marks a message of ours history carries as failed on the phone.
+func (m *Msg) Failed() *Msg {
+	m.status = waWeb.WebMessageInfo_ERROR.Enum()
+	return m
 }
 
 // payload is what goes inside the Signal envelope.

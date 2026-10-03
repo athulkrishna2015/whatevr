@@ -14,7 +14,6 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/rs/zerolog"
-	waBinary "go.mau.fi/whatsmeow/binary"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/util/keys"
 
@@ -138,12 +137,16 @@ type Server struct {
 	replay *replay
 
 	// unacked is every message stanza the client has not acked yet, in send
-	// order. a real server hands them over again on the next connection.
+	// order, with the session it went out on. a real server hands them over
+	// again on the next connection. held is what came in while nothing was
+	// connected, for the next login.
 	ackMu   sync.Mutex
-	unacked []waBinary.Node
+	unacked []unacked
+	held    []*Msg
 
 	mu          sync.Mutex
 	sessions    map[*session]struct{}
+	faults      faults
 	peers       map[string]*peer
 	closed      bool
 	paired      *pairedDevice
@@ -246,7 +249,7 @@ func (s *Server) Start(ctx context.Context) error {
 	s.http = &http.Server{Handler: s.countHTTP(handler)}
 
 	installCertPubKey(s.ident)
-	installTransport(s.tlsID, ln.Addr().String(), hosts)
+	installTransport(s.tlsID, ln.Addr().String(), hosts, s.dialFault)
 
 	go func() {
 		if err := s.http.Serve(ln); err != nil && !s.isClosed() {
@@ -342,6 +345,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		delete(s.sessions, sess)
 		s.mu.Unlock()
+		s.orphaned(sess)
 	}()
 
 	sess.run(r.Context())
@@ -350,6 +354,17 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 // accountJID is the address the mock account is reachable at.
 func (s *Server) accountJID() types.JID {
 	return types.JID{User: s.opts.AccountPhone, Server: types.DefaultUserServer}
+}
+
+// lidOf is lidFor, except that a replay's account has the lid the capture
+// gave it: a made up one would be a second lid for the same number.
+func (s *Server) lidOf(j types.JID) types.JID {
+	if r := s.replay; r != nil && !r.lid.IsEmpty() && j.User == r.pn.User {
+		lid := r.lid.ToNonAD()
+		lid.Device = j.Device
+		return lid
+	}
+	return lidFor(j)
 }
 
 // waitForQR blocks until the daemon publishes a pairing code. The mock plays

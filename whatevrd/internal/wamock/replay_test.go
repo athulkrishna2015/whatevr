@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	waBinary "go.mau.fi/whatsmeow/binary"
+	"go.mau.fi/whatsmeow/types"
 )
 
 func TestRequestKeyIgnoresWhatDiffersBetweenRuns(t *testing.T) {
@@ -109,5 +110,53 @@ func TestSentIDsMapOntoReplayedOnes(t *testing.T) {
 	}
 	if got := string(r.rewritePlaintext([]byte("quoting OLD1"))); got != "quoting NEW1" {
 		t.Fatalf("plaintext %q", got)
+	}
+}
+
+// a recorded answer goes back with the request's id and every other byte as
+// recorded, a <0/> included, which decoding and encoding again would break
+func TestWithIDKeepsTheRestOfTheFrame(t *testing.T) {
+	marshal := func(n waBinary.Node) []byte {
+		b, err := waBinary.Marshal(n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b[1:]
+	}
+	frame := marshal(waBinary.Node{Tag: "iq", Attrs: waBinary.Attrs{
+		"from": types.ServerJID, "id": "245.132-10", "type": "result", "zeta": "not a token at all"},
+		Content: []waBinary.Node{{Tag: "media_conn", Content: []waBinary.Node{{Tag: "zz"}}}}})
+	// the server writes <0/> as a one item list holding the string "0"
+	zz := marshal(waBinary.Node{Tag: "zz"})
+	frame = []byte(strings.Replace(string(frame), string(zz), "\xf8\x01\xfc\x010", 1))
+
+	out, ok := withID(frame, "7.1-2")
+	if !ok {
+		t.Fatal("no id found")
+	}
+	got, err := waBinary.Unmarshal(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Attrs["id"] != "7.1-2" || got.Attrs["zeta"] != "not a token at all" || got.Attrs["from"] != types.ServerJID {
+		t.Fatalf("attrs %v", got.Attrs)
+	}
+	if kids := got.GetChildren(); len(kids) != 1 || kids[0].GetChildren()[0].Tag != "0" {
+		t.Fatalf("content %v", got.Content)
+	}
+	if _, ok := withID(marshal(waBinary.Node{Tag: "iq", Attrs: waBinary.Attrs{"type": "result"}}), "1"); ok {
+		t.Fatal("swapped an id that is not there")
+	}
+}
+
+// the same object asked of a fallback media host is the recorded one
+func TestPathKeyDropsTheHost(t *testing.T) {
+	a := pathKey(httpKey("GET", "https://media-bom2-3.cdn.whatsapp.net/v/t62/x.enc?ccb=11", ""))
+	b := pathKey(httpKey("GET", "https://mmg.whatsapp.net/v/t62/x.enc?ccb=11", ""))
+	if a != b || !strings.Contains(a, "/v/t62/x.enc?ccb=11") {
+		t.Fatalf("%q %q", a, b)
+	}
+	if pathKey(httpKey("GET", "https://mmg.whatsapp.net/v/t62/x.enc", "bytes=0-9")) == b {
+		t.Fatal("a range is a different request")
 	}
 }

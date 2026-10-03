@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -63,6 +64,9 @@ type session struct {
 	done chan struct{}
 
 	closeOnce sync.Once
+
+	// silent is a session the network fault turned into a dead peer
+	silent atomic.Bool
 }
 
 func newSession(srv *Server, conn *websocket.Conn) *session {
@@ -104,6 +108,9 @@ func (s *session) run(ctx context.Context) {
 				s.srv.log.Warn().Err(err).Msg("read")
 			}
 			return
+		}
+		if s.silent.Load() {
+			continue
 		}
 		s.srv.quiet.touch()
 		if err := s.handleNode(ctx, node); err != nil {
@@ -270,6 +277,9 @@ func (s *session) readNode(ctx context.Context) (*waBinary.Node, error) {
 }
 
 func (s *session) sendNode(ctx context.Context, node waBinary.Node) error {
+	if s.silent.Load() {
+		return nil
+	}
 	plaintext, err := waBinary.Marshal(node)
 	if err != nil {
 		return fmt.Errorf("marshal <%s>: %w", node.Tag, err)
@@ -292,6 +302,9 @@ func (s *session) sendNode(ctx context.Context, node waBinary.Node) error {
 // sendRaw puts a recorded stanza back on the wire byte for byte. data is the
 // unpacked frame, the flag byte in front says it is not compressed.
 func (s *session) sendRaw(ctx context.Context, data []byte) error {
+	if s.silent.Load() {
+		return nil
+	}
 	plaintext := append([]byte{0}, data...)
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()

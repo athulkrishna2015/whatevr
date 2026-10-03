@@ -36,6 +36,10 @@ type mockAppState struct {
 	// sharedAt is when the key went out, and ready says the client has it.
 	sharedAt time.Time
 	ready    bool
+
+	// corrupt is how many incremental answers still go out with a broken
+	// patch mac, as when the server's hash chain and the client's part ways
+	corrupt int
 }
 
 func newMockAppState(r *seededRand) *mockAppState {
@@ -144,8 +148,8 @@ func (m *mockAppState) applyPatch(ctx context.Context, w *World, name appstate.W
 }
 
 // collection answers one collection of the sync query, from the version the
-// client says it already has.
-func (m *mockAppState) collection(name string, from uint64) waBinary.Node {
+// client says it already has. a full sync asks for no version.
+func (m *mockAppState) collection(name string, from uint64, incremental bool) waBinary.Node {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	all := m.patches[appstate.WAPatchName(name)]
@@ -154,7 +158,11 @@ func (m *mockAppState) collection(name string, from uint64) waBinary.Node {
 	}
 	rest := all[from:]
 	nodes := make([]waBinary.Node, 0, len(rest))
-	for _, patch := range rest {
+	for i, patch := range rest {
+		if i == len(rest)-1 && incremental && m.corrupt > 0 {
+			m.corrupt--
+			patch = breakPatchMAC(patch)
+		}
 		nodes = append(nodes, waBinary.Node{Tag: "patch", Content: patch})
 	}
 	node := waBinary.Node{
@@ -169,6 +177,26 @@ func (m *mockAppState) collection(name string, from uint64) waBinary.Node {
 		node.Content = []waBinary.Node{{Tag: "patches", Content: nodes}}
 	}
 	return node
+}
+
+func breakPatchMAC(encoded []byte) []byte {
+	var p waServerSync.SyncdPatch
+	if err := proto.Unmarshal(encoded, &p); err != nil || len(p.PatchMAC) == 0 {
+		return encoded
+	}
+	p.PatchMAC = append([]byte(nil), p.PatchMAC...)
+	p.PatchMAC[0] ^= 0xff
+	out, err := proto.Marshal(&p)
+	if err != nil {
+		return encoded
+	}
+	return out
+}
+
+func (m *mockAppState) corruptNext() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.corrupt++
 }
 
 // noteShared records that the key is on the wire.

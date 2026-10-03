@@ -28,6 +28,10 @@ func (s *session) onConnected(ctx context.Context) error {
 		Server: types.DefaultUserServer,
 	}
 	s.lid = lidFor(s.jid)
+	if s.srv.stalled() {
+		s.silent.Store(true)
+		return nil
+	}
 	if r := s.srv.replay; r != nil {
 		s.lid = r.lid
 		s.lid.Device = s.jid.Device

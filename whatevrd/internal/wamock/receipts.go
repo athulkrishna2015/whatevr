@@ -38,9 +38,9 @@ func (s *Server) sendReceipt(m *Msg, kind string) {
 		}
 		if m.Chat.IsGroup {
 			attrs["participant"] = sender
-			attrs["participant_lid"] = lidFor(sender)
+			attrs["participant_lid"] = s.lidOf(sender)
 		} else {
-			attrs["sender_lid"] = lidFor(sender)
+			attrs["sender_lid"] = s.lidOf(sender)
 		}
 		if kind != "" {
 			attrs["type"] = kind

@@ -253,7 +253,8 @@ func (s *session) handleAppStateIQ(ctx context.Context, node *waBinary.Node) err
 			})
 			continue
 		}
-		collections = append(collections, s.srv.appState.collection(name, uint64(ag.OptionalInt("version"))))
+		_, incremental := child.Attrs["version"]
+		collections = append(collections, s.srv.appState.collection(name, uint64(ag.OptionalInt("version")), incremental))
 	}
 	return s.sendNode(ctx, iqResult(node, waBinary.Node{Tag: "sync", Content: collections}))
 }

@@ -117,6 +117,9 @@ type controlRequest struct {
 	Chat string `json:"chat,omitempty"`
 	From string `json:"from,omitempty"`
 	Text string `json:"text,omitempty"`
+	// fault breaks the network, see Fault. ms is how far a clock jump goes.
+	Fault string `json:"fault,omitempty"`
+	MS    int    `json:"ms,omitempty"`
 }
 
 type controlResponse struct {
@@ -218,6 +221,11 @@ func (s *Server) handleControl(req controlRequest) controlResponse {
 		return controlResponse{OK: true, Names: names}
 	case "say":
 		return s.controlSay(req)
+	case "fault":
+		if err := s.Fault(Fault(req.Fault), req.MS); err != nil {
+			return controlResponse{Error: err.Error()}
+		}
+		return controlResponse{OK: true}
 	case "replay":
 		if s.replay == nil {
 			return controlResponse{Error: "not a replay"}

@@ -37,6 +37,11 @@ func init() {
 		Build:       buildMedia,
 	})
 	Register(Scenario{
+		Name:        "outbox",
+		Description: "messages the phone left pending and failed in history, which must never go out from here",
+		Build:       buildOutbox,
+	})
+	Register(Scenario{
 		Name:        "busy",
 		Description: "several chats with recent traffic, for scrolling and ordering",
 		Build:       buildBusy,
@@ -237,5 +242,27 @@ func buildMedia(w *World) {
 	// already finished.
 	w.After(4*time.Second, func() {
 		group.Attach(ravi, Video("this one arrived while you were looking", 6*time.Second), time.Now())
+	})
+}
+
+// buildOutbox is the history a linked device must not act on: two messages
+// of ours the phone never got out. sending either from here would be this
+// device speaking for the phone, days late. the mock logs loudly if one of
+// them ever arrives.
+func buildOutbox(w *World) {
+	asha := w.Contact("917770000001", "Asha")
+	ravi := w.Contact("917770000002", "Ravi")
+	dm := w.DM(asha)
+	dm.History(asha, "are you coming tonight", Ago(30*time.Hour))
+	pending := dm.HistoryFromMe("typed on the phone with no signal", Ago(29*time.Hour)).Pending()
+	group := w.Group("Outbox test group", asha, ravi)
+	group.History(ravi, "photos from the trip?", Ago(28*time.Hour))
+	failed := group.HistoryFromMe("this one failed on the phone", Ago(27*time.Hour)).Failed()
+	dm.Say(asha, "say anything, it should go out; the two old ones should not", Ago(time.Minute))
+	stale := map[string]bool{pending.ID: true, failed.ID: true}
+	w.OnSend(func(m *Msg) {
+		if stale[m.ID] {
+			w.srv.log.Error().Str("id", m.ID).Str("text", m.Text).Msg("OUTBOX VIOLATION: a message history left pending or failed was sent")
+		}
 	})
 }

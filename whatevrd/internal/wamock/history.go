@@ -181,6 +181,9 @@ func (m *Msg) webMessage() *waWeb.WebMessageInfo {
 	if m.FromMe {
 		status = waWeb.WebMessageInfo_READ
 	}
+	if m.status != nil {
+		status = *m.status
+	}
 	info := &waWeb.WebMessageInfo{
 		Key: &waCommon.MessageKey{
 			ID:        proto.String(m.ID),

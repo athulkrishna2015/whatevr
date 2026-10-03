@@ -4,6 +4,7 @@ package wamock
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"sort"
@@ -11,6 +12,7 @@ import (
 	"sync"
 
 	waBinary "go.mau.fi/whatsmeow/binary"
+	"go.mau.fi/whatsmeow/binary/token"
 )
 
 // volatileAttrs differ between two runs that ask the same thing: request ids,
@@ -123,4 +125,139 @@ func (a *answerBook) take(key string) ([]byte, bool) {
 	}
 	a.used[key] = i + 1
 	return list[i], true
+}
+
+// withID is a recorded frame with its top level id swapped, every other byte
+// as the server sent it. decoding and encoding again is not the same frame:
+// whatsmeow writes a <0/> as an empty list, which nothing can read back.
+func withID(frame []byte, id string) ([]byte, bool) {
+	want, err := waBinary.Marshal(waBinary.Node{Tag: "iq", Attrs: waBinary.Attrs{"id": id}})
+	if err != nil {
+		return nil, false
+	}
+	ns, ne, ok := attrSpan(want[1:], "id")
+	if !ok {
+		return nil, false
+	}
+	s, e, ok := attrSpan(frame, "id")
+	if !ok {
+		return nil, false
+	}
+	out := make([]byte, 0, len(frame)-(e-s)+(ne-ns))
+	out = append(out, frame[:s]...)
+	out = append(out, want[1+ns:1+ne]...)
+	return append(out, frame[e:]...), true
+}
+
+// attrSpan is where the value of the top level attribute key sits in frame.
+func attrSpan(b []byte, key string) (int, int, bool) {
+	if len(b) < 2 {
+		return 0, 0, false
+	}
+	var size, p int
+	switch int(b[0]) {
+	case token.List8:
+		size, p = int(b[1]), 2
+	case token.List16:
+		if len(b) < 3 {
+			return 0, 0, false
+		}
+		size, p = int(b[1])<<8|int(b[2]), 3
+	default:
+		return 0, 0, false
+	}
+	p, ok := valueEnd(b, p)
+	if !ok {
+		return 0, 0, false
+	}
+	for range (size - 1) / 2 {
+		k := p
+		if p, ok = valueEnd(b, p); !ok {
+			return 0, 0, false
+		}
+		name := tokenString(b[k:p])
+		v := p
+		if p, ok = valueEnd(b, p); !ok {
+			return 0, 0, false
+		}
+		if name == key {
+			return v, p, true
+		}
+	}
+	return 0, 0, false
+}
+
+// valueEnd is the end of the string or jid that starts at p.
+func valueEnd(b []byte, p int) (int, bool) {
+	if p >= len(b) {
+		return 0, false
+	}
+	t := int(b[p])
+	p++
+	end := p
+	switch {
+	case t == token.ListEmpty:
+	case t == token.Binary8:
+		if p >= len(b) {
+			return 0, false
+		}
+		end = p + 1 + int(b[p])
+	case t == token.Binary20:
+		if p+3 > len(b) {
+			return 0, false
+		}
+		end = p + 3 + (int(b[p]&0x0f)<<16 | int(b[p+1])<<8 | int(b[p+2]))
+	case t == token.Binary32:
+		if p+4 > len(b) {
+			return 0, false
+		}
+		end = p + 4 + int(binary.BigEndian.Uint32(b[p:]))
+	case t >= token.Dictionary0 && t <= token.Dictionary3:
+		end = p + 1
+	case t == token.Nibble8 || t == token.Hex8:
+		if p >= len(b) {
+			return 0, false
+		}
+		end = p + 1 + int(b[p]&127)
+	case t == token.JIDPair:
+		user, ok := valueEnd(b, p)
+		if !ok {
+			return 0, false
+		}
+		return valueEnd(b, user)
+	case t == token.ADJID:
+		return valueEnd(b, p+2)
+	case t == token.FBJID, t == token.InteropJID:
+		user, ok := valueEnd(b, p)
+		if !ok {
+			return 0, false
+		}
+		skip := 2
+		if t == token.InteropJID {
+			skip = 4
+		}
+		return valueEnd(b, user+skip)
+	case t >= 1 && t < len(token.SingleByteTokens):
+	default:
+		return 0, false
+	}
+	return end, end <= len(b)
+}
+
+// tokenString is an attribute name as written: a token, or plain bytes.
+func tokenString(b []byte) string {
+	if len(b) == 0 {
+		return ""
+	}
+	t := int(b[0])
+	switch {
+	case t >= token.Dictionary0 && t <= token.Dictionary3 && len(b) == 2:
+		s, _ := token.GetDoubleToken(t-token.Dictionary0, int(b[1]))
+		return s
+	case t == token.Binary8 && len(b) >= 2:
+		return string(b[2:])
+	case len(b) == 1 && t >= 1 && t < len(token.SingleByteTokens):
+		return token.SingleByteTokens[t]
+	}
+	return ""
 }
