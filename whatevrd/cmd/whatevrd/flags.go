@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"strings"
+	"time"
 )
 
 // usesFlag reports whether the command line has -name or any -name-*.
@@ -17,4 +18,11 @@ func usesFlag(name string) bool {
 		}
 	}
 	return false
+}
+
+// mockClocks are the clocks a mock run's daemon reads instead of the
+// machine's: wall for timers and backoff, stamp for what the core stamps on
+// arrivals. nil outside a mock run.
+type mockClocks struct {
+	wall, stamp func() time.Time
 }

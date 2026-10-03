@@ -37,3 +37,8 @@ func mockStart(context.Context, *mockRun, *app.Daemon) (func(), error) {
 // mockSilencesNotifications is never true in a release build: there is no mock
 // run to silence them for.
 func mockSilencesNotifications(*mockRun) bool { return false }
+
+// mockTime is nil: the real clocks.
+func mockTime(*mockRun) *mockClocks { return nil }
+
+func heapProfiles(context.Context) {}

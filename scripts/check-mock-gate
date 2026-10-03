@@ -54,6 +54,21 @@ else
     fail "$capture_pkg is missing from the capture build; this check would pass vacuously"
 fi
 
+# the new core runs beside the old one only in debug builds until it
+# replaces it, so its adapter stays out of release the same way
+core_pkg="whatevrd/internal/v1"
+core_tags="sqlite_fts5 whatevr_core"
+if go -C whatevrd list -tags "$release_tags" -deps ./cmd/whatevrd | grep -qx "$core_pkg"; then
+    fail "$core_pkg is in the release dependency graph of cmd/whatevrd"
+else
+    printf 'ok: release build does not link %s\n' "$core_pkg"
+fi
+if go -C whatevrd list -tags "$core_tags" -deps ./cmd/whatevrd | grep -qx "$core_pkg"; then
+    printf 'ok: core build links %s\n' "$core_pkg"
+else
+    fail "$core_pkg is missing from the core build; this check would pass vacuously"
+fi
+
 # 3. A release binary must reject the flags rather than ignore them.
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -82,6 +97,7 @@ refuses "without mock support" --mock empty
 refuses "without capture support" --capture probe
 refuses "without capture support" --send-guard
 refuses "without capture support" capture list
+refuses "without the new core" --core new
 refuses "flag provided but not defined" --no-such-flag
 
 exit "$status"

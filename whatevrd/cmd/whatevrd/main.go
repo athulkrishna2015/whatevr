@@ -29,9 +29,13 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "capture" {
 		os.Exit(runCapture(os.Args[2:], os.Stdout, os.Stderr))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "rederive" {
+		os.Exit(runRederive(os.Args[2:], os.Stdout, os.Stderr))
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	heapProfiles(ctx)
 
 	fileLevel, stderrLevel, levelErr := logx.LevelsFromEnv()
 	// stderr only until the run file exists
@@ -44,6 +48,7 @@ func main() {
 	// starting a daemon on the real account
 	mockFlagSet := mockFlags(log)
 	captureFlagSet := captureFlags(log)
+	coreFlagSet := coreFlags(log)
 	flag.Parse()
 	if flag.NArg() > 0 {
 		log.Fatal().Strs("args", flag.Args()).Msg("unexpected arguments")
@@ -99,6 +104,10 @@ func main() {
 
 	daemon := app.NewDaemon(paths)
 
+	newCore := coreOpen(ctx, log, coreFlagSet, paths, daemon, db, mockTime(mock))
+	defer newCore.close()
+	instrument = newCore.instrument(instrument)
+
 	// The fake WhatsApp server has to bind before wa.New, because whatsmeow
 	// snapshots http.DefaultTransport when it constructs its client.
 	stopMock, err := mockStart(ctx, mock, daemon)
@@ -150,8 +159,7 @@ func main() {
 	}
 	defer waClient.StopMediaServer()
 
-	protocol.RegisterDaemonViews(protocolServer, daemon, db, waClient)
-	protocol.RegisterDaemonCommands(protocolServer, waClient)
+	newCore.register(ctx, protocolServer, daemon, db, waClient)
 	if protocol.DevCommandsEnabled() {
 		// Not part of PROTOCOL.md, off unless the environment asks for it. See
 		// internal/protocol/dev_commands.go.

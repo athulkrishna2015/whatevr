@@ -221,3 +221,12 @@ func mockStart(ctx context.Context, run *mockRun, daemon *app.Daemon) (func(), e
 	zerolog.Ctx(ctx).Info().Str("scenario", run.scenario.Name).Str("dir", run.dir).Msg("mock mode")
 	return func() { _ = srv.Close() }, nil
 }
+
+// mockTime is the clocks of a mock run: the wall the control socket can
+// jump, and the recording's time during a replay.
+func mockTime(run *mockRun) *mockClocks {
+	if run == nil {
+		return nil
+	}
+	return &mockClocks{wall: wamock.Wall, stamp: wamock.Stamp}
+}

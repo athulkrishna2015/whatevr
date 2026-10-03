@@ -41,9 +41,10 @@ test target="all":
 _test-daemon:
     @just _require-whatsmeow
     @cd whatevrd && go test -tags sqlite_fts5 ./...
-    @cd whatevrd && go test -tags sqlite_fts5 -race ./internal/core/... ./internal/ingest/...
+    @cd whatevrd && go test -tags sqlite_fts5 -race ./internal/core/... ./internal/ingest/... ./internal/model/... ./internal/v1/... ./internal/status/...
     @cd whatevrd && go test -tags "sqlite_fts5 whatevr_mock" ./internal/wamock/... ./internal/ingest/...
-    @cd whatevrd && go test -tags "sqlite_fts5 whatevr_mock whatevr_capture" ./cmd/whatevrd/
+    @cd whatevrd && go test -tags "sqlite_fts5 whatevr_mock" -race ./internal/conn/...
+    @cd whatevrd && go test -tags "sqlite_fts5 whatevr_mock whatevr_capture whatevr_core" ./cmd/whatevrd/
     @scripts/check-mock-gate
     @scripts/replay --self-test
 
@@ -145,7 +146,7 @@ _build-daemon profile dir=build_dir:
         go_flags=(-trimpath -buildvcs=false); \
         ldflags="$ldflags -s -w"; \
     else \
-        tags="$tags whatevr_mock whatevr_capture"; \
+        tags="$tags whatevr_mock whatevr_capture whatevr_core"; \
         go_flags=(-buildvcs=false); \
     fi; \
     go_flags+=(-tags "$tags"); \
