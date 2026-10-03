@@ -160,6 +160,13 @@ func (c *Client) DownloadMessageMedia(ctx context.Context, messageID string) (ap
 			// Resolved locally without a fetch: there is nothing to close out.
 			return
 		}
+		if m := c.instrument.Media; m != nil && !errors.Is(state.err, context.Canceled) {
+			if state.err == nil {
+				m(nil)
+			} else if !mediaGone(state.err) {
+				m(state.err)
+			}
+		}
 		c.daemon.PublishMediaDownloadChanged(message.ID, message.ChatID, false, errorText, 0, totalBytes)
 		if errorText != "" {
 			updated, err := c.store.SetMessageMediaDownloadError(c.backgroundContext(), message.ID, errorText)
@@ -1023,4 +1030,12 @@ func safeMediaFileName(messageID, extension string) string {
 		extension = ".bin"
 	}
 	return fmt.Sprintf("%s%s", name, extension)
+}
+
+// mediaGone is a fetch that failed for this message alone: the server let the
+// blob expire, or there was never anything to fetch.
+func mediaGone(err error) bool {
+	var ce *app.CommandError
+	return errors.As(err, &ce) || errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith403) ||
+		errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith404) || errors.Is(err, whatsmeow.ErrMediaDownloadFailedWith410)
 }

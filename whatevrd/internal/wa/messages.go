@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nyaruka/phonenumbers"
@@ -138,7 +139,9 @@ func (c *Client) processHistorySyncData(ctx context.Context, data *waHistorySync
 	// retry either, so it does not burn the attempt budget.
 	stored := true
 
-	for _, conv := range conversations {
+	for i, conv := range conversations {
+		// the chunk can be tens of MB decoded, let each conversation go once done
+		conversations[i] = nil
 		if ctx.Err() != nil {
 			return false
 		}
@@ -2327,12 +2330,25 @@ func formatPhoneDisplayName(jid types.JID) string {
 	if jid.Server != types.DefaultUserServer || jid.User == "" {
 		return ""
 	}
+	if v, ok := phones.Load(jid.User); ok {
+		return v.(string)
+	}
+	out := formatPhone(jid.User)
+	phones.Store(jid.User, out)
+	return out
+}
+
+// phones remembers formatted numbers: parsing one allocates kilobytes, and
+// every message of a history sync asks again for its sender's.
+var phones sync.Map
+
+func formatPhone(user string) string {
 	digits := strings.Map(func(r rune) rune {
 		if r >= '0' && r <= '9' {
 			return r
 		}
 		return -1
-	}, jid.User)
+	}, user)
 	if digits == "" {
 		return ""
 	}

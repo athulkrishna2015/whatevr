@@ -384,7 +384,7 @@ func (c *Client) VotePoll(ctx context.Context, messageID string, optionIndexes [
 		c.publishPollUpdated(ctx, messageID)
 	}
 
-	if _, err := client.SendMessage(ctx, chatJID, vote); err != nil {
+	if _, err := c.guardedSend(ctx, client, chatJID, vote); err != nil {
 		// Optimism has to be honest: a vote nobody else will ever see must not
 		// keep sitting in our own tally, so the previous selection goes back.
 		if selfJID != "" {

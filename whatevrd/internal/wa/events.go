@@ -51,8 +51,16 @@ func (c *Client) handleEvent(sess *accountSession, raw any) bool {
 
 	switch evt := raw.(type) {
 	case *events.Connected:
-		c.daemon.SetConnection(app.StateOnline, "Connected to WhatsApp", 0, 0, false)
+		if !c.External() {
+			c.daemon.SetConnection(app.StateOnline, "Connected to WhatsApp", 0, 0, false)
+		}
 		c.syncPresence(ctx, true)
+		if c.External() {
+			// every reconnect retries every queued send, whatever its backoff
+			if err := c.store.RetryPendingNow(ctx); err != nil {
+				zerolog.Ctx(ctx).Warn().Err(err).Msg("make queued sends due")
+			}
+		}
 		c.signalSendQueue()
 		c.signalHistorySyncWorker()
 		c.startAppStateReconcile()
@@ -83,6 +91,9 @@ func (c *Client) handleEvent(sess *accountSession, raw any) bool {
 			c.startPinnedChatRecoveryFromAppState()
 		}
 	case *events.Disconnected:
+		if c.External() {
+			break
+		}
 		if c.connectionIsLive() {
 			// whatsmeow dispatches this on its own goroutine, so a Disconnected
 			// for a socket that is already gone can land after its replacement
@@ -93,6 +104,9 @@ func (c *Client) handleEvent(sess *accountSession, raw any) bool {
 		c.daemon.SetConnection(app.StateReconnecting, "Connection lost. Reconnecting...", 0, 0, true)
 		c.requestReconnect(false)
 	case *events.KeepAliveTimeout:
+		if c.External() {
+			break
+		}
 		if c.connectionIsLive() {
 			zerolog.Ctx(ctx).Debug().Msg("ignoring a keepalive timeout for a socket that is already replaced")
 			break
@@ -101,7 +115,7 @@ func (c *Client) handleEvent(sess *accountSession, raw any) bool {
 		c.requestReconnect(true)
 	case *events.KeepAliveRestored:
 		client := c.currentClient()
-		if client != nil && client.IsLoggedIn() && client.IsConnected() {
+		if !c.External() && client != nil && client.IsLoggedIn() && client.IsConnected() {
 			c.daemon.SetConnection(app.StateOnline, "Connected to WhatsApp", 0, 0, false)
 		}
 	case *events.PairSuccess:
@@ -111,16 +125,24 @@ func (c *Client) handleEvent(sess *accountSession, raw any) bool {
 	case *events.QRScannedWithoutMultidevice:
 		c.daemon.SetStateDetail(app.StateNeedLogin, "Enable multi-device on your phone and scan again")
 	case *events.LoggedOut:
-		c.daemon.SetStateDetail(app.StateNeedLogin, fmt.Sprintf("Logged out: %s", evt.Reason.String()))
+		if !c.External() {
+			c.daemon.SetStateDetail(app.StateNeedLogin, fmt.Sprintf("Logged out: %s", evt.Reason.String()))
+		}
 		// Not on the session: this ends it, and spawn would wait on itself.
 		go c.resetAfterExternalLogout()
 	case *events.ConnectFailure:
-		c.daemon.SetConnection(app.StateOffline, fmt.Sprintf("WhatsApp connection failed: %s", evt.Reason.String()), 0, 0, true)
-		c.requestReconnect(true)
+		if !c.External() {
+			c.daemon.SetConnection(app.StateOffline, fmt.Sprintf("WhatsApp connection failed: %s", evt.Reason.String()), 0, 0, true)
+			c.requestReconnect(true)
+		}
 	case *events.ClientOutdated:
-		c.daemon.SetConnection(app.StateOffline, "WhatsApp client is outdated. Update whatevr/whatevrd.", 0, 0, false)
+		if !c.External() {
+			c.daemon.SetConnection(app.StateOffline, "WhatsApp client is outdated. Update whatevr/whatevrd.", 0, 0, false)
+		}
 	case *events.TemporaryBan:
-		c.daemon.SetConnection(app.StateOffline, evt.String(), 0, 0, false)
+		if !c.External() {
+			c.daemon.SetConnection(app.StateOffline, evt.String(), 0, 0, false)
+		}
 	case *events.Message:
 		return c.handleMessage(ctx, evt, offlineSync)
 	case *events.UndecryptableMessage:

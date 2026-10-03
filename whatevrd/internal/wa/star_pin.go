@@ -130,7 +130,7 @@ func (c *Client) PinMessage(ctx context.Context, messageID string, pinned bool, 
 			MessageAddOnExpiryType:     waE2E.MessageContextInfo_STATIC.Enum(),
 		}
 	}
-	if _, err := client.SendMessage(ctx, chatJID, pinMsg); err != nil {
+	if _, err := c.guardedSend(ctx, client, chatJID, pinMsg); err != nil {
 		return appstore.Message{}, app.NewCommandError(app.CommandErrorRejected, "send pin failed: %v", err)
 	}
 

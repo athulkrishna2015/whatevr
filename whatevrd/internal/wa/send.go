@@ -87,6 +87,7 @@ func (c *Client) SendText(ctx context.Context, chatID, text, replyToMessageID st
 	}
 
 	if saved.Inserted {
+		c.queued(ctx, saved.Message)
 		c.beginSendTiming(saved.Message.ID, rpcArrival)
 		zerolog.Ctx(ctx).Info().Str("msg", saved.Message.ID).Str("chat", chatID).Msg("queued text message")
 		c.daemon.PublishNewMessage(toDaemonMessage(saved.Message), toDaemonChat(saved.Chat))
@@ -206,6 +207,7 @@ func (c *Client) SendMediaWithMentions(ctx context.Context, chatID, filePath, ca
 	}
 
 	if saved.Inserted {
+		c.queued(ctx, saved.Message)
 		c.beginSendTiming(saved.Message.ID, rpcArrival)
 		zerolog.Ctx(ctx).Info().Str("msg", saved.Message.ID).Str("chat", chatID).Msg("queued media message")
 		c.daemon.PublishNewMessage(toDaemonMessage(saved.Message), toDaemonChat(saved.Chat))
@@ -470,7 +472,10 @@ func sendQueueBackoff(attempt int32) time.Duration {
 
 func (c *Client) drainSendQueue(ctx context.Context) (bool, error) {
 	client := c.currentClient()
-	if client == nil || !client.IsLoggedIn() {
+	if client == nil || !client.IsLoggedIn() || (c.External() && !client.IsConnected()) {
+		if c.External() {
+			c.instrument.Connection.WantOnline()
+		}
 		return false, fmt.Errorf("WhatsApp client is not online")
 	}
 
@@ -489,6 +494,7 @@ func (c *Client) drainSendQueue(ctx context.Context) (bool, error) {
 		if err := c.sendPendingMessage(ctx, client, message); err != nil {
 			// Drop the timing entry; the retry attempt re-times from pickup.
 			c.finishSendTiming(message.ID)
+			c.attempted(ctx, message, err, false)
 			return true, err
 		}
 	}
@@ -505,6 +511,15 @@ func (c *Client) sendPendingMessage(ctx context.Context, client *whatsmeow.Clien
 	}
 
 	externalID := types.MessageID(appstore.ExternalMessageID(message.ChatID, message.ID))
+	if o := c.instrument.Outbox; o != nil {
+		if err := o.MaySend(ctx, message.ChatID, string(externalID)); errors.Is(err, ErrAlreadySent) {
+			c.markPendingMessageSent(ctx, message.ID)
+			return nil
+		} else if err != nil {
+			c.markPendingMessageFailed(ctx, message.ID, "outbox: "+err.Error())
+			return nil
+		}
+	}
 	if message.MediaMimeType != "" || message.MediaLocalPath != "" {
 		return c.sendPendingMediaMessage(ctx, client, targetJID, externalID, message)
 	}
@@ -974,6 +989,9 @@ func (c *Client) markPendingMessageFailed(ctx context.Context, messageID string,
 		return
 	}
 	zerolog.Ctx(ctx).Warn().Str("msg", messageID).Str("reason", reason).Msg("queued message permanently failed")
+	if !strings.HasPrefix(reason, "outbox: ") {
+		c.attempted(ctx, message, errors.New(reason), true)
+	}
 	if changed {
 		c.publishMessageStatusUpdated(ctx, message)
 	}

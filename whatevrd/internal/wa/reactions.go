@@ -230,7 +230,7 @@ func (c *Client) SendReaction(ctx context.Context, messageID, emoji string) (app
 	}
 
 	externalID := types.MessageID(appstore.ExternalMessageID(message.ChatID, message.ID))
-	if _, err := client.SendMessage(ctx, chatJID, client.BuildReaction(chatJID, targetSender, externalID, emoji)); err != nil {
+	if _, err := c.guardedSend(ctx, client, chatJID, client.BuildReaction(chatJID, targetSender, externalID, emoji)); err != nil {
 		return appstore.Message{}, app.NewCommandError(app.CommandErrorRejected, "send reaction failed: %v", err)
 	}
 

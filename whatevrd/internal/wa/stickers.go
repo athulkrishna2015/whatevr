@@ -695,6 +695,7 @@ func (c *Client) SendSticker(ctx context.Context, chatID, cacheKey, replyToMessa
 	}
 
 	if saved.Inserted {
+		c.queued(ctx, saved.Message)
 		zerolog.Ctx(ctx).Info().Str("msg", saved.Message.ID).Str("chat", chatID).Msg("queued sticker message")
 		c.daemon.PublishNewMessage(toDaemonMessage(saved.Message), toDaemonChat(saved.Chat))
 	}

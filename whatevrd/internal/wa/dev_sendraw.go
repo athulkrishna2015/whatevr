@@ -202,7 +202,7 @@ func (c *Client) deliverRawMessage(ctx context.Context, client *whatsmeow.Client
 	sentAt := time.Now()
 
 	if !req.Local {
-		resp, err := client.SendMessage(ctx, chatJID, message, whatsmeow.SendRequestExtra{ID: messageID})
+		resp, err := c.guardedSend(ctx, client, chatJID, message, whatsmeow.SendRequestExtra{ID: messageID})
 		if err != nil {
 			return "", app.NewCommandError(app.CommandErrorRejected, "send %s: %v", req.Kind, err)
 		}

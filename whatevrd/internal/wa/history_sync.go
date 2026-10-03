@@ -319,6 +319,9 @@ func (c *Client) historySyncStallCheck() {
 }
 
 func (c *Client) deleteHistorySyncMedia(ctx context.Context, client *whatsmeow.Client, chunk appstore.HistorySyncChunk) {
+	if c.instrument.KeepHistoryMedia {
+		return
+	}
 	if err := client.DeleteMedia(ctx, whatsmeow.MediaHistory, chunk.DirectPath, chunk.FileEncSHA256, chunk.EncHandle); err != nil {
 		zerolog.Ctx(ctx).Warn().Err(err).Str("chunk", chunk.ID).Msg("delete history sync media")
 	} else {

@@ -218,6 +218,10 @@ func (c *Client) reconcileRegularAppState(ctx context.Context) error {
 		if !isAppStateConflictError(err) {
 			return err
 		}
+		if client.AppStateRecovery != nil {
+			// whatsmeow's own recovery took it from the sync error
+			return err
+		}
 		zerolog.Ctx(ctx).Warn().Err(err).Msg("regular_low snapshot verification failed while reconciling, requesting recovery")
 		eventsToDispatch, err = recoverRegularLowAppState(ctx, client)
 		if err != nil {
@@ -247,7 +251,7 @@ func (c *Client) reconcileRegularAppState(ctx context.Context) error {
 
 func (c *Client) recoverPinnedChatsFromAppState(ctx context.Context) error {
 	client := c.currentClient()
-	if client == nil || !client.IsLoggedIn() {
+	if client == nil || !client.IsLoggedIn() || client.AppStateRecovery != nil {
 		return nil
 	}
 

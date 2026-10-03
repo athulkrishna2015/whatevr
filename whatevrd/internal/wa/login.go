@@ -398,6 +398,11 @@ func (c *Client) Logout(ctx context.Context) error {
 // hold lifecycleMu and have cancelled the run context first.
 func (c *Client) wipeAccountData(ctx context.Context) error {
 	c.backupBeforeWipe(ctx)
+	if c.instrument.Wipe != nil {
+		if err := c.instrument.Wipe(ctx); err != nil {
+			return err
+		}
+	}
 
 	if err := c.store.ClearSessionData(ctx); err != nil {
 		return err

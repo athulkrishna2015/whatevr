@@ -228,7 +228,7 @@ func (c *Client) RespondToEvent(ctx context.Context, messageID, response string,
 		c.publishEventUpdated(ctx, messageID)
 	}
 
-	if _, err := client.SendMessage(ctx, eventInfo.Chat, sealed); err != nil {
+	if _, err := c.guardedSend(ctx, client, eventInfo.Chat, sealed); err != nil {
 		if selfJID != "" {
 			c.undoEventResponse(ctx, messageID, selfJID, previousResponse, previousGuests, now)
 			c.publishEventUpdated(ctx, messageID)

@@ -237,7 +237,7 @@ func (c *Client) RevokeMessage(ctx context.Context, messageID string) (appstore.
 	}
 
 	externalID := types.MessageID(appstore.ExternalMessageID(message.ChatID, message.ID))
-	if _, err := client.SendMessage(ctx, chatJID, client.BuildRevoke(chatJID, types.EmptyJID, externalID)); err != nil {
+	if _, err := c.guardedSend(ctx, client, chatJID, client.BuildRevoke(chatJID, types.EmptyJID, externalID)); err != nil {
 		return appstore.Message{}, app.NewCommandError(app.CommandErrorRejected, "delete for everyone failed: %v", err)
 	}
 
@@ -291,7 +291,7 @@ func (c *Client) EditMessage(ctx context.Context, messageID, newText string) (ap
 	}
 
 	externalID := types.MessageID(appstore.ExternalMessageID(message.ChatID, message.ID))
-	if _, err := client.SendMessage(ctx, chatJID, client.BuildEdit(chatJID, externalID, content)); err != nil {
+	if _, err := c.guardedSend(ctx, client, chatJID, client.BuildEdit(chatJID, externalID, content)); err != nil {
 		return appstore.Message{}, app.NewCommandError(app.CommandErrorRejected, "edit failed: %v", err)
 	}
 
@@ -397,6 +397,7 @@ func (c *Client) ForwardMessage(ctx context.Context, sourceMessageID string, tar
 		}
 
 		if result.Inserted {
+			c.queued(ctx, result.Message)
 			zerolog.Ctx(ctx).Info().Str("msg", result.Message.ID).Str("chat", chatID).Msg("queued forwarded message")
 			c.daemon.PublishNewMessage(toDaemonMessage(result.Message), toDaemonChat(result.Chat))
 		}

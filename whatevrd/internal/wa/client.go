@@ -20,6 +20,7 @@ import (
 
 	"whatevrd/internal/app"
 	"whatevrd/internal/notify"
+	"whatevrd/internal/sqlitex"
 	appstore "whatevrd/internal/store"
 )
 
@@ -165,8 +166,11 @@ type Client struct {
 	sendTimingsMu sync.Mutex
 	sendTimings   map[string]*sendTiming
 	reconnectCh   chan struct{} // supervisor wakeup: reconnect immediately
-	reconnectNow  atomic.Bool
-	pinBackfill   atomic.Bool
+	// the version fetch an outside connection owner runs before connecting
+	versionMu      sync.Mutex
+	versionFetched time.Time
+	reconnectNow   atomic.Bool
+	pinBackfill    atomic.Bool
 	// Set when a recovery is asked for while one is already running, so the
 	// request is re-run rather than dropped: the pass in flight may be reading
 	// app state older than whatever prompted the new one.
@@ -274,8 +278,10 @@ func (c *Client) Start(ctx context.Context) {
 // restart quietly dropped three loops and the poster queue grew with no consumer.
 func (c *Client) startRunLoopsLocked(ctx context.Context) {
 	sess := c.beginSessionLocked(ctx)
-	sess.spawn(c.runConnectionSupervisor)
-	sess.spawn(c.runConnectionReconciler)
+	if !c.External() {
+		sess.spawn(c.runConnectionSupervisor)
+		sess.spawn(c.runConnectionReconciler)
+	}
 	sess.spawn(c.runSendQueue)
 	sess.spawn(c.runVideoPosterWorker)
 	sess.spawn(c.repairCachedWebPAlphaFlags)
@@ -284,6 +290,10 @@ func (c *Client) startRunLoopsLocked(ctx context.Context) {
 }
 
 func (c *Client) Reconnect(ctx context.Context) error {
+	if c.External() {
+		c.instrument.Connection.Reconnect()
+		return nil
+	}
 	c.requestReconnect(true)
 	return nil
 }
@@ -617,7 +627,7 @@ func whatsmeowLog(ctx context.Context) waLog.Logger {
 }
 
 func openSessionStore(ctx context.Context, path string, log waLog.Logger) (*sqlstore.Container, error) {
-	db, err := sql.Open(appstore.SQLiteDriverName, sqliteDSN(path))
+	db, err := sql.Open(appstore.SQLiteDriverName, sqlitex.DSN(sqliteDSN(path), 128))
 	if err != nil {
 		return nil, err
 	}
