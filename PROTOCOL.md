@@ -1,455 +1,463 @@
 # The Whatevr Protocol
 
-**Status: stable. Protocol version 1, implemented and served by `whatevrd`.
-No backwards compatibility with the retired gRPC API.**
-
-Version 1 is frozen: within it, additions (new views, new commands, new fields,
-new message kinds) are always allowed and never break a conforming frontend,
-but nothing already specified here changes shape. A change that would break a
-frontend is protocol 2, negotiated through `hello`.
+**Status: draft. Protocol version 2. Protocol 1 (NDJSON) is retired and not
+served; it lives in git history.**
 
 This document is the contract between `whatevrd` and every frontend. It is the
-source of truth: the daemon implements this document, not the other way
-around. If the daemon and this document disagree, one of them has a bug and
-it is probably the daemon.
+source of truth: the daemon implements this document and the schema beside
+it, not the other way around. If the daemon and this document disagree, one
+of them has a bug and it is probably the daemon.
+
+The schema is `proto/whatevr/v2/*.proto`. This document says what things mean
+and how they behave; the schema says what they are called and how they are
+shaped. Where this document names a method or a field, it uses the schema's
+name.
 
 ## Design rules
 
 These are the invariants every part of the protocol obeys. A frontend author
-who internalizes this section can predict the rest of the document.
+who takes in this section can predict the rest of the document.
 
 1. **The daemon owns all state.** A frontend holds no durable state and does
    no merging, sorting, deduplication, or cache invalidation. The only state a
    frontend keeps is presentation state (scroll position, which window is
    open, drafts if it wants them).
 2. **Everything you render arrives through a view.** Commands change state;
-   their effects are observable *only* through view updates. Command
-   responses carry ids and errors for correlation, never data to render.
+   their effects are seen *only* through view updates. Command results carry
+   ids and errors for correlation, never rows to render. Queries (search) are
+   the one exception, and they are named as such.
 3. **Every view item carries a daemon-computed sort key.** Frontends never
-   implement ordering. The universal client algorithm for any view is:
-   *keep a map of items by `id`, ordered by `sort`, apply upserts and
-   removes, render.*
-4. **Media never crosses the wire.** The protocol traffics in file paths into
-   the daemon's cache. Frontends read files; frontends hand the daemon paths
-   to send. The one addition: for playback that must start before a download
-   finishes, the daemon also exposes those same cache bytes over a
-   loopback-only HTTP range endpoint (`media.stream`). Nothing new travels
-   over the socket, the URL is bound to `127.0.0.1` with a per-process token,
-   and it stops being needed the moment the file is complete and `media.path`
-   is set.
+   implement ordering. The client algorithm for any view is: *keep a map of
+   items by id, ordered by sort, apply each update, render.*
+4. **Files are paths.** Rows carry paths into the daemon's cache; frontends
+   hand the daemon paths to send. Two ways around a path exist for a frontend
+   that can't use one: `media_read` copies a file's bytes over the socket, and
+   `media_stream` serves a file still downloading over a loopback http url.
 5. **Every message is renderable by every frontend.** Messages of kinds a
-   frontend does not implement still carry a human-readable `fallback`
-   string. Partial frontends are first-class citizens.
-6. **The wire is human-usable.** Newline-delimited JSON over a Unix socket.
-   You can develop and debug a frontend with `socat` and your fingers.
+   frontend does not implement still carry a one-line `fallback`. Partial
+   frontends are first-class citizens.
+6. **The API is obvious.** A method or field does what its name says, one way
+   to do a thing, no hidden modes. The wire is binary and not meant to be
+   read by eye; the schema is.
 7. **No view or command is tailored to a specific frontend.** Frontends pick
    the subset they need; the daemon never asks who is calling to decide what
    something means.
 
-## Transport and framing
+## Transport
 
-- **Socket:** `$XDG_RUNTIME_DIR/whatevr/whatevrd.sock`, Unix `SOCK_STREAM`.
-  Access control is filesystem permissions (`0700` directory). systemd socket
-  activation is supported and recommended.
-- **Framing:** UTF-8, one JSON object per line (`\n` terminated). JSON string
-  escaping guarantees no literal newlines inside an object.
-- **Concurrency:** any number of simultaneous connections. Each connection is
-  an independent session with its own subscriptions.
+- **Socket:** a local stream socket, one per user:
 
-There are exactly three shapes on the wire:
+  | OS | address |
+  | --- | --- |
+  | Linux | `$XDG_RUNTIME_DIR/whatevr/whatevrd.sock`, unix socket, directory `0700` |
+  | macOS | `$TMPDIR/whatevr/whatevrd.sock`, unix socket, directory `0700` |
+  | Windows | `\\.\pipe\whatevr-<user SID>`, named pipe, DACL for the user only |
 
-```jsonc
-// Request (frontend → daemon). id is any client-chosen number or string.
-{"id": 7, "method": "subscribe", "params": {"view": "chats", "limit": 50}}
+  `WHATEVR_SOCKET` overrides the address on every OS. Access control is the
+  OS's: whoever can open the socket is the user. systemd socket activation is
+  supported on Linux.
+- **Framing:** every frame is one protobuf `Frame` message, preceded by its
+  length as a varint. This is protobuf's own size-delimited format: Go's
+  `protodelim`, protobuf-es `sizeDelimitedEncode`/`sizeDelimitedDecodeStream`,
+  Java's `writeDelimitedTo`/`parseDelimitedFrom`, and about five lines anywhere
+  else. A frame is at most 16 MiB; the daemon closes a connection that sends
+  a bigger one.
+- **Concurrency:** any number of connections at once. Each is its own session
+  with its own subscriptions.
 
-// Response (daemon → frontend), exactly one per request, in any order
-// relative to other requests but after any events the request caused... see
-// per-method notes. Either result or error, never both.
-{"id": 7, "result": {"sub": 2}}
-{"id": 7, "error": {"code": "not_found", "message": "no chat 12345@g.us"}}
+## Schema
 
-// Event (daemon → frontend). `sub` routes it to a subscription; a few
-// connection-directed events (enumerated below) have no `sub`.
-{"sub": 2, "event": "upsert", "sort": "00000000000012993421", "item": {"...": "..."}}
-```
+- Edition 2024, package `whatevr.v2`, in `proto/`, which is also a Go module
+  (`github.com/codelif/whatevr/proto`) holding the generated Go code. Other
+  languages generate from the same files with buf or protoc.
+- Scalar fields have implicit presence: `0`, `""` and `false` mean absent, and
+  absent fields cost nothing on the wire. The few fields where `0` is a real
+  value say so with explicit presence in the schema (`LiveLocation.heading_deg`,
+  every field of `PreferencesSet`).
+- Closed sets are enums. Every enum's `0` is `..._UNSPECIFIED` and never sent
+  on purpose. Enums are open: a value a frontend does not know arrives as its
+  number, and the frontend treats it as it would `UNSPECIFIED`.
+- Times are `int64` unix milliseconds, in fields named `..._ms`. Durations are
+  milliseconds too, also `..._ms`, except the few whatsapp gives in whole
+  seconds and nothing else (`ephemeral_secs`).
+- Within protocol 2 the schema only grows: new fields, new oneof arms, new
+  enum values, new messages. Frontends ignore what they do not know, which
+  protobuf does by itself. `buf breaking` guards this from the first tag that
+  ships protocol 2.
 
-### Errors
+## Frames
 
-`code` is a stable machine-readable string; `message` is for humans. Core
-codes: `invalid_request`, `unknown_method`, `invalid_params`, `not_found`,
-`not_logged_in`, `not_connected`, `already_exists`, `expired` (e.g. edit or
-revoke window passed), `rejected` (WhatsApp refused), `io` (file/media
-problem), `internal`. Methods may document additional codes.
+A `Frame` is one of three things:
+
+- `Request`, frontend to daemon: a `uint64` id the frontend chooses, and one
+  arm of the `method` oneof, which names the method and carries its
+  parameters.
+- `Response`, daemon to frontend: the request's id, and one arm of the
+  `result` oneof: `error`, `done` for a method with nothing to say, or the
+  method's own result. A result arm has the same field number as its request
+  arm.
+- `Event`, daemon to frontend, unasked: a `ViewUpdate` for a subscription, or
+  one of the connection events at the end of this document.
+
+Every request gets exactly one response. Responses may come in any order
+relative to other requests. A `subscribe` or `extend` response always comes
+before the updates it causes.
 
 ### Hello
 
-The first request on a connection must be `hello`:
+The first request on a connection must be `hello`, with `protocol: 2`. The
+daemon answers with its name, version, protocol and its **features**: the
+names of every view and method it serves, spelled as their oneof arm names
+(`chats`, `media_stream`, `notifications`, ...). A frontend that wants
+something optional checks for its name instead of calling and waiting for
+`ERROR_CODE_UNKNOWN_METHOD`. Within protocol 2, new views and methods only
+ever add names. A daemon that cannot speak the requested protocol answers
+`ERROR_CODE_INVALID_REQUEST` and closes.
 
-```jsonc
-{"id": 1, "method": "hello", "params": {"client": "whattui", "protocol": 1}}
-{"id": 1, "result": {"daemon": "whatevrd", "version": "0.6.0", "protocol": 1,
-                     "state": "online", "data_dir": "...", "cache_dir": "..."}}
-```
+### Errors
 
-The daemon rejects the connection if it cannot speak the requested
-`protocol`. There is exactly one protocol version field and it is an integer.
-Within a protocol version, additions (new views, new commands, new fields)
-are always allowed; frontends must ignore unknown fields and unknown message
-kinds (rule 5 makes the latter safe).
+An `Error` is a `code` from the `ErrorCode` enum and a `message` for humans
+and logs, never parsed. The codes are in the schema with a line each. A
+method notes the codes it can answer beyond the common ones
+(`INVALID_PARAMS`, `NOT_FOUND`, `NOT_LOGGED_IN`, `NOT_CONNECTED`, `INTERNAL`).
 
-## The view model
+## Identity
 
-A **view** is a live, daemon-maintained collection (or single object) that a
-frontend subscribes to. The daemon sends the current contents, then keeps the
-frontend's copy correct forever with keyed updates. All ordering, merging,
-windowing, and invalidation happen in the daemon.
+### People and chats
+
+Every person and every chat has an **id**: a string the daemon gives it the
+first time it meets one of its addresses, kept in the daemon's log, so it is
+the same after a restart and after a rebuild. A frontend never looks inside
+it.
+
+A person can turn out to be two: whatsapp shows somebody by phone number and
+later by lid, and the daemon learns that both are one person. Their rows then
+fold into one, keeping the older id. The other row's `Remove` carries
+`replaced_by`, the id it folded into, so a frontend moves whatever it held on
+the old id (an open chat, a draft, a scroll position) to the new one. That is
+the only time an id changes.
+
+A direct chat's id is its person's id. A group's id is the group's own.
+
+### Addresses
+
+Commands that name a person take an `Address`: an `id` from a row, a `phone`
+number, a `lid` or a `username`, whichever the frontend has. Commands that
+name a chat take its id.
+
+### Messages
+
+Every message has an **id** (`MessageRow.id`): an opaque string built from
+the chat address the message came on and whatsapp's own id. It does not
+change when people fold together, and a send's result gives the final id up
+front, before the message has even left. Every message command takes it.
+
+## Views
+
+A **view** is a live collection (or one object) that the daemon keeps
+correct on the frontend's side. The daemon sends what is there, then keeps it
+right with keyed updates. All ordering, merging, windowing and invalidation
+happen in the daemon.
 
 ### Verbs
 
-The entire live surface uses three methods and four events.
-
-**Methods**
-
 | method | params | result |
 | --- | --- | --- |
-| `subscribe` | `view`, view-specific params, optional `limit` | `{sub, ...view-specific meta}` |
-| `extend` | `sub`, `count`, `direction` (`older`\|`newer`) | `{}` (completion signaled by `ready`) |
-| `unsubscribe` | `sub` | `{}` |
+| `subscribe` | one arm of `view` with its params; `limit` for a collection | `SubscribeResult`: `sub`, plus `anchor_id` for a messages view anchored at unread |
+| `extend` | `sub`, `count`, `direction` | `done`; the window fills through updates, then `ready` |
+| `unsubscribe` | `sub` | `done` |
 
-**Events** (all carry `sub`)
+Everything a subscription receives is a `ViewUpdate`: one daemon change to
+that subscription, applied whole and then rendered. In order:
 
-| event | payload | meaning |
-| --- | --- | --- |
-| `upsert` | `sort`, `item` | insert or replace the item with this `item.id`, positioned by `sort` |
-| `remove` | `id` | delete the item with this id |
-| `ready` | optional `exhausted` | the window is fully populated for the latest subscribe/extend; `exhausted: true` means there is nothing further to extend into locally (for the frontier just extended, see *Windows*) |
-| `reset` | none | discard the local copy; fresh upserts follow, then `ready` |
+1. `reset`: if set, drop the local copy first.
+2. `changes`: `Upsert`s (insert or replace the item with this `id`, placed by
+   `sort`, carrying the whole item in one arm of `item`) and `Remove`s, in
+   order.
+3. `ready`: if present, the window is filled for the latest `subscribe` or
+   `extend`. `ready.exhausted` says there is nothing further to extend into
+   locally, on the frontier just extended.
 
-Order after `subscribe`: response first (delivering `sub`), then upserts, then
-`ready`. Same for `extend`. Live updates flow from the moment of subscription;
-there is no snapshot/subscribe race by construction.
+A `subscribe` is answered first, then one or more updates fill the window, the
+last carrying `ready`. Live updates flow from the moment of subscription; there
+is no snapshot race by construction. A change that touches many items (a
+history sync batch, a chat folding into another) is one update, so a frontend
+never draws a half-applied state.
 
-`sort` is an opaque string; order items by bytewise comparison, ascending.
-The daemon computes it (for chats: pinned section then recency; for messages:
-timestamp, then message id as a tiebreak). A changed `sort` in an upsert means
-the item moved. Frontends never look inside it.
+`sort` is opaque bytes; order items by comparing them bytewise, ascending.
+For chats it is the pinned section, then recency; for messages the time, then
+the id. A different `sort` on an upsert means the item moved.
 
-`reset` is rare (e.g. a history-sync rewrite of a chat, or the daemon
-recovering a slow consumer, see below). Frontends implement it once, in the
-same generic view code, and never think about it again.
+`reset` is rare: a history rewrite of a chat, or the daemon recovering a slow
+consumer. A reset update carries the fresh contents in the same frame, so it
+never shows an empty list.
 
 ### Granularity
 
-An upsert always carries the whole item. When that starts to feel wasteful,
-because the item is big or it mixes slow-changing facts with fast-changing
-ones (persistent chat data vs. who-is-typing-right-now), the answer is never a
-richer grammar (no patch events, no field masks): it is a finer-grained
-view. Splitting keeps clients dumb, and it composes with pick-and-choose:
-frontends subscribe to exactly the granularity they render.
-`group`/`group_members` and `chats`/`typing` below are the canonical
-examples.
+An upsert always carries the whole item. When that is wasteful, because the
+item is big or mixes slow facts with fast ones, the answer is a finer view,
+never a patch grammar. `group`/`group_members`, `chats`/`typing` and
+`messages`/`live_locations` are the examples.
 
 ### Windows
 
-Collection views accept `limit`: the window is the first `limit` items in
-view order, and the daemon keeps the client copy exactly equal to that
-window (items pushed out of the window are `remove`d). `extend` grows the
-window, and every `extend` carries a `direction`.
+Collection views take `limit`: the window is the first `limit` items in view
+order, and the daemon keeps the frontend's copy exactly equal to it (items
+pushed out are removed). `extend` grows it in a `direction`.
 
-Every collection view, and a `messages` view with the `latest` anchor, is a
-**live-edge** window: it sits at the newest / highest-priority end, new items
-arrive there unsolicited regardless of window size, and `extend` with
-`direction: "older"` reaches back away from that edge into the local store.
-`direction: "newer"` is meaningless for a live-edge window, whose newer edge
-*is* the live edge, so the daemon rejects it (`invalid_params`).
+Every collection view, and a messages view at `latest`, is a **live-edge**
+window: it sits at the newest end, new items arrive there unasked whatever the
+window size, and `extend` with `DIRECTION_OLDER` reaches back into the local
+store. `DIRECTION_NEWER` on a live-edge window is `INVALID_PARAMS`.
 
-The `unread` and `{message_id}` message anchors instead pin a **bounded window
-around a mid-history anchor**, and its two frontiers grow independently:
-`extend` with `direction: "older"` reaches up-history, `"newer"` toward the
-present. Messages outside the window do not intrude: a new message far past
-the anchor is *not* delivered into this window (it would leave a render gap);
-the frontend learns of it through the `chats` view (its row's updated
-preview/unread) and *follows* the live edge by subscribing `latest`. `ready`'s
-`exhausted` reports the frontier just extended.
+A messages view anchored at `unread` or at a `message_id` is a **bounded
+window** around that point, with two frontiers that grow on their own:
+`DIRECTION_OLDER` reaches up the history, `DIRECTION_NEWER` toward the
+present. A new message far past the window is not delivered into it (that
+would leave a gap); the frontend learns of it from the `chats` view and
+follows the live edge by subscribing at `latest`. Once the newer frontier has
+been extended all the way to the present, it stays there: new messages are
+next to it and arrive as ordinary upserts.
 
-Once the newer frontier has been extended all the way to the live edge, though,
-it stays adjacent to it: subsequent messages arriving at the present *are*
-contiguous with the window, so they are delivered as ordinary upserts (there is
-no gap to leave) even though a prior `ready` reported the newer side exhausted.
-A window that has reached the live edge this way therefore keeps growing at the
-present; to freeze it instead, re-subscribe at a fixed `{message_id}` anchor.
+Asking the phone for older history is a separate command,
+`chat_request_older`, because it costs network; its results land as upserts
+like anything else.
 
-Fetching history *from the phone* is a separate explicit command
-(`chat.request_older`), because it has network cost and its results land like
-any other message upserts.
-
-Multiple subscriptions to the same view with different params are normal
-(e.g. the chat list page and the archived page are two `chats`
-subscriptions).
+Several subscriptions to one view with different params are normal: the chat
+list and the archived list are two `chats` subscriptions.
 
 ### Slow consumers
 
-Because every update is a keyed upsert, the daemon may coalesce updates for a
-lagging connection (only the latest version of an item matters) and, in the
-extreme, drop the buffer entirely and send `reset`. Correctness never depends
-on a frontend seeing every intermediate state.
+Every update is keyed, so for a lagging connection the daemon may merge
+pending updates (only the latest version of an item matters) and, at worst,
+drop them all and send a `reset` with the current contents. Correctness never
+depends on seeing every state in between.
 
-### A useful consequence: the daemon knows what is visible
+### The daemon knows what is shown
 
-Subscriptions tell the daemon exactly what every frontend is currently
-displaying. Demand-driven work (avatar fetching, presence subscription
-upstream to WhatsApp, notification suppression for the visible chat) keys
-off subscriptions automatically. (The old API needed `RequestAvatars`,
-`SubscribeChatPresence`, and `UpdateSessionState` for this; they are gone.)
+Subscriptions tell the daemon what every frontend shows, and demand-driven
+work keys off them: avatar fetching, asking whatsapp for presence,
+suppressing notifications for the open chat.
 
 ## View inventory
 
-Object views deliver a single item (id `"self"` or similar) via the same
-upsert grammar. Field sets carry over from the old proto messages unless
-noted; this inventory fixes the shape of the protocol, not every field name.
+Object views send one item with an empty id.
 
 | view | params | items | notes |
 | --- | --- | --- | --- |
-| `connection` | none | object | daemon/WhatsApp state (`starting`, `need_login`, `connecting`, `online`, `reconnecting`, `offline`), retry info, pending outgoing count |
-| `login` | none | object | subscribing starts/attaches to the QR pairing flow when logged out; item carries `state` and current `qr` (`code`, `expires_at`). Phone-number pairing later adds a field, not a new mechanism |
-| `sync` | none | object | history sync progress: type, phase, percent, counts; `stalled` phase included |
-| `chats` | `filter` (`all`\|`direct`\|`groups`), `archived` (bool), `limit` | chat rows | full row per old `Chat` incl. preview, unread, mute/pin/archive, `history_exhausted`; typing indicators live in the `typing` view |
-| `chat` | `chat_id` | object | the same live chat row emitted by `chats`, independent of chat-list filters and windows |
-| `messages` | `chat_id`, `limit`, `anchor` (`latest` \| `unread` \| `{message_id}`) | message rows | subscribe meta returns `anchor_id` when anchored at unread; `remove` on delete-for-me; revocation is an upsert with `revoked: true` |
-| `typing` | none | one item per chat with anyone composing | id is the `chat_id`; `senders` (jid + display name; frontends compose the localized label); `remove` when the last sender stops. Global, unwindowed, and tiny: chat lists and conversation headers both read it, everyone else skips it |
-| `presence` | `chat_id` | one item per participant | `availability`, `last_seen`. Subscribing is what triggers the upstream WhatsApp presence subscription for that chat: availability is only delivered on request, whereas typing arrives unsolicited, which is why `typing` and `presence` are separate views |
-| `receipts` | `message_id` | one item per participant | per-member delivered/read/played times, updating live while the info dialog is open |
-| `self` | none | object | own profile: jid, phone, push name, about, avatar path |
-| `contact` | `jid` | object | contact card; local data (including the `is_business` flag) upserted immediately, the network-fetched `about` upserted when it lands; the old two-phase hack is just how views work |
-| `group` | `chat_id` | object | subject, description, avatar, created, owner, `member_count`, `my_role`, announce/locked flags (feeds composer lockout in admins-only groups); same two-phase behavior. No member array; the chat header and card chrome need only this |
-| `group_members` | `chat_id` | one item per member | jid, display name, phone, avatar path, role; joins/leaves/promotions are single upserts/removes. The info dialog subscribes to `group` + `group_members`; member search is presentation-side filtering over rows it already has |
-| `privacy` | none | object | all privacy category values |
-| `preferences` | none | object | daemon-persisted app preferences (notification gates, auto-download, and whether the daemon may fetch map tiles for a location) |
-| `blocklist` | none | blocked contacts | |
-| `starred` | optional `chat_id`, `limit` | message rows + `chat_name` | windowed; syncs with stars made on other devices. Ordered by the message's own timestamp (newest first), not by when it was starred (the store records no star time), so starring an old message places it deep in the window rather than at the top |
-| `pinned` | `chat_id` | message rows | currently-pinned, unexpired; expiry produces `remove` |
-| `live_locations` | `chat_id` | one item per share currently live in the chat | id is the message that opened the share; `sender`, `started_at`, `expires_at`, `updated_at` and the latest `location`. `remove` when a share ends or expires. Separate from the `messages` row for the same reason `typing` is separate from `chats`: a position that moves every few seconds must not invalidate a transcript row, and a banner above the timeline wants the live ones without reading the transcript at all |
-| `chat_media` | `chat_id`, `limit` | message rows, media kinds only | one chat's photos, videos, voice notes, audio and documents, newest first; windowed. Rows are ordinary `messages` items, so a download landing shows up here as the same upsert the conversation sees |
-| `stickers` | `source` (`recent`\|`favorite`\|`all`), `limit` | stickers | |
-| `sticker_packs` | none | packs | |
-| `sticker_pack` | `pack_id` | stickers | contents fetch is async; items land as they resolve |
-| `transfers` | none | active media transfers | `message_id`, `direction`, `received_bytes`, `total_bytes`, optional active `error`; `remove` on terminal success or failure. This view carries the byte counters only: whether a fetch is in flight at all is `media.downloading` on the message row, so a renderer never has to join two independently recomputed views and never sees the two disagree. `direction` is `"download"` today; outbound uploads are not yet modelled here (a known gap). A `media.stream` fetch reports through this view too, where `received_bytes` counts the chunks present rather than a sequential write head, so it can climb out of order as the viewer seeks |
-| `notifications` | none | notification records | **Reserved, not served in protocol 1**: subscribing errors `not_found`. What the daemon would notify about, for applets, relays, and headless setups; the daemon's own D-Bus notifier is unaffected. Its shape waits on a real consumer (see *Open questions*) |
+| `connection` | none | object | state, since, a finished `detail` sentence, the last attempt's `cause`, retry attempt and time, `can_reconnect`, sends waiting |
+| `login` | none | object | subscribing starts the qr pairing when logged out, or joins it; `state`, the `qr` code and when it expires |
+| `sync` | none | object | history sync type, phase (`STALLED` included), percent and counts |
+| `problems` | none | one per live problem | `kind`, `since_ms`, `next_retry_ms` (0 for never), a finished `text`; most severe first. A healthy daemon has none |
+| `chats` | `filter`, `archived` | chat rows | name, type, avatar, preview, unread and marked unread, pin, archive, mute, `history_exhausted`, timer, `read_only` |
+| `chat` | `chat_id` | object | the same row `chats` sends, outside any filter or window |
+| `messages` | `chat_id`, `anchor` | message rows | see *Messages*; delete for me removes; a revoke is an upsert with `revoked` |
+| `typing` | none | one per chat with anyone composing | id is the chat id; who, and whether they are recording; removed when the last one stops |
+| `presence` | `chat_id` | one per person in the chat | availability and last seen. Subscribing is what asks whatsapp for it |
+| `receipts` | `message_id` | one per recipient | delivered, read and played times, live while open |
+| `self` | none | object | our own phone, push name, about, avatar |
+| `contact` | `person` | object | a contact card; local facts first, `about` when fetched |
+| `group` | `chat_id` | object | subject, description, avatar, created, owner, member count, my role, announce/locked/approval, community, `error` when whatsapp won't describe it |
+| `group_members` | `chat_id` | one per member | person and role |
+| `privacy` | none | object | every privacy setting |
+| `preferences` | none | object | the daemon's own preferences |
+| `blocklist` | none | one per blocked person | |
+| `starred` | `chat_id` (empty for all) | message rows | `chat_name` set; ordered by the message's time |
+| `pinned` | `chat_id` | message rows | pinned and unexpired; removed when a pin runs out |
+| `live_locations` | `chat_id` | one per running share | id is the message that opened it; sender, started, expires, updated, the latest position. Removed when a share ends |
+| `chat_media` | `chat_id` | message rows, media kinds | newest first |
+| `stickers` | `source` | sticker rows | recent, favorite or all |
+| `sticker_packs` | none | pack rows | |
+| `sticker_pack` | `pack_id` | sticker rows | the fetch is async; items land as they resolve |
+| `transfers` | none | one per running transfer | message, direction, done and total bytes, an error it is retrying through; removed when it ends. Only the counts live here: whether a fetch runs at all is `downloading` on the message's media, so a renderer never joins two views |
+| `notifications` | none | one per notification | see *Notifications* |
 
-Avatar paths are embedded in chat/message/contact/member rows and refresh via
-ordinary upserts; visibility-driven fetching is automatic (see above).
+## Commands
 
-## Command inventory
+Commands are requests whose effect shows up in views. Results are `done` or
+ids for correlation.
 
-Commands are plain requests. Acks are minimal; ids in results exist for
-correlation (e.g. to scroll to your own just-sent message when it upserts).
-
-**Session & account**
+**Session and account**
 
 | method | params | result |
 | --- | --- | --- |
-| `session.update` | `focused` (bool), `active_chat_id` | `{}`: feeds notification suppression and `open_chat` routing |
-| `daemon.reconnect` | none | `{}` |
-| `account.logout` | none | `{}` |
+| `session_update` | `focused`, `active_chat_id`, `shows_notifications` | `done`: feeds notification suppression and `OpenChat` routing |
+| `daemon_reconnect` | none | `done` |
+| `account_logout` | none | `done`: logs out and wipes this account's data |
 
 **Chats**
 
 | method | params | result |
 | --- | --- | --- |
-| `chat.mark_read` | `chat_id`, `up_to_message_id` | `{}` |
-| `chat.pin` | `chat_id`, `pinned` | `{}` |
-| `chat.archive` | `chat_id`, `archived` | `{}` |
-| `chat.mute` | `chat_id`, `muted`, `duration_secs` (0 = forever) | `{}` |
-| `chat.typing` | `chat_id`, `composing` | `{}` |
-| `chat.request_older` | `chat_id` | `{requested}`: asks the phone; results land as message upserts, exhaustion flips the chat row flag |
-| `chat.ensure_direct` | `jid` | `{chat_id}`: row appears in `chats` views |
+| `chat_mark_read` | `chat_id`, `up_to_message_id` | `done`: the newest message the user saw; the daemon sends read receipts and recounts |
+| `chat_pin` | `chat_id`, `pinned` | `done` |
+| `chat_archive` | `chat_id`, `archived` | `done` |
+| `chat_mute` | `chat_id`, `muted`, `duration_ms` (0 is forever) | `done` |
+| `chat_typing` | `chat_id`, `composing`, `recording` | `done` |
+| `chat_request_older` | `chat_id` | `requested`: false when the phone has nothing older or a request is out |
+| `chat_ensure_direct` | `person` | `chat_id`: the row appears in `chats` |
 
-`chat.mark_read` marks messages read through the frontend's visible horizon;
-`up_to_message_id` is the newest message the user has actually seen. The daemon
-recomputes unread counts and sends WhatsApp read receipts; updates land through
-views.
+**Sends.** Each answers with the new message's id at once; the message
+arrives through views, `PENDING` until it leaves.
+
+| method | params |
+| --- | --- |
+| `send_text` | `chat_id`, `text`, `reply_to`, `mentions` |
+| `send_media` | `chat_id`, `path`, `caption`, `reply_to`, `mentions`, `as_document`, `view_once`. The daemon copies the file before answering; the caller may delete its copy |
+| `send_sticker` | `chat_id`, `sticker_id`, `reply_to` |
+
+Sends can fail `GUARDED` on a daemon started with a send guard (a debug build
+pointed at a real account), for an address outside it.
 
 **Messages**
 
 | method | params | result |
 | --- | --- | --- |
-| `send.text` | `chat_id`, `text`, `reply_to`, `mentions` (jids) | `{message_id}` |
-| `send.media` | `chat_id`, `path`, `caption`, `reply_to`, `mentions` | `{message_id}`: daemon copies the file into its cache immediately; the caller may delete its copy on return |
-| `send.sticker` | `chat_id`, `cache_key`, `reply_to` | `{message_id}` |
-| `message.react` | `message_id`, `emoji` ("" removes) | `{}` |
-| `message.edit` | `message_id`, `text` | `{}`: may fail `expired`; the row's `edit_until` says when that starts |
-| `message.revoke` | `message_id` | `{}`: may fail `expired` |
-| `message.delete` | `message_id` | `{}`: local delete-for-me |
-| `message.star` | `message_id`, `starred` | `{}` |
-| `message.pin` | `message_id`, `pinned`, `duration_secs` | `{}` |
-| `message.forward` | `message_id`, `chat_ids` | `{message_ids}` |
-| `message.mark_played` | `message_id` | `{}`: sends a played receipt for an inbound voice note; repeat calls are no-ops |
-| `message.request_from_phone` | `message_id` | `{}`: asks your own phone to resend a message this device could not decrypt. The daemon already asks once by itself a few seconds after the failure; this is the manual retry for when that came and went. Fails `rejected` for a message that is not waiting for anything. The answer, if it comes, arrives as the `waiting` row upserting into the real message under the same id |
-| `poll.vote` | `message_id`, `option_ids` (indexes into the poll's options) | `{}`: the tally lands as a `messages` upsert. The list is the whole selection, not a delta: a voter takes a choice back by sending the selection without it, which is what WhatsApp's wire format means. An empty list withdraws every vote |
-| `event.rsvp` | `message_id`, `response` (`going`\|`not_going`\|`maybe`), `extra_guests` | `{}`: the answer lands as a `messages` upsert |
-| `group.join_invite` | `message_id` | `{chat_id}`: joins the group a `group_invite` row offers, and answers with the chat to open. A group we are already in joins nothing and simply says where to go, so a caller never has to tell the two cases apart. May fail `expired` |
-| `media.download` | `message_id` | `{}`: progress in `transfers`, path lands via message upsert |
-| `media.stream` | `message_id` | `{stream_id, url, mime, size_bytes, duration_secs}`: `stream_id` is opaque and identifies this request. The loopback range URL plays while the fetch is still running. The fetch continues to completion regardless, so the message still upserts with `media.path`, after which the path is what frontends should use. May fail `rejected` for media that cannot be streamed (no length or hash, a CDN that ignores ranges); the caller falls back to `media.download` |
-| `media.cancel_download` | `message_id` | `{}`: stops an in-flight `media.download` or `media.stream` fetch and closes the `transfers` row. Whatever has already landed on disk is kept, so a later `media.download` resumes rather than starting over. Fails `rejected` when nothing is in flight for that message |
-| `media.fetch_profile_picture` | `jid` | `{path}`: full resolution, for the avatar viewer |
+| `message_react` | `message_id`, `emoji` ("" removes) | `done` |
+| `message_edit` | `message_id`, `text` | `done`; `EXPIRED` past `edit_until_ms` |
+| `message_revoke` | `message_id` | `done`; `EXPIRED` past whatsapp's window |
+| `message_delete` | `message_id` | `done`: delete for me |
+| `message_star` | `message_id`, `starred` | `done` |
+| `message_pin` | `message_id`, `pinned`, `duration_ms` | `done` |
+| `message_forward` | `message_id`, `chat_ids` | `message_ids`, in `chat_ids` order |
+| `message_mark_played` | `message_id` | `done`: a played receipt for a voice note; again is a no-op |
+| `message_request_from_phone` | `message_id` | `done`: asks our own phone to resend a message that would not decrypt. The daemon already asks once by itself; this is the manual retry. `REJECTED` for a message not waiting |
+| `poll_vote` | `message_id`, `option_indexes` | `done`: the whole selection, not a change; empty withdraws every vote |
+| `event_rsvp` | `message_id`, `response`, `extra_guests` | `done` |
+| `group_join_invite` | `message_id` | `chat_id`: joins the group an invite row offers, or just says where it is if we're in it. `EXPIRED` for a dead invite |
 
-**Settings, contacts, stickers**
+**Media**
 
 | method | params | result |
 | --- | --- | --- |
-| `privacy.set` | `category`, `value` | `{}` |
-| `preferences.set` | partial preferences object | `{}` |
-| `self.set_about` | `text` | `{}` (later: `self.set_name`, `self.set_avatar`) |
-| `contact.block` | `jid`, `blocked` | `{}` |
-| `sticker.favorite` | `cache_key` or `message_id`, `favorite` | `{}` |
-| `sticker.download` | `cache_key` | `{}`: lands via `stickers`/`sticker_pack` upsert |
-| `sticker_pack.install` | `pack_id`, `installed` | `{}` |
-| `sticker_packs.refresh` | none | `{}`: forces a store refresh; results land via `sticker_packs` upserts/removes |
+| `media_download` | `message_id` | `done`: progress in `transfers`, the path lands on the row |
+| `media_stream` | `message_id` | `stream_id`, `url`, `mime`, `size_bytes`, `duration_ms`. See *Files* |
+| `media_cancel_download` | `message_id` | `done`; what landed is kept, so a later download resumes. `REJECTED` when nothing is running |
+| `media_read` | `path`, `offset`, `max_bytes` | `data`, `size_bytes`, `eof`. See *Files* |
+| `media_fetch_profile_picture` | `person` | `path`: full resolution, for an avatar viewer |
+
+**Settings, people, stickers, notifications**
+
+| method | params | result |
+| --- | --- | --- |
+| `privacy_set` | `category`, `value` | `done` |
+| `preferences_set` | the fields to change; absent fields stay | `done` |
+| `self_set_about` | `text` | `done` |
+| `contact_block` | `person`, `blocked` | `done` |
+| `sticker_favorite` | `sticker_id` or `message_id`, `favorite` | `done` |
+| `sticker_download` | `sticker_id` | `done`: lands through sticker upserts |
+| `sticker_pack_install` | `pack_id`, `installed` | `done` |
+| `sticker_packs_refresh` | none | `done`: fetches the store's packs again |
+| `notification_dismiss` | `id` | `done`: removed from `notifications` everywhere |
 
 ## Queries
 
-One-shot request/response for data that is legitimately transient (search
-results a frontend renders and throws away; frontend-only state is allowed
-for these).
-
-Unlike view events (which stream item-at-a-time upserts), a query returns its
-whole result inside the one response `result` object, under a named key:
+One answer, nothing live, for data a frontend shows and throws away. The
+results are whole rows inside the response.
 
 | method | params | result |
 | --- | --- | --- |
-| `search.chats` | `query`, `limit` | `{chats: [chat row, …]}` |
-| `search.messages` | `query`, optional `chat_id`, `limit`, `before_message_id` cursor | `{messages: […], has_more}`: each message row carries `chat_name`; `has_more` drives the `before_message_id` keyset cursor |
-| `search.stickers` | `query`, `limit` | `{stickers: […]}`: daemon-ordered sticker rows |
-| `contacts.check_phone` | `phone` | `{registered, jid, display_name, is_business, phone}` (normalized `phone`) |
+| `search_chats` | `query`, `limit` | `chats`, in list order |
+| `search_messages` | `query`, `chat_id` (empty for all), `limit`, `before` | `messages` with `chat_name`, newest first; `more` says another page exists, asked for with `before` set to the last id |
+| `search_stickers` | `query`, `limit` | `stickers`, daemon-ordered |
+| `contact_check_phone` | `phone` | `registered`, the normalized `phone`, `person_id`, `name`, `business` |
 
-## Messages on the wire
+## Messages
 
-A message item has a `kind`, kind-specific fields, and always:
+A `MessageRow` has the facts every kind shares (id, chat, sender, time,
+status, text, mentions, quote, reactions, edited, revoked, starred,
+forwarded, pin, edit window, kept, view once, a send's error) and one arm of
+`body` for what the kind adds. And always:
 
-- `fallback`: a human-readable one-line rendering ("🎤 Voice message (0:12)",
-  "📊 Poll: dinner?"). A frontend renders `fallback` for any `kind` it does
-  not implement. New kinds are therefore never a breaking change.
-- `sort` (on the envelope), `id`, `chat_id`, `sender` (id, name, avatar path),
-  `timestamp`, `direction`, `status` (`pending`→`sent`→`delivered`→`read`, or
-  `failed`), and the interaction state that applies to any kind: `reply_to`
-  quote, `reactions`, `mentions`, `edited`, `revoked`, `starred`,
-  `pinned_until`, `kept` (somebody asked for a disappearing message to stay).
-- `edit_until`: the unix second WhatsApp stops accepting an edit of this
-  message, absent for one that cannot be edited at all (somebody else's, a
-  deleted one, a kind with nothing to rewrite). A frontend greys out its edit
-  action on it rather than offering an edit the daemon will answer `expired`.
-  It crosses as a deadline rather than a flag because the row would otherwise
-  have to be re-sent the moment the window closed, and because a frontend that
-  held the window itself would be holding a number WhatsApp owns.
+- `fallback`: one line any frontend can draw ("🎤 Voice message (0:12)",
+  "📊 Poll: dinner?"). A frontend draws it for a body arm it does not know,
+  which then shows as an unset oneof. New kinds never break a frontend.
+- `text`: the words, or a media kind's caption, for every kind. Mentions in
+  it already read `@Name`; each `Mention` names the person and the code point
+  span.
+- `edit_until_ms`: when whatsapp stops taking an edit, 0 for a row that can't
+  be edited at all. A frontend greys out its edit action on it instead of
+  holding a number whatsapp owns.
 
-The kinds: `text`, `image`, `sticker`, `video`, `gif`, `voice`, `audio`,
-`document`, `video_note`, `location`, `live_location`, `contact`, `contacts`,
-`poll`, `group_invite`, `event`, `album`, `interactive`, `product`, `order`,
-`payment`, `sticker_pack`, `call_log`, `system`, `waiting`, `unsupported`.
+Media kinds (`image`, `video`, `gif`, `voice`, `audio`, `document`,
+`video_note`, `sticker`) each carry a `Media`: mime, size, dimensions,
+duration, `thumbnail_path`, `path` (empty until downloaded), `downloading`,
+`download_error`. A voice note adds its `waveform`, 64 bytes of 0-100, the one
+piece of media data on the socket, because the bubble needs it before any
+download. A location's map is a `Media` too: the daemon stitches it from map
+tiles and it downloads like anything else.
 
-Each kind that carries more than text hangs one nested object off the item,
-named for what it is and present only on the kinds it belongs to. The daemon
-does the deciding; a frontend draws what it is given:
+The download lifecycle: `media_download`, then the row upserts with
+`downloading`, bytes move in `transfers`, then the row upserts with `path`
+set and `downloading` cleared, or `download_error` set. A retry clears the
+error with another upsert.
 
-| object | on kinds | what it carries |
-| --- | --- | --- |
-| `media` | the media-bearing kinds | see below |
-| `location` | `location`, `live_location` | `lat`, `lng`, `name`, `address`, `url`, `accuracy_m`. The map itself is media: the daemon fetches and stitches OSM tiles into the cache, so it arrives through the ordinary download lifecycle |
-| `live` | `live_location` | whether the share is `active`, `started_at`, `expires_at`, `updated_at`, `speed_mps`, `heading_deg`, `point_count`. The trail's moving positions are the `live_locations` view's job |
-| `contacts` | `contact`, `contacts` | `display_name` plus `cards`: each a parsed vCard (name, phones with labels, emails, org, title, url, birthday) with the raw text kept for export |
-| `poll` | `poll` | the `question`, `options` (each with its `index`, `name`, `voters` and `self_voted`), `selectable_count` (1 for a radio poll), `total_voters`, `self_voted`, plus `quiz` and `allow_add_option`. The tally is joined at read time rather than snapshotted, so a vote is one upsert of this row and never stale |
-| `invite` | `group_invite` | `group_jid`, `code`, `expires_at`, the sender's `name`/`caption`, and what the daemon resolved from WhatsApp itself: `subject`, `topic`, `member_count`, `photo_path`, `joined` (already a member), `resolve_error` |
-| `event` | `event` | `name`, `description`, `starts_at`/`ends_at`, `location` (drawn with the same map treatment as a location row), `join_link`, `canceled`, and the answers: `responders`, `going_count`, `self_response`, `self_guests` |
-| `album` | `album` | `expected` (how many pictures the sender promised) and `items`: the children, as whole message items. Each keeps its own id, media and download state, so a tile reuses every path a lone photo has. Children are excluded from the transcript while their parent exists; an album whose header never arrived degrades to ordinary bubbles |
-| `link_preview` | `text` | the card the *sender's* client built for a link in the message: `url`, `host`, `title`, `description`, `type`, and the inline `thumbnail_path`. Nothing here is fetched. This is the one object that rides a row of another kind: the words are still the message |
-| `interactive` | `interactive` | a business message flattened from WhatsApp's four wire shapes into one: `title`, `body`, `footer`, `thumbnail_path`, `buttons`, `sections`, and `cards` for a carousel. Each button carries `live`, which says whether the desktop can actually carry it out: opening a link and dialling a number are local, a quick reply means sending a message back and is not implemented |
-| `commerce` | `product`, `order`, `payment` | `kind`, title, description, `thumbnail_path`, and money as the integer WhatsApp sent (thousandths of a unit) plus its ISO 4217 code, never pre-formatted: how a sum reads is a question about the reader |
-| `sticker_pack` | `sticker_pack` | the shared pack plus what the local library says about it now: `installable` (the daemon can find it) and `installed`. Joined at read time, so installing from the picker settles a card elsewhere in the transcript |
-| `call_log` | `call_log` | `video`, `outcome`, `duration_secs`, `group`. Not a message anybody wrote, which is why frontends draw it centered |
-| `system` | `system` | something the chat did to itself: `type` (`group_join`, `group_name`, `ephemeral`, `identity_change`, …), `text` (the whole sentence, already composed and already bounded to a few names plus a count), the parts it was built from (`actor`, `names`, `overflow`, `value`, `on`, `seconds`) for a frontend that speaks another language, and `about_self`. Also centered, and see below |
-| `waiting` | `waiting` | a message that arrived and would not decrypt: `first_seen`, `retry_at` (when the next attempt happens by itself), `requests`, `asked` |
+The rest of the bodies are in the schema with a line each: polls and events
+carry their tally, joined when read so a vote is one upsert; an album carries
+its children as whole rows with their own ids, and they are not in the
+transcript on their own while their album exists; a group invite carries what
+the daemon learned by looking the code up; business cards are flattened from
+whatsapp's four wire shapes into one `Interactive`; money is thousandths of a
+unit plus an ISO 4217 code, never formatted.
 
-System rows are quiet by default: they do not reorder the chat list, do not
-replace its preview and do not count as unread. The exception is an event that
-named you, which is what `about_self` marks; that decision is made once, in the
-daemon, so every reader agrees about it.
+**System rows** are something the chat did to itself: a `type`, the whole
+sentence in `text`, and the parts it was built from (`actor`, the first few
+`names` and an `overflow` count, `value`, `on`, `ephemeral_secs`) for a
+frontend that speaks another language. They don't move the chat list, replace
+its preview or count as unread, except one that named you (`about_self`).
 
-A `waiting` row is the one place the dedup-by-id rule yields. A resend carries
-the *same* id as the placeholder standing in for it, so it upserts that row in
-place, keeping its position and its unread accounting, rather than being dropped
-as a duplicate or appearing twice.
+**Waiting rows** are messages that would not decrypt. When the resend comes
+it has the same id, so it upserts the waiting row in place, keeping its spot
+and its unread count. `never` is set when whatsapp said it never will
+decrypt here.
 
-Media-bearing kinds carry `media` (`mime`, dimensions, `thumbnail_path`,
-`path` which is empty until downloaded, `downloading`, optional
-`download_error`) plus the optional per-kind facts: `size_bytes`,
-`duration_secs`, `filename`, `page_count`, `waveform` (voice notes: 64
-amplitude buckets of 0-100, the one piece of media data that rides the socket
-rather than a file, because the bubble needs it before any download), and
-`played`. Captions ride the item-level `text`, for every kind.
+## Files
 
-The download lifecycle is: `media.download` → message upsert with
-`downloading` true → byte progress in `transfers` → message upsert with
-`downloading` cleared and `path` set on success or `download_error` set on
-failure. A retry clears `download_error` via another message upsert.
-`downloading` is on the row rather than joined from `transfers` deliberately:
-the two views are recomputed independently, so a renderer that inferred "not
-downloading" from the transfer row's disappearance would see it before the path
-arrived and briefly render the message as never having been fetched. One row
-changing once has no such window. `transfers` remains the place to find every
-in-flight fetch at once and the only place the byte counts live, and it is not
-invalidated by progress, so a running download costs one message-row upsert at
-each end and nothing in between.
+Rows carry absolute paths into the daemon's cache. A frontend on the same
+machine opens them.
 
-## Connection-directed events
+A frontend that can't reach the path (a sandbox, another machine later) reads
+the bytes with `media_read`: one chunk per request, from `offset`, at most
+`max_bytes` (capped by the daemon), until `eof`. Only paths the daemon put on
+a row can be read.
 
-Events without `sub`, sent to specific connections:
+`media_stream` is for playing a file that is still downloading. It answers
+with a loopback http url (`127.0.0.1`, a per-process token in the url) that
+serves range requests, so any player can seek. The download keeps going and
+the row gets its `path` when done, which is what to use from then on. It
+fails `REJECTED` for media that can't be streamed (no length or hash, a CDN
+that ignores ranges); fall back to `media_download`. If a stream fails late,
+the daemon finishes a whole download instead and tells the connection that
+asked with one `MediaStreamUpdate`: `LOCAL` with the `path` to switch to, or
+`FAILED`.
+
+## Notifications
+
+The daemon decides what deserves a notification (the chat isn't muted, isn't
+open on a focused frontend, preferences allow it) and keeps one item per
+notification in the `notifications` view, removed when its chat is read or
+it is dismissed anywhere. A frontend may show them itself; it then says
+`shows_notifications` in `session_update`, and the daemon's own notifier (D-Bus
+on Linux) stays quiet while any connected session says so. With no such
+session the daemon shows them itself.
+
+## Connection events
+
+Events without a subscription, sent to one connection:
 
 | event | data | meaning |
 | --- | --- | --- |
-| `open_chat` | `chat_id` | a notification was clicked; sent to the most recently focused frontend (per `session.update`), which should open the chat. If none is focused it goes to the most recently active session; with no frontend connected nothing is sent |
-| `media_stream_update` | `stream_id`, `message_id`, `state`, plus `path` for `local` or `error` for `failed` | terminal recovery after a late failure of the matching `media.stream`. `local` means the daemon completed and verified a separate whole-file fallback, persisted `media.path`, and the player should replace its source with `path`. `failed` means that fallback also failed. The event is sent only to the connection that requested `stream_id`, after that command's response, and at most once for that id. No event is sent when ranged streaming completes normally |
+| `open_chat` | `chat_id` | a notification was clicked; sent to the most recently focused frontend, or the most recently active one if none is focused |
+| `media_stream_update` | `stream_id`, `message_id`, `state`, `path` or `error` | see *Files*; at most once per stream, after its response |
 
-## Example session
+## Example
 
-A complete frontend, by hand. Rows are abridged (a real chat row carries more
-fields) and ids shortened; everything else is what the daemon sends:
-
-```console
-$ socat - UNIX-CONNECT:"$XDG_RUNTIME_DIR/whatevr/whatevrd.sock"
-{"id":1,"method":"hello","params":{"client":"human","protocol":1}}
-{"id":1,"result":{"daemon":"whatevrd","version":"0.6.0","protocol":1,"state":"online","data_dir":"…","cache_dir":"…"}}
-{"id":2,"method":"subscribe","params":{"view":"chats","limit":2}}
-{"id":2,"result":{"sub":1}}
-{"sub":1,"event":"upsert","sort":"0-00000000004294967295-04611686016657387904-12036…@g.us","item":{"id":"12036…@g.us","name":"family","is_group":true,"unread":3,"preview":"📷 Photo","pinned":true}}
-{"sub":1,"event":"upsert","sort":"1-04611686016657387774-91887…@s.whatsapp.net","item":{"id":"91887…@s.whatsapp.net","name":"Aditi","is_group":false,"unread":0,"preview":"see you then","last_message_direction":"outgoing","last_message_status":"read"}}
-{"sub":1,"event":"ready"}
-{"id":3,"method":"send.text","params":{"chat_id":"91887…@s.whatsapp.net","text":"oi"}}
-{"id":3,"result":{"message_id":"3EB0…"}}
-{"sub":1,"event":"upsert","sort":"1-04611686016657387360-91887…@s.whatsapp.net","item":{"id":"91887…@s.whatsapp.net","name":"Aditi","is_group":false,"unread":0,"preview":"oi","last_message_direction":"outgoing","last_message_status":"pending"}}
-```
-
-Note what the last line is *not*: the send's response carried only an id. The
-row you render arrived through the view you were already subscribed to, and the
-`sort` key moved the chat up the list for you.
-
-The acceptance bar for this protocol, kept under `examples/`: **a working
-frontend in ~30 lines of shell with `socat` and `jq`**: subscribe to the
-chat list, print incoming messages, send replies. If a change to the
-protocol breaks the spirit of that script, the change is wrong.
-
-## Resolved decisions
-
-- **Envelope:** bespoke minimal, decided. No `"jsonrpc":"2.0"` field, string
-  error codes. A conforming client is ~50 lines in any language; library
-  compatibility is not worth the ceremony.
-- **Item granularity:** whole-item upserts stay; oversized or mixed-lifetime
-  items are split into finer views (see *Granularity*). Applied to
-  `group`/`group_members` and `chats`/`typing`.
+`examples/frontend.py` is a whole frontend in about 60 lines of Python on the
+generated types: connect, hello, subscribe to the chat list, print what
+arrives, send a message. If a change to the protocol makes that file much
+longer or harder to read, the change is wrong.
 
 ## Open questions
 
-- **`notifications` view shape** (actions? dismissal sync?): sketch when the
-  first non-D-Bus consumer (relay/applet) is real.
-- **Multi-account:** out of scope for protocol 1; the likely shape is an
-  `account` param on `hello` or per-account sockets. Nothing in this design
-  precludes it.
+- **Multi-account:** out of scope for protocol 2. Nothing here blocks an
+  account on `hello` or a socket per account later.

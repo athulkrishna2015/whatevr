@@ -1,0 +1,61 @@
+edition = "2024";
+
+package whatevr.v2;
+
+import "whatevr/v2/chats.proto";
+import "whatevr/v2/messages.proto";
+import "whatevr/v2/stickers.proto";
+
+option features.field_presence = IMPLICIT;
+
+// queries: one answer, nothing live; the frontend keeps and drops it
+
+// chat names, in list order
+message SearchChats {
+  string query = 1;
+  uint32 limit = 2;
+}
+
+message SearchChatsResult {
+  repeated ChatRow chats = 1;
+}
+
+// newest first, paged backwards by before
+message SearchMessages {
+  string query = 1;
+  // empty for every chat
+  string chat_id = 2;
+  uint32 limit = 3;
+  // the last message_id of the previous page
+  string before = 4;
+}
+
+message SearchMessagesResult {
+  // chat_name set on each
+  repeated MessageRow messages = 1;
+  bool more = 2;
+}
+
+message SearchStickers {
+  string query = 1;
+  uint32 limit = 2;
+}
+
+message SearchStickersResult {
+  repeated StickerRow stickers = 1;
+}
+
+// whether a phone number is on whatsapp
+message ContactCheckPhone {
+  string phone = 1;
+}
+
+message ContactCheckPhoneResult {
+  bool registered = 1;
+  // the normalized number
+  string phone = 2;
+  // the person to open a chat with, when registered
+  string person_id = 3;
+  string name = 4;
+  bool business = 5;
+}

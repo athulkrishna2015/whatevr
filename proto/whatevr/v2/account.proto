@@ -1,0 +1,143 @@
+edition = "2024";
+
+package whatevr.v2;
+
+option features.field_presence = IMPLICIT;
+
+// the daemon's link to whatsapp
+message ConnectionView {}
+
+message ConnectionRow {
+  ConnectionState state = 1;
+  int64 since_ms = 2;
+  // a finished sentence for a status bar
+  string detail = 3;
+  // how the last attempt or connection ended, while connecting or waiting
+  ConnectionCause cause = 4;
+  uint32 attempt = 5;
+  int64 next_retry_ms = 6;
+  // daemon_reconnect would do something now
+  bool can_reconnect = 7;
+  uint32 pending_outgoing = 8;
+}
+
+enum ConnectionState {
+  CONNECTION_STATE_UNSPECIFIED = 0;
+  CONNECTION_STATE_STARTING = 1;
+  CONNECTION_STATE_NEED_LOGIN = 2;
+  CONNECTION_STATE_CONNECTING = 3;
+  CONNECTION_STATE_ONLINE = 4;
+  // waiting out a backoff before the next attempt
+  CONNECTION_STATE_WAITING = 5;
+  CONNECTION_STATE_OFFLINE = 6;
+}
+
+enum ConnectionCause {
+  CONNECTION_CAUSE_UNSPECIFIED = 0;
+  // the dial failed: no route, refused, dns
+  CONNECTION_CAUSE_UNREACHABLE = 1;
+  // a socket that never got to success
+  CONNECTION_CAUSE_NO_ANSWER = 2;
+  // the server said no at login
+  CONNECTION_CAUSE_REFUSED = 3;
+  // a connection that went quiet
+  CONNECTION_CAUSE_SILENT = 4;
+  CONNECTION_CAUSE_CLOSED = 5;
+}
+
+// subscribing starts the qr pairing flow when logged out, or joins it
+message LoginView {}
+
+message LoginRow {
+  LoginState state = 1;
+  string detail = 2;
+  // the code to draw, empty outside LOGIN_STATE_QR
+  string qr = 3;
+  int64 qr_expires_ms = 4;
+}
+
+enum LoginState {
+  LOGIN_STATE_UNSPECIFIED = 0;
+  LOGIN_STATE_LOGGED_IN = 1;
+  LOGIN_STATE_QR = 2;
+  // scanned, the phone and daemon are finishing the pairing
+  LOGIN_STATE_PAIRING = 3;
+  LOGIN_STATE_FAILED = 4;
+}
+
+// history sync progress
+message SyncView {}
+
+message SyncRow {
+  SyncType type = 1;
+  SyncPhase phase = 2;
+  uint32 percent = 3;
+  uint32 chunk = 4;
+  uint32 chunk_chats = 5;
+  uint32 chunk_messages = 6;
+  uint32 done_chats = 7;
+  uint32 done_messages = 8;
+}
+
+enum SyncType {
+  SYNC_TYPE_UNSPECIFIED = 0;
+  SYNC_TYPE_INITIAL = 1;
+  SYNC_TYPE_RECENT = 2;
+  SYNC_TYPE_FULL = 3;
+  SYNC_TYPE_ON_DEMAND = 4;
+  SYNC_TYPE_PUSH_NAMES = 5;
+}
+
+enum SyncPhase {
+  SYNC_PHASE_UNSPECIFIED = 0;
+  SYNC_PHASE_IDLE = 1;
+  SYNC_PHASE_RUNNING = 2;
+  // the phone stopped sending before it said it was done
+  SYNC_PHASE_STALLED = 3;
+  SYNC_PHASE_DONE = 4;
+}
+
+// one item per live problem, most severe first
+message ProblemsView {}
+
+message ProblemRow {
+  ProblemKind kind = 1;
+  int64 since_ms = 2;
+  // when the daemon tries again by itself, 0 for never
+  int64 next_retry_ms = 3;
+  // a finished sentence for humans
+  string text = 4;
+}
+
+enum ProblemKind {
+  PROBLEM_KIND_UNSPECIFIED = 0;
+  // whatsapp can't be reached
+  PROBLEM_KIND_OFFLINE = 1;
+  PROBLEM_KIND_LOGGED_OUT = 2;
+  // whatsapp suspended this account for a while
+  PROBLEM_KIND_TEMP_BANNED = 3;
+  // whatsapp wants a newer client version
+  PROBLEM_KIND_CLIENT_OUTDATED = 4;
+  // sends are queued and failing
+  PROBLEM_KIND_SEND_FAILING = 5;
+  PROBLEM_KIND_HISTORY_STALLED = 6;
+  // an app state collection can't be read (missing keys, a bad patch)
+  PROBLEM_KIND_APP_STATE = 7;
+  // messages waiting on a resend from the sender's phone
+  PROBLEM_KIND_UNDECRYPTED = 8;
+  // the disk is full or the database can't be written
+  PROBLEM_KIND_STORAGE = 9;
+}
+
+// what this frontend is doing, for notifications and routing
+message SessionUpdate {
+  bool focused = 1;
+  string active_chat_id = 2;
+  // this frontend shows notifications itself; the daemon's own notifier
+  // stays quiet while any connected session says so
+  bool shows_notifications = 3;
+}
+
+message DaemonReconnect {}
+
+message AccountLogout {}

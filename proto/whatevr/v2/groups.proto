@@ -1,0 +1,51 @@
+edition = "2024";
+
+package whatevr.v2;
+
+import "whatevr/v2/people.proto";
+
+option features.field_presence = IMPLICIT;
+
+// a group's facts, no members; group_members has those
+message GroupView {
+  string chat_id = 1;
+}
+
+message GroupRow {
+  string chat_id = 1;
+  string subject = 2;
+  string description = 3;
+  string avatar_path = 4;
+  int64 created_ms = 5;
+  Person owner = 6;
+  uint32 member_count = 7;
+  GroupRole my_role = 8;
+  // only admins send
+  bool announce = 9;
+  // only admins edit the group's info
+  bool locked = 10;
+  // joining needs an admin's approval
+  bool approval = 11;
+  // the community this group belongs to
+  string community_id = 12;
+  // why whatsapp wouldn't describe it, empty when it did
+  string error = 13;
+}
+
+message GroupMembersView {
+  string chat_id = 1;
+}
+
+message GroupMemberRow {
+  Person person = 1;
+  GroupRole role = 2;
+}
+
+enum GroupRole {
+  GROUP_ROLE_UNSPECIFIED = 0;
+  GROUP_ROLE_MEMBER = 1;
+  GROUP_ROLE_ADMIN = 2;
+  GROUP_ROLE_SUPERADMIN = 3;
+  // not in the group any more
+  GROUP_ROLE_LEFT = 4;
+}
