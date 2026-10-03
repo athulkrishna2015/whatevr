@@ -6,6 +6,9 @@ import (
 	"reflect"
 	"testing"
 
+	"go.mau.fi/whatsmeow/proto/waE2E"
+	"google.golang.org/protobuf/proto"
+
 	"whatevrd/internal/core"
 )
 
@@ -13,19 +16,28 @@ func outboxIn(op, chat, id, err string, final bool, t int) core.Input {
 	return in(core.KindOutbox, core.OutboxHead{Op: op, Chat: chat, ID: id, Error: err, Final: final}, nil, at(t))
 }
 
+func queueIn(chat, id, file string, m *waE2E.Message, t int) core.Input {
+	return in(core.KindOutbox, core.OutboxHead{Op: core.OutboxQueue, Chat: chat, ID: id, File: file}, pb(m), at(t))
+}
+
+func photo(caption string) *waE2E.Message {
+	return &waE2E.Message{ImageMessage: &waE2E.ImageMessage{Caption: proto.String(caption), Mimetype: proto.String("image/jpeg")}}
+}
+
 // outboxScenario is three sends this daemon queued, one of them sent after
-// two failed tries, one cancelled, one still owed; and a message of ours
-// history left pending that nothing here ever queued.
+// two failed tries, one cancelled, one still owed and queued twice; and a
+// message of ours history left pending that nothing here ever queued.
 func outboxScenario() []core.Input {
 	return []core.Input{
 		in(core.KindLIDMapping, core.LIDMappingHead{LID: meLID, PN: mePN, Self: true}, nil, at(0)),
-		outboxIn(core.OutboxQueue, ashaPN, "Q1", "", false, 10),
+		queueIn(ashaPN, "Q1", "", text("finally"), 10),
 		outboxIn(core.OutboxAttempt, ashaPN, "Q1", "no route", false, 11),
 		outboxIn(core.OutboxAttempt, ashaPN, "Q1", "timed out", false, 12),
 		msgIn("Q1", ashaPN, mePN, "", true, 13, text("finally")),
 		outboxIn(core.OutboxQueue, ashaPN, "Q2", "", false, 14),
 		outboxIn(core.OutboxCancel, ashaPN, "Q2", "", false, 15),
-		outboxIn(core.OutboxQueue, ashaPN, "Q3", "", false, 16),
+		queueIn(ashaPN, "Q3", "/tmp/a.jpg", photo("look"), 16),
+		queueIn(ashaPN, "Q3", "/tmp/b.jpg", photo("again"), 18),
 		outboxIn(core.OutboxAttempt, ashaPN, "Q3", "no route", false, 17),
 		historyConv(ashaPN, webMsg("H9", ashaPN, true, "", 5, text("the phone never sent this"))),
 	}
@@ -90,8 +102,13 @@ func TestOutboxStandsInUntilTheSendIsLogged(t *testing.T) {
 	if want := []string{"H9", "Q1", "Q3 queued"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("transcript %v, want %v", got, want)
 	}
-	if m, ok, err := r.Message(ctx, []string{ashaPN}, "Q3"); err != nil || !ok || !m.Queued || m.Out.Error != "no route" {
+	m, ok, err := r.Message(ctx, []string{ashaPN}, "Q3")
+	if err != nil || !ok || !m.Queued || m.Out.Error != "no route" {
 		t.Fatalf("Q3 by id %+v %v %v", m, ok, err)
+	}
+	// the first queue is the send
+	if raw, _ := m.Content(); m.Kind != "imageMessage" || m.Text != "look" || m.Out.File != "/tmp/a.jpg" || raw.GetImageMessage().GetCaption() != "look" {
+		t.Fatalf("Q3 is %q %q %q %v", m.Kind, m.Text, m.Out.File, raw)
 	}
 }
 

@@ -43,7 +43,7 @@ func (c *Client) queued(ctx context.Context, m appstore.Message) {
 	if o == nil {
 		return
 	}
-	if err := o.Queued(ctx, m.ChatID, appstore.ExternalMessageID(m.ChatID, m.ID)); err != nil {
+	if err := o.Queued(ctx, m.ChatID, appstore.ExternalMessageID(m.ChatID, m.ID), nil, ""); err != nil {
 		zerolog.Ctx(ctx).Error().Err(err).Str("msg", m.ID).Msg("outbox: queued send not logged, it will not go out")
 	}
 }

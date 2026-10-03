@@ -291,12 +291,14 @@ type NewsletterHead struct {
 }
 
 // OutboxHead is one step of a send this daemon queued: Op is queue, cancel
-// or attempt. an attempt that failed carries the error, Final when it will
-// not be tried again. times are Input.At.
+// or attempt. a queue's body is the waE2E.Message as it will go, File the
+// local media to upload into it first. an attempt that failed carries the
+// error, Final when it will not be tried again. times are Input.At.
 type OutboxHead struct {
 	Op    string `json:"op"`
 	Chat  string `json:"chat"`
 	ID    string `json:"id"`
+	File  string `json:"file,omitempty"`
 	Error string `json:"error,omitempty"`
 	Final bool   `json:"final,omitempty"`
 }

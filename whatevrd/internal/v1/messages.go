@@ -30,7 +30,7 @@ func (a *Adapter) message(ctx context.Context, w *model.World, c model.Chat, m m
 // takes one.
 func (a *Adapter) build(ctx context.Context, w *model.World, c model.Chat, m model.Message) (store.Message, bool) {
 	chatID := ChatID(w, c.Key)
-	if m.Queued {
+	if m.Queued && len(m.Body) == 0 {
 		return a.queued(ctx, chatID, m), false
 	}
 	if m.System != nil {
@@ -139,6 +139,9 @@ func (a *Adapter) build(ctx context.Context, w *model.World, c model.Chat, m mod
 	if out.MediaKind == store.MediaKindAlbum {
 		out.Album = a.album(ctx, w, c, m)
 	}
+	if m.Queued {
+		return outgoing(out, m), false
+	}
 	return out, true
 }
 
@@ -151,8 +154,8 @@ func revoked(m store.Message) store.Message {
 		AlbumIndex: m.AlbumIndex, IsForwarded: m.IsForwarded, IsRevoked: true}
 }
 
-// queued is a send still in the outbox. what it says lives in the old store,
-// which built it, until the send logs it here.
+// queued is a send the old core queued with no body: what it says lives in
+// the old store, which built it, until the send logs it here.
 func (a *Adapter) queued(ctx context.Context, chatID string, m model.Message) store.Message {
 	var out store.Message
 	if a.old != nil {
@@ -163,12 +166,21 @@ func (a *Adapter) queued(ctx context.Context, chatID string, m model.Message) st
 	out.ID, out.ChatID = MessageID(chatID, m.ID), chatID
 	out.Direction, out.SenderID, out.SenderName = store.DirectionOutgoing, "me", ""
 	out.TimestampUnix, out.SortMS = m.T/1000, m.T
+	return outgoing(out, m)
+}
+
+// outgoing is a row as the outbox has it: owed or given up on, and the file
+// that will go when the body has no upload in it yet.
+func outgoing(out store.Message, m model.Message) store.Message {
 	out.Status = store.StatusPending
 	if m.Out.Failed {
 		out.Status = store.StatusFailed
 	}
 	out.SendAttempts = int32(m.Out.Attempts)
 	out.LastSendError = m.Out.Error
+	if m.Out.File != "" {
+		out.MediaLocalPath = m.Out.File
+	}
 	return out
 }
 

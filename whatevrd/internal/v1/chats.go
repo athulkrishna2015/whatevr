@@ -133,7 +133,7 @@ func (a *Adapter) preview(ctx context.Context, w *model.World, c model.Chat) (pr
 		return preview{}, true
 	}
 	m := a.message(ctx, w, c, last)
-	keep := !last.Queued
+	keep := !last.Queued || len(last.Body) > 0
 	if raw, _ := last.Content(); raw != nil && model.Unwrap(raw).Msg.GetLiveLocationMessage() != nil {
 		keep = false
 	}

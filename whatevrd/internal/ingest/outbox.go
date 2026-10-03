@@ -7,7 +7,9 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
+	"google.golang.org/protobuf/proto"
 
 	"whatevrd/internal/core"
 	"whatevrd/internal/model"
@@ -24,10 +26,17 @@ var (
 	ErrGuarded = errors.New("blocked by the send guard")
 )
 
-// Queued logs that this daemon queued id for chat. only a send logged here
-// ever goes out.
-func (g *Ingest) Queued(ctx context.Context, chat, id string) error {
-	return g.outbox(ctx, core.OutboxHead{Op: core.OutboxQueue, Chat: chat, ID: id})
+// Queued logs that this daemon queued id for chat: body as it will go, file
+// the media to upload into it first. only a send logged here ever goes out.
+func (g *Ingest) Queued(ctx context.Context, chat, id string, body *waE2E.Message, file string) error {
+	var raw []byte
+	if body != nil {
+		var err error
+		if raw, err = proto.Marshal(body); err != nil {
+			return err
+		}
+	}
+	return g.append(ctx, core.OutboxHead{Op: core.OutboxQueue, Chat: chat, ID: id, File: file}, raw)
 }
 
 // Cancel takes a queued send back, if it has not gone out.
@@ -47,11 +56,15 @@ func (g *Ingest) Attempted(ctx context.Context, chat, id string, err error, fina
 }
 
 func (g *Ingest) outbox(ctx context.Context, h core.OutboxHead) error {
+	return g.append(ctx, h, nil)
+}
+
+func (g *Ingest) append(ctx context.Context, h core.OutboxHead, body []byte) error {
 	head, err := json.Marshal(h)
 	if err != nil {
 		return err
 	}
-	_, err = g.log.AppendBatch(ctx, []core.Input{{Kind: core.KindOutbox, V: 1, Head: head}})
+	_, err = g.log.AppendBatch(ctx, []core.Input{{Kind: core.KindOutbox, V: 1, Head: head, Body: body}})
 	return err
 }
 

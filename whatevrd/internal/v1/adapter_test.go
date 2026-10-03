@@ -462,3 +462,30 @@ func TestPreviewsNeverKeepANameFromBeforeARename(t *testing.T) {
 		}
 	}
 }
+
+// a queued send is its body, decoded like any message, as far as the outbox
+// got with it
+func TestAQueuedSendShowsItsBody(t *testing.T) {
+	ctx := context.Background()
+	db := open(t, nil)
+	queue := func(id, file string, m *waE2E.Message, sec int) core.Input {
+		return in(core.KindOutbox, core.OutboxHead{Op: core.OutboxQueue, Chat: ashaPN, ID: id, File: file}, pb(m), at(sec))
+	}
+	img := &waE2E.Message{ImageMessage: &waE2E.ImageMessage{Caption: proto.String("look"), Mimetype: proto.String("image/png"),
+		Width: proto.Uint32(4), Height: proto.Uint32(3)}}
+	feed(t, db, append(account(),
+		queue("Q1", "", text("hello"), 100),
+		queue("Q2", "/tmp/look.png", img, 101),
+		in(core.KindOutbox, core.OutboxHead{Op: core.OutboxAttempt, Chat: ashaPN, ID: "Q2", Error: "too big", Final: true}, nil, at(102)),
+	)...)
+	a := New(db, nil, nil, nil, zerolog.Nop())
+	m, err := a.GetMessage(ctx, ashaPN+":Q1")
+	if err != nil || m.Text != "hello" || m.Status != store.StatusPending || m.Direction != store.DirectionOutgoing || m.SenderID != "me" {
+		t.Fatalf("Q1 %+v %v", m, err)
+	}
+	m, err = a.GetMessage(ctx, ashaPN+":Q2")
+	if err != nil || m.Text != "look" || m.MediaKind != store.MediaKindImage || m.MediaLocalPath != "/tmp/look.png" ||
+		m.MediaWidth != 4 || m.Status != store.StatusFailed || m.LastSendError != "too big" || m.SendAttempts != 1 {
+		t.Fatalf("Q2 %+v %v", m, err)
+	}
+}

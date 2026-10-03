@@ -54,7 +54,7 @@ func TestOnlyWhatThisDaemonQueuedMayGoOut(t *testing.T) {
 		}
 	}
 	check(asha, "H9", ErrNotQueued)
-	if err := g.Queued(ctx, asha, "Q1"); err != nil {
+	if err := g.Queued(ctx, asha, "Q1", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	check(asha, "Q1", nil)
@@ -62,7 +62,7 @@ func TestOnlyWhatThisDaemonQueuedMayGoOut(t *testing.T) {
 		t.Fatal(err)
 	}
 	check(asha, "Q1", ErrCancelled)
-	if err := g.Queued(ctx, asha, "Q2"); err != nil {
+	if err := g.Queued(ctx, asha, "Q2", nil, ""); err != nil {
 		t.Fatal(err)
 	}
 	appendIn(core.KindMessage, core.MessageHead{Source: core.Source{Chat: asha, Sender: asha, FromMe: true}, ID: "Q2", T: 2, Sent: true}, body)
@@ -88,7 +88,7 @@ func TestOnlyWhatThisDaemonQueuedMayGoOut(t *testing.T) {
 	cli.SendGuard = &whatsmeow.SendGuard{Allow: []types.JID{types.NewJID("917770000002", types.DefaultUserServer)}}
 	g.jobs = &jobs{g: g, cli: cli}
 	for _, q := range []struct{ chat, id string }{{asha, "Q3"}, {boLID, "Q4"}, {boPN, "Q5"}, {grp, "Q6"}} {
-		if err := g.Queued(ctx, q.chat, q.id); err != nil {
+		if err := g.Queued(ctx, q.chat, q.id, nil, ""); err != nil {
 			t.Fatal(err)
 		}
 	}

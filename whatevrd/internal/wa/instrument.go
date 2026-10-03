@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 )
 
 // Instrument is what a capture run hangs on each whatsmeow client and on the
@@ -40,7 +41,7 @@ type Instrument struct {
 // Outbox is the record of sends this daemon queued, kept outside this
 // package. MaySend returns ErrAlreadySent for one that went out.
 type Outbox interface {
-	Queued(ctx context.Context, chat, id string) error
+	Queued(ctx context.Context, chat, id string, body *waE2E.Message, file string) error
 	MaySend(ctx context.Context, chat, id string) error
 	Attempted(ctx context.Context, chat, id string, err error, final bool)
 }

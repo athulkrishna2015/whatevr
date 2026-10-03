@@ -12,15 +12,18 @@ import (
 // here: one the phone left pending or failed in history never does.
 var outboxDomain = core.Domain{
 	Name:    "outbox",
-	Version: 1,
+	Version: 2,
 	Tables:  []string{"outbox", "outbox_try"},
 	Schema: []string{
-		// queued_t 0 is a cancel seen before its queue
+		// queued_t 0 is a cancel seen before its queue. body and file are
+		// the queue's, see OutboxHead
 		`CREATE TABLE outbox (
 			chat      TEXT NOT NULL,
 			id        TEXT NOT NULL,
 			queued_t  INTEGER NOT NULL DEFAULT 0,
 			cancelled INTEGER NOT NULL DEFAULT 0,
+			body      BLOB NOT NULL DEFAULT x'',
+			file      TEXT NOT NULL DEFAULT '',
 			PRIMARY KEY (chat, id)
 		)`,
 		// one row per failed try, so a try logged twice counts once
@@ -48,10 +51,11 @@ func foldOutbox(tx *core.Tx, in core.Input) error {
 	var err error
 	switch h.Op {
 	case core.OutboxQueue:
-		_, err = tx.Exec(`INSERT INTO outbox (chat, id, queued_t) VALUES (?, ?, ?)
-			ON CONFLICT (chat, id) DO UPDATE SET queued_t = CASE
-				WHEN outbox.queued_t = 0 OR excluded.queued_t < outbox.queued_t THEN excluded.queued_t
-				ELSE outbox.queued_t END`, h.Chat, h.ID, t)
+		// one id is queued once; were it twice, the first queue wins
+		_, err = tx.Exec(`INSERT INTO outbox (chat, id, queued_t, body, file) VALUES (?, ?, ?, COALESCE(?, x''), ?)
+			ON CONFLICT (chat, id) DO UPDATE SET queued_t = excluded.queued_t, body = excluded.body, file = excluded.file
+			WHERE outbox.queued_t = 0 OR (excluded.queued_t, excluded.body, excluded.file) < (outbox.queued_t, outbox.body, outbox.file)`,
+			h.Chat, h.ID, t, in.Body, h.File)
 	case core.OutboxCancel:
 		_, err = tx.Exec(`INSERT INTO outbox (chat, id, cancelled) VALUES (?, ?, 1)
 			ON CONFLICT (chat, id) DO UPDATE SET cancelled = 1`, h.Chat, h.ID)
@@ -79,17 +83,20 @@ type Outgoing struct {
 	Error     string
 	// Sent is the message in the log as this device's own: it went out
 	Sent bool
+	// Body is the message as it will go, File the media to upload into it
+	Body []byte
+	File string
 }
 
 const outgoingCols = `o.chat, o.id, o.queued_t, o.cancelled,
 	EXISTS (SELECT 1 FROM outbox_try x WHERE x.chat = o.chat AND x.id = o.id AND x.final = 1),
 	(SELECT COUNT(*) FROM outbox_try x WHERE x.chat = o.chat AND x.id = o.id),
 	COALESCE((SELECT x.error FROM outbox_try x WHERE x.chat = o.chat AND x.id = o.id ORDER BY x.t DESC, x.error DESC LIMIT 1), ''),
-	EXISTS (SELECT 1 FROM msg_src s WHERE s.id = o.id)`
+	EXISTS (SELECT 1 FROM msg_src s WHERE s.id = o.id), o.body, o.file`
 
 func scanOutgoing(row interface{ Scan(...any) error }) (Outgoing, error) {
 	var o Outgoing
-	err := row.Scan(&o.Chat, &o.ID, &o.T, &o.Cancelled, &o.Failed, &o.Attempts, &o.Error, &o.Sent)
+	err := row.Scan(&o.Chat, &o.ID, &o.T, &o.Cancelled, &o.Failed, &o.Attempts, &o.Error, &o.Sent, &o.Body, &o.File)
 	return o, err
 }
 
@@ -150,6 +157,16 @@ func (r *Reader) queuedRows(ctx context.Context, addrs []string, cmp, order stri
 	return out, rows.Err()
 }
 
+// queuedMessage is a send still owed as a row: its body is the message.
 func queuedMessage(o Outgoing) Message {
-	return Message{Chat: o.Chat, ID: o.ID, FromMe: true, T: o.T, Kind: "outbox", Queued: true, Out: o}
+	m := Message{Chat: o.Chat, ID: o.ID, FromMe: true, T: o.T, Kind: "outbox", Queued: true, Out: o, Body: o.Body}
+	if raw, _ := m.Content(); raw != nil {
+		u := Unwrap(raw).Msg
+		if k := Field(u); k != "" {
+			m.Kind = k
+		}
+		m.Text = searchText(u)
+		m.Reply = contextOf(u).GetStanzaID()
+	}
+	return m
 }
