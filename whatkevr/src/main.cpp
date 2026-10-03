@@ -233,11 +233,17 @@ int main(int argc, char *argv[])
                          });
     }
 
+    // objectCreationFailed arrives with no payload, and Qt's own diagnostic for a
+    // failed QML load does not always reach stderr — so without this the app
+    // exits 1 having printed nothing, which is indistinguishable from a clean
+    // exit and turns a one-line QML mistake into a bisect.
     QObject::connect(
         &engine,
         &QQmlApplicationEngine::objectCreationFailed,
         &app,
         [] {
+            qCritical("QML: failed to create the root object from module Whatevr (Main.qml). "
+                      "The QML diagnostic above, if any, names the failing component.");
             QCoreApplication::exit(EXIT_FAILURE);
         },
         Qt::QueuedConnection);

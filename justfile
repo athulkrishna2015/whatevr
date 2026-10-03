@@ -197,13 +197,18 @@ _restart_if_live prefix destdir:
 # hidden to the tray is still running: quitting the window is not quitting the
 # app, so it is killed rather than asked.
 #
-# The patterns are anchored. An unanchored -f matches any command line that
-# merely *mentions* the path, which includes the shell running this recipe — so
-# `just install … && whatkevr --version` would kill its own caller.
+# The patterns are anchored at the start only. An unanchored -f matches any
+# command line that merely *mentions* the path, which includes the shell running
+# this recipe — so `just install … && whatkevr --version` would kill its own
+# caller. The start anchor is enough for that, and anchoring the end as well was
+# too tight: a frontend cold-started from the tray runs as `whatkevr
+# whatevr://` and a pop-out as `whatkevr --new-window …`, so `…whatkevr$` never
+# matched them. They survived the install, the new instance forwarded its
+# activation to the old one and exited, and the install silently had no effect.
 _restart prefix:
     @prefix="{{prefix}}"; \
-    pkill -f "^$prefix/bin/whatkevr$" 2>/dev/null || true; \
-    pkill -f "^$prefix/bin/whattui$" 2>/dev/null || true; \
+    pkill -f "^$prefix/bin/whatkevr([[:space:]]|\$)" 2>/dev/null || true; \
+    pkill -f "^$prefix/bin/whattui([[:space:]]|\$)" 2>/dev/null || true; \
     sleep 1; \
     systemctl --user restart whatevrd.service 2>/dev/null \
         || printf 'whatevrd.service is not enabled here; run: %s/bin/whatevrd &\n' "$prefix"; \
