@@ -11,7 +11,9 @@ import (
 	waWeb "go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/proto"
 
+	"whatevrd/internal/model"
 	appstore "whatevrd/internal/store"
 )
 
@@ -217,4 +219,68 @@ func systemMessage(chat types.JID, payload appstore.SystemPayload, ts time.Time)
 		PayloadJSON:    payloadJSON,
 		PayloadSummary: systemSummary(payload),
 	}
+}
+
+// worldNames is Names over the model's identity.
+type worldNames struct{ w *model.World }
+
+// WorldNames is Names as the model's world knows them.
+func WorldNames(w *model.World) Names { return worldNames{w} }
+
+func (n worldNames) Norm(j types.JID) types.JID {
+	if j.Server != types.HiddenUserServer {
+		return j
+	}
+	if pn := n.w.PN(n.w.Now(j.ToNonAD().String())); pn != "" {
+		return parseJID(pn)
+	}
+	return j
+}
+
+// Name falls back to the bare user of anything but a lid, a bot's number say.
+func (n worldNames) Name(j types.JID) string {
+	if name, _ := n.w.Name(n.w.Now(j.ToNonAD().String())); name != "" || j.Server == types.HiddenUserServer {
+		return name
+	}
+	return j.User
+}
+
+func (n worldNames) Own(j types.JID) bool { return !j.IsEmpty() && n.w.IsSelf(j.ToNonAD().String()) }
+
+func parseJID(s string) types.JID {
+	j, _ := types.ParseJID(s)
+	return j
+}
+
+// Model is the row for a message the model has, and the content it came
+// from. false is a message the decoder has nothing for.
+func (d *Decoder) Model(ctx context.Context, w *model.World, m model.Message) (appstore.Message, *waE2E.Message, bool) {
+	raw, hm := m.Content()
+	switch {
+	case hm != nil:
+		sm, ok := d.DecodeHistory(ctx, parseJID(m.Chat), hm.GetMessage())
+		return sm, hm.GetMessage().GetMessage(), ok
+	case raw != nil:
+		sm, ok := d.Decode(ctx, ModelEvent(w, m, raw))
+		return sm, raw, ok
+	}
+	return appstore.Message{}, nil, false
+}
+
+// ModelEvent is the whatsmeow event a live message was, rebuilt.
+func ModelEvent(w *model.World, m model.Message, raw *waE2E.Message) *events.Message {
+	sender := parseJID(m.Sender)
+	if m.FromMe {
+		sender = parseJID(w.SelfPN())
+	}
+	info := types.MessageInfo{
+		MessageSource: types.MessageSource{
+			Chat: parseJID(m.Chat), Sender: sender, SenderAlt: parseJID(m.SenderAlt),
+			IsFromMe: m.FromMe, IsGroup: model.IsGroup(m.Chat),
+		},
+		ID:        m.ID,
+		Timestamp: time.UnixMilli(m.T),
+	}
+	evt := &events.Message{Info: info, RawMessage: proto.Clone(raw).(*waE2E.Message)}
+	return evt.UnwrapRaw()
 }

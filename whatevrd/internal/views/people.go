@@ -40,7 +40,7 @@ func (rs *Reads) begin(ctx context.Context) (*rc, error) {
 
 func (c *rc) decoder() *whatsapp.Decoder {
 	if c.dec == nil {
-		c.dec = whatsapp.NewDecoder(names{c.w}, c.media)
+		c.dec = whatsapp.NewDecoder(whatsapp.WorldNames(c.w), c.media)
 	}
 	return c.dec
 }

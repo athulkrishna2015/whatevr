@@ -24,6 +24,7 @@ import (
 	"whatevrd/internal/model"
 	"whatevrd/internal/server"
 	"whatevrd/internal/status"
+	"whatevrd/internal/whatsapp"
 )
 
 const (
@@ -268,7 +269,7 @@ func TestSearchMessagesNamesTheChat(t *testing.T) {
 func TestPreferencesDefaultWhenNoneStored(t *testing.T) {
 	f := open(t, scenario()...)
 	_, rows := f.subscribe(func(s *v2.Subscribe) { s.SetPreferences(&v2.PreferencesView{}) })
-	if len(rows) != 1 || !proto.Equal(rows[0].GetPreferences().GetPreferences(), DefaultPreferences()) {
+	if len(rows) != 1 || !proto.Equal(rows[0].GetPreferences().GetPreferences(), whatsapp.DefaultPreferences()) {
 		t.Fatalf("prefs %v", rows)
 	}
 }

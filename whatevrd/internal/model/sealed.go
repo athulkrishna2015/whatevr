@@ -2,6 +2,8 @@ package model
 
 import (
 	"bytes"
+	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
 	"strings"
@@ -187,4 +189,37 @@ func Vote(plain []byte) [][]byte {
 		return nil
 	}
 	return v.GetSelectedOptions()
+}
+
+// what our own votes and answers are sealed as
+const (
+	SealVote  = useVote
+	SealEvent = useEvent
+)
+
+// Seal is unseal's other half: plain sealed by mod against the message id
+// that orig sent with secret.
+func Seal(use, id, orig, mod string, secret, plain []byte) (iv, payload []byte, err error) {
+	key := hkdfutil.SHA256(secret, nil, []byte(id+orig+mod+use), 32)
+	var ad []byte
+	if use == useVote || use == useEvent {
+		ad = fmt.Appendf(nil, "%s\x00%s", id, mod)
+	}
+	iv = make([]byte, 12)
+	if _, err := rand.Read(iv); err != nil {
+		return nil, nil, err
+	}
+	payload, err = gcmutil.Encrypt(key, iv, plain, ad)
+	return iv, payload, err
+}
+
+// Secret is a message's secret and the address it was sent from, for
+// sealing against it.
+func (r *Reader) Secret(ctx context.Context, addrs []string, id string) (secret []byte, sender string, err error) {
+	err = r.db.QueryRowContext(ctx, `SELECT secret, sender FROM msg WHERE id = ? AND secret IS NOT NULL
+		AND chat IN (SELECT value FROM json_each(?)) ORDER BY chat LIMIT 1`, id, jsonList(addrs)).Scan(&secret, &sender)
+	if isNoRows(err) {
+		return nil, "", nil
+	}
+	return secret, sender, err
 }

@@ -146,7 +146,7 @@ func (c *rc) body(row *v2.MessageRow, ch chatCtx, m model.Message, sm store.Mess
 		}
 		row.SetCallLog(cl)
 	case store.MediaKindWaiting:
-		w := v2.Waiting_builder{FirstSeenMs: m.T, Never: m.Wait}.Build()
+		w := v2.Waiting_builder{FirstSeenMs: m.T, Never: m.Wait, Requests: uint32(max(m.Facts.Local.Asked, 0)), AskedPhone: m.Facts.Local.Asked > 0}.Build()
 		if wp := p.Waiting; wp != nil {
 			w.SetRetryAtMs(toMS(wp.RetryAt))
 			w.SetRequests(uint32(max(wp.Requests, 0)))

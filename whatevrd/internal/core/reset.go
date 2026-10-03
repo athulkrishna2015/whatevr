@@ -65,7 +65,8 @@ func (w *writer) reset(backup string) error {
 	w.db.setFolded(last.Int64)
 	if w.db.opts.OnChange != nil {
 		all := map[string]bool{}
-		for _, k := range []string{"chat", "message", "person", "pins", "sync", "sticker", "blocklist", "group", "appstate", "call"} {
+		for _, k := range []string{"chat", "chatrow", "message", "person", "pins", "sync", "sticker", "blocklist", "group",
+			"appstate", "call", "live", "note", "prefs", "privacy", "sum"} {
 			all[k] = true
 		}
 		w.db.opts.OnChange(Change{Through: last.Int64, All: all})

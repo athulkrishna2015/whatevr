@@ -133,6 +133,8 @@ type Local struct {
 	DirectPath string
 	Invite     json.RawMessage
 	InviteErr  string
+	// Asked is how many times the phone was asked to resend it
+	Asked int
 }
 
 // DownloadError is the error of the newest try, "" when the file came after it.
@@ -170,6 +172,8 @@ func (l *Local) add(op string, t int64, value []byte) {
 		l.DirectPath = h.DirectPath
 	case core.LocalInvite:
 		l.Invite, l.InviteErr = h.Invite, h.Error
+	case core.LocalAsked:
+		l.Asked = h.N
 	}
 }
 
@@ -225,4 +229,22 @@ func (r *Reader) Prefs(ctx context.Context) (json.RawMessage, error) {
 		return nil, nil
 	}
 	return v, err
+}
+
+// AvatarPaths is every picture file an avatar row names.
+func (r *Reader) AvatarPaths(ctx context.Context) (map[string]bool, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT DISTINCT path FROM avatar_try WHERE path != ''`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var p string
+		if err := rows.Scan(&p); err != nil {
+			return nil, err
+		}
+		out[p] = true
+	}
+	return out, rows.Err()
 }

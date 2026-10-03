@@ -1,6 +1,7 @@
 package ingest
 
 import (
+	"context"
 	"time"
 
 	"go.mau.fi/whatsmeow/types"
@@ -104,4 +105,25 @@ func callHead(m types.BasicCallMeta, event string) core.CallHead {
 		ID: m.CallID, From: jid(m.CallCreator), Alt: jid(m.CallCreatorAlt), T: unix(m.Timestamp),
 		Event: event, Group: jid(m.GroupJID),
 	}
+}
+
+// Group logs a group as whatsapp described it just now.
+func (g *Ingest) Group(ctx context.Context, info *types.GroupInfo) error {
+	in, err := input(core.KindGroupInfo, fullGroup(info, time.Time{}), nil)
+	if err != nil {
+		return err
+	}
+	_, err = g.log.AppendBatch(ctx, []core.Input{in})
+	return err
+}
+
+// Event logs an event the daemon made up itself, as if whatsmeow had handed
+// it over: our own read receipt, which whatsmeow never echoes.
+func (g *Ingest) Event(ctx context.Context, evt any) error {
+	ins, err := inputsFor(evt)
+	if err != nil || len(ins) == 0 {
+		return err
+	}
+	_, err = g.log.AppendBatch(ctx, ins)
+	return err
 }

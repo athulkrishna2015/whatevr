@@ -11,7 +11,6 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
-	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
@@ -46,28 +45,6 @@ func chatOf(c model.Chat) chatCtx {
 }
 
 // names is the world as the decoder asks it.
-type names struct{ w *model.World }
-
-func (n names) Norm(j types.JID) types.JID {
-	if j.Server != types.HiddenUserServer {
-		return j
-	}
-	if pn := n.w.PN(n.w.Now(j.ToNonAD().String())); pn != "" {
-		return jid(pn)
-	}
-	return j
-}
-
-// Name falls back to the bare user of anything but a lid, a bot's number say.
-func (n names) Name(j types.JID) string {
-	if name, _ := n.w.Name(n.w.Now(j.ToNonAD().String())); name != "" || j.Server == types.HiddenUserServer {
-		return name
-	}
-	return j.User
-}
-
-func (n names) Own(j types.JID) bool { return !j.IsEmpty() && n.w.IsSelf(j.ToNonAD().String()) }
-
 func jid(s string) types.JID {
 	j, _ := types.ParseJID(s)
 	return j
@@ -140,7 +117,7 @@ func (c *rc) build(ch chatCtx, m model.Message) (*v2.MessageRow, string) {
 	f := m.Facts
 	if f.Edit != nil && !f.Revoked {
 		if raw != nil {
-			if edited, ok := c.decoder().DecodeContent(c.ctx, c.event(m, raw), f.Edit); ok {
+			if edited, ok := c.decoder().DecodeContent(c.ctx, whatsapp.ModelEvent(c.w, m, raw), f.Edit); ok {
 				sm.Text = edited.Text
 				sm.Mentions = edited.Mentions
 			}
@@ -192,38 +169,11 @@ func (c *rc) decode(m model.Message) (store.Message, *waE2E.Message) {
 	if m.Waiting {
 		return placeholder(m), nil
 	}
-	raw, hm := m.Content()
-	var sm store.Message
-	ok := false
-	switch {
-	case hm != nil:
-		sm, ok = c.decoder().DecodeHistory(c.ctx, jid(m.Chat), hm.GetMessage())
-		raw = hm.GetMessage().GetMessage()
-	case raw != nil:
-		sm, ok = c.decoder().Decode(c.ctx, c.event(m, raw))
-	}
+	sm, raw, ok := c.decoder().Model(c.ctx, c.w, m)
 	if !ok {
 		return placeholder(m), raw
 	}
 	return sm, raw
-}
-
-// event is the whatsmeow event a live row was, rebuilt for the decoder.
-func (c *rc) event(m model.Message, raw *waE2E.Message) *events.Message {
-	sender := jid(m.Sender)
-	if m.FromMe {
-		sender = jid(c.w.SelfPN())
-	}
-	info := types.MessageInfo{
-		MessageSource: types.MessageSource{
-			Chat: jid(m.Chat), Sender: sender, SenderAlt: jid(m.SenderAlt),
-			IsFromMe: m.FromMe, IsGroup: model.IsGroup(m.Chat),
-		},
-		ID:        m.ID,
-		Timestamp: time.UnixMilli(m.T),
-	}
-	evt := &events.Message{Info: info, RawMessage: proto.Clone(raw).(*waE2E.Message)}
-	return evt.UnwrapRaw()
 }
 
 // placeholder is a row the decoder had nothing for: still a row, never a

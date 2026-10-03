@@ -283,8 +283,13 @@ type SessionState struct {
 
 func (s *Session) state() SessionState {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-	return SessionState{Focused: s.focused, Active: s.active, Notifies: s.notifies, Touched: s.touched, FocusedAt: s.focusedAt}
+	st := SessionState{Focused: s.focused, Active: s.active, Notifies: s.notifies, Touched: s.touched, FocusedAt: s.focusedAt}
+	s.mu.Unlock()
+	for _, w := range s.conn.windows() {
+		st.Windows++
+		st.Shown = append(st.Shown, w.params)
+	}
+	return st
 }
 
 // Sessions is every frontend that said hello.

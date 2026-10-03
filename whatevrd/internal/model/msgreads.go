@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -585,4 +586,29 @@ func (r *Reader) Homes(ctx context.Context, addrs, ids []string) (map[string]str
 		out[id] = chat
 	}
 	return out, rows.Err()
+}
+
+// Unseen is what came into addrs up to and with upTo that we have not read
+// here or anywhere, oldest first, at most limit of the newest.
+func (r *Reader) Unseen(ctx context.Context, addrs []string, upTo Cursor, limit int) ([]Message, error) {
+	in := jsonList(addrs)
+	var mine, seen sql.NullInt64
+	if err := r.db.QueryRowContext(ctx, `SELECT MAX((SELECT MAX(t) FROM msg WHERE chat = j.value AND from_me = 1))
+		FROM json_each(?) j`, in).Scan(&mine); err != nil {
+		return nil, err
+	}
+	if err := r.db.QueryRowContext(ctx, `SELECT MAX(t) FROM f_seen WHERE rchat IN (SELECT value FROM json_each(?))
+		AND mchat IN (SELECT value FROM json_each(?))`, in, in).Scan(&seen); err != nil {
+		return nil, err
+	}
+	ms, err := r.list(ctx, `SELECT `+msgCols+` FROM msg m
+		WHERE m.chat IN (SELECT value FROM json_each(?)) AND m.from_me = 0 AND m.kind NOT LIKE 'stub:%'
+		AND m.t > ? AND (m.t < ? OR m.t = ? AND m.id <= ?)
+		ORDER BY m.t DESC, m.id DESC LIMIT ?`, in, max(mine.Int64, seen.Int64), upTo.T, upTo.T, upTo.ID, limit)
+	if err != nil {
+		return nil, err
+	}
+	ms = dedupe(ms)
+	slices.Reverse(ms)
+	return ms, nil
 }

@@ -190,7 +190,7 @@ func (c *conn) subscribe(ctx context.Context, req *v2.Request) {
 	// sub before its response, so nothing overtakes it
 	go func() {
 		start := time.Now()
-		sub := &subscription{id: id, conn: c, log: log, limit: int(sr.GetLimit())}
+		sub := &subscription{id: id, conn: c, log: log, limit: int(sr.GetLimit()), params: sr}
 		win, res, err := v.Open(log.WithContext(context.Background()), c.sess, sr)
 		if err != nil {
 			e := asError(err)

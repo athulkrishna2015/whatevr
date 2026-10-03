@@ -81,6 +81,13 @@ func (ids *IDs) add(addr string, a assigned) {
 	ids.byAddr[addr] = a
 }
 
+// Forget drops every id, for a log that was just emptied.
+func (ids *IDs) Forget() {
+	ids.mu.Lock()
+	defer ids.mu.Unlock()
+	ids.byAddr, ids.byID = map[string]assigned{}, map[string]given{}
+}
+
 func randomID() string {
 	var b [10]byte
 	if _, err := rand.Read(b[:]); err != nil {

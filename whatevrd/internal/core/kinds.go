@@ -337,6 +337,7 @@ type LocalHead struct {
 	DirectPath string `json:"direct_path,omitempty"`
 	// Invite is the group an invite resolved to, Error why it did not
 	Invite json.RawMessage `json:"invite,omitempty"`
+	N      int             `json:"n,omitempty"`
 }
 
 const (
@@ -349,6 +350,8 @@ const (
 	MediaPreview  = "preview"
 	MediaDirect   = "direct"
 	LocalInvite   = "invite"
+	// the phone was asked to resend a message that did not decrypt; N counts
+	LocalAsked = "asked"
 )
 
 // AvatarHead is one picture fetch and how it went.

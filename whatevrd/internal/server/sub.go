@@ -60,11 +60,12 @@ type sent struct {
 // pass reads the window, compares it with what was sent and queues the
 // difference as one update.
 type subscription struct {
-	id   uint64
-	conn *conn
-	win  Window
-	bnd  Bounded
-	log  zerolog.Logger
+	id     uint64
+	conn   *conn
+	win    Window
+	bnd    Bounded
+	log    zerolog.Logger
+	params *v2.Subscribe
 
 	mu        sync.Mutex
 	limit     int

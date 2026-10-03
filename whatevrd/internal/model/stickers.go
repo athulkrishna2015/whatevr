@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"sort"
 	"strings"
+	"time"
 
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waHistorySync"
@@ -639,13 +640,13 @@ func (r *Reader) ListPackStickers(ctx context.Context, id string) ([]store.Stick
 	return out, nil
 }
 
-// StickerIndex is the newest store index logged, so a fetch that brought
-// nothing new is not logged again.
-func (r *Reader) StickerIndex(ctx context.Context) ([]byte, error) {
+// StickerIndexAt is the newest store index logged and when.
+func (r *Reader) StickerIndexAt(ctx context.Context) ([]byte, time.Time, error) {
 	var body []byte
-	err := r.db.QueryRowContext(ctx, `SELECT body FROM stk WHERE op = ? AND key = ''`, core.StickerIndex).Scan(&body)
+	var t int64
+	err := r.db.QueryRowContext(ctx, `SELECT body, t FROM stk WHERE op = ? AND key = ''`, core.StickerIndex).Scan(&body, &t)
 	if isNoRows(err) {
-		return nil, nil
+		return nil, time.Time{}, nil
 	}
-	return body, err
+	return body, time.UnixMilli(t), err
 }

@@ -2,14 +2,12 @@ package views
 
 import (
 	"context"
-	"encoding/json"
-
-	"google.golang.org/protobuf/encoding/protojson"
 
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 
 	"whatevrd/internal/core"
 	"whatevrd/internal/server"
+	"whatevrd/internal/whatsapp"
 )
 
 func (rs *Reads) privacyView(ctx context.Context, s *server.Session, req *v2.Subscribe) (server.Window, *v2.SubscribeResult, error) {
@@ -54,36 +52,13 @@ func privacyValue(v string) v2.PrivacyValue {
 	return v2.PrivacyValue_PRIVACY_VALUE_UNSPECIFIED
 }
 
-// DefaultPreferences is what a daemon nobody configured does.
-func DefaultPreferences() *v2.Preferences {
-	return v2.Preferences_builder{
-		Notifications:        true,
-		NotificationPreview:  true,
-		AutoDownloadMaxBytes: 16 << 20,
-		AutoFetchMaps:        true,
-	}.Build()
-}
-
-// Preferences is the stored preferences, the defaults when none are. they
-// are kept whole as protojson, written with EmitUnpopulated.
-func Preferences(raw json.RawMessage) *v2.Preferences {
-	if len(raw) == 0 {
-		return DefaultPreferences()
-	}
-	p := &v2.Preferences{}
-	if protojson.Unmarshal(raw, p) != nil {
-		return DefaultPreferences()
-	}
-	return p
-}
-
 // Prefs is the preferences now.
 func (rs *Reads) Prefs(ctx context.Context) (*v2.Preferences, error) {
 	raw, err := rs.r.Prefs(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return Preferences(raw), nil
+	return whatsapp.Preferences(raw), nil
 }
 
 func (rs *Reads) preferencesView(ctx context.Context, s *server.Session, req *v2.Subscribe) (server.Window, *v2.SubscribeResult, error) {
