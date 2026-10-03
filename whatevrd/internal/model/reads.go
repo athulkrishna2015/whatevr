@@ -400,6 +400,40 @@ func (w *World) Name(key string) (name, source string) {
 	return "", ""
 }
 
+// Names is each name key goes by, by where it came from: the saved contact,
+// the push name and the business name, untouched.
+func (w *World) Names(key string) (saved, push, business string) {
+	for _, a := range w.Addrs(key) {
+		if saved == "" {
+			saved = strings.TrimSpace(w.contacts[a])
+		}
+		if saved == "" {
+			saved = strings.TrimSpace(w.names[a][NameInline])
+		}
+		if push == "" {
+			push = strings.TrimSpace(w.names[a][NamePush])
+		}
+		if business == "" {
+			business = strings.TrimSpace(w.names[a][NameBusiness])
+		}
+	}
+	return saved, push, business
+}
+
+// Username is the key of whoever goes by username u, "" for nobody.
+func (w *World) Username(u string) string {
+	u = strings.TrimPrefix(strings.TrimSpace(u), "@")
+	if u == "" {
+		return ""
+	}
+	for a, ns := range w.names {
+		if strings.EqualFold(ns[NameUsername], u) {
+			return w.Now(a)
+		}
+	}
+	return ""
+}
+
 // FormatPhone is a number written the way its country writes it.
 func FormatPhone(pn string) string {
 	if v, ok := phones.Load(pn); ok {

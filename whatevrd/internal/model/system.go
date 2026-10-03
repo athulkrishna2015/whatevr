@@ -159,7 +159,7 @@ func foldIdentitySystem(tx *core.Tx, in core.Input) error {
 
 // SystemRow is a system row as a transcript row.
 func systemMessage(chat, id string, t int64, s System) Message {
-	return Message{Chat: chat, ID: id, T: t, Kind: "system", Sender: chat, System: &s}
+	return Message{Chat: chat, Home: chat, ID: id, T: t, Kind: "system", Sender: chat, System: &s}
 }
 
 const sysCols = `s.chat, s.id, s.t, s.type, s.actor, s.who, s.value, s.on_, s.seconds, s.detail`

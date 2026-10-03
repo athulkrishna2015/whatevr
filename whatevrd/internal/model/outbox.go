@@ -159,7 +159,7 @@ func (r *Reader) queuedRows(ctx context.Context, addrs []string, cmp, order stri
 
 // queuedMessage is a send still owed as a row: its body is the message.
 func queuedMessage(o Outgoing) Message {
-	m := Message{Chat: o.Chat, ID: o.ID, FromMe: true, T: o.T, Kind: "outbox", Queued: true, Out: o, Body: o.Body}
+	m := Message{Chat: o.Chat, Home: o.Chat, ID: o.ID, FromMe: true, T: o.T, Kind: "outbox", Queued: true, Out: o, Body: o.Body}
 	if raw, _ := m.Content(); raw != nil {
 		u := Unwrap(raw).Msg
 		if k := Field(u); k != "" {

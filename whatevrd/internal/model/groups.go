@@ -16,7 +16,7 @@ func itoa(n int64) string { return strconv.FormatInt(n, 10) }
 // older that it does not list.
 var groupsDomain = core.Domain{
 	Name:    "groups",
-	Version: 1,
+	Version: 2,
 	Tables:  []string{"grp_field", "grp_member", "grp_floor", "grp_error"},
 	Schema: []string{
 		`CREATE TABLE grp_field (
@@ -105,6 +105,7 @@ func foldGroupInfo(tx *core.Tx, in core.Input) error {
 		{"topic", deref(h.Topic), nameT(h.TopicT, t), h.Topic != nil || h.TopicDel},
 		{"announce", boolText(derefB(h.Announce)), t, h.Announce != nil},
 		{"locked", boolText(derefB(h.Locked)), t, h.Locked != nil},
+		{"approval", boolText(derefB(h.Approval)), t, h.Approval != nil},
 		{"parent", boolText(h.Parent), t, h.Full},
 		{"linked_to", h.LinkedTo, t, h.Full || h.LinkedTo != ""},
 		{"deleted", boolText(h.Deleted), t, h.Deleted},

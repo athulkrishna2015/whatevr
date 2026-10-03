@@ -35,6 +35,8 @@ type IDs struct {
 type assigned struct {
 	id string
 	t  int64
+	// seq breaks a tie of two ids given in one millisecond
+	seq int64
 }
 
 type given struct {
@@ -43,28 +45,28 @@ type given struct {
 }
 
 func (a assigned) older(b assigned) bool {
-	return a.t < b.t || a.t == b.t && a.id < b.id
+	return a.t < b.t || a.t == b.t && a.seq < b.seq
 }
 
 // LoadIDs reads every id in the log.
 func LoadIDs(ctx context.Context, db *core.DB) (*IDs, error) {
 	ids := &IDs{db: db, newID: randomID, byAddr: map[string]assigned{}, byID: map[string]given{}}
-	rows, err := db.Read().QueryContext(ctx, `SELECT at, head FROM inputs WHERE kind = 'person_id' ORDER BY seq`)
+	rows, err := db.Read().QueryContext(ctx, `SELECT seq, at, head FROM inputs WHERE kind = 'person_id' ORDER BY seq`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
-		var at int64
+		var seq, at int64
 		var head sql.NullString
-		if err := rows.Scan(&at, &head); err != nil {
+		if err := rows.Scan(&seq, &at, &head); err != nil {
 			return nil, err
 		}
 		var h core.PersonIDHead
 		if json.Unmarshal([]byte(head.String), &h) != nil || h.Addr == "" || h.ID == "" {
 			continue
 		}
-		ids.add(h.Addr, assigned{id: h.ID, t: at})
+		ids.add(h.Addr, assigned{id: h.ID, t: at, seq: seq})
 	}
 	return ids, rows.Err()
 }
@@ -145,7 +147,7 @@ func (ids *IDs) Ensure(ctx context.Context, w *World, keys ...string) error {
 	for i, a := range fresh {
 		var h core.PersonIDHead
 		_ = json.Unmarshal(ins[i].Head, &h)
-		ids.add(a, assigned{id: h.ID, t: at[seqs[i]]})
+		ids.add(a, assigned{id: h.ID, t: at[seqs[i]], seq: seqs[i]})
 	}
 	return nil
 }

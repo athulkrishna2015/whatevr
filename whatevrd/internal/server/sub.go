@@ -40,6 +40,11 @@ type Bounded interface {
 	Exhausted() bool
 }
 
+// Sized is a window with a size of its own for a subscribe that gave none.
+type Sized interface {
+	DefaultLimit() int
+}
+
 // Merging is a window whose ids can fold into another, chats and people:
 // ReplacedBy is the id a removed one folded into, "" for none.
 type Merging interface {

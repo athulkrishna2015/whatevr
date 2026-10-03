@@ -17,7 +17,11 @@ import (
 type Message struct {
 	// Chat is the address it came under, which may be one of several a chat
 	// row folds together
-	Chat      string
+	Chat string
+	// Home is the address the first copy to arrive came under: a second copy
+	// under the chat's other address may have the better body, but the
+	// message is still named by the first
+	Home      string
 	ID        string
 	Sender    string
 	SenderAlt string
@@ -45,6 +49,9 @@ type Message struct {
 	System *System
 
 	Facts Facts
+
+	// row is the msg rowid, which grows in arrival order; 0 for a stub
+	row int64
 }
 
 // Facts is what other messages and app state said about one message.
@@ -116,12 +123,13 @@ type Cursor struct {
 }
 
 const msgCols = `m.chat, m.id, m.sender, m.sender_alt, m.from_me, m.t, m.kind, m.text, m.reply, m.album, m.view_once,
-	m.status, m.src, m.off IS NOT NULL, m.body`
+	m.status, m.src, m.off IS NOT NULL, m.body, m.rowid`
 
 func scanMsg(rows *sql.Rows) (Message, error) {
 	var m Message
 	err := rows.Scan(&m.Chat, &m.ID, &m.Sender, &m.SenderAlt, &m.FromMe, &m.T, &m.Kind, &m.Text, &m.Reply, &m.Album,
-		&m.ViewOnce, &m.Status, &m.Src, &m.History, &m.Body)
+		&m.ViewOnce, &m.Status, &m.Src, &m.History, &m.Body, &m.row)
+	m.Home = m.Chat
 	return m, err
 }
 
@@ -259,19 +267,29 @@ func (r *Reader) Preview(ctx context.Context, w *World, addrs []string) (Message
 // stub is a row with no message behind it yet.
 func stub(m Message) bool { return m.Waiting || m.Queued }
 
-// dedupe keeps one row per message id: the better body.
+// dedupe keeps one row per message id: the better body, named by the
+// first copy.
 func dedupe(ms []Message) []Message {
 	best := map[string]int{}
 	var out []Message
 	for _, m := range ms {
-		if i, ok := best[m.ID]; ok {
-			if m.Src > out[i].Src || stub(out[i]) && !stub(m) {
-				out[i] = m
+		i, ok := best[m.ID]
+		if !ok {
+			if m.Home == "" {
+				m.Home = m.Chat
 			}
+			best[m.ID] = len(out)
+			out = append(out, m)
 			continue
 		}
-		best[m.ID] = len(out)
-		out = append(out, m)
+		home, row := out[i].Home, out[i].row
+		if m.row > 0 && (row == 0 || m.row < row) {
+			home, row = m.Home, m.row
+		}
+		if m.Src > out[i].Src || stub(out[i]) && !stub(m) {
+			out[i] = m
+		}
+		out[i].Home, out[i].row = home, row
 	}
 	return out
 }
@@ -280,7 +298,7 @@ func dedupe(ms []Message) []Message {
 func (r *Reader) Message(ctx context.Context, addrs []string, id string) (Message, bool, error) {
 	ph := placeholders(len(addrs))
 	rows, err := r.db.QueryContext(ctx, `SELECT `+msgCols+` FROM msg m
-		WHERE m.id = ? AND m.chat IN (`+ph+`) ORDER BY m.src DESC LIMIT 1`, append([]any{id}, anys(addrs)...)...)
+		WHERE m.id = ? AND m.chat IN (`+ph+`) ORDER BY m.src DESC`, append([]any{id}, anys(addrs)...)...)
 	if err != nil {
 		return Message{}, false, err
 	}
@@ -294,10 +312,19 @@ func (r *Reader) Message(ctx context.Context, addrs []string, id string) (Messag
 		out = append(out, m)
 	}
 	rows.Close()
+	if len(out) > 1 {
+		for _, m := range out[1:] {
+			if m.row < out[0].row {
+				out[0].Home, out[0].row = m.Home, m.row
+			}
+		}
+		out = out[:1]
+	}
 	if len(out) == 0 {
 		m := Message{Waiting: true, Kind: "waiting"}
 		err := r.db.QueryRowContext(ctx, `SELECT chat, id, sender, from_me, t, unavailable FROM msg_wait WHERE id = ? AND chat IN (`+ph+`)`,
 			append([]any{id}, anys(addrs)...)...).Scan(&m.Chat, &m.ID, &m.Sender, &m.FromMe, &m.T, &m.Wait)
+		m.Home = m.Chat
 		if isNoRows(err) {
 			o, err := scanOutgoing(r.db.QueryRowContext(ctx, `SELECT `+outgoingCols+` FROM outbox o
 				WHERE o.id = ? AND o.chat IN (`+ph+`) AND o.queued_t > 0 AND o.cancelled = 0`, append([]any{id}, anys(addrs)...)...))
@@ -534,4 +561,28 @@ func (r *Reader) MessageChat(ctx context.Context, id string) (string, bool, erro
 		return "", false, nil
 	}
 	return chat, err == nil, err
+}
+
+// Homes is the address each of ids is named by under addrs, for the ones
+// that are here.
+func (r *Reader) Homes(ctx context.Context, addrs, ids []string) (map[string]string, error) {
+	out := map[string]string{}
+	if len(addrs) == 0 || len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT id, chat FROM msg WHERE id IN (`+placeholders(len(ids))+`)
+		AND chat IN (`+placeholders(len(addrs))+`) ORDER BY rowid DESC`, append(anys(ids), anys(addrs)...)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, chat string
+		if err := rows.Scan(&id, &chat); err != nil {
+			return nil, err
+		}
+		// the oldest copy comes last and stays
+		out[id] = chat
+	}
+	return out, rows.Err()
 }

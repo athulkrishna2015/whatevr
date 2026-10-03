@@ -199,6 +199,9 @@ func (c *conn) subscribe(ctx context.Context, req *v2.Request) {
 			return
 		}
 		sub.win = win
+		if d, ok := win.(Sized); ok && sub.limit == 0 {
+			sub.limit = d.DefaultLimit()
+		}
 		if b, ok := win.(Bounded); ok {
 			sub.bnd = b
 		}
