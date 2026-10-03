@@ -417,6 +417,20 @@ Item {
     readonly property bool autoDownloadWanted: {
         if (!hasDownloadableMedia)
             return false;
+        // Offline there is nothing to fetch from: the daemon fails these
+        // instantly, and because the latch in maybeAutoDownloadMedia only arms
+        // once we actually ask — and resets on delegate reuse — every recycled
+        // bubble would ask again. That was the "WhatsApp is not connected" flood.
+        //
+        // The check lives here, in the property, rather than in the imperative
+        // function for two reasons. It is where the question belongs, and it
+        // makes onAutoDownloadWantedChanged fire on reconnect by itself — so the
+        // bubbles parked offline start again — without a Connections block. Such
+        // a block is one QObject per delegate, and the delegate has a hard object
+        // budget per row (tst_chatbubbleperf, MIGRATION.md DN9) that this would
+        // push over by exactly one on every message.
+        if (Whatevr.ProtocolController.connectionPhase !== "connected")
+            return false;
         const prefs = Whatevr.ProtocolController.appPreferences;
         // Above this, nothing fetches itself: a 200 MB video is the user's
         // decision, not a scroll's.
@@ -458,28 +472,14 @@ Item {
             return;
         if (!autoDownloadWanted || mediaDownloading || mediaDownloadError.length > 0)
             return;
-        // Offline, there is nothing to fetch from: the daemon fails these
-        // instantly, and because the latch below only arms once we actually ask,
-        // every recycled delegate asks again — a request storm that goes nowhere.
-        if (Whatevr.ProtocolController.connectionPhase !== "connected")
-            return;
         autoDownloadTriggered = true;
         Whatevr.ProtocolController.downloadMessageMedia(messageId);
     }
 
     onActiveInViewportChanged: maybeAutoDownloadMedia()
+    // Also the reconnect trigger: autoDownloadWanted reads connectionPhase, so a
+    // reconnect flips it and this handler restarts the bubbles parked offline.
     onAutoDownloadWantedChanged: maybeAutoDownloadMedia()
-
-    // The offline gate parks these bubbles with the latch unarmed, so without
-    // this they would not fetch until they next scroll out and back in.
-    // stateChanged is the signal connectionPhase actually declares as its NOTIFY,
-    // and unlike the generated per-property change signal it resolves here.
-    Connections {
-        target: Whatevr.ProtocolController
-        function onStateChanged() {
-            maybeAutoDownloadMedia()
-        }
-    }
 
     // Decode images at a stable, layout-independent resolution. Binding
     // sourceSize to the live displayed width re-decodes the image on every
