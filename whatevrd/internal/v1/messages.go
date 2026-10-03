@@ -46,14 +46,6 @@ func (a *Adapter) build(ctx context.Context, w *model.World, c model.Chat, m mod
 	case raw != nil:
 		out, ok = a.decoder(w).Decode(ctx, a.event(w, m, raw))
 	}
-	if !ok && raw != nil && a.old != nil && model.Unwrap(raw).Msg.GetLiveLocationMessage() != nil {
-		// a live share is the old core's to group for now: it folds every
-		// position into the row that opened the share, and opens one for an
-		// update whose opener never came
-		if old, err := a.old.GetMessage(ctx, MessageID(chatID, m.ID)); err == nil && old.MediaKind == store.MediaKindLiveLocation {
-			out, ok = old, true
-		}
-	}
 	if !ok {
 		out = placeholder(m)
 	}
@@ -91,6 +83,8 @@ func (a *Adapter) build(ctx context.Context, w *model.World, c model.Chat, m mod
 	}
 	if f.Revoked {
 		out = revoked(out)
+	} else if f.Live != nil {
+		out = shared(out, *f.Live, time.Now().UnixMilli())
 	}
 	out.IsStarred = f.Starred
 	out.IsKept = f.Kept
@@ -143,6 +137,32 @@ func (a *Adapter) build(ctx context.Context, w *model.World, c model.Chat, m mod
 		return outgoing(out, m), false
 	}
 	return out, true
+}
+
+// shared is a live location row at its share's newest point.
+func shared(out store.Message, l model.Live, now int64) store.Message {
+	p := store.DecodePayload(out.PayloadJSON)
+	if p.Location == nil {
+		p.Location = &store.LocationPayload{}
+	}
+	if l.Known {
+		p.Location.Latitude, p.Location.Longitude, p.Location.AccuracyMeters = l.Lat, l.Lng, l.Acc
+	}
+	p.Location.Live = true
+	p.LiveShare = &store.LiveSharePayload{
+		Active:         l.Active(now),
+		StartedAt:      l.Start / 1000,
+		ExpiresAt:      l.Ends() / 1000,
+		UpdatedAt:      l.Updated / 1000,
+		SpeedMPS:       l.Speed,
+		HeadingDegrees: l.Heading,
+		PointCount:     l.Points,
+	}
+	if enc, err := store.EncodePayload(p); err == nil {
+		out.PayloadJSON = enc
+		out.PayloadSummary = whatsapp.LocationSummary(p.Location)
+	}
+	return out
 }
 
 // revoked is what a message deleted for everyone leaves behind: who, when

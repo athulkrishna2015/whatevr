@@ -239,13 +239,20 @@ type LiveShare struct {
 	Live             Live
 }
 
-// LiveShares is every share running at now in the chat at addrs, newest
-// first.
+// LiveShares is every share running at now in the chat at addrs, or in
+// every chat for nil addrs, newest first.
 func (r *Reader) LiveShares(ctx context.Context, addrs []string, now int64) ([]LiveShare, error) {
+	in := `l.chat IN (SELECT value FROM json_each(?1))`
+	if addrs == nil {
+		in = `?1 IS NULL`
+	}
+	var list any
+	if addrs != nil {
+		list = jsonList(addrs)
+	}
 	rows, err := r.db.QueryContext(ctx, `SELECT l.chat, l.id, l.sender FROM live l
 		JOIN msg m ON m.chat = l.chat AND m.id = l.id
-		WHERE l.chat IN (SELECT value FROM json_each(?)) AND l.t > ? ORDER BY l.t DESC, l.id DESC`,
-		jsonList(addrs), now-liveWindow)
+		WHERE `+in+` AND l.t > ?2 ORDER BY l.t DESC, l.id DESC`, list, now-liveWindow)
 	if err != nil {
 		return nil, err
 	}

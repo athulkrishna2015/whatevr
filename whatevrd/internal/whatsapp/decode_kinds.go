@@ -280,6 +280,10 @@ func locationPayloadFromMessage(location *waE2E.LocationMessage) *appstore.Locat
 	}
 }
 
+// LocationSummary is the one line a location row carries, see
+// locationSummary.
+func LocationSummary(payload *appstore.LocationPayload) string { return locationSummary(payload) }
+
 // locationSummary is the detail that rides the one-line rendering: the place
 // name if the sender named one, its address if not, and the coordinates as a
 // last resort, because "📍 Location" alone tells you nothing about which one.

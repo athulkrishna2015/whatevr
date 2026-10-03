@@ -364,8 +364,26 @@ func (a *Adapter) SenderDisplay(ctx context.Context, id string) (string, string,
 // the rest of the store interfaces stay with the old store until their
 // features move
 
+// ListLiveLocationShares is the shares running in a chat at now, in seconds.
 func (a *Adapter) ListLiveLocationShares(ctx context.Context, chatID string, now int64) ([]store.LiveLocationShare, error) {
-	return a.old.ListLiveLocationShares(ctx, chatID, now)
+	v, err := a.view(ctx, chatID)
+	if err != nil {
+		if isNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	shares, err := a.r.LiveShares(ctx, v.chat.Addrs, now*1000)
+	if err != nil {
+		return nil, err
+	}
+	id := ChatID(v.w, v.chat.Key)
+	out := make([]store.LiveLocationShare, 0, len(shares))
+	for _, s := range shares {
+		out = append(out, store.LiveLocationShare{MessageID: MessageID(id, s.ID), ChatID: id, SenderID: s.Sender,
+			StartedAt: s.Live.Start / 1000, ExpiresAt: s.Live.Ends() / 1000, LastUpdateAt: s.Live.Updated / 1000})
+	}
+	return out, nil
 }
 
 // CountPendingOutgoingMessages is the outbox: sends this daemon queued that

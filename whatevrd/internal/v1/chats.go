@@ -122,8 +122,8 @@ func (a *Adapter) chat(ctx context.Context, gen uint64, w *model.World, c model.
 }
 
 // preview is the chat's newest row as the list shows it, and whether it can
-// be kept: not when the old store had a say in it (a queued send, a live
-// location the old core groups).
+// be kept: not when the old store had a say in it, a send the old core
+// queued.
 func (a *Adapter) preview(ctx context.Context, w *model.World, c model.Chat) (preview, bool) {
 	last, ok, err := a.r.Preview(ctx, w, c.Addrs)
 	if err != nil {
@@ -134,9 +134,6 @@ func (a *Adapter) preview(ctx context.Context, w *model.World, c model.Chat) (pr
 	}
 	m := a.message(ctx, w, c, last)
 	keep := !last.Queued || len(last.Body) > 0
-	if raw, _ := last.Content(); raw != nil && model.Unwrap(raw).Msg.GetLiveLocationMessage() != nil {
-		keep = false
-	}
 	return preview{ok: true, text: store.ChatPreview(m, c.Group), direction: m.Direction, msgStatus: m.Status}, keep
 }
 

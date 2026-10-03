@@ -162,10 +162,15 @@ func (a *Adapter) OnChange(c core.Change) {
 
 // Run publishes queued changes until ctx ends.
 func (a *Adapter) Run(ctx context.Context) {
+	sweep := time.NewTicker(liveSweep)
+	defer sweep.Stop()
+	running := map[[2]string]bool{}
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-sweep.C:
+			running = a.sweepLive(ctx, running)
 		case c := <-a.queue:
 			if a.resyncPending.Swap(false) {
 				a.forgetWorld()
@@ -229,6 +234,9 @@ func (a *Adapter) publish(ctx context.Context, c core.Change) {
 	for _, g := range c.Keys["pins"] {
 		chats[ChatID(w, w.Now(g))] = true
 	}
+	for _, addr := range c.Keys["live"] {
+		a.daemon.PublishLiveLocationsChanged(ChatID(w, w.Now(addr)))
+	}
 	for id := range chats {
 		if id != "" {
 			a.daemon.PublishChatUpdated(app.Chat{ID: id})
@@ -243,6 +251,39 @@ func (a *Adapter) publish(ctx context.Context, c core.Change) {
 	if len(c.Keys["sticker"]) > 0 || c.All["sticker"] {
 		a.daemon.PublishStickerLibraryChanged(app.StickerSourceFavorite)
 	}
+}
+
+// liveSweep is how often shares are checked for having run out: an end is
+// time passing, which no fold touches.
+const liveSweep = time.Minute
+
+// sweepLive wakes the rows and banners of the shares that stopped running
+// since the last sweep, and returns the ones running now.
+func (a *Adapter) sweepLive(ctx context.Context, was map[[2]string]bool) map[[2]string]bool {
+	shares, err := a.r.LiveShares(ctx, nil, time.Now().UnixMilli())
+	if err != nil {
+		a.log.Warn().Err(err).Msg("v1: live shares")
+		return was
+	}
+	now := make(map[[2]string]bool, len(shares))
+	for _, s := range shares {
+		now[[2]string{s.Chat, s.ID}] = true
+	}
+	var ended []string
+	for k := range was {
+		if !now[k] {
+			ended = append(ended, k[0]+":"+k[1])
+		}
+	}
+	if len(ended) > 0 {
+		chats := make([]string, 0, len(ended))
+		for _, mk := range ended {
+			chat, _, _ := strings.Cut(mk, ":")
+			chats = append(chats, chat)
+		}
+		a.publish(ctx, core.Change{Keys: map[string][]string{"message": ended, "live": chats}})
+	}
+	return now
 }
 
 // publishSync tells the sync view where history stands: each sync type's

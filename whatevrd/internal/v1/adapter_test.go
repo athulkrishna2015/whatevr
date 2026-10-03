@@ -489,3 +489,38 @@ func TestAQueuedSendShowsItsBody(t *testing.T) {
 		t.Fatalf("Q2 %+v %v", m, err)
 	}
 }
+
+// a live share is one row at its newest point, and runs in the chat's
+// banner until it goes quiet
+func TestALiveShareIsOneRowAtItsNewestPoint(t *testing.T) {
+	ctx := context.Background()
+	db := open(t, nil)
+	now := time.Now()
+	live := func(id string, ago time.Duration, m *waE2E.Message) core.Input {
+		at := now.Add(-ago)
+		return in(core.KindMessage, core.MessageHead{Source: core.Source{Chat: ashaPN, Sender: ashaPN}, ID: id, T: at.Unix(), Exact: true}, pb(m), at)
+	}
+	feed(t, db, append(account(),
+		live("S0", 3*time.Minute, &waE2E.Message{LocationMessage: &waE2E.LocationMessage{IsLive: proto.Bool(true),
+			DegreesLatitude: proto.Float64(28), DegreesLongitude: proto.Float64(77)}}),
+		live("S1", 2*time.Minute, &waE2E.Message{LiveLocationMessage: &waE2E.LiveLocationMessage{
+			DegreesLatitude: proto.Float64(28.5), DegreesLongitude: proto.Float64(77.5), SpeedInMps: proto.Float32(3)}}),
+	)...)
+	a := New(db, nil, nil, nil, zerolog.Nop())
+	m, err := a.GetMessage(ctx, ashaPN+":S0")
+	p := store.DecodePayload(m.PayloadJSON)
+	if err != nil || m.MediaKind != store.MediaKindLiveLocation || p.Location == nil || p.Location.Latitude != 28.5 ||
+		p.LiveShare == nil || !p.LiveShare.Active || p.LiveShare.PointCount != 2 || p.LiveShare.SpeedMPS != 3 {
+		t.Fatalf("S0 %+v %+v %v", m, p.LiveShare, err)
+	}
+	if _, err := a.GetMessage(ctx, ashaPN+":S1"); err == nil {
+		t.Fatal("an update is a row of its own")
+	}
+	shares, err := a.ListLiveLocationShares(ctx, ashaPN, now.Unix())
+	if err != nil || len(shares) != 1 || shares[0].MessageID != ashaPN+":S0" {
+		t.Fatalf("running %+v %v", shares, err)
+	}
+	if shares, _ := a.ListLiveLocationShares(ctx, ashaPN, now.Add(20*time.Minute).Unix()); len(shares) != 0 {
+		t.Fatalf("a quiet share still runs %+v", shares)
+	}
+}
