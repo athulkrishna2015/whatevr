@@ -525,7 +525,7 @@ func (c *Client) MarkRead(ctx context.Context, chat string, upTo Ref) error {
 	if err != nil {
 		return err
 	}
-	ms, err := c.r.Unseen(ctx, addrs, model.Cursor{T: last.T, ID: last.ID}, 1000)
+	ms, err := c.r.Unseen(ctx, addrs, model.Cursor{T: last.T, Ord: last.Ord, ID: last.ID}, 1000)
 	if err != nil {
 		return err
 	}

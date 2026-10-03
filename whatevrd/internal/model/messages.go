@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"time"
 
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
@@ -39,7 +40,7 @@ const (
 // inside a history conversation).
 var messagesDomain = core.Domain{
 	Name:    "messages",
-	Version: 11,
+	Version: 12,
 	Tables: []string{"msg", "msg_src", "msg_wait", "msg_gone", "f_reaction", "f_edit", "f_revoke", "f_enc",
 		"f_pin", "f_keep", "f_receipt", "f_ephemeral", "sys_msg", "f_seen", "msg_text", "msg_text_q", "live"},
 	Schema: append([]string{
@@ -62,12 +63,14 @@ var messagesDomain = core.Domain{
 			seq        INTEGER NOT NULL,
 			off        INTEGER,
 			len        INTEGER,
+			-- where it came among messages that share its second, see arrival
+			ord        INTEGER NOT NULL,
 			-- the message's own bytes, so a read never loads the history
 			-- conversation around it from the log
 			body       BLOB,
 			PRIMARY KEY (chat, id)
 		)`,
-		`CREATE INDEX msg_chat_t ON msg (chat, t, id)`,
+		`CREATE INDEX msg_chat_t ON msg (chat, t, ord, id)`,
 		`CREATE INDEX msg_id ON msg (id)`,
 		`CREATE INDEX msg_album ON msg (album) WHERE album != ''`,
 		// what unread counts and what moves its horizon, each a seek
@@ -77,7 +80,7 @@ var messagesDomain = core.Domain{
 		`CREATE INDEX msg_sticker ON msg (t) WHERE from_me = 1 AND kind = 'stickerMessage'`,
 		// search: the newest texts first without reading bodies, and every
 		// three letters of each text, which narrow a rare word to a few rows
-		`CREATE INDEX msg_recent ON msg (t, id, text) WHERE text != ''`,
+		`CREATE INDEX msg_recent ON msg (t, ord, id, text) WHERE text != ''`,
 		`CREATE VIRTUAL TABLE msg_text USING fts5 (text, content = 'msg', content_rowid = 'rowid',
 			tokenize = 'trigram', detail = 'none', columnsize = 0)`,
 		// rows whose text may have changed since the index last caught up, each
@@ -104,6 +107,7 @@ var messagesDomain = core.Domain{
 			len    INTEGER NOT NULL DEFAULT -1,
 			sender TEXT NOT NULL DEFAULT '',
 			alt    TEXT NOT NULL DEFAULT '',
+			ord    INTEGER NOT NULL,
 			PRIMARY KEY (chat, id, seq, off)
 		) WITHOUT ROWID`,
 		// messages a delete took, so what is said about them later is dropped too
@@ -120,6 +124,7 @@ var messagesDomain = core.Domain{
 			sender      TEXT NOT NULL,
 			from_me     INTEGER NOT NULL,
 			t           INTEGER NOT NULL,
+			ord         INTEGER NOT NULL,
 			unavailable TEXT NOT NULL DEFAULT '',
 			PRIMARY KEY (chat, id)
 		)`,
@@ -214,7 +219,7 @@ var messagesDomain = core.Domain{
 			t     INTEGER NOT NULL
 		)`,
 		sysSchema,
-		`CREATE INDEX sys_msg_chat_t ON sys_msg (chat, t, id)`,
+		`CREATE INDEX sys_msg_chat_t ON sys_msg (chat, t, ord, id)`,
 		// the newest message this account read, per address the read came
 		// under and address the message is under. the triggers keep it equal
 		// to the join of msg and f_receipt it stands for, in any order.
@@ -284,6 +289,8 @@ type row struct {
 	hash                        []byte
 	seq                         int64
 	off, len                    int
+	// ord is where it arrived, see arrival
+	ord int64
 	// raw is the sender's own address when sender is Me
 	raw string
 	// conv is the history conversation a message came in, nil for a live one
@@ -325,7 +332,7 @@ func foldMessage(tx *core.Tx, in core.Input) error {
 	}
 	if len(in.Body) == 0 {
 		// scrubbed: only the delete that did it is left to agree with
-		return putMsg(tx, row{chat: chat, id: h.ID, sender: sender, senderAlt: user(h.SenderAlt), t: ms(h.T, in), seq: in.Seq, off: -1, len: -1})
+		return putMsg(tx, row{chat: chat, id: h.ID, sender: sender, senderAlt: user(h.SenderAlt), t: ms(h.T, in), seq: in.Seq, off: -1, len: -1, ord: arrival(in.At, -1)})
 	}
 	var raw waE2E.Message
 	if err := proto.Unmarshal(in.Body, &raw); err != nil {
@@ -341,7 +348,7 @@ func foldMessage(tx *core.Tx, in core.Input) error {
 	sum := sha256.Sum256(in.Body)
 	r := row{
 		chat: chat, id: h.ID, sender: sender, senderAlt: user(h.SenderAlt), fromMe: h.FromMe, raw: user(h.Sender),
-		t: ms(h.T, in), src: src, hash: sum[:], seq: in.Seq, off: -1, len: -1, body: in.Body,
+		t: ms(h.T, in), src: src, hash: sum[:], seq: in.Seq, off: -1, len: -1, ord: arrival(in.At, -1), body: in.Body,
 	}
 	return foldContent(tx, r, &raw, h.FromMe)
 }
@@ -353,7 +360,7 @@ func foldContent(tx *core.Tx, r row, raw *waE2E.Message, fromMe bool) error {
 	if m == nil {
 		return nil
 	}
-	f := fact{chat: r.chat, sender: r.sender, senderAlt: r.senderAlt, raw: r.raw, rawAlt: r.senderAlt, t: r.t, seq: r.seq}
+	f := fact{chat: r.chat, sender: r.sender, senderAlt: r.senderAlt, raw: r.raw, rawAlt: r.senderAlt, t: r.t, seq: r.seq, ord: r.ord}
 	switch {
 	case m.GetProtocolMessage() != nil:
 		return foldProtocol(tx, f, m.GetProtocolMessage())
@@ -431,6 +438,7 @@ type fact struct {
 	raw, rawAlt string
 	t           int64
 	seq         int64
+	ord         int64
 }
 
 func (f fact) at(senderMS int64) fact {
@@ -461,7 +469,7 @@ func foldProtocol(tx *core.Tx, f fact, p *waE2E.ProtocolMessage) error {
 			return err
 		}
 		exp := p.GetEphemeralExpiration()
-		return putSystem(tx, f.chat, f.t, System{Type: "ephemeral", Actor: f.sender, On: exp > 0, Seconds: exp})
+		return putSystem(tx, f.chat, f.t, f.ord, System{Type: "ephemeral", Actor: f.sender, On: exp > 0, Seconds: exp})
 	}
 	return nil
 }
@@ -472,9 +480,9 @@ var marshal = proto.MarshalOptions{Deterministic: true}
 // better body when it came before. a row without a kind only records where
 // the message was, for a delete to find.
 func putMsg(tx *core.Tx, r row) error {
-	if _, err := tx.Exec(`INSERT INTO msg_src (chat, id, t, seq, off, len, sender, alt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	if _, err := tx.Exec(`INSERT INTO msg_src (chat, id, t, seq, off, len, sender, alt, ord) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT DO UPDATE SET sender = excluded.sender, alt = excluded.alt WHERE msg_src.sender = ''`,
-		r.chat, r.id, r.t, r.seq, r.off, r.len, r.sender, r.senderAlt); err != nil {
+		r.chat, r.id, r.t, r.seq, r.off, r.len, r.sender, r.senderAlt, r.ord); err != nil {
 		return err
 	}
 	var clears *[]clear
@@ -507,7 +515,7 @@ func putMsg(tx *core.Tx, r row) error {
 					return err
 				}
 			}
-			return nil
+			return firstTime(tx, r.chat, r.id)
 		}
 	case !isNoRows(err):
 		return err
@@ -517,18 +525,19 @@ func putMsg(tx *core.Tx, r row) error {
 		off, ln = r.off, r.len
 	}
 	if _, err := tx.Exec(`INSERT INTO msg (chat, id, sender, sender_alt, from_me, t, kind, text, reply, album, secret,
-			status, view_once, src, hash, seq, off, len, body)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			status, view_once, src, hash, seq, off, len, body, ord)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (chat, id) DO UPDATE SET sender = excluded.sender, sender_alt = excluded.sender_alt,
 			from_me = excluded.from_me, t = excluded.t, kind = excluded.kind, text = excluded.text,
 			reply = excluded.reply, album = excluded.album, secret = COALESCE(excluded.secret, msg.secret),
 			status = MAX(msg.status, excluded.status), view_once = excluded.view_once, src = excluded.src,
-			hash = excluded.hash, seq = excluded.seq, off = excluded.off, len = excluded.len, body = excluded.body`,
+			hash = excluded.hash, seq = excluded.seq, off = excluded.off, len = excluded.len, body = excluded.body,
+			ord = MIN(msg.ord, excluded.ord)`,
 		r.chat, r.id, r.sender, r.senderAlt, r.fromMe, r.t, r.kind, r.text, r.reply, r.album, r.secret,
-		r.status, r.viewOnce, r.src, r.hash, r.seq, off, ln, r.body); err != nil {
+		r.status, r.viewOnce, r.src, r.hash, r.seq, off, ln, r.body, r.ord); err != nil {
 		return err
 	}
-	if err := firstTime(tx, r.chat, r.id, r.t); err != nil {
+	if err := firstTime(tx, r.chat, r.id); err != nil {
 		return err
 	}
 	tx.Touch("message", r.key())
@@ -539,21 +548,34 @@ func putMsg(tx *core.Tx, r row) error {
 	return nil
 }
 
-// firstTime keeps a message at the earliest time anything gave for it. a
-// message the phone sent again after it did not decrypt comes stamped with
-// the resend; the placeholder and the first copy carry when it was sent.
-func firstTime(tx *core.Tx, chat, id string, t int64) error {
-	var first sql.NullInt64
-	if err := tx.QueryRow(`SELECT MIN(t) FROM (SELECT t FROM msg_src WHERE id = ? AND `+sameChatSQL("chat")+`
-		UNION ALL SELECT t FROM msg_wait WHERE id = ? AND `+sameChatSQL("chat")+`)`,
-		id, chat, chat, chat, id, chat, chat, chat).Scan(&first); err != nil {
+// firstTime keeps a message at the earliest time and arrival anything gave
+// for it. a message the phone sent again after it did not decrypt comes
+// stamped with the resend; the placeholder and the first copy carry when it
+// was sent.
+func firstTime(tx *core.Tx, chat, id string) error {
+	var first, ord sql.NullInt64
+	if err := tx.QueryRow(`SELECT MIN(t), MIN(ord) FROM (SELECT t, ord FROM msg_src WHERE id = ? AND `+sameChatSQL("chat")+`
+		UNION ALL SELECT t, ord FROM msg_wait WHERE id = ? AND `+sameChatSQL("chat")+`)`,
+		id, chat, chat, chat, id, chat, chat, chat).Scan(&first, &ord); err != nil {
 		return err
 	}
-	if !first.Valid || first.Int64 >= t {
+	if !first.Valid {
 		return nil
 	}
-	_, err := tx.Exec(`UPDATE msg SET t = ? WHERE chat = ? AND id = ? AND t > ?`, first.Int64, chat, id, first.Int64)
+	// every copy, as a copy under the chat's other address may have come first
+	_, err := tx.Exec(`UPDATE msg SET t = MIN(t, ?), ord = MIN(ord, ?) WHERE id = ? AND `+sameChatSQL("chat")+`
+		AND (t > ? OR ord > ?)`, first.Int64, ord.Int64, id, chat, chat, chat, first.Int64, ord.Int64)
 	return err
+}
+
+// arrival orders messages that share a second, as whatsapp's own times are
+// whole seconds: by when the input came, and inside a history conversation,
+// which lists newest first, backwards. i is the place in that conversation,
+// -1 for a message that is a whole input. it comes from the input alone, so
+// a fold in any order agrees.
+func arrival(at time.Time, i int) int64 {
+	const places = 1 << 21
+	return at.UnixMilli()<<21 | int64(places-2-min(i, places-2))
 }
 
 // sameChat is the sql for "chat column c names the same chat as ?": equal, or
@@ -928,10 +950,10 @@ func foldUndecryptable(tx *core.Tx, in core.Input) error {
 		}
 		return dropMessage(tx, chat, h.ID)
 	}
-	if _, err := tx.Exec(`INSERT INTO msg_wait (chat, id, sender, from_me, t, unavailable) VALUES (?, ?, ?, ?, ?, ?)
+	if _, err := tx.Exec(`INSERT INTO msg_wait (chat, id, sender, from_me, t, ord, unavailable) VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (chat, id) DO UPDATE SET unavailable = MAX(msg_wait.unavailable, excluded.unavailable),
-			t = MIN(msg_wait.t, excluded.t)`,
-		chat, h.ID, sender, h.FromMe, t, h.UnavailableType); err != nil {
+			t = MIN(msg_wait.t, excluded.t), ord = MIN(msg_wait.ord, excluded.ord)`,
+		chat, h.ID, sender, h.FromMe, t, arrival(in.At, -1), h.UnavailableType); err != nil {
 		return err
 	}
 	// the message itself may be here already, sent again by the phone
@@ -948,7 +970,7 @@ func foldUndecryptable(tx *core.Tx, in core.Input) error {
 	}
 	rows.Close()
 	for _, c := range copies {
-		if err := firstTime(tx, c, h.ID, tMax); err != nil {
+		if err := firstTime(tx, c, h.ID); err != nil {
 			return err
 		}
 		tx.Touch("message", c+":"+h.ID)
@@ -1091,7 +1113,7 @@ func foldHistoryConversation(tx *core.Tx, in core.Input) error {
 	}
 	cv := &conv{clears: clears, names: map[string]stampedName{}}
 	b := in.Body
-	pos := 0
+	pos, i := 0, 0
 	for len(b) > 0 {
 		num, typ, n := protowire.ConsumeTag(b)
 		if n < 0 {
@@ -1111,9 +1133,10 @@ func foldHistoryConversation(tx *core.Tx, in core.Input) error {
 			return protowire.ParseError(m)
 		}
 		start := pos + (m - len(v))
-		if err := foldHistoryMsg(tx, in, chat, v, start, cv); err != nil {
+		if err := foldHistoryMsg(tx, in, chat, v, start, i, cv); err != nil {
 			return err
 		}
+		i++
 		b, pos = b[m:], pos+m
 	}
 	for sender, n := range cv.names {
@@ -1125,7 +1148,7 @@ func foldHistoryConversation(tx *core.Tx, in core.Input) error {
 	return nil
 }
 
-func foldHistoryMsg(tx *core.Tx, in core.Input, chat string, b []byte, off int, cv *conv) error {
+func foldHistoryMsg(tx *core.Tx, in core.Input, chat string, b []byte, off, i int, cv *conv) error {
 	var hm waHistorySync.HistorySyncMsg
 	if err := proto.Unmarshal(b, &hm); err != nil {
 		return err
@@ -1154,7 +1177,7 @@ func foldHistoryMsg(tx *core.Tx, in core.Input, chat string, b []byte, off int, 
 	r := row{
 		chat: chat, id: key.GetID(), sender: sender, fromMe: fromMe, t: t,
 		status: histStatus(w), secret: w.GetMessageSecret(),
-		src: srcHistory, hash: sum[:], seq: in.Seq, off: off, len: len(b), conv: cv, body: b,
+		src: srcHistory, hash: sum[:], seq: in.Seq, off: off, len: len(b), ord: arrival(in.At, i), conv: cv, body: b,
 	}
 	if n := w.GetPushName(); !fromMe && n != "" {
 		if old, ok := cv.names[sender]; !ok || t > old.t || t == old.t && n > old.name {
@@ -1196,7 +1219,7 @@ func keySender(chat string, k *waCommon.MessageKey) string {
 // votes, responses, receipts, pins.
 func foldHistoryFacts(tx *core.Tx, r row, w *waWeb.WebMessageInfo) error {
 	for _, x := range w.GetReactions() {
-		f := fact{chat: r.chat, sender: keySender(r.chat, x.GetKey()), t: x.GetSenderTimestampMS(), seq: r.seq}
+		f := fact{chat: r.chat, sender: keySender(r.chat, x.GetKey()), t: x.GetSenderTimestampMS(), seq: r.seq, ord: r.ord}
 		if err := putReaction(tx, f, r.id, x.GetText()); err != nil {
 			return err
 		}
@@ -1206,7 +1229,7 @@ func foldHistoryFacts(tx *core.Tx, r row, w *waWeb.WebMessageInfo) error {
 		if err != nil {
 			return err
 		}
-		f := fact{chat: r.chat, sender: keySender(r.chat, x.GetPollUpdateMessageKey()), t: x.GetSenderTimestampMS(), seq: r.seq}
+		f := fact{chat: r.chat, sender: keySender(r.chat, x.GetPollUpdateMessageKey()), t: x.GetSenderTimestampMS(), seq: r.seq, ord: r.ord}
 		if err := putEnc(tx, f, &waCommon.MessageKey{ID: &r.id}, useVote, nil, nil, plain); err != nil {
 			return err
 		}
@@ -1216,19 +1239,19 @@ func foldHistoryFacts(tx *core.Tx, r row, w *waWeb.WebMessageInfo) error {
 		if err != nil {
 			return err
 		}
-		f := fact{chat: r.chat, sender: keySender(r.chat, x.GetEventResponseMessageKey()), t: x.GetTimestampMS(), seq: r.seq}
+		f := fact{chat: r.chat, sender: keySender(r.chat, x.GetEventResponseMessageKey()), t: x.GetTimestampMS(), seq: r.seq, ord: r.ord}
 		if err := putEnc(tx, f, &waCommon.MessageKey{ID: &r.id}, useEvent, nil, nil, plain); err != nil {
 			return err
 		}
 	}
 	if p := w.GetPinInChat(); p != nil && p.GetKey().GetID() != "" {
-		f := fact{chat: r.chat, sender: keySender(r.chat, p.GetKey()), t: p.GetSenderTimestampMS(), seq: r.seq}
+		f := fact{chat: r.chat, sender: keySender(r.chat, p.GetKey()), t: p.GetSenderTimestampMS(), seq: r.seq, ord: r.ord}
 		if err := putPin(tx, f, r.id, p.GetType() == waWeb.PinInChat_PIN_FOR_ALL, 0, true); err != nil {
 			return err
 		}
 	}
 	if k := w.GetKeepInChat(); k != nil {
-		f := fact{chat: r.chat, t: k.GetClientTimestampMS(), seq: r.seq}
+		f := fact{chat: r.chat, t: k.GetClientTimestampMS(), seq: r.seq, ord: r.ord}
 		if err := putKeep(tx, f, r.id, k.GetKeepType() == waE2E.KeepType_KEEP_FOR_ALL, true); err != nil {
 			return err
 		}

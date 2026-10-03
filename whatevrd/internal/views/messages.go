@@ -19,9 +19,9 @@ import (
 // messagesLimit is a messages window's size when the subscribe gave none
 const messagesLimit = 50
 
-// msgSort is where a message sits: by time, then whatsapp's id, as the model
-// pages them.
-func msgSort(m model.Message) []byte { return append(asc(nil, m.T), m.ID...) }
+// msgSort is where a message sits: by time, then arrival, then whatsapp's
+// id, as the model pages them.
+func msgSort(m model.Message) []byte { return append(asc(asc(nil, m.T), m.Ord), m.ID...) }
 
 // messageItems is ms as items, ids and avatars landing at finish.
 func (c *rc) messageItems(ch chatCtx, ms []model.Message) []*v2.Upsert {
@@ -139,7 +139,7 @@ func (rs *Reads) unreadAnchor(ctx context.Context, ch model.Chat) (model.Message
 			break
 		}
 		for _, m := range page {
-			from = model.Cursor{T: m.T, ID: m.ID}
+			from = model.Cursor{T: m.T, Ord: m.Ord, ID: m.ID}
 			if m.FromMe || m.Facts.Revoked || strings.HasPrefix(m.Kind, "stub:") {
 				continue
 			}
@@ -259,7 +259,7 @@ func (a *anchoredWin) Items(ctx context.Context, _ int) ([]*v2.Upsert, error) {
 		// deleted since: the window empties rather than failing
 		return nil, nil
 	}
-	at := model.Cursor{T: anchor.T, ID: anchor.ID}
+	at := model.Cursor{T: anchor.T, Ord: anchor.Ord, ID: anchor.ID}
 	older, err := a.rs.r.Messages(ctx, ch.Addrs, at, olderN+1, false)
 	if err != nil {
 		return nil, err

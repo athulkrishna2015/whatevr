@@ -28,11 +28,13 @@ type Message struct {
 	SenderAlt string
 	FromMe    bool
 	T         int64
-	Kind      string
-	Text      string
-	Reply     string
-	Album     string
-	ViewOnce  bool
+	// Ord is where it came among messages sharing T, see arrival
+	Ord      int64
+	Kind     string
+	Text     string
+	Reply    string
+	Album    string
+	ViewOnce bool
 	// Status is history's status for our own messages, see histStatus
 	Status int
 	Src    int
@@ -119,17 +121,18 @@ func (m Message) Content() (*waE2E.Message, *waHistorySync.HistorySyncMsg) {
 
 // Cursor is a place in a chat's transcript.
 type Cursor struct {
-	T  int64
-	ID string
+	T   int64
+	Ord int64
+	ID  string
 }
 
 const msgCols = `m.chat, m.id, m.sender, m.sender_alt, m.from_me, m.t, m.kind, m.text, m.reply, m.album, m.view_once,
-	m.status, m.src, m.off IS NOT NULL, m.body, m.rowid`
+	m.status, m.src, m.off IS NOT NULL, m.body, m.rowid, m.ord`
 
 func scanMsg(rows *sql.Rows) (Message, error) {
 	var m Message
 	err := rows.Scan(&m.Chat, &m.ID, &m.Sender, &m.SenderAlt, &m.FromMe, &m.T, &m.Kind, &m.Text, &m.Reply, &m.Album,
-		&m.ViewOnce, &m.Status, &m.Src, &m.History, &m.Body, &m.row)
+		&m.ViewOnce, &m.Status, &m.Src, &m.History, &m.Body, &m.row, &m.Ord)
 	m.Home = m.Chat
 	return m, err
 }
@@ -139,7 +142,7 @@ func scanMsg(rows *sql.Rows) (Message, error) {
 // page is the rows q picks, with their bodies: q selects rowids from msg m,
 // sorts and limits, so only the page's bodies are read.
 func page(q, order string) string {
-	return `SELECT ` + msgCols + ` FROM (` + q + `) k JOIN msg m ON m.rowid = k.r ORDER BY m.t ` + order + `, m.id ` + order
+	return `SELECT ` + msgCols + ` FROM (` + q + `) k JOIN msg m ON m.rowid = k.r ORDER BY m.t ` + order + `, m.ord ` + order + `, m.id ` + order
 }
 
 // byChat is the first rows by time of each of n addresses that match where,
@@ -147,14 +150,14 @@ func page(q, order string) string {
 // would sort the whole chat to take a page.
 func byChat(n int, where, order string) string {
 	part := `SELECT * FROM (SELECT m.rowid AS r FROM msg m WHERE m.chat = ? AND ` + where +
-		` ORDER BY m.t ` + order + `, m.id ` + order + ` LIMIT ?)`
+		` ORDER BY m.t ` + order + `, m.ord ` + order + `, m.id ` + order + ` LIMIT ?)`
 	parts := make([]string, n)
 	for i := range parts {
 		parts[i] = part
 	}
 	return `SELECT ` + msgCols + ` FROM (` + strings.Join(parts, ` UNION ALL `) + `) k
 		JOIN msg m ON m.rowid = k.r
-		ORDER BY m.t ` + order + `, m.id ` + order + ` LIMIT ?`
+		ORDER BY m.t ` + order + `, m.ord ` + order + `, m.id ` + order + ` LIMIT ?`
 }
 
 func byChatArgs(addrs []string, where []any, limit int) []any {
@@ -174,9 +177,9 @@ func (r *Reader) Messages(ctx context.Context, addrs []string, from Cursor, limi
 		limit = 50
 	}
 	ph := placeholders(len(addrs))
-	cmp, order := `(m.t < ? OR m.t = ? AND m.id < ?)`, `DESC`
+	cmp, order := `(m.t, m.ord, m.id) < (?, ?, ?)`, `DESC`
 	if asc {
-		cmp, order = `(m.t > ? OR m.t = ? AND m.id > ?)`, `ASC`
+		cmp, order = `(m.t, m.ord, m.id) > (?, ?, ?)`, `ASC`
 	}
 	if from == (Cursor{}) {
 		if asc {
@@ -185,10 +188,10 @@ func (r *Reader) Messages(ctx context.Context, addrs []string, from Cursor, limi
 			from = Cursor{T: tMax, ID: ""}
 		}
 	}
-	args := append(anys(addrs), from.T, from.T, from.ID)
+	args := append(anys(addrs), from.T, from.Ord, from.ID)
 	// twice the page: a message under two addresses comes twice and folds
 	rows, err := r.db.QueryContext(ctx, byChat(len(addrs), cmp+` AND `+albumHidden, order),
-		byChatArgs(addrs, []any{from.T, from.T, from.ID}, limit*2)...)
+		byChatArgs(addrs, []any{from.T, from.Ord, from.ID}, limit*2)...)
 	if err != nil {
 		return nil, err
 	}
@@ -205,28 +208,28 @@ func (r *Reader) Messages(ctx context.Context, addrs []string, from Cursor, limi
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	waits, err := r.db.QueryContext(ctx, `SELECT w.chat, w.id, w.sender, w.from_me, w.t, w.unavailable FROM msg_wait w
+	waits, err := r.db.QueryContext(ctx, `SELECT w.chat, w.id, w.sender, w.from_me, w.t, w.ord, w.unavailable FROM msg_wait w
 		WHERE w.chat IN (`+ph+`) AND `+strings.ReplaceAll(cmp, "m.", "w.")+`
 		AND NOT EXISTS (SELECT 1 FROM msg m WHERE m.id = w.id AND m.chat IN (`+ph+`))
-		ORDER BY w.t `+order+`, w.id `+order+` LIMIT ?`, append(append(args, anys(addrs)...), limit)...)
+		ORDER BY w.t `+order+`, w.ord `+order+`, w.id `+order+` LIMIT ?`, append(append(args, anys(addrs)...), limit)...)
 	if err != nil {
 		return nil, err
 	}
 	for waits.Next() {
 		m := Message{Waiting: true, Kind: "waiting"}
-		if err := waits.Scan(&m.Chat, &m.ID, &m.Sender, &m.FromMe, &m.T, &m.Wait); err != nil {
+		if err := waits.Scan(&m.Chat, &m.ID, &m.Sender, &m.FromMe, &m.T, &m.Ord, &m.Wait); err != nil {
 			waits.Close()
 			return nil, err
 		}
 		out = append(out, m)
 	}
 	waits.Close()
-	queued, err := r.queuedRows(ctx, addrs, cmp, order, []any{from.T, from.T, from.ID}, limit)
+	queued, err := r.queuedRows(ctx, addrs, cmp, order, []any{from.T, from.Ord, from.ID}, limit)
 	if err != nil {
 		return nil, err
 	}
 	out = append(out, queued...)
-	sys, err := r.systemRows(ctx, addrs, cmp, order, []any{from.T, from.T, from.ID}, limit)
+	sys, err := r.systemRows(ctx, addrs, cmp, order, []any{from.T, from.Ord, from.ID}, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -235,6 +238,9 @@ func (r *Reader) Messages(ctx context.Context, addrs []string, from Cursor, limi
 	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].T != out[j].T {
 			return out[i].T > out[j].T != asc
+		}
+		if out[i].Ord != out[j].Ord {
+			return out[i].Ord > out[j].Ord != asc
 		}
 		return out[i].ID > out[j].ID != asc
 	})
@@ -260,7 +266,7 @@ func (r *Reader) Preview(ctx context.Context, w *World, addrs []string) (Message
 			}
 		}
 		last := ms[len(ms)-1]
-		from = Cursor{T: last.T, ID: last.ID}
+		from = Cursor{T: last.T, Ord: last.Ord, ID: last.ID}
 	}
 	return Message{}, false, nil
 }
@@ -323,8 +329,8 @@ func (r *Reader) Message(ctx context.Context, addrs []string, id string) (Messag
 	}
 	if len(out) == 0 {
 		m := Message{Waiting: true, Kind: "waiting"}
-		err := r.db.QueryRowContext(ctx, `SELECT chat, id, sender, from_me, t, unavailable FROM msg_wait WHERE id = ? AND chat IN (`+ph+`)`,
-			append([]any{id}, anys(addrs)...)...).Scan(&m.Chat, &m.ID, &m.Sender, &m.FromMe, &m.T, &m.Wait)
+		err := r.db.QueryRowContext(ctx, `SELECT chat, id, sender, from_me, t, ord, unavailable FROM msg_wait WHERE id = ? AND chat IN (`+ph+`)`,
+			append([]any{id}, anys(addrs)...)...).Scan(&m.Chat, &m.ID, &m.Sender, &m.FromMe, &m.T, &m.Ord, &m.Wait)
 		m.Home = m.Chat
 		if isNoRows(err) {
 			o, err := scanOutgoing(r.db.QueryRowContext(ctx, `SELECT `+outgoingCols+` FROM outbox o
@@ -354,7 +360,7 @@ func (r *Reader) Message(ctx context.Context, addrs []string, id string) (Messag
 func (r *Reader) AlbumChildren(ctx context.Context, chat, album string) ([]Message, error) {
 	// album != '' lets the partial index in, +chat keeps the chat's out
 	rows, err := r.db.QueryContext(ctx, `SELECT `+msgCols+` FROM msg m
-		WHERE m.album = ? AND m.album != '' AND +m.chat = ? ORDER BY m.t, m.id`, album, chat)
+		WHERE m.album = ? AND m.album != '' AND +m.chat = ? ORDER BY m.t, m.ord, m.id`, album, chat)
 	if err != nil {
 		return nil, err
 	}
@@ -389,13 +395,13 @@ func (r *Reader) Starred(ctx context.Context, addrs []string, from Cursor, limit
 	q := `SELECT m.rowid AS r, m.t, m.id FROM msg m
 		WHERE m.rowid IN (SELECT m2.rowid FROM appstate s CROSS JOIN msg m2 ON m2.id = s.b
 			WHERE s.kind = 'star' AND s.op = 'set' AND s.on_ = 1)
-		AND (m.t < ? OR m.t = ? AND m.id < ?)`
-	args := []any{from.T, from.T, from.ID}
+		AND (m.t, m.ord, m.id) < (?, ?, ?)`
+	args := []any{from.T, from.Ord, from.ID}
 	if len(addrs) > 0 {
 		q += ` AND +m.chat IN (` + placeholders(len(addrs)) + `)`
 		args = append(args, anys(addrs)...)
 	}
-	q += ` ORDER BY m.t DESC, m.id DESC LIMIT ?`
+	q += ` ORDER BY m.t DESC, m.ord DESC, m.id DESC LIMIT ?`
 	return r.list(ctx, page(q, "DESC"), append(args, limit)...)
 }
 
@@ -405,7 +411,7 @@ func (r *Reader) Pinned(ctx context.Context, addrs []string) ([]Message, error) 
 	// from the pins, not through the whole chat
 	ms, err := r.list(ctx, `SELECT `+msgCols+` FROM msg m
 		WHERE +m.chat IN (`+ph+`) AND m.id IN (SELECT target FROM f_pin WHERE chat IN (`+ph+`))
-		ORDER BY m.t, m.id`, append(anys(addrs), anys(addrs)...)...)
+		ORDER BY m.t, m.ord, m.id`, append(anys(addrs), anys(addrs)...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -424,10 +430,10 @@ func (r *Reader) Media(ctx context.Context, addrs []string, kinds []string, from
 	if from == (Cursor{}) {
 		from = Cursor{T: tMax}
 	}
-	where := `m.kind IN (` + placeholders(len(kinds)) + `) AND (m.t < ? OR m.t = ? AND m.id < ?)
+	where := `m.kind IN (` + placeholders(len(kinds)) + `) AND (m.t, m.ord, m.id) < (?, ?, ?)
 		AND m.id NOT IN (SELECT target FROM f_revoke WHERE ok = 1)`
 	return r.list(ctx, byChat(len(addrs), where, "DESC"),
-		byChatArgs(addrs, append(anys(kinds), from.T, from.T, from.ID), limit)...)
+		byChatArgs(addrs, append(anys(kinds), from.T, from.Ord, from.ID), limit)...)
 }
 
 // Search finds messages whose words contain query, newest first; addrs
@@ -437,9 +443,9 @@ func (r *Reader) Search(ctx context.Context, query string, addrs []string, from 
 		from = Cursor{T: tMax}
 	}
 	like := "%" + escapeLike(query) + "%"
-	where := `m.text LIKE ? ESCAPE '\' AND (m.t < ? OR m.t = ? AND m.id < ?)
+	where := `m.text LIKE ? ESCAPE '\' AND (m.t, m.ord, m.id) < (?, ?, ?)
 		AND m.id NOT IN (SELECT target FROM f_revoke WHERE ok = 1)`
-	args := []any{like, from.T, from.T, from.ID}
+	args := []any{like, from.T, from.Ord, from.ID}
 	rowids, ok, err := r.searchCandidates(ctx, query)
 	if err != nil {
 		return nil, err
@@ -451,7 +457,7 @@ func (r *Reader) Search(ctx context.Context, query string, addrs []string, from 
 			q += ` AND m.chat IN (` + placeholders(len(addrs)) + `)`
 			args = append(args, anys(addrs)...)
 		}
-		q += ` ORDER BY m.t DESC, m.id DESC LIMIT ?`
+		q += ` ORDER BY m.t DESC, m.ord DESC, m.id DESC LIMIT ?`
 		return r.list(ctx, page(q, "DESC"), append(args, limit)...)
 	}
 	// the word is common or short: its matches are dense, the newest
@@ -464,7 +470,7 @@ func (r *Reader) Search(ctx context.Context, query string, addrs []string, from 
 		// an empty query matches empty texts too, which the index leaves out
 		q = `SELECT m.rowid AS r, m.t, m.id FROM msg m INDEXED BY msg_recent WHERE m.text != '' AND ` + where
 	}
-	q += ` ORDER BY m.t DESC, m.id DESC LIMIT ?`
+	q += ` ORDER BY m.t DESC, m.ord DESC, m.id DESC LIMIT ?`
 	return r.list(ctx, page(q, "DESC"), append(args, limit)...)
 }
 
@@ -603,8 +609,8 @@ func (r *Reader) Unseen(ctx context.Context, addrs []string, upTo Cursor, limit 
 	}
 	ms, err := r.list(ctx, `SELECT `+msgCols+` FROM msg m
 		WHERE m.chat IN (SELECT value FROM json_each(?)) AND m.from_me = 0 AND m.kind NOT LIKE 'stub:%'
-		AND m.t > ? AND (m.t < ? OR m.t = ? AND m.id <= ?)
-		ORDER BY m.t DESC, m.id DESC LIMIT ?`, in, max(mine.Int64, seen.Int64), upTo.T, upTo.T, upTo.ID, limit)
+		AND m.t > ? AND (m.t, m.ord, m.id) <= (?, ?, ?)
+		ORDER BY m.t DESC, m.ord DESC, m.id DESC LIMIT ?`, in, max(mine.Int64, seen.Int64), upTo.T, upTo.Ord, upTo.ID, limit)
 	if err != nil {
 		return nil, err
 	}

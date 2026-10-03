@@ -29,6 +29,7 @@ const sysSchema = `CREATE TABLE sys_msg (
 			chat    TEXT NOT NULL,
 			id      TEXT NOT NULL,
 			t       INTEGER NOT NULL,
+			ord     INTEGER NOT NULL,
 			type    TEXT NOT NULL,
 			actor   TEXT NOT NULL DEFAULT '',
 			who     TEXT NOT NULL DEFAULT '',
@@ -41,7 +42,7 @@ const sysSchema = `CREATE TABLE sys_msg (
 
 // putSystem stores one system row. its id is its content, so the same event
 // told twice is one row.
-func putSystem(tx *core.Tx, chat string, t int64, s System) error {
+func putSystem(tx *core.Tx, chat string, t, ord int64, s System) error {
 	if chat == "" || s.Type == "" {
 		return nil
 	}
@@ -52,9 +53,9 @@ func putSystem(tx *core.Tx, chat string, t int64, s System) error {
 	}
 	sum := sha256.Sum256([]byte(strings.Join([]string{chat, s.Type, s.Actor, who, s.Value, fmt.Sprint(s.On), fmt.Sprint(s.Seconds), s.Detail}, "\x00")))
 	id := fmt.Sprintf("system-%s-%d-%s", s.Type, t/1000, hex.EncodeToString(sum[:6]))
-	if _, err := tx.Exec(`INSERT INTO sys_msg (chat, id, t, type, actor, who, value, on_, seconds, detail)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
-		chat, id, t, s.Type, s.Actor, who, s.Value, s.On, s.Seconds, s.Detail); err != nil {
+	if _, err := tx.Exec(`INSERT INTO sys_msg (chat, id, t, ord, type, actor, who, value, on_, seconds, detail)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO UPDATE SET ord = excluded.ord WHERE excluded.ord < sys_msg.ord`,
+		chat, id, t, ord, s.Type, s.Actor, who, s.Value, s.On, s.Seconds, s.Detail); err != nil {
 		return err
 	}
 	tx.Touch("message", chat+":"+id)
@@ -126,7 +127,7 @@ func foldGroupSystem(tx *core.Tx, in core.Input) error {
 	}
 	for _, s := range rows {
 		s.Actor = actor
-		if err := putSystem(tx, chat, t, s); err != nil {
+		if err := putSystem(tx, chat, t, arrival(in.At, -1), s); err != nil {
 			return err
 		}
 	}
@@ -140,7 +141,7 @@ func foldPictureSystem(tx *core.Tx, in core.Input) error {
 	if err != nil || !IsGroup(h.JID) {
 		return err
 	}
-	return putSystem(tx, user(h.JID), ms(h.T, in), System{Type: "group_photo", Actor: user(h.Author), On: !h.Remove})
+	return putSystem(tx, user(h.JID), ms(h.T, in), arrival(in.At, -1), System{Type: "group_photo", Actor: user(h.Author), On: !h.Remove})
 }
 
 // foldIdentitySystem is a changed security code, written into the chat with
@@ -154,27 +155,27 @@ func foldIdentitySystem(tx *core.Tx, in core.Input) error {
 	if chat == "" || IsGroup(chat) {
 		return nil
 	}
-	return putSystem(tx, chat, ms(h.T, in), System{Type: "identity_change", Who: []string{chat}})
+	return putSystem(tx, chat, ms(h.T, in), arrival(in.At, -1), System{Type: "identity_change", Who: []string{chat}})
 }
 
 // SystemRow is a system row as a transcript row.
-func systemMessage(chat, id string, t int64, s System) Message {
-	return Message{Chat: chat, Home: chat, ID: id, T: t, Kind: "system", Sender: chat, System: &s}
+func systemMessage(chat, id string, t, ord int64, s System) Message {
+	return Message{Chat: chat, Home: chat, ID: id, T: t, Ord: ord, Kind: "system", Sender: chat, System: &s}
 }
 
-const sysCols = `s.chat, s.id, s.t, s.type, s.actor, s.who, s.value, s.on_, s.seconds, s.detail`
+const sysCols = `s.chat, s.id, s.t, s.ord, s.type, s.actor, s.who, s.value, s.on_, s.seconds, s.detail`
 
 func scanSystem(row interface{ Scan(...any) error }) (Message, error) {
 	var chat, id, who string
-	var t int64
+	var t, ord int64
 	var s System
-	if err := row.Scan(&chat, &id, &t, &s.Type, &s.Actor, &who, &s.Value, &s.On, &s.Seconds, &s.Detail); err != nil {
+	if err := row.Scan(&chat, &id, &t, &ord, &s.Type, &s.Actor, &who, &s.Value, &s.On, &s.Seconds, &s.Detail); err != nil {
 		return Message{}, err
 	}
 	if who != "" {
 		_ = json.Unmarshal([]byte(who), &s.Who)
 	}
-	m := systemMessage(chat, id, t, s)
+	m := systemMessage(chat, id, t, ord, s)
 	if s.Actor != "" {
 		m.Sender = s.Actor
 	}
@@ -185,7 +186,7 @@ func scanSystem(row interface{ Scan(...any) error }) (Message, error) {
 func (r *Reader) systemRows(ctx context.Context, addrs []string, cmp, order string, args []any, limit int) ([]Message, error) {
 	ph := placeholders(len(addrs))
 	rows, err := r.db.QueryContext(ctx, `SELECT `+sysCols+` FROM sys_msg s WHERE s.chat IN (`+ph+`) AND `+
-		strings.ReplaceAll(cmp, "m.", "s.")+` ORDER BY s.t `+order+`, s.id `+order+` LIMIT ?`,
+		strings.ReplaceAll(cmp, "m.", "s.")+` ORDER BY s.t `+order+`, s.ord `+order+`, s.id `+order+` LIMIT ?`,
 		append(append(anys(addrs), args...), limit)...)
 	if err != nil {
 		return nil, err

@@ -257,20 +257,20 @@ func checkRevokes(tx *core.Tx, chat, id string) (bool, error) {
 // every edit of it is blanked in the log, what was said about it goes, and a
 // row stays with who sent it and when.
 func tombstone(tx *core.Tx, chat, id string) error {
-	rows, err := tx.Query(`SELECT chat, sender, alt, t, seq, off, len FROM msg_src WHERE id = ? AND `+sameChatSQL("chat")+`
+	rows, err := tx.Query(`SELECT chat, sender, alt, t, seq, off, len, ord FROM msg_src WHERE id = ? AND `+sameChatSQL("chat")+`
 		ORDER BY chat, seq, off`, id, chat, chat, chat)
 	if err != nil {
 		return err
 	}
 	type src struct {
 		chat, sender, alt string
-		t, seq            int64
+		t, seq, ord       int64
 		off, len          int
 	}
 	var srcs []src
 	for rows.Next() {
 		var s src
-		if err := rows.Scan(&s.chat, &s.sender, &s.alt, &s.t, &s.seq, &s.off, &s.len); err != nil {
+		if err := rows.Scan(&s.chat, &s.sender, &s.alt, &s.t, &s.seq, &s.off, &s.len, &s.ord); err != nil {
 			rows.Close()
 			return err
 		}
@@ -282,7 +282,7 @@ func tombstone(tx *core.Tx, chat, id string) error {
 	}
 	type stone struct {
 		sender, alt string
-		t, seq      int64
+		t, seq, ord int64
 	}
 	stones := map[string]*stone{}
 	for _, s := range srcs {
@@ -293,29 +293,29 @@ func tombstone(tx *core.Tx, chat, id string) error {
 			continue
 		}
 		if x := stones[s.chat]; x == nil {
-			stones[s.chat] = &stone{s.sender, s.alt, s.t, s.seq}
+			stones[s.chat] = &stone{s.sender, s.alt, s.t, s.seq, s.ord}
 		} else {
-			x.t, x.seq = min(x.t, s.t), max(x.seq, s.seq)
+			x.t, x.seq, x.ord = min(x.t, s.t), max(x.seq, s.seq), min(x.ord, s.ord)
 			if x.alt == "" {
 				x.alt = s.alt
 			}
 		}
 	}
-	waits, err := tx.Query(`SELECT chat, sender, t FROM msg_wait WHERE id = ? AND `+sameChatSQL("chat"), id, chat, chat, chat)
+	waits, err := tx.Query(`SELECT chat, sender, t, ord FROM msg_wait WHERE id = ? AND `+sameChatSQL("chat"), id, chat, chat, chat)
 	if err != nil {
 		return err
 	}
 	for waits.Next() {
 		var c, sender string
-		var t int64
-		if err := waits.Scan(&c, &sender, &t); err != nil {
+		var t, ord int64
+		if err := waits.Scan(&c, &sender, &t, &ord); err != nil {
 			waits.Close()
 			return err
 		}
 		if x := stones[c]; x == nil {
-			stones[c] = &stone{sender: sender, t: t}
+			stones[c] = &stone{sender: sender, t: t, ord: ord}
 		} else {
-			x.t = min(x.t, t)
+			x.t, x.ord = min(x.t, t), min(x.ord, ord)
 		}
 	}
 	waits.Close()
@@ -357,12 +357,13 @@ func tombstone(tx *core.Tx, chat, id string) error {
 			}
 			continue
 		}
-		if _, err := tx.Exec(`INSERT INTO msg (chat, id, sender, sender_alt, from_me, t, kind, src, hash, seq)
-			VALUES (?, ?, ?, ?, ?, ?, 'revoked', ?, x'', ?)
+		if _, err := tx.Exec(`INSERT INTO msg (chat, id, sender, sender_alt, from_me, t, kind, src, hash, seq, ord)
+			VALUES (?, ?, ?, ?, ?, ?, 'revoked', ?, x'', ?, ?)
 			ON CONFLICT (chat, id) DO UPDATE SET sender = excluded.sender, sender_alt = excluded.sender_alt,
 				from_me = excluded.from_me, t = excluded.t, kind = 'revoked', text = '', reply = '', album = '', secret = NULL,
-				status = 0, view_once = 0, src = excluded.src, hash = x'', seq = excluded.seq, off = NULL, len = NULL, body = NULL`,
-			c, id, s.sender, s.alt, s.sender == Me, s.t, srcHistory, s.seq); err != nil {
+				status = 0, view_once = 0, src = excluded.src, hash = x'', seq = excluded.seq, off = NULL, len = NULL, body = NULL,
+				ord = excluded.ord`,
+			c, id, s.sender, s.alt, s.sender == Me, s.t, srcHistory, s.seq, s.ord); err != nil {
 			return err
 		}
 		tx.Touch("message", c+":"+id)

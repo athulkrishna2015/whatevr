@@ -24,14 +24,14 @@ func naiveSearch(ctx context.Context, db *sql.DB, query string, addrs []string, 
 		from = Cursor{T: tMax}
 	}
 	q := `SELECT m.chat, m.id FROM msg m NOT INDEXED
-		WHERE m.text LIKE ? ESCAPE '\' AND (m.t < ? OR m.t = ? AND m.id < ?)
+		WHERE m.text LIKE ? ESCAPE '\' AND (m.t, m.ord, m.id) < (?, ?, ?)
 		AND m.id NOT IN (SELECT target FROM f_revoke WHERE ok = 1)`
-	args := []any{"%" + escapeLike(query) + "%", from.T, from.T, from.ID}
+	args := []any{"%" + escapeLike(query) + "%", from.T, from.Ord, from.ID}
 	if len(addrs) > 0 {
 		q += ` AND m.chat IN (` + placeholders(len(addrs)) + `)`
 		args = append(args, anys(addrs)...)
 	}
-	q += ` ORDER BY m.t DESC, m.id DESC LIMIT ?`
+	q += ` ORDER BY m.t DESC, m.ord DESC, m.id DESC LIMIT ?`
 	rows, err := db.QueryContext(ctx, q, append(args, limit)...)
 	if err != nil {
 		return nil, err
@@ -137,7 +137,7 @@ func TestTextIndexFollowsEveryChange(t *testing.T) {
 			switch rnd.Intn(5) {
 			case 0, 1:
 				next++
-				_, err = tx.Exec(`INSERT INTO msg (chat, id, sender, from_me, t, kind, text, src, hash, seq) VALUES ('c', ?, 's', 0, 1, 'text', ?, 0, x'', 0)`,
+				_, err = tx.Exec(`INSERT INTO msg (chat, id, sender, from_me, t, kind, text, src, hash, seq, ord) VALUES ('c', ?, 's', 0, 1, 'text', ?, 0, x'', 0, 0)`,
 					fmt.Sprint("m", next), texts[rnd.Intn(len(texts))])
 			case 2:
 				_, err = tx.Exec(`UPDATE msg SET text = ? WHERE rowid = (SELECT rowid FROM msg ORDER BY random() LIMIT 1)`, texts[rnd.Intn(len(texts))])

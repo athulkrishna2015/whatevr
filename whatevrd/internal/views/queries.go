@@ -85,7 +85,7 @@ func (rs *Reads) searchMessages(ctx context.Context, s *server.Session, req *v2.
 		if !ok {
 			return nil, notFound("no message %q", b)
 		}
-		from = model.Cursor{T: m.T, ID: m.ID}
+		from = model.Cursor{T: m.T, Ord: m.Ord, ID: m.ID}
 	}
 	ms, err := rs.r.Search(ctx, query, addrs, from, limit+1)
 	if err != nil {
