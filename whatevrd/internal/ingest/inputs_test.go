@@ -10,6 +10,7 @@ import (
 
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/proto/waServerSync"
 	"go.mau.fi/whatsmeow/proto/waSyncAction"
 	"go.mau.fi/whatsmeow/types"
@@ -122,9 +123,13 @@ func TestEveryOtherKindKeepsItsFacts(t *testing.T) {
 			h := head[core.BusinessNameHead](t, in)
 			return h.New == "Shop" && h.T == 0
 		}},
+		// whatsmeow's clock is no time of the server's
 		{&events.IdentityChange{JID: asha, Timestamp: at, Implicit: true}, core.KindIdentityChange, func(in core.Input) bool {
 			h := head[core.IdentityChangeHead](t, in)
-			return h.Implicit && h.T == at.Unix()
+			return h.Implicit && h.T == 0
+		}},
+		{&events.IdentityChange{JID: asha, Timestamp: at}, core.KindIdentityChange, func(in core.Input) bool {
+			return head[core.IdentityChangeHead](t, in).T == at.Unix()
 		}},
 		{&events.Picture{JID: asha, Author: asha, Timestamp: at, PictureID: "42"}, core.KindPicture, func(in core.Input) bool {
 			return head[core.PictureHead](t, in).PictureID == "42"
@@ -213,4 +218,37 @@ func must[T any](v T, err error) T {
 		panic(err)
 	}
 	return v
+}
+
+func TestHistoryInputsKeepTheWholeBlob(t *testing.T) {
+	hs := &waHistorySync.HistorySync{
+		SyncType:  waHistorySync.HistorySync_RECENT.Enum(),
+		Pushnames: []*waHistorySync.Pushname{{ID: proto.String("1@s.whatsapp.net"), Pushname: proto.String("Asha")}},
+		Conversations: []*waHistorySync.Conversation{
+			{ID: proto.String("1@s.whatsapp.net"), Name: proto.String("a")},
+			{ID: proto.String("2@s.whatsapp.net"), Name: proto.String("b")},
+		},
+	}
+	want := proto.Clone(hs).(*waHistorySync.HistorySync)
+	ins, err := historyInputs(core.HistoryExtraHead{Notification: "n"}, hs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ins) != 3 || ins[2].Kind != core.KindHistoryExtra {
+		t.Fatalf("got %d inputs", len(ins))
+	}
+	got := &waHistorySync.HistorySync{}
+	if err := proto.Unmarshal(ins[2].Body, got); err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range ins[:2] {
+		c := &waHistorySync.Conversation{}
+		if err := proto.Unmarshal(in.Body, c); err != nil {
+			t.Fatal(err)
+		}
+		got.Conversations = append(got.Conversations, c)
+	}
+	if !proto.Equal(got, want) {
+		t.Fatalf("blob changed:\n%v\nwant\n%v", got, want)
+	}
 }

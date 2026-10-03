@@ -6,7 +6,9 @@ import (
 	"sort"
 	"time"
 
+	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waServerSync"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -17,7 +19,9 @@ import (
 
 // headVersion is the layout version of every head below. bump it with any
 // change to one, and teach the folds to read both.
-const headVersion = 1
+//
+// 2: MessageHead.Sent. a v1 head reads as not sent, which it was not.
+const headVersion = 2
 
 var marshal = proto.MarshalOptions{Deterministic: true}
 
@@ -57,7 +61,13 @@ func inputsFor(evt any) ([]core.Input, error) {
 		}
 		return one(core.KindBusinessName, h, nil)
 	case *events.IdentityChange:
-		return one(core.KindIdentityChange, core.IdentityChangeHead{JID: jid(evt.JID), T: unix(evt.Timestamp), Implicit: evt.Implicit}, nil)
+		h := core.IdentityChangeHead{JID: jid(evt.JID), Implicit: evt.Implicit}
+		// an implicit one is whatsmeow's own clock, not the server's: the
+		// stamp stands in, which replay can repeat
+		if !evt.Implicit {
+			h.T = unix(evt.Timestamp)
+		}
+		return one(core.KindIdentityChange, h, nil)
 	case *events.Picture:
 		return one(core.KindPicture, core.PictureHead{
 			JID: jid(evt.JID), Author: jid(evt.Author), T: unix(evt.Timestamp), Remove: evt.Remove, PictureID: evt.PictureID,
@@ -70,6 +80,49 @@ func inputsFor(evt any) ([]core.Input, error) {
 		return one(core.KindBlocklist, h, nil)
 	case *events.PrivacySettings:
 		return one(core.KindPrivacy, privacyHead(evt), nil)
+	case *events.GroupInfo:
+		return one(core.KindGroupInfo, groupChange(evt), nil)
+	case *events.JoinedGroup:
+		h := fullGroup(&evt.GroupInfo, evt.GroupCreated)
+		if evt.Sender != nil {
+			h.By = jid(*evt.Sender)
+		}
+		if evt.SenderPN != nil {
+			h.ByPN = jid(*evt.SenderPN)
+		}
+		h.JoinReason = evt.Reason
+		// when we came in is not given: the fold takes the receive time
+		h.T = 0
+		return one(core.KindGroupInfo, h, nil)
+	case *events.CallOffer:
+		return one(core.KindCall, callHead(evt.BasicCallMeta, "offer"), nil)
+	case *events.CallOfferNotice:
+		h := callHead(evt.BasicCallMeta, "offer")
+		h.Video = evt.Media == "video"
+		return one(core.KindCall, h, nil)
+	case *events.CallAccept:
+		return one(core.KindCall, callHead(evt.BasicCallMeta, "accept"), nil)
+	case *events.CallReject:
+		return one(core.KindCall, callHead(evt.BasicCallMeta, "reject"), nil)
+	case *events.CallTerminate:
+		h := callHead(evt.BasicCallMeta, "terminate")
+		h.Reason = evt.Reason
+		return one(core.KindCall, h, nil)
+	case *events.AppStateSyncComplete:
+		return one(core.KindSyncState, core.SyncStateHead{Domain: "app_state:" + string(evt.Name), Version: evt.Version,
+			State: core.SyncComplete, Recovery: evt.Recovery}, nil)
+	case *events.AppStateSyncError:
+		msg := ""
+		if evt.Error != nil {
+			msg = evt.Error.Error()
+		}
+		return one(core.KindSyncState, core.SyncStateHead{Domain: "app_state:" + string(evt.Name), State: core.SyncError, Error: msg}, nil)
+	case *events.NewsletterJoin:
+		return one(core.KindNewsletter, core.NewsletterHead{JID: jid(evt.ID), Event: "join", Name: evt.ThreadMeta.Name.Text}, nil)
+	case *events.NewsletterLeave:
+		return one(core.KindNewsletter, core.NewsletterHead{JID: jid(evt.ID), Event: "leave", Role: string(evt.Role)}, nil)
+	case *events.NewsletterMuteChange:
+		return one(core.KindNewsletter, core.NewsletterHead{JID: jid(evt.ID), Event: "mute", Mute: string(evt.Mute)}, nil)
 	}
 	return nil, nil
 }
@@ -229,4 +282,19 @@ func unix(t time.Time) int64 {
 		return 0
 	}
 	return t.Unix()
+}
+
+// sentInput is a message this device sent, once the server took it.
+func sentInput(own types.JID, to types.JID, msg *waE2E.Message, resp whatsmeow.SendResponse) (core.Input, error) {
+	body, err := marshal.Marshal(msg)
+	if err != nil {
+		return core.Input{}, err
+	}
+	return input(core.KindMessage, core.MessageHead{
+		Source:   core.Source{Chat: jid(to.ToNonAD()), Sender: jid(own), FromMe: true, Group: to.Server == types.GroupServer},
+		ID:       resp.ID,
+		ServerID: int(resp.ServerID),
+		T:        unix(resp.Timestamp),
+		Sent:     true,
+	}, body)
 }
