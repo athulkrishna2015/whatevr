@@ -154,13 +154,17 @@ var marshal = proto.MarshalOptions{Deterministic: true}
 // overflowed and the whole window must go again under a reset.
 func (s *subscription) pass(limit int, ready, reset bool) bool {
 	start := time.Now()
-	ctx := s.log.WithContext(context.Background())
+	ctx := s.log.WithContext(s.conn.ctx)
 	fetch := 0
 	if s.bnd == nil && limit > 0 {
 		fetch = limit + 1
 	}
 	items, err := s.win.Items(ctx, fetch)
 	if err != nil {
+		if ctx.Err() != nil {
+			// the connection is gone
+			return true
+		}
 		s.log.Warn().Err(err).Int("kept", len(s.sent)).Msg("keeping what was sent after a failed read")
 		if ready {
 			// still answer the subscribe or extend, with what the client has

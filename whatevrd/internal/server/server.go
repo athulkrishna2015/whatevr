@@ -188,7 +188,7 @@ func (s *Server) accept(ctx context.Context, done chan<- error) {
 		log := s.opts.Log.With().Uint64("conn", id).Logger()
 		cctx, stop := context.WithCancel(log.WithContext(context.Background()))
 		c := &conn{srv: s, nc: nc, id: id, log: log, q: newQueue(), done: make(chan struct{}), ctx: cctx, stop: stop,
-			subs: map[uint64]*subscription{}}
+			subs: map[uint64]*subscription{}, inflight: make(chan struct{}, maxInFlight)}
 		c.sess = &Session{conn: c}
 		s.mu.Lock()
 		full := len(s.conns) >= maxConnections
@@ -243,10 +243,10 @@ func (s *Server) sessionChanged() {
 
 // Session is one connected frontend, as session_update describes it.
 type Session struct {
-	conn   *conn
-	client string
+	conn *conn
 
 	mu        sync.Mutex
+	client    string
 	focused   bool
 	active    string
 	notifies  bool
@@ -295,7 +295,7 @@ func (s *Session) state() SessionState {
 func (s *Server) Sessions() []SessionState {
 	var out []SessionState
 	for _, c := range s.connections() {
-		if !c.hello {
+		if !c.hello.Load() {
 			continue
 		}
 		out = append(out, c.sess.state())
@@ -310,7 +310,7 @@ func (s *Server) OpenChat(chatID string) bool {
 	var bestAt time.Time
 	focused := false
 	for _, c := range s.connections() {
-		if !c.hello {
+		if !c.hello.Load() {
 			continue
 		}
 		st := c.sess.state()

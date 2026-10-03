@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -24,6 +25,9 @@ const (
 	writeBuffer  = 64 << 10
 	// a peer that never says hello doesn't keep its fd
 	helloTimeout = 10 * time.Second
+	// past this many commands and opens still running, the connection's
+	// reads wait for one to finish
+	maxInFlight = 32
 )
 
 type conn struct {
@@ -37,8 +41,11 @@ type conn struct {
 	ctx  context.Context
 	stop context.CancelFunc
 
-	hello bool
+	// set once, read by the server's session walks
+	hello atomic.Bool
 	sess  *Session
+	// a token per command or open still running
+	inflight chan struct{}
 
 	subMu   sync.Mutex
 	subs    map[uint64]*subscription
@@ -79,7 +86,7 @@ func (c *conn) readError(err error) {
 	case errors.As(err, &big):
 		c.log.Warn().Uint64("size", big.Size).Msg("a frame over the limit closed the connection")
 		c.respond(errorResponse(0, v2.ErrorCode_ERROR_CODE_INVALID_REQUEST, "frame over 16 MiB"), true)
-	case errors.As(err, &ne) && ne.Timeout() && !c.hello:
+	case errors.As(err, &ne) && ne.Timeout() && !c.hello.Load():
 		c.log.Warn().Msg("no hello in time")
 	default:
 		c.log.Warn().Err(err).Msg("connection read")
@@ -96,13 +103,15 @@ func (c *conn) dispatch(req *v2.Request) {
 		c.handleHello(req)
 		return
 	}
-	if !c.hello {
+	if !c.hello.Load() {
 		c.respond(errorResponse(req.GetId(), v2.ErrorCode_ERROR_CODE_INVALID_REQUEST, "the first request must be hello"), false)
 		return
 	}
 	name := methodName(n)
 	log := c.log.With().Uint64("req", req.GetId()).Str("method", name).Logger()
-	ctx := log.WithContext(context.Background())
+	// a closed connection takes its work with it; a send already logged
+	// stays queued
+	ctx := log.WithContext(c.ctx)
 	switch {
 	case req.HasSubscribe():
 		c.subscribe(ctx, req)
@@ -142,12 +151,31 @@ func (c *conn) dispatch(req *v2.Request) {
 		call()
 		return
 	}
-	go call()
+	if !c.acquire() {
+		return
+	}
+	go func() {
+		defer c.release()
+		call()
+	}()
 }
+
+// acquire takes an in-flight token, waiting while the connection is at
+// maxInFlight. false is the connection closing first.
+func (c *conn) acquire() bool {
+	select {
+	case c.inflight <- struct{}{}:
+		return true
+	case <-c.done:
+		return false
+	}
+}
+
+func (c *conn) release() { <-c.inflight }
 
 func (c *conn) handleHello(req *v2.Request) {
 	h := req.GetHello()
-	if c.hello {
+	if c.hello.Load() {
 		c.respond(errorResponse(req.GetId(), v2.ErrorCode_ERROR_CODE_INVALID_REQUEST, "hello again"), false)
 		return
 	}
@@ -155,9 +183,11 @@ func (c *conn) handleHello(req *v2.Request) {
 		c.respond(errorResponse(req.GetId(), v2.ErrorCode_ERROR_CODE_INVALID_REQUEST, "this daemon speaks protocol 2"), true)
 		return
 	}
-	c.hello = true
 	_ = c.nc.SetReadDeadline(time.Time{})
+	c.sess.mu.Lock()
 	c.sess.client = h.GetClient()
+	c.sess.mu.Unlock()
+	c.hello.Store(true)
 	c.log.Info().Str("client", h.GetClient()).Msg("hello")
 	resp := &v2.Response{}
 	resp.SetId(req.GetId())
@@ -188,10 +218,14 @@ func (c *conn) subscribe(ctx context.Context, req *v2.Request) {
 	log := zerolog.Ctx(ctx).With().Uint64("sub", id).Str("view", viewName(n)).Logger()
 	// opening can read a lot, off the dispatch loop. nothing can name this
 	// sub before its response, so nothing overtakes it
+	if !c.acquire() {
+		return
+	}
 	go func() {
+		defer c.release()
 		start := time.Now()
 		sub := &subscription{id: id, conn: c, log: log, limit: int(sr.GetLimit()), params: sr}
-		win, res, err := v.Open(log.WithContext(context.Background()), c.sess, sr)
+		win, res, err := v.Open(log.WithContext(c.ctx), c.sess, sr)
 		if err != nil {
 			e := asError(err)
 			log.Info().Stringer("code", e.code).Str("error", e.msg).Msg("subscribe failed")
