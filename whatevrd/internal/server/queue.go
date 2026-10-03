@@ -38,8 +38,10 @@ type queue struct {
 	mu      sync.Mutex
 	entries list.List
 	// open is each subscription's update that may still take merges
-	open    map[uint64]*list.Element
-	counts  map[uint64]int
+	open   map[uint64]*list.Element
+	counts map[uint64]int
+	// what each subscription's open update takes on the wire
+	sizes   map[uint64]int
 	live    map[uint64]bool
 	frames  int
 	tripped bool
@@ -47,7 +49,8 @@ type queue struct {
 }
 
 func newQueue() *queue {
-	return &queue{open: map[uint64]*list.Element{}, counts: map[uint64]int{}, live: map[uint64]bool{}, signal: make(chan struct{}, 1)}
+	return &queue{open: map[uint64]*list.Element{}, counts: map[uint64]int{}, sizes: map[uint64]int{}, live: map[uint64]bool{},
+		signal: make(chan struct{}, 1)}
 }
 
 // push queues a response or connection event. it seals every open update so
@@ -70,8 +73,9 @@ func (q *queue) push(frame []byte, closeAfter bool, overflow func() []byte) {
 }
 
 // pushUpdate queues u for its subscription, merged into a waiting one when it
-// can be. false means the subscription fell too far behind: everything it had
-// queued is gone, and it must send a reset.
+// can be. false means the subscription fell too far behind, or the merge
+// outgrew a frame: everything it had queued is gone, and it must send a
+// reset.
 func (q *queue) pushUpdate(u *update) bool {
 	q.mu.Lock()
 	defer q.wake()
@@ -84,16 +88,19 @@ func (q *queue) pushUpdate(u *update) bool {
 	} else if el, ok := q.open[u.sub]; ok {
 		w := el.Value.(*entry).upd
 		for _, id := range u.order {
-			if _, had := w.changes[id]; !had {
+			if old, had := w.changes[id]; had {
+				q.sizes[u.sub] -= changeBytes(old)
+			} else {
 				w.order = append(w.order, id)
 				q.counts[u.sub]++
 			}
 			w.changes[id] = u.changes[id]
+			q.sizes[u.sub] += changeBytes(u.changes[id])
 		}
 		if u.ready {
 			w.ready, w.exhausted = true, u.exhausted
 		}
-		if q.counts[u.sub] > maxQueuedChanges {
+		if q.counts[u.sub] > maxQueuedChanges || q.sizes[u.sub] > maxFrameBytes-frameHeadBudget {
 			q.purgeLocked(u.sub)
 			return false
 		}
@@ -102,6 +109,7 @@ func (q *queue) pushUpdate(u *update) bool {
 	el := q.entries.PushBack(&entry{upd: u})
 	q.open[u.sub] = el
 	q.counts[u.sub] += len(u.order)
+	q.sizes[u.sub] = u.bytes() - frameHeadBudget
 	if !u.reset && q.counts[u.sub] > maxQueuedChanges {
 		q.purgeLocked(u.sub)
 		return false
@@ -134,6 +142,7 @@ func (q *queue) purgeLocked(sub uint64) {
 	}
 	delete(q.open, sub)
 	delete(q.counts, sub)
+	delete(q.sizes, sub)
 }
 
 func (q *queue) pop() (*entry, bool) {
@@ -147,6 +156,7 @@ func (q *queue) pop() (*entry, bool) {
 	if e.upd != nil {
 		if q.open[e.upd.sub] == el {
 			delete(q.open, e.upd.sub)
+			delete(q.sizes, e.upd.sub)
 		}
 		if q.counts[e.upd.sub] -= len(e.upd.order); q.counts[e.upd.sub] <= 0 {
 			delete(q.counts, e.upd.sub)
@@ -164,25 +174,21 @@ func (q *queue) wake() {
 	}
 }
 
-// frames is u as whole Frames, split only when one would pass the frame
-// limit: the first carries reset, the last ready.
-func (u *update) frames() [][]byte {
+// bytes is what u takes as a frame, near enough: the head is a budget.
+func (u *update) bytes() int {
+	n := frameHeadBudget
+	for _, id := range u.order {
+		n += changeBytes(u.changes[id])
+	}
+	return n
+}
+
+// frame is u as one whole Frame. a window fits windowBytes and a merge
+// that outgrows a frame turns into a reset, so one frame always holds it.
+func (u *update) frame() []byte {
 	changes := make([][]byte, 0, len(u.order))
 	for _, id := range u.order {
 		changes = append(changes, u.changes[id])
 	}
-	var out [][]byte
-	var part [][]byte
-	size := frameHeadBudget
-	first := true
-	for _, c := range changes {
-		n := changeBytes(c)
-		if len(part) > 0 && size+n > maxFrameBytes {
-			out = append(out, updateFrame(u.sub, first && u.reset, part, false, false))
-			first, part, size = false, nil, frameHeadBudget
-		}
-		part = append(part, c)
-		size += n
-	}
-	return append(out, updateFrame(u.sub, first && u.reset, part, u.ready, u.exhausted))
+	return updateFrame(u.sub, u.reset, changes, u.ready, u.exhausted)
 }

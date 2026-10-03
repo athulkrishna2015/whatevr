@@ -91,3 +91,40 @@ func TestInFlightCapHoldsReads(t *testing.T) {
 	waitFor(maxInFlight + 1)
 	close(release)
 }
+
+func TestCapsRefuseWithInvalidParams(t *testing.T) {
+	l := &fakeList{}
+	l.set("a")
+	_, c := start(t, l)
+	c.hello()
+	cap := WindowCap(1 << 10)
+	invalid := func(what string) {
+		t.Helper()
+		if e := c.read().GetResponse().GetError(); e.GetCode() != v2.ErrorCode_ERROR_CODE_INVALID_PARAMS {
+			t.Fatalf("%s: %v", what, e)
+		}
+	}
+	c.send(func(r *v2.Request) {
+		s := &v2.Subscribe{}
+		s.SetLimit(uint32(cap + 1))
+		s.SetChats(&v2.ChatsView{})
+		r.SetSubscribe(s)
+	})
+	invalid("a limit over the cap")
+	sub := subscribe(c, uint32(cap-1))
+	c.update()
+	c.send(func(r *v2.Request) {
+		r.SetExtend(v2.Extend_builder{Sub: sub, Count: 2, Direction: v2.Direction_DIRECTION_OLDER}.Build())
+	})
+	invalid("an extend past the cap")
+	for range maxSubs - 1 {
+		subscribe(c, 1)
+		c.update()
+	}
+	c.send(func(r *v2.Request) {
+		s := &v2.Subscribe{}
+		s.SetChats(&v2.ChatsView{})
+		r.SetSubscribe(s)
+	})
+	invalid("one subscription too many")
+}

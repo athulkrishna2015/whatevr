@@ -19,6 +19,10 @@ import (
 // messagesLimit is a messages window's size when the subscribe gave none
 const messagesLimit = 50
 
+// anchoredCap is the most an anchored window holds, the cap the server puts
+// on messages
+var anchoredCap = server.WindowCap(messageBytes)
+
 // msgSort is where a message sits: by time, then arrival, then whatsapp's
 // id, as the model pages them.
 func msgSort(m model.Message) []byte { return append(asc(asc(nil, m.T), m.Ord), m.ID...) }
@@ -227,6 +231,13 @@ func (a *anchoredWin) Extend(d v2.Direction, count int) {
 	a.lastDir = d
 }
 
+// Size is the window's reach: the anchor and both sides.
+func (a *anchoredWin) Size() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.older + 1 + a.newer
+}
+
 func (a *anchoredWin) Exhausted() bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -265,7 +276,7 @@ func (a *anchoredWin) Items(ctx context.Context, _ int) ([]*v2.Upsert, error) {
 		return nil, err
 	}
 	olderExhausted := len(older) <= olderN
-	older = limited(older, olderN)
+	older = older[:min(len(older), olderN)]
 	newerLimit := newerN + 1
 	if live {
 		newerLimit = math.MaxInt32
@@ -276,20 +287,32 @@ func (a *anchoredWin) Items(ctx context.Context, _ int) ([]*v2.Upsert, error) {
 	}
 	newerExhausted := live || len(newer) <= newerN
 	if !live {
-		newer = limited(newer, newerN)
+		newer = newer[:min(len(newer), newerN)]
+	}
+	slices.Reverse(older)
+	window := slices.Concat(older, []model.Message{anchor}, newer)
+	// at the live edge new messages grow the window: past the cap the oldest
+	// go, and the anchor moves up to the oldest kept
+	drop := len(window) - anchoredCap
+	if drop > 0 {
+		window = window[drop:]
+		older, olderExhausted = nil, false
+		anchor, newer = window[0], window[1:]
 	}
 
 	a.mu.Lock()
 	a.olderExhausted, a.newerExhausted = olderExhausted, newerExhausted
-	if newerExhausted {
+	switch {
+	case drop > 0:
+		a.anchor, a.older, a.newer = anchor.ID, 0, len(newer)
+		a.live = true
+	case newerExhausted:
 		a.live = true
 		// the reach says what is held, so a later extend never asks for less
 		a.newer = max(a.newer, len(newer))
 	}
 	a.mu.Unlock()
 
-	slices.Reverse(older)
-	window := slices.Concat(older, []model.Message{anchor}, newer)
 	out := c.messageItems(chatOf(ch), window)
 	if err := c.finish(); err != nil {
 		return nil, err

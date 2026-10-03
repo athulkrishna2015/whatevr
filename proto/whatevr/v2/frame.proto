@@ -68,6 +68,7 @@ message Request {
     PollVote poll_vote = 69;
     EventRsvp event_rsvp = 70;
     GroupJoinInvite group_join_invite = 71;
+    MessageText message_text = 72;
 
     // 90-99: media
     MediaDownload media_download = 90;
@@ -114,6 +115,7 @@ message Response {
 
     MessageForwardResult message_forward = 66;
     GroupJoinInviteResult group_join_invite = 71;
+    MessageTextResult message_text = 72;
 
     MediaStreamResult media_stream = 91;
     MediaReadResult media_read = 93;
@@ -227,6 +229,9 @@ message Upsert {
     StickerPackRow sticker_pack = 28;
     TransferRow transfer = 29;
     NotificationRow notification = 30;
+    Reaction reaction = 31;
+    PollVoteRow poll_vote = 32;
+    Responder responder = 33;
   }
 }
 
@@ -279,6 +284,9 @@ message Subscribe {
     StickerPackView sticker_pack = 33;
     TransfersView transfers = 34;
     NotificationsView notifications = 35;
+    ReactionsView reactions = 36;
+    PollVotesView poll_votes = 37;
+    EventResponsesView event_responses = 38;
   }
 }
 

@@ -31,12 +31,14 @@ type Window interface {
 
 // Bounded is a window around a point in history with two frontiers of its
 // own, a messages view anchored at unread or a message. it owns its size:
-// Items(0) is all of it.
+// Items(0) is all of it, never more than the view's cap.
 type Bounded interface {
 	Window
 	Extend(d v2.Direction, count int)
 	// Exhausted is whether the frontier last extended has nothing further
 	Exhausted() bool
+	// Size is how many items the window reaches for now
+	Size() int
 }
 
 // Sized is a window with a size of its own for a subscribe that gave none.
@@ -65,6 +67,8 @@ type subscription struct {
 	bnd    Bounded
 	log    zerolog.Logger
 	params *v2.Subscribe
+	// the view's caps, see view
+	itemBytes, cap int
 
 	mu        sync.Mutex
 	limit     int
@@ -106,6 +110,16 @@ func (s *subscription) extend(d v2.Direction, count int) {
 	s.ready, s.dirty = true, true
 	s.runLocked()
 	s.mu.Unlock()
+}
+
+// size is how many items the window reaches for.
+func (s *subscription) size() int {
+	if s.bnd != nil {
+		return s.bnd.Size()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.limit
 }
 
 func (s *subscription) close() {
@@ -195,6 +209,17 @@ func (s *subscription) pass(limit int, ready, reset bool) bool {
 			s.log.Error().Err(err).Str("item", id).Msg("marshal an item")
 			continue
 		}
+		if len(b) > s.itemBytes && s.conn.srv.Fit != nil && s.conn.srv.Fit(it, s.itemBytes) {
+			if b, err = marshal.Marshal(it); err != nil {
+				s.log.Error().Err(err).Str("item", id).Msg("marshal an item")
+				continue
+			}
+		}
+		if len(b) > s.itemBytes {
+			// the window must still fit a frame
+			s.log.Error().Str("item", id).Int("bytes", len(b)).Int("max", s.itemBytes).Msg("a view gave an item over its size")
+			continue
+		}
 		cur := sent{sort: string(it.GetSort()), sum: sha256.Sum256(b)}
 		next[id] = cur
 		if prev, had := s.sent[id]; had && prev == cur {
@@ -219,6 +244,10 @@ func (s *subscription) pass(limit int, ready, reset bool) bool {
 		u.changes[id] = removeChange(id, by)
 	}
 	s.sent = next
+	if !reset && u.bytes() > maxFrameBytes {
+		// more change than one frame holds: send the window whole instead
+		return false
+	}
 	if len(u.order) > 0 || ready || reset {
 		if !s.conn.q.pushUpdate(u) {
 			return false

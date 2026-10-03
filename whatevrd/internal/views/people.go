@@ -22,6 +22,8 @@ type rc struct {
 	later []later
 	// shown is the addresses of everyone the rows named, "self" for us
 	shown map[string]bool
+	// full keeps every reaction, voter and responder in a row
+	full bool
 }
 
 // later is a row field that waits on a key's id and avatar.

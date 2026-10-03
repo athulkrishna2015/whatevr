@@ -236,37 +236,47 @@ func (rs *Reads) sweepLive(ctx context.Context, was map[[2]string]bool) map[[2]s
 // Run.
 func (rs *Reads) Register(srv *server.Server) {
 	rs.srv = srv
-	views := map[protoreflect.FieldNumber]viewFunc{
-		protoreflect.FieldNumber(v2.Subscribe_Connection_case):    rs.connectionView,
-		protoreflect.FieldNumber(v2.Subscribe_Login_case):         rs.loginView,
-		protoreflect.FieldNumber(v2.Subscribe_Sync_case):          rs.syncView,
-		protoreflect.FieldNumber(v2.Subscribe_Problems_case):      rs.problemsView,
-		protoreflect.FieldNumber(v2.Subscribe_Chats_case):         rs.chatsView,
-		protoreflect.FieldNumber(v2.Subscribe_Chat_case):          rs.chatView,
-		protoreflect.FieldNumber(v2.Subscribe_Messages_case):      rs.messagesView,
-		protoreflect.FieldNumber(v2.Subscribe_Typing_case):        rs.typingView,
-		protoreflect.FieldNumber(v2.Subscribe_Presence_case):      rs.presenceView,
-		protoreflect.FieldNumber(v2.Subscribe_Receipts_case):      rs.receiptsView,
-		protoreflect.FieldNumber(v2.Subscribe_Self_case):          rs.selfView,
-		protoreflect.FieldNumber(v2.Subscribe_Contact_case):       rs.contactView,
-		protoreflect.FieldNumber(v2.Subscribe_Group_case):         rs.groupView,
-		protoreflect.FieldNumber(v2.Subscribe_GroupMembers_case):  rs.groupMembersView,
-		protoreflect.FieldNumber(v2.Subscribe_Privacy_case):       rs.privacyView,
-		protoreflect.FieldNumber(v2.Subscribe_Preferences_case):   rs.preferencesView,
-		protoreflect.FieldNumber(v2.Subscribe_Blocklist_case):     rs.blocklistView,
-		protoreflect.FieldNumber(v2.Subscribe_Starred_case):       rs.starredView,
-		protoreflect.FieldNumber(v2.Subscribe_Pinned_case):        rs.pinnedView,
-		protoreflect.FieldNumber(v2.Subscribe_LiveLocations_case): rs.liveLocationsView,
-		protoreflect.FieldNumber(v2.Subscribe_ChatMedia_case):     rs.chatMediaView,
-		protoreflect.FieldNumber(v2.Subscribe_Stickers_case):      rs.stickersView,
-		protoreflect.FieldNumber(v2.Subscribe_StickerPacks_case):  rs.stickerPacksView,
-		protoreflect.FieldNumber(v2.Subscribe_StickerPack_case):   rs.stickerPackView,
-		protoreflect.FieldNumber(v2.Subscribe_Transfers_case):     rs.transfersView,
-		protoreflect.FieldNumber(v2.Subscribe_Notifications_case): rs.notificationsView,
+	type served struct {
+		v viewFunc
+		// what one item may take
+		bytes int
+	}
+	views := map[protoreflect.FieldNumber]served{
+		protoreflect.FieldNumber(v2.Subscribe_Connection_case):     {rs.connectionView, objectBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Login_case):          {rs.loginView, objectBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Sync_case):           {rs.syncView, objectBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Problems_case):       {rs.problemsView, rowBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Chats_case):          {rs.chatsView, chatBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Chat_case):           {rs.chatView, chatBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Messages_case):       {rs.messagesView, messageBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Typing_case):         {rs.typingView, typingBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Presence_case):       {rs.presenceView, personBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Receipts_case):       {rs.receiptsView, personBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Self_case):           {rs.selfView, objectBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Contact_case):        {rs.contactView, objectBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Group_case):          {rs.groupView, objectBytes},
+		protoreflect.FieldNumber(v2.Subscribe_GroupMembers_case):   {rs.groupMembersView, personBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Privacy_case):        {rs.privacyView, objectBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Preferences_case):    {rs.preferencesView, objectBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Blocklist_case):      {rs.blocklistView, personBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Starred_case):        {rs.starredView, messageBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Pinned_case):         {rs.pinnedView, messageBytes},
+		protoreflect.FieldNumber(v2.Subscribe_LiveLocations_case):  {rs.liveLocationsView, rowBytes},
+		protoreflect.FieldNumber(v2.Subscribe_ChatMedia_case):      {rs.chatMediaView, messageBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Stickers_case):       {rs.stickersView, rowBytes},
+		protoreflect.FieldNumber(v2.Subscribe_StickerPacks_case):   {rs.stickerPacksView, rowBytes},
+		protoreflect.FieldNumber(v2.Subscribe_StickerPack_case):    {rs.stickerPackView, rowBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Transfers_case):      {rs.transfersView, rowBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Notifications_case):  {rs.notificationsView, rowBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Reactions_case):      {rs.reactionsView, personBytes},
+		protoreflect.FieldNumber(v2.Subscribe_PollVotes_case):      {rs.pollVotesView, personBytes},
+		protoreflect.FieldNumber(v2.Subscribe_EventResponses_case): {rs.eventResponsesView, personBytes},
 	}
 	for n, v := range views {
-		srv.View(n, v)
+		srv.View(n, v.v, v.bytes)
 	}
+	srv.Fit = func(it *v2.Upsert, limit int) bool { return Fit(it, limit) }
+	srv.Handle(protoreflect.FieldNumber(v2.Request_MessageText_case), rs.messageText)
 	srv.Handle(protoreflect.FieldNumber(v2.Request_SearchChats_case), rs.searchChats)
 	srv.Handle(protoreflect.FieldNumber(v2.Request_SearchMessages_case), rs.searchMessages)
 	srv.Handle(protoreflect.FieldNumber(v2.Request_SearchStickers_case), rs.searchStickers)

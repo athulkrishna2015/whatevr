@@ -51,6 +51,27 @@ message ReceiptRow {
   int64 played_ms = 4;
 }
 
+// everyone who reacted to a message, id is the person; items are Reaction
+message ReactionsView {
+  string message_id = 1;
+}
+
+// every vote on a poll, id is the option index and the person
+message PollVotesView {
+  string message_id = 1;
+}
+
+message PollVoteRow {
+  uint32 option = 1;
+  Person person = 2;
+  int64 t_ms = 3;
+}
+
+// every answer to an event, id is the person; items are Responder
+message EventResponsesView {
+  string message_id = 1;
+}
+
 // live location shares running in a chat, id is the message that opened one
 message LiveLocationsView {
   string chat_id = 1;
@@ -98,6 +119,11 @@ message MessageRow {
   bool view_once = 22;
   // the reason a send failed, for a FAILED row
   string error = 23;
+  // text was cut to fit the row; message_text has all of it
+  bool text_truncated = 24;
+  // every reaction by emoji. reactions holds at most a few of them, the
+  // reactions view has everyone
+  repeated ReactionCount reaction_counts = 25;
 
   oneof body {
     Text text_body = 30;
@@ -158,6 +184,13 @@ message Reaction {
   string emoji = 1;
   Person sender = 2;
   int64 t_ms = 3;
+}
+
+message ReactionCount {
+  string emoji = 1;
+  uint32 count = 2;
+  // one of them is ours
+  bool mine = 3;
 }
 
 // a file whatsapp holds; path is empty until downloaded
@@ -306,8 +339,10 @@ message Poll {
 message PollOption {
   uint32 index = 1;
   string name = 2;
+  // at most a few; the poll_votes view has everyone
   repeated Voter voters = 3;
   bool self_voted = 4;
+  uint32 votes = 5;
 }
 
 message Voter {
@@ -343,11 +378,15 @@ message ScheduledEvent {
   bool extra_guests_allowed = 8;
   bool call = 9;
   int64 reminder_offset_ms = 10;
+  // at most a few; the event_responses view has everyone
   repeated Responder responders = 11;
   // heads, guests included
   uint32 going = 12;
   Rsvp self_response = 13;
   uint32 self_guests = 14;
+  // people, guests not counted
+  uint32 maybe = 15;
+  uint32 not_going = 16;
 }
 
 message Responder {
@@ -656,6 +695,16 @@ message MessageRequestFromPhone {
 message PollVote {
   string message_id = 1;
   repeated uint32 option_indexes = 2;
+}
+
+// the whole text of a row that came with text_truncated
+message MessageText {
+  string message_id = 1;
+}
+
+message MessageTextResult {
+  string text = 1;
+  repeated Mention mentions = 2;
 }
 
 message EventRsvp {

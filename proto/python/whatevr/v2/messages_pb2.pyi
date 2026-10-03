@@ -217,6 +217,34 @@ class ReceiptRow(_message.Message):
     played_ms: int
     def __init__(self, person: _Optional[_Union[_people_pb2.Person, _Mapping]] = ..., delivered_ms: _Optional[int] = ..., read_ms: _Optional[int] = ..., played_ms: _Optional[int] = ...) -> None: ...
 
+class ReactionsView(_message.Message):
+    __slots__ = ("message_id",)
+    MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]
+    message_id: str
+    def __init__(self, message_id: _Optional[str] = ...) -> None: ...
+
+class PollVotesView(_message.Message):
+    __slots__ = ("message_id",)
+    MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]
+    message_id: str
+    def __init__(self, message_id: _Optional[str] = ...) -> None: ...
+
+class PollVoteRow(_message.Message):
+    __slots__ = ("option", "person", "t_ms")
+    OPTION_FIELD_NUMBER: _ClassVar[int]
+    PERSON_FIELD_NUMBER: _ClassVar[int]
+    T_MS_FIELD_NUMBER: _ClassVar[int]
+    option: int
+    person: _people_pb2.Person
+    t_ms: int
+    def __init__(self, option: _Optional[int] = ..., person: _Optional[_Union[_people_pb2.Person, _Mapping]] = ..., t_ms: _Optional[int] = ...) -> None: ...
+
+class EventResponsesView(_message.Message):
+    __slots__ = ("message_id",)
+    MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]
+    message_id: str
+    def __init__(self, message_id: _Optional[str] = ...) -> None: ...
+
 class LiveLocationsView(_message.Message):
     __slots__ = ("chat_id",)
     CHAT_ID_FIELD_NUMBER: _ClassVar[int]
@@ -240,7 +268,7 @@ class LiveLocationRow(_message.Message):
     def __init__(self, message_id: _Optional[str] = ..., sender: _Optional[_Union[_people_pb2.Person, _Mapping]] = ..., started_ms: _Optional[int] = ..., expires_ms: _Optional[int] = ..., updated_ms: _Optional[int] = ..., location: _Optional[_Union[Location, _Mapping]] = ...) -> None: ...
 
 class MessageRow(_message.Message):
-    __slots__ = ("id", "chat_id", "chat_name", "sender", "from_me", "t_ms", "status", "fallback", "text", "mentions", "reply_to", "reactions", "edited", "revoked", "revoked_by", "starred", "forwarded", "forwarded_many", "pinned_until_ms", "edit_until_ms", "kept", "view_once", "error", "text_body", "image", "video", "gif", "voice", "audio", "document", "video_note", "sticker", "location", "live_location", "contacts", "poll", "group_invite", "event", "album", "interactive", "product", "order", "payment", "sticker_pack", "call_log", "system", "waiting", "unsupported")
+    __slots__ = ("id", "chat_id", "chat_name", "sender", "from_me", "t_ms", "status", "fallback", "text", "mentions", "reply_to", "reactions", "edited", "revoked", "revoked_by", "starred", "forwarded", "forwarded_many", "pinned_until_ms", "edit_until_ms", "kept", "view_once", "error", "text_truncated", "reaction_counts", "text_body", "image", "video", "gif", "voice", "audio", "document", "video_note", "sticker", "location", "live_location", "contacts", "poll", "group_invite", "event", "album", "interactive", "product", "order", "payment", "sticker_pack", "call_log", "system", "waiting", "unsupported")
     ID_FIELD_NUMBER: _ClassVar[int]
     CHAT_ID_FIELD_NUMBER: _ClassVar[int]
     CHAT_NAME_FIELD_NUMBER: _ClassVar[int]
@@ -264,6 +292,8 @@ class MessageRow(_message.Message):
     KEPT_FIELD_NUMBER: _ClassVar[int]
     VIEW_ONCE_FIELD_NUMBER: _ClassVar[int]
     ERROR_FIELD_NUMBER: _ClassVar[int]
+    TEXT_TRUNCATED_FIELD_NUMBER: _ClassVar[int]
+    REACTION_COUNTS_FIELD_NUMBER: _ClassVar[int]
     TEXT_BODY_FIELD_NUMBER: _ClassVar[int]
     IMAGE_FIELD_NUMBER: _ClassVar[int]
     VIDEO_FIELD_NUMBER: _ClassVar[int]
@@ -312,6 +342,8 @@ class MessageRow(_message.Message):
     kept: bool
     view_once: bool
     error: str
+    text_truncated: bool
+    reaction_counts: _containers.RepeatedCompositeFieldContainer[ReactionCount]
     text_body: Text
     image: Image
     video: Video
@@ -337,7 +369,7 @@ class MessageRow(_message.Message):
     system: System
     waiting: Waiting
     unsupported: Unsupported
-    def __init__(self, id: _Optional[str] = ..., chat_id: _Optional[str] = ..., chat_name: _Optional[str] = ..., sender: _Optional[_Union[_people_pb2.Person, _Mapping]] = ..., from_me: _Optional[bool] = ..., t_ms: _Optional[int] = ..., status: _Optional[_Union[MessageStatus, str]] = ..., fallback: _Optional[str] = ..., text: _Optional[str] = ..., mentions: _Optional[_Iterable[_Union[Mention, _Mapping]]] = ..., reply_to: _Optional[_Union[Quote, _Mapping]] = ..., reactions: _Optional[_Iterable[_Union[Reaction, _Mapping]]] = ..., edited: _Optional[bool] = ..., revoked: _Optional[bool] = ..., revoked_by: _Optional[_Union[_people_pb2.Person, _Mapping]] = ..., starred: _Optional[bool] = ..., forwarded: _Optional[bool] = ..., forwarded_many: _Optional[bool] = ..., pinned_until_ms: _Optional[int] = ..., edit_until_ms: _Optional[int] = ..., kept: _Optional[bool] = ..., view_once: _Optional[bool] = ..., error: _Optional[str] = ..., text_body: _Optional[_Union[Text, _Mapping]] = ..., image: _Optional[_Union[Image, _Mapping]] = ..., video: _Optional[_Union[Video, _Mapping]] = ..., gif: _Optional[_Union[Gif, _Mapping]] = ..., voice: _Optional[_Union[Voice, _Mapping]] = ..., audio: _Optional[_Union[Audio, _Mapping]] = ..., document: _Optional[_Union[Document, _Mapping]] = ..., video_note: _Optional[_Union[VideoNote, _Mapping]] = ..., sticker: _Optional[_Union[Sticker, _Mapping]] = ..., location: _Optional[_Union[Location, _Mapping]] = ..., live_location: _Optional[_Union[LiveLocation, _Mapping]] = ..., contacts: _Optional[_Union[Contacts, _Mapping]] = ..., poll: _Optional[_Union[Poll, _Mapping]] = ..., group_invite: _Optional[_Union[GroupInvite, _Mapping]] = ..., event: _Optional[_Union[ScheduledEvent, _Mapping]] = ..., album: _Optional[_Union[Album, _Mapping]] = ..., interactive: _Optional[_Union[Interactive, _Mapping]] = ..., product: _Optional[_Union[Product, _Mapping]] = ..., order: _Optional[_Union[Order, _Mapping]] = ..., payment: _Optional[_Union[Payment, _Mapping]] = ..., sticker_pack: _Optional[_Union[StickerPackShare, _Mapping]] = ..., call_log: _Optional[_Union[CallLog, _Mapping]] = ..., system: _Optional[_Union[System, _Mapping]] = ..., waiting: _Optional[_Union[Waiting, _Mapping]] = ..., unsupported: _Optional[_Union[Unsupported, _Mapping]] = ...) -> None: ...
+    def __init__(self, id: _Optional[str] = ..., chat_id: _Optional[str] = ..., chat_name: _Optional[str] = ..., sender: _Optional[_Union[_people_pb2.Person, _Mapping]] = ..., from_me: _Optional[bool] = ..., t_ms: _Optional[int] = ..., status: _Optional[_Union[MessageStatus, str]] = ..., fallback: _Optional[str] = ..., text: _Optional[str] = ..., mentions: _Optional[_Iterable[_Union[Mention, _Mapping]]] = ..., reply_to: _Optional[_Union[Quote, _Mapping]] = ..., reactions: _Optional[_Iterable[_Union[Reaction, _Mapping]]] = ..., edited: _Optional[bool] = ..., revoked: _Optional[bool] = ..., revoked_by: _Optional[_Union[_people_pb2.Person, _Mapping]] = ..., starred: _Optional[bool] = ..., forwarded: _Optional[bool] = ..., forwarded_many: _Optional[bool] = ..., pinned_until_ms: _Optional[int] = ..., edit_until_ms: _Optional[int] = ..., kept: _Optional[bool] = ..., view_once: _Optional[bool] = ..., error: _Optional[str] = ..., text_truncated: _Optional[bool] = ..., reaction_counts: _Optional[_Iterable[_Union[ReactionCount, _Mapping]]] = ..., text_body: _Optional[_Union[Text, _Mapping]] = ..., image: _Optional[_Union[Image, _Mapping]] = ..., video: _Optional[_Union[Video, _Mapping]] = ..., gif: _Optional[_Union[Gif, _Mapping]] = ..., voice: _Optional[_Union[Voice, _Mapping]] = ..., audio: _Optional[_Union[Audio, _Mapping]] = ..., document: _Optional[_Union[Document, _Mapping]] = ..., video_note: _Optional[_Union[VideoNote, _Mapping]] = ..., sticker: _Optional[_Union[Sticker, _Mapping]] = ..., location: _Optional[_Union[Location, _Mapping]] = ..., live_location: _Optional[_Union[LiveLocation, _Mapping]] = ..., contacts: _Optional[_Union[Contacts, _Mapping]] = ..., poll: _Optional[_Union[Poll, _Mapping]] = ..., group_invite: _Optional[_Union[GroupInvite, _Mapping]] = ..., event: _Optional[_Union[ScheduledEvent, _Mapping]] = ..., album: _Optional[_Union[Album, _Mapping]] = ..., interactive: _Optional[_Union[Interactive, _Mapping]] = ..., product: _Optional[_Union[Product, _Mapping]] = ..., order: _Optional[_Union[Order, _Mapping]] = ..., payment: _Optional[_Union[Payment, _Mapping]] = ..., sticker_pack: _Optional[_Union[StickerPackShare, _Mapping]] = ..., call_log: _Optional[_Union[CallLog, _Mapping]] = ..., system: _Optional[_Union[System, _Mapping]] = ..., waiting: _Optional[_Union[Waiting, _Mapping]] = ..., unsupported: _Optional[_Union[Unsupported, _Mapping]] = ...) -> None: ...
 
 class Mention(_message.Message):
     __slots__ = ("person", "start", "end")
@@ -370,6 +402,16 @@ class Reaction(_message.Message):
     sender: _people_pb2.Person
     t_ms: int
     def __init__(self, emoji: _Optional[str] = ..., sender: _Optional[_Union[_people_pb2.Person, _Mapping]] = ..., t_ms: _Optional[int] = ...) -> None: ...
+
+class ReactionCount(_message.Message):
+    __slots__ = ("emoji", "count", "mine")
+    EMOJI_FIELD_NUMBER: _ClassVar[int]
+    COUNT_FIELD_NUMBER: _ClassVar[int]
+    MINE_FIELD_NUMBER: _ClassVar[int]
+    emoji: str
+    count: int
+    mine: bool
+    def __init__(self, emoji: _Optional[str] = ..., count: _Optional[int] = ..., mine: _Optional[bool] = ...) -> None: ...
 
 class Media(_message.Message):
     __slots__ = ("mime", "width", "height", "size_bytes", "duration_ms", "thumbnail_path", "path", "downloading", "download_error")
@@ -580,16 +622,18 @@ class Poll(_message.Message):
     def __init__(self, question: _Optional[str] = ..., options: _Optional[_Iterable[_Union[PollOption, _Mapping]]] = ..., selectable: _Optional[int] = ..., quiz: _Optional[bool] = ..., allow_add_option: _Optional[bool] = ..., ends_ms: _Optional[int] = ..., voters: _Optional[int] = ..., self_voted: _Optional[bool] = ...) -> None: ...
 
 class PollOption(_message.Message):
-    __slots__ = ("index", "name", "voters", "self_voted")
+    __slots__ = ("index", "name", "voters", "self_voted", "votes")
     INDEX_FIELD_NUMBER: _ClassVar[int]
     NAME_FIELD_NUMBER: _ClassVar[int]
     VOTERS_FIELD_NUMBER: _ClassVar[int]
     SELF_VOTED_FIELD_NUMBER: _ClassVar[int]
+    VOTES_FIELD_NUMBER: _ClassVar[int]
     index: int
     name: str
     voters: _containers.RepeatedCompositeFieldContainer[Voter]
     self_voted: bool
-    def __init__(self, index: _Optional[int] = ..., name: _Optional[str] = ..., voters: _Optional[_Iterable[_Union[Voter, _Mapping]]] = ..., self_voted: _Optional[bool] = ...) -> None: ...
+    votes: int
+    def __init__(self, index: _Optional[int] = ..., name: _Optional[str] = ..., voters: _Optional[_Iterable[_Union[Voter, _Mapping]]] = ..., self_voted: _Optional[bool] = ..., votes: _Optional[int] = ...) -> None: ...
 
 class Voter(_message.Message):
     __slots__ = ("person", "t_ms")
@@ -626,7 +670,7 @@ class GroupInvite(_message.Message):
     def __init__(self, chat_id: _Optional[str] = ..., code: _Optional[str] = ..., expires_ms: _Optional[int] = ..., name: _Optional[str] = ..., caption: _Optional[str] = ..., thumbnail_path: _Optional[str] = ..., subject: _Optional[str] = ..., topic: _Optional[str] = ..., member_count: _Optional[int] = ..., joined: _Optional[bool] = ..., resolve_error: _Optional[str] = ...) -> None: ...
 
 class ScheduledEvent(_message.Message):
-    __slots__ = ("name", "description", "starts_ms", "ends_ms", "canceled", "join_link", "location", "extra_guests_allowed", "call", "reminder_offset_ms", "responders", "going", "self_response", "self_guests")
+    __slots__ = ("name", "description", "starts_ms", "ends_ms", "canceled", "join_link", "location", "extra_guests_allowed", "call", "reminder_offset_ms", "responders", "going", "self_response", "self_guests", "maybe", "not_going")
     NAME_FIELD_NUMBER: _ClassVar[int]
     DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
     STARTS_MS_FIELD_NUMBER: _ClassVar[int]
@@ -641,6 +685,8 @@ class ScheduledEvent(_message.Message):
     GOING_FIELD_NUMBER: _ClassVar[int]
     SELF_RESPONSE_FIELD_NUMBER: _ClassVar[int]
     SELF_GUESTS_FIELD_NUMBER: _ClassVar[int]
+    MAYBE_FIELD_NUMBER: _ClassVar[int]
+    NOT_GOING_FIELD_NUMBER: _ClassVar[int]
     name: str
     description: str
     starts_ms: int
@@ -655,7 +701,9 @@ class ScheduledEvent(_message.Message):
     going: int
     self_response: Rsvp
     self_guests: int
-    def __init__(self, name: _Optional[str] = ..., description: _Optional[str] = ..., starts_ms: _Optional[int] = ..., ends_ms: _Optional[int] = ..., canceled: _Optional[bool] = ..., join_link: _Optional[str] = ..., location: _Optional[_Union[Location, _Mapping]] = ..., extra_guests_allowed: _Optional[bool] = ..., call: _Optional[bool] = ..., reminder_offset_ms: _Optional[int] = ..., responders: _Optional[_Iterable[_Union[Responder, _Mapping]]] = ..., going: _Optional[int] = ..., self_response: _Optional[_Union[Rsvp, str]] = ..., self_guests: _Optional[int] = ...) -> None: ...
+    maybe: int
+    not_going: int
+    def __init__(self, name: _Optional[str] = ..., description: _Optional[str] = ..., starts_ms: _Optional[int] = ..., ends_ms: _Optional[int] = ..., canceled: _Optional[bool] = ..., join_link: _Optional[str] = ..., location: _Optional[_Union[Location, _Mapping]] = ..., extra_guests_allowed: _Optional[bool] = ..., call: _Optional[bool] = ..., reminder_offset_ms: _Optional[int] = ..., responders: _Optional[_Iterable[_Union[Responder, _Mapping]]] = ..., going: _Optional[int] = ..., self_response: _Optional[_Union[Rsvp, str]] = ..., self_guests: _Optional[int] = ..., maybe: _Optional[int] = ..., not_going: _Optional[int] = ...) -> None: ...
 
 class Responder(_message.Message):
     __slots__ = ("person", "response", "extra_guests", "t_ms")
@@ -1012,6 +1060,20 @@ class PollVote(_message.Message):
     message_id: str
     option_indexes: _containers.RepeatedScalarFieldContainer[int]
     def __init__(self, message_id: _Optional[str] = ..., option_indexes: _Optional[_Iterable[int]] = ...) -> None: ...
+
+class MessageText(_message.Message):
+    __slots__ = ("message_id",)
+    MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]
+    message_id: str
+    def __init__(self, message_id: _Optional[str] = ...) -> None: ...
+
+class MessageTextResult(_message.Message):
+    __slots__ = ("text", "mentions")
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    MENTIONS_FIELD_NUMBER: _ClassVar[int]
+    text: str
+    mentions: _containers.RepeatedCompositeFieldContainer[Mention]
+    def __init__(self, text: _Optional[str] = ..., mentions: _Optional[_Iterable[_Union[Mention, _Mapping]]] = ...) -> None: ...
 
 class EventRsvp(_message.Message):
     __slots__ = ("message_id", "response", "extra_guests")

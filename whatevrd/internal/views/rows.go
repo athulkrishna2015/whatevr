@@ -1,8 +1,11 @@
 package views
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/json"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -160,7 +163,34 @@ func (c *rc) build(ch chatCtx, m model.Message) (*v2.MessageRow, string) {
 	}
 	c.body(row, ch, m, sm, raw)
 	c.facts(row, m)
+	if !c.full {
+		shorten(row)
+	}
 	return row, line
+}
+
+// listed is how many reactions, voters of an option or responders a row
+// names. the counts cover everyone, and so do the finer views.
+const listed = 16
+
+// shorten keeps the newest listed of each list in row.
+func shorten(row *v2.MessageRow) {
+	if rs := row.GetReactions(); len(rs) > listed {
+		rs = slices.Clone(rs)
+		slices.SortStableFunc(rs, func(a, b *v2.Reaction) int { return cmp.Compare(a.GetTMs(), b.GetTMs()) })
+		row.SetReactions(rs[len(rs)-listed:])
+	}
+	// voters and responders come oldest first
+	for _, o := range row.GetPoll().GetOptions() {
+		if vs := o.GetVoters(); len(vs) > listed {
+			o.SetVoters(vs[len(vs)-listed:])
+		}
+	}
+	if e := row.GetEvent(); e != nil {
+		if rs := e.GetResponders(); len(rs) > listed {
+			e.SetResponders(rs[len(rs)-listed:])
+		}
+	}
 }
 
 // decode is m's content as the decoder reads it, and the message it came
@@ -232,14 +262,29 @@ func (c *rc) facts(row *v2.MessageRow, m model.Message) {
 		}
 	}
 	var out []*v2.Reaction
+	counts := map[string]*v2.ReactionCount{}
 	for _, k := range order {
 		r := newest[k]
 		if r.Emoji == "" {
 			continue
 		}
 		out = append(out, v2.Reaction_builder{Emoji: r.Emoji, Sender: c.now(r.Sender), TMs: r.T}.Build())
+		n := counts[r.Emoji]
+		if n == nil {
+			n = v2.ReactionCount_builder{Emoji: r.Emoji}.Build()
+			counts[r.Emoji] = n
+		}
+		n.SetCount(n.GetCount() + 1)
+		if k == model.Me || c.w.IsSelf(k) {
+			n.SetMine(true)
+		}
 	}
 	row.SetReactions(out)
+	// most first
+	byCount := slices.SortedFunc(maps.Values(counts), func(a, b *v2.ReactionCount) int {
+		return cmp.Or(cmp.Compare(b.GetCount(), a.GetCount()), strings.Compare(a.GetEmoji(), b.GetEmoji()))
+	})
+	row.SetReactionCounts(byCount)
 }
 
 func msgStatus(m model.Message) v2.MessageStatus {
@@ -567,6 +612,9 @@ func (c *rc) tally(out *v2.Poll, poll *waE2E.PollCreationMessage, votes []model.
 			}
 		}
 	}
+	for _, o := range opts {
+		o.SetVotes(uint32(len(o.GetVoters())))
+	}
 	out.SetOptions(opts)
 	out.SetVoters(uint32(n))
 }
@@ -589,7 +637,7 @@ func (c *rc) rsvps(out *v2.ScheduledEvent, responses []model.Sealed) {
 	}
 	sort.Slice(senders, func(i, j int) bool { return newest[senders[i]].T < newest[senders[j]].T })
 	var list []*v2.Responder
-	going := 0
+	going, maybe, notGoing := 0, 0, 0
 	for _, s := range senders {
 		var rm waE2E.EventResponseMessage
 		if proto.Unmarshal(newest[s].Plain, &rm) != nil {
@@ -602,6 +650,9 @@ func (c *rc) rsvps(out *v2.ScheduledEvent, responses []model.Sealed) {
 			going += 1 + int(rm.GetExtraGuestCount())
 		case waE2E.EventResponseMessage_NOT_GOING:
 			resp = v2.Rsvp_RSVP_NOT_GOING
+			notGoing++
+		default:
+			maybe++
 		}
 		if s == model.Me || c.w.IsSelf(s) {
 			out.SetSelfResponse(resp)
@@ -612,4 +663,6 @@ func (c *rc) rsvps(out *v2.ScheduledEvent, responses []model.Sealed) {
 	}
 	out.SetResponders(list)
 	out.SetGoing(uint32(going))
+	out.SetMaybe(uint32(maybe))
+	out.SetNotGoing(uint32(notGoing))
 }

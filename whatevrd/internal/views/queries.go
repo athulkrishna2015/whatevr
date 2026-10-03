@@ -13,13 +13,25 @@ import (
 // searchLimit is a query's page when it asked for none
 const searchLimit = 50
 
+// pageOf is a query's page for limit, held to what a frame takes of items
+// up to itemBytes, the same cap a window of them has.
+func pageOf(limit uint32, itemBytes int) (int, error) {
+	if c := server.WindowCap(itemBytes); int(limit) > c {
+		return 0, invalid("limit %d is over the cap of %d", limit, c)
+	}
+	if limit == 0 {
+		return searchLimit, nil
+	}
+	return int(limit), nil
+}
+
 func (rs *Reads) searchChats(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
 	q := req.GetSearchChats()
 	res := &v2.SearchChatsResult{}
 	if query := strings.TrimSpace(q.GetQuery()); query != "" {
-		limit := int(q.GetLimit())
-		if limit <= 0 {
-			limit = searchLimit
+		limit, err := pageOf(q.GetLimit(), chatBytes)
+		if err != nil {
+			return nil, err
 		}
 		gen := rs.previews.begin()
 		c, err := rs.begin(ctx)
@@ -37,6 +49,9 @@ func (rs *Reads) searchChats(ctx context.Context, s *server.Session, req *v2.Req
 		if err := c.finish(); err != nil {
 			return nil, err
 		}
+		for _, r := range rows {
+			Fit(r, chatBytes)
+		}
 		res.SetChats(rows)
 	}
 	resp := &v2.Response{}
@@ -53,9 +68,9 @@ func (rs *Reads) searchMessages(ctx context.Context, s *server.Session, req *v2.
 	if query == "" {
 		return resp, nil
 	}
-	limit := int(q.GetLimit())
-	if limit <= 0 {
-		limit = searchLimit
+	limit, err := pageOf(q.GetLimit(), messageBytes)
+	if err != nil {
+		return nil, err
 	}
 	c, err := rs.begin(ctx)
 	if err != nil {
@@ -112,15 +127,18 @@ func (rs *Reads) searchMessages(ctx context.Context, s *server.Session, req *v2.
 	if err := c.finish(); err != nil {
 		return nil, err
 	}
+	for _, r := range rows {
+		Fit(r, messageBytes)
+	}
 	res.SetMessages(rows)
 	return resp, nil
 }
 
 func (rs *Reads) searchStickers(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
 	q := req.GetSearchStickers()
-	limit := int(q.GetLimit())
-	if limit <= 0 {
-		limit = searchLimit
+	limit, err := pageOf(q.GetLimit(), rowBytes)
+	if err != nil {
+		return nil, err
 	}
 	res := &v2.SearchStickersResult{}
 	if query := strings.TrimSpace(q.GetQuery()); query != "" {

@@ -56,7 +56,7 @@ type Server struct {
 	opts    Options
 	ln      net.Listener
 	owns    bool
-	views   map[protoreflect.FieldNumber]View
+	views   map[protoreflect.FieldNumber]view
 	methods map[protoreflect.FieldNumber]method
 
 	mu    sync.Mutex
@@ -67,11 +67,14 @@ type Server struct {
 	// OnSessions hears that a frontend came, went, focused, or changed what
 	// it shows. set before Serve
 	OnSessions func()
-	errc       chan error
+	// Fit cuts an item down to limit bytes marshalled, false when it can't.
+	// set before Serve
+	Fit  func(it *v2.Upsert, limit int) bool
+	errc chan error
 }
 
 func New(opts Options) (*Server, error) {
-	s := &Server{opts: opts, views: map[protoreflect.FieldNumber]View{}, methods: map[protoreflect.FieldNumber]method{},
+	s := &Server{opts: opts, views: map[protoreflect.FieldNumber]view{}, methods: map[protoreflect.FieldNumber]method{},
 		conns: map[*conn]struct{}{}, errc: make(chan error, 1)}
 	if opts.Listener != nil {
 		s.ln = opts.Listener
@@ -89,8 +92,32 @@ func New(opts Options) (*Server, error) {
 	return s, nil
 }
 
-// View serves the subscribe arm with field number n.
-func (s *Server) View(n protoreflect.FieldNumber, v View) { s.views[n] = v }
+type view struct {
+	View
+	// itemBytes is the most one marshalled item may take, cap the most items
+	// a window holds
+	itemBytes, cap int
+}
+
+// windowBytes is what a whole window may take: a fill or a reset is one
+// frame, with room for the frame around it.
+const windowBytes = 15 << 20
+
+// WindowCap is the most items a window of items up to itemBytes holds: what
+// fits in windowBytes, down to a power of two.
+func WindowCap(itemBytes int) int {
+	n := 1
+	for n*2*itemBytes <= windowBytes {
+		n *= 2
+	}
+	return n
+}
+
+// View serves the subscribe arm with field number n, whose items never take
+// more than itemBytes marshalled.
+func (s *Server) View(n protoreflect.FieldNumber, v View, itemBytes int) {
+	s.views[n] = view{View: v, itemBytes: itemBytes, cap: WindowCap(itemBytes)}
+}
 
 // Handle serves the request arm with field number n off the connection's
 // loop, for anything that waits on the network.
@@ -344,6 +371,9 @@ type Error struct {
 }
 
 func (e *Error) Error() string { return e.msg }
+
+// Code is the wire's code for err, INTERNAL for one that isn't an Error.
+func Code(err error) v2.ErrorCode { return asError(err).code }
 
 func Errorf(code v2.ErrorCode, format string, args ...any) error {
 	return &Error{code: code, msg: fmt.Sprintf(format, args...)}

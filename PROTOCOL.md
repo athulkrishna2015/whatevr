@@ -103,6 +103,11 @@ Every request gets exactly one response. Responses may come in any order
 relative to other requests. A `subscribe` or `extend` response always comes
 before the updates it causes.
 
+A connection runs at most 32 requests at once; past that the daemon stops
+reading it until one finishes, so a frontend that floods only waits. Closing
+the connection cancels whatever it still has running. A send already
+answered stays queued.
+
 ### Hello
 
 The first request on a connection must be `hello`, with `protocol: 2`. The
@@ -163,8 +168,8 @@ happen in the daemon.
 
 | method | params | result |
 | --- | --- | --- |
-| `subscribe` | one arm of `view` with its params; `limit` for a collection | `SubscribeResult`: `sub`, plus `anchor_id` for a messages view anchored at unread |
-| `extend` | `sub`, `count`, `direction` | `done`; the window fills through updates, then `ready` |
+| `subscribe` | one arm of `view` with its params; `limit` for a collection | `SubscribeResult`: `sub`, plus `anchor_id` for a messages view anchored at unread. `INVALID_PARAMS` for a `limit` over the view's cap, or past 64 subscriptions on the connection |
+| `extend` | `sub`, `count`, `direction` | `done`; the window fills through updates, then `ready`. `INVALID_PARAMS` when the window would pass the view's cap |
 | `unsubscribe` | `sub` | `done` |
 
 Everything a subscription receives is a `ViewUpdate`: one daemon change to
@@ -192,6 +197,11 @@ the id. A different `sort` on an upsert means the item moved.
 consumer. A reset update carries the fresh contents in the same frame, so it
 never shows an empty list.
 
+An update is always one frame. Caps make that hold: every item of a view
+fits that view's item size, a window never holds more than fits 15 MiB of
+them (see *Caps*), and a change bigger than a frame goes out as a reset of
+the window instead.
+
 ### Granularity
 
 An upsert always carries the whole item. When that is wasteful, because the
@@ -218,6 +228,34 @@ would leave a gap); the frontend learns of it from the `chats` view and
 follows the live edge by subscribing at `latest`. Once the newer frontier has
 been extended all the way to the present, it stays there: new messages are
 next to it and arrive as ordinary upserts.
+
+A bounded window that reached the present keeps growing as messages arrive;
+past its cap the oldest messages leave it, and the older frontier moves up
+with them.
+
+### Caps
+
+Every view has an item size, and its cap is how many such items fit 15 MiB,
+rounded down to a power of two. A `limit` of 0 is the view's default, or all
+of it up to the cap. Asking past the cap is `INVALID_PARAMS`; a frontend that
+needs more pages with a fresh subscription.
+
+| item size | cap | views |
+| --- | --- | --- |
+| 60 KiB | 256 | `messages`, `starred`, `pinned`, `chat_media` |
+| 16 KiB | 512 | `typing` |
+| 4 KiB | 2048 | `chats`, `chat`, `problems`, `live_locations`, `stickers`, `sticker_packs`, `sticker_pack`, `transfers`, `notifications` |
+| 1 KiB | 8192 | `presence`, `receipts`, `group_members`, `blocklist`, `reactions`, `poll_votes`, `event_responses` |
+| 64 KiB | 128 | the object views |
+
+The queries hold `limit` to the cap of the rows they answer with:
+`search_messages` to 256, `search_chats` and `search_stickers` to 2048.
+
+An item that would pass its size is cut, never dropped. A message's `text`
+goes first and the row says so with `text_truncated`; `message_text` gives
+all of it. Past that the daemon cuts the longest words in the item, never an
+id or a path. Lists that grow with a group are short in a row and whole in a
+finer view, see *Messages*.
 
 Asking the phone for older history is a separate command,
 `chat_request_older`, because it costs network; its results land as upserts
@@ -259,6 +297,9 @@ Object views send one item with an empty id.
 | `contact` | `person` | object | a contact card; local facts first, `about` when fetched |
 | `group` | `chat_id` | object | subject, description, avatar, created, owner, member count, my role, announce/locked/approval, community, `error` when whatsapp won't describe it |
 | `group_members` | `chat_id` | one per member | person and role |
+| `reactions` | `message_id` | one per person who reacted | id is the person; emoji and time, newest first |
+| `poll_votes` | `message_id` | one per vote | id is the option index and the person; by option, newest first |
+| `event_responses` | `message_id` | one per person who answered | id is the person; the answer, extra guests and time, newest first |
 | `privacy` | none | object | every privacy setting |
 | `preferences` | none | object | the daemon's own preferences |
 | `blocklist` | none | one per blocked person | |
@@ -322,6 +363,7 @@ pointed at a real account), for an address outside it.
 | `message_forward` | `message_id`, `chat_ids` | `message_ids`, in `chat_ids` order |
 | `message_mark_played` | `message_id` | `done`: a played receipt for a voice note; again is a no-op |
 | `message_request_from_phone` | `message_id` | `done`: asks our own phone to resend a message that would not decrypt. The daemon already asks once by itself; this is the manual retry. `REJECTED` for a message not waiting |
+| `message_text` | `message_id` | `text` and `mentions`: the whole text of a row that came with `text_truncated` |
 | `poll_vote` | `message_id`, `option_indexes` | `done`: the whole selection, not a change; empty withdraws every vote |
 | `event_rsvp` | `message_id`, `response`, `extra_guests` | `done` |
 | `group_join_invite` | `message_id` | `chat_id`: joins the group an invite row offers, or just says where it is if we're in it. `EXPIRED` for a dead invite |
@@ -391,6 +433,12 @@ The download lifecycle: `media_download`, then the row upserts with
 `downloading`, bytes move in `transfers`, then the row upserts with `path`
 set and `downloading` cleared, or `download_error` set. A retry clears the
 error with another upsert.
+
+Reactions, a poll option's voters and an event's responders grow with the
+group, so a row names at most 16 of each, the newest, and counts all of
+them: `reaction_counts` per emoji (most first, `mine` on ours), `votes` per
+option, `going`, `maybe` and `not_going` on an event. The `reactions`,
+`poll_votes` and `event_responses` views list everyone.
 
 The rest of the bodies are in the schema with a line each: polls and events
 carry their tally, joined when read so a vote is one upsert; an album carries

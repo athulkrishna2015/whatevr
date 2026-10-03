@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -28,6 +29,8 @@ const (
 	// past this many commands and opens still running, the connection's
 	// reads wait for one to finish
 	maxInFlight = 32
+	// subscriptions open or opening on one connection
+	maxSubs = 64
 )
 
 type conn struct {
@@ -49,6 +52,7 @@ type conn struct {
 
 	subMu   sync.Mutex
 	subs    map[uint64]*subscription
+	opening int
 	nextSub uint64
 	closed  bool
 }
@@ -211,22 +215,41 @@ func (c *conn) subscribe(ctx context.Context, req *v2.Request) {
 		c.respond(errorResponse(req.GetId(), v2.ErrorCode_ERROR_CODE_UNKNOWN_METHOD, "this daemon doesn't serve that view"), false)
 		return
 	}
+	if int(sr.GetLimit()) > v.cap {
+		c.respond(errorResponse(req.GetId(), v2.ErrorCode_ERROR_CODE_INVALID_PARAMS,
+			fmt.Sprintf("limit %d is over this view's cap of %d", sr.GetLimit(), v.cap)), false)
+		return
+	}
 	c.subMu.Lock()
+	if len(c.subs)+c.opening >= maxSubs {
+		c.subMu.Unlock()
+		c.respond(errorResponse(req.GetId(), v2.ErrorCode_ERROR_CODE_INVALID_PARAMS,
+			fmt.Sprintf("a connection holds at most %d subscriptions", maxSubs)), false)
+		return
+	}
+	c.opening++
 	c.nextSub++
 	id := c.nextSub
 	c.subMu.Unlock()
+	opened := func() {
+		c.subMu.Lock()
+		c.opening--
+		c.subMu.Unlock()
+	}
 	log := zerolog.Ctx(ctx).With().Uint64("sub", id).Str("view", viewName(n)).Logger()
 	// opening can read a lot, off the dispatch loop. nothing can name this
 	// sub before its response, so nothing overtakes it
 	if !c.acquire() {
+		opened()
 		return
 	}
 	go func() {
 		defer c.release()
 		start := time.Now()
-		sub := &subscription{id: id, conn: c, log: log, limit: int(sr.GetLimit()), params: sr}
+		sub := &subscription{id: id, conn: c, log: log, limit: int(sr.GetLimit()), params: sr, itemBytes: v.itemBytes, cap: v.cap}
 		win, res, err := v.Open(log.WithContext(c.ctx), c.sess, sr)
 		if err != nil {
+			opened()
 			e := asError(err)
 			log.Info().Stringer("code", e.code).Str("error", e.msg).Msg("subscribe failed")
 			c.respond(errorResponse(req.GetId(), e.code, e.msg), false)
@@ -236,10 +259,15 @@ func (c *conn) subscribe(ctx context.Context, req *v2.Request) {
 		if d, ok := win.(Sized); ok && sub.limit == 0 {
 			sub.limit = d.DefaultLimit()
 		}
+		if sub.limit == 0 || sub.limit > sub.cap {
+			// all of it, up to the cap
+			sub.limit = sub.cap
+		}
 		if b, ok := win.(Bounded); ok {
 			sub.bnd = b
 		}
 		c.subMu.Lock()
+		c.opening--
 		if c.closed {
 			c.subMu.Unlock()
 			win.Close()
@@ -277,6 +305,10 @@ func (c *conn) extend(ctx context.Context, req *v2.Request) {
 		return
 	case e.GetDirection() != v2.Direction_DIRECTION_OLDER && e.GetDirection() != v2.Direction_DIRECTION_NEWER:
 		c.respond(errorResponse(req.GetId(), v2.ErrorCode_ERROR_CODE_INVALID_PARAMS, "direction must be older or newer"), false)
+		return
+	case sub.size()+int(e.GetCount()) > sub.cap:
+		c.respond(errorResponse(req.GetId(), v2.ErrorCode_ERROR_CODE_INVALID_PARAMS,
+			fmt.Sprintf("the window would pass this view's cap of %d", sub.cap)), false)
 		return
 	}
 	c.respond(doneResponse(req.GetId()), false)
@@ -322,24 +354,31 @@ func (c *conn) windows() []*subscription {
 
 func (c *conn) respond(r *v2.Response, closeAfter bool) {
 	f := responseFrame(r)
-	c.tap("out", nil, f)
 	b, err := marshalFrame(f)
+	if err == nil && len(b) > maxFrameBytes {
+		err = fmt.Errorf("answer is %d bytes, over a frame", len(b))
+	}
 	if err != nil {
 		c.log.Error().Err(err).Msg("marshal a response")
-		b, _ = marshalFrame(responseFrame(errorResponse(r.GetId(), v2.ErrorCode_ERROR_CODE_INTERNAL, "the daemon could not encode its answer")))
+		f = responseFrame(errorResponse(r.GetId(), v2.ErrorCode_ERROR_CODE_INTERNAL, "the daemon could not encode its answer"))
+		b, _ = marshalFrame(f)
 	}
+	c.tap("out", nil, f)
 	c.q.push(b, closeAfter, overloaded)
 }
 
 // event sends a connection event, open_chat or media_stream_update.
 func (c *conn) event(e *v2.Event) {
 	f := eventFrame(e)
-	c.tap("out", nil, f)
 	b, err := marshalFrame(f)
+	if err == nil && len(b) > maxFrameBytes {
+		err = fmt.Errorf("event is %d bytes, over a frame", len(b))
+	}
 	if err != nil {
 		c.log.Error().Err(err).Msg("marshal an event")
 		return
 	}
+	c.tap("out", nil, f)
 	c.q.push(b, false, overloaded)
 }
 
@@ -380,14 +419,13 @@ func (c *conn) writeLoop() {
 			}
 		}
 		if e.upd != nil {
-			for _, f := range e.upd.frames() {
-				if c.srv.opts.Tap != nil {
-					c.tapRaw("out", f)
-				}
-				if !write(f) {
-					c.close()
-					return
-				}
+			f := e.upd.frame()
+			if c.srv.opts.Tap != nil {
+				c.tapRaw("out", f)
+			}
+			if !write(f) {
+				c.close()
+				return
 			}
 			continue
 		}

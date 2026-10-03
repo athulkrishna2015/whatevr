@@ -82,7 +82,7 @@ func start(t *testing.T, l *fakeList) (*Server, *client) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.View(protoreflect.FieldNumber(v2.Subscribe_Chats_case), l)
+	s.View(protoreflect.FieldNumber(v2.Subscribe_Chats_case), l, 1<<10)
 	s.HandleInline(protoreflect.FieldNumber(v2.Request_DaemonReconnect_case), func(context.Context, *Session, *v2.Request) (*v2.Response, error) {
 		return nil, nil
 	})
@@ -330,20 +330,35 @@ func TestQueueOverflowAsksForAReset(t *testing.T) {
 	}
 }
 
-func TestBigUpdatesSplit(t *testing.T) {
-	big := make([]byte, maxFrameBytes/3)
-	u := &update{sub: 1, reset: true, ready: true, changes: map[string][]byte{}}
-	for _, id := range []string{"a", "b", "c", "d"} {
-		u.order = append(u.order, id)
-		u.changes[id] = upsertChange(big)
+// a merge that would outgrow a frame is dropped for a reset, which a window
+// under its cap always fits
+func TestAMergeOverAFrameAsksForAReset(t *testing.T) {
+	q := newQueue()
+	q.addSub(1)
+	big := upsertChange(make([]byte, maxFrameBytes/3))
+	push := func(ids ...string) bool {
+		u := &update{sub: 1, changes: map[string][]byte{}}
+		for _, id := range ids {
+			u.order = append(u.order, id)
+			u.changes[id] = big
+		}
+		return q.pushUpdate(u)
 	}
-	fs := u.frames()
-	if len(fs) < 2 {
-		t.Fatalf("%d frames", len(fs))
+	if !push("a", "b") || !push("a") {
+		t.Fatal("a merge under a frame refused")
 	}
-	for i, f := range fs {
-		if len(f) > maxFrameBytes {
-			t.Fatalf("frame %d is %d bytes", i, len(f))
+	if push("c", "d") {
+		t.Fatal("a merge over a frame kept")
+	}
+	if _, ok := q.pop(); ok {
+		t.Fatal("kept a dropped update")
+	}
+}
+
+func TestWindowCaps(t *testing.T) {
+	for _, c := range []struct{ item, want int }{{60 << 10, 256}, {1 << 10, 8192}, {4 << 10, 2048}, {windowBytes, 1}} {
+		if got := WindowCap(c.item); got != c.want || got*c.item > windowBytes {
+			t.Errorf("WindowCap(%d) = %d, want %d", c.item, got, c.want)
 		}
 	}
 }
