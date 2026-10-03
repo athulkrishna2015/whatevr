@@ -238,6 +238,36 @@ func (d *Decoder) locationMessageInput(ctx context.Context, evt *events.Message,
 	}, true
 }
 
+// liveUpdateInput is a live share's position as a row of its own, for an
+// update whose opener never reached us. the model shows only such an update;
+// the rest fold into the row their share opened with.
+func (d *Decoder) liveUpdateInput(ctx context.Context, evt *events.Message, opts ingestOptions) (appstore.MediaMessageInput, bool) {
+	update := evt.Message.GetLiveLocationMessage()
+	if update == nil {
+		return appstore.MediaMessageInput{}, false
+	}
+	base, chatID, ok := d.mediaInputBase(ctx, evt, opts, update.GetCaption(), update.GetContextInfo())
+	if !ok {
+		return appstore.MediaMessageInput{}, false
+	}
+	payload := &appstore.LocationPayload{
+		Latitude:       update.GetDegreesLatitude(),
+		Longitude:      update.GetDegreesLongitude(),
+		AccuracyMeters: update.GetAccuracyInMeters(),
+		Live:           true,
+	}
+	base.PayloadJSON, _ = appstore.EncodePayload(appstore.MessagePayload{Location: payload})
+	return appstore.MediaMessageInput{
+		TextMessageInput:        base,
+		MediaKind:               appstore.MediaKindLiveLocation,
+		MediaMimeType:           "image/png",
+		MediaThumbnailLocalPath: d.saveMessageThumbnail(chatID, base.ID, update.GetJPEGThumbnail()),
+		MediaWidth:              mapOutputWidth,
+		MediaHeight:             mapOutputHeight,
+		PayloadSummary:          locationSummary(payload),
+	}, true
+}
+
 func locationPayloadFromMessage(location *waE2E.LocationMessage) *appstore.LocationPayload {
 	return &appstore.LocationPayload{
 		Latitude:       location.GetDegreesLatitude(),

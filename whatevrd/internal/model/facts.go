@@ -20,7 +20,8 @@ const factsQuery = `WITH ids(id) AS (SELECT value FROM json_each(?1))
 	UNION ALL SELECT 'keep', chat, target, by, by_alt, CAST(keep AS TEXT), '', t, NULL, phone FROM f_keep WHERE target IN ids
 	UNION ALL SELECT 'star', a, b, '', '', CAST(on_ AS TEXT), '', 0, NULL, 0 FROM appstate WHERE kind = 'star' AND op = 'set' AND b IN ids
 	UNION ALL SELECT 'receipt', chat, id, who, '', type, '', t, NULL, 0 FROM f_receipt WHERE id IN ids
-	UNION ALL SELECT 'local', chat, id, op, '', '', '', t, value, 0 FROM msg_local WHERE id IN ids`
+	UNION ALL SELECT 'local', chat, id, op, '', '', '', t, value, 0 FROM msg_local WHERE id IN ids
+	UNION ALL SELECT 'live', chat, id, '', '', '', '', t, NULL, 0 FROM live WHERE id IN ids`
 
 type factRow struct {
 	what, chat, id, by, alt, a, b string
@@ -159,6 +160,14 @@ func (r *Reader) facts(ctx context.Context, ms []Message) error {
 				receipts = append(receipts, receipt{i, Receipt{Who: f.by, Type: f.a, T: f.t}})
 			case "local":
 				x.Local.add(f.by, f.t, f.blob)
+			case "live":
+				l, _, ok, err := r.live(ctx, f.chat, f.id)
+				if err != nil {
+					return err
+				}
+				if ok {
+					x.Live = &l
+				}
 			}
 		}
 	}

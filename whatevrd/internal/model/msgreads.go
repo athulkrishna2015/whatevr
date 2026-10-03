@@ -66,6 +66,8 @@ type Facts struct {
 	Events   []Sealed
 	Receipts []Receipt
 	Local    Local
+	// Live is the share a live location row opened, nil for anything else
+	Live *Live
 }
 
 type Reaction struct {

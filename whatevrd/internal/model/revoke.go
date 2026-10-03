@@ -325,6 +325,9 @@ func tombstone(tx *core.Tx, chat, id string) error {
 	if _, err := tx.Exec(`DELETE FROM msg_local WHERE id = ? AND `+sameChatSQL("chat"), id, chat, chat, chat); err != nil {
 		return err
 	}
+	if err := forgetLive(tx, chat, id); err != nil {
+		return err
+	}
 	edits, err := tx.Query(`SELECT seq FROM f_edit WHERE target = ? AND `+sameChatSQL("chat"), id, chat, chat, chat)
 	if err != nil {
 		return err
@@ -348,6 +351,12 @@ func tombstone(tx *core.Tx, chat, id string) error {
 		}
 	}
 	for c, s := range stones {
+		if hidden, err := liveHidden(tx, c, id); err != nil || hidden {
+			if err != nil {
+				return err
+			}
+			continue
+		}
 		if _, err := tx.Exec(`INSERT INTO msg (chat, id, sender, sender_alt, from_me, t, kind, src, hash, seq)
 			VALUES (?, ?, ?, ?, ?, ?, 'revoked', ?, x'', ?)
 			ON CONFLICT (chat, id) DO UPDATE SET sender = excluded.sender, sender_alt = excluded.sender_alt,

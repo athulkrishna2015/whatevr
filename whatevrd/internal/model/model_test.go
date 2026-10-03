@@ -64,6 +64,14 @@ func msgIn(id, chat, sender, alt string, fromMe bool, t int, m *waE2E.Message) c
 	}, pb(m), at(t))
 }
 
+// boIn is bo writing in the group
+func boIn(id string, t int, m *waE2E.Message) core.Input {
+	return in(core.KindMessage, core.MessageHead{
+		Source: core.Source{Chat: grp, Sender: boL, SenderAlt: boPN, Group: true},
+		ID:     id, T: base.Unix() + int64(t), PushName: "Bobby", Exact: true,
+	}, pb(m), at(t))
+}
+
 func text(s string) *waE2E.Message { return &waE2E.Message{Conversation: proto.String(s)} }
 
 func appState(collection string, version uint64, op string, index []string, v *waSyncAction.SyncActionValue, t int) core.Input {
@@ -187,6 +195,11 @@ func scenario() []core.Input {
 		in(core.KindAvatar, core.AvatarHead{JID: boL, Status: core.AvatarError, Error: "timeout"}, nil, at(116)),
 		in(core.KindPrefs, core.PrefsHead{Prefs: json.RawMessage(`{"notify":true}`)}, nil, at(117)),
 		in(core.KindPrefs, core.PrefsHead{Prefs: json.RawMessage(`{"notify":false}`)}, nil, at(118)),
+		// bo shares where he is, and deletes one point of it
+		boIn("LV0", 120, liveOpen(28)),
+		boIn("LV1", 121, liveAt(28.1, 1)),
+		boIn("LV2", 122, liveAt(28.2, 2)),
+		boIn("LVX", 123, revokeOf(target(grp, "LV1", boL))),
 	}
 }
 
@@ -360,14 +373,15 @@ func TestTheScenarioFoldsRight(t *testing.T) {
 
 	expect(t, db, []string{
 		"100000000001@lid|M1|hi", "100000000001@lid|M3|", "100000000001@lid|U1|late",
-		"120363000000000001@g.us|G1|in the group", "120363000000000001@g.us|P1|dinner?\npizza\ndosa",
+		"120363000000000001@g.us|G1|in the group", "120363000000000001@g.us|LV0|", "120363000000000001@g.us|P1|dinner?\npizza\ndosa",
 		"917770000001@s.whatsapp.net|H1|older", "917770000001@s.whatsapp.net|H3|before the clear",
 		"917770000001@s.whatsapp.net|M1|hi", "917770000001@s.whatsapp.net|M2|yes",
 	}, `SELECT chat, id, text FROM msg ORDER BY chat, id`)
 	expect(t, db, []string{"M1"}, `SELECT reply FROM msg WHERE id = 'M2'`)
 	expect(t, db, []string{"100000000001@lid|M2|100000000001@lid|❤️"}, `SELECT chat, target, sender, emoji FROM f_reaction`)
 	expect(t, db, []string{"M2"}, `SELECT target FROM f_edit`)
-	expect(t, db, []string{"M3|100000000001@lid"}, `SELECT target, by FROM f_revoke`)
+	expect(t, db, []string{"LV1|100000000002@lid", "M3|100000000001@lid"}, `SELECT target, by FROM f_revoke ORDER BY target`)
+	expect(t, db, []string{"LV0|1|28", "LV1|0|<nil>", "LV2|0|28.2"}, `SELECT id, opener, lat FROM live ORDER BY id`)
 	expect(t, db, []string{"Poll Vote|1"}, `SELECT use, plain IS NOT NULL FROM f_enc WHERE target = 'P1'`)
 	// facts keep the chat address they came with, reads join them
 	expect(t, db, []string{"100000000001@lid|M2|100000000001@lid|read"}, `SELECT chat, id, who, type FROM f_receipt`)
@@ -395,27 +409,35 @@ func TestTheScenarioFoldsRight(t *testing.T) {
 // a delete blanks what it took in the log, and a rebuild from that log ends
 // where folding it live did.
 func TestDeletesScrubTheLogAndRebuildAgrees(t *testing.T) {
+	rebuildAgrees(t, scenario(), func(ins []core.Input) {
+		for _, x := range ins {
+			if x.Kind == core.KindHistoryConversation && strings.Contains(string(x.Body), "delete me") {
+				t.Error("a deleted history message is still in the log")
+			}
+			if x.Kind == core.KindHistoryConversation && strings.Contains(string(x.Body), "group history") {
+				t.Error("a cleared message is still in the log")
+			}
+		}
+	})
+}
+
+// rebuildAgrees folds scen, hands the log as it was left to check, and
+// folds that log again from nothing to the same tables.
+func rebuildAgrees(t *testing.T, scen []core.Input, check func([]core.Input)) {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "core.db")
 	ctx := context.Background()
 	db, err := core.Open(ctx, path, core.Options{Domains: Domains(), Log: zerolog.Nop()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	scen := scenario()
 	feed(t, db, scen)
 	want := normalized(t, db, scen)
 	ins, err := db.Inputs(ctx, 0, 1000)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, x := range ins {
-		if x.Kind == core.KindHistoryConversation && strings.Contains(string(x.Body), "delete me") {
-			t.Error("a deleted history message is still in the log")
-		}
-		if x.Kind == core.KindHistoryConversation && strings.Contains(string(x.Body), "group history") {
-			t.Error("a cleared message is still in the log")
-		}
-	}
+	check(ins)
 	db.Close()
 
 	bumped := Domains()
@@ -524,10 +546,14 @@ func TestReadsPutTheScenarioTogether(t *testing.T) {
 	if want := []string{"group_name Old friends", "group_leave " + ashaL, "group_join 100000000009@lid"}; !reflect.DeepEqual(sys, want) {
 		t.Fatalf("system rows %q, want %q", sys, want)
 	}
-	if len(g) != 2 || len(g[1].Facts.Votes) != 1 {
+	if len(g) != 3 || len(g[2].Facts.Votes) != 1 {
 		t.Fatalf("group %+v %v", g, err)
 	}
-	if v := Vote(g[1].Facts.Votes[0].Plain); len(v) != 1 {
+	// the share is its opener at its newest point, the deleted one skipped
+	if l := g[0].Facts.Live; g[0].ID != "LV0" || l == nil || l.Points != 3 || l.Lat != 28.2 {
+		t.Fatalf("share %+v", g[0])
+	}
+	if v := Vote(g[2].Facts.Votes[0].Plain); len(v) != 1 {
 		t.Fatalf("vote %v", v)
 	}
 	w, err := r.World(ctx)

@@ -77,6 +77,9 @@ func (d *Decoder) mediaMessageInputForKind(ctx context.Context, evt *events.Mess
 	if input, ok := d.documentMessageInput(ctx, evt, opts); ok {
 		return input, true
 	}
+	if input, ok := d.liveUpdateInput(ctx, evt, opts); ok {
+		return input, true
+	}
 	if input, ok := d.locationMessageInput(ctx, evt, opts); ok {
 		return input, true
 	}

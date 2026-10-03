@@ -39,10 +39,10 @@ const (
 // inside a history conversation).
 var messagesDomain = core.Domain{
 	Name:    "messages",
-	Version: 9,
+	Version: 10,
 	Tables: []string{"msg", "msg_src", "msg_wait", "msg_gone", "f_reaction", "f_edit", "f_revoke", "f_enc",
-		"f_pin", "f_keep", "f_receipt", "f_ephemeral", "sys_msg", "f_seen", "msg_text", "msg_text_q"},
-	Schema: []string{
+		"f_pin", "f_keep", "f_receipt", "f_ephemeral", "sys_msg", "f_seen", "msg_text", "msg_text_q", "live"},
+	Schema: append([]string{
 		`CREATE TABLE msg (
 			chat       TEXT NOT NULL,
 			id         TEXT NOT NULL,
@@ -233,7 +233,7 @@ var messagesDomain = core.Domain{
 			AND EXISTS (SELECT 1 FROM f_seen WHERE mchat = OLD.chat AND t = OLD.t) BEGIN ` + seenAgain + ` END`,
 		`CREATE TRIGGER f_seen_gone AFTER DELETE ON msg
 			WHEN EXISTS (SELECT 1 FROM f_seen WHERE mchat = OLD.chat AND t = OLD.t) BEGIN ` + seenAgain + ` END`,
-	},
+	}, liveSchema...),
 	Folds: map[string]core.FoldFunc{
 		core.KindMessage:             foldMessage,
 		core.KindUndecryptable:       foldUndecryptable,
@@ -289,6 +289,8 @@ type row struct {
 	// body is the message's own bytes: the input body, or its slice of a
 	// history conversation
 	body []byte
+	// hidden is a live update that is a point of an earlier row's share
+	hidden bool
 }
 
 // conv is what the messages of one history conversation share while they
@@ -391,6 +393,10 @@ func foldContent(tx *core.Tx, r row, raw *waE2E.Message, fromMe bool) error {
 		return nil
 	}
 	r.kind = kind
+	var err error
+	if r.hidden, err = putLive(tx, r, m); err != nil {
+		return err
+	}
 	r.viewOnce = u.ViewOnce
 	r.text = searchText(m)
 	r.reply = contextOf(m).GetStanzaID()
@@ -485,7 +491,7 @@ func putMsg(tx *core.Tx, r row) error {
 	if revoked, err := checkRevokes(tx, r.chat, r.id); err != nil || revoked {
 		return err
 	}
-	if r.kind == "" {
+	if r.kind == "" || r.hidden {
 		return nil
 	}
 	var src int
@@ -763,6 +769,9 @@ func dropMessage(tx *core.Tx, chat, id string) error {
 	if err := dropLocal(tx, chat, id); err != nil {
 		return err
 	}
+	if err := forgetLive(tx, chat, id); err != nil {
+		return err
+	}
 	tx.Touch("message", chat+":"+id)
 	tx.Touch("chat", chat)
 	return nil
@@ -809,10 +818,28 @@ func scrubChat(tx *core.Tx, chat string) error {
 // scrubBody blanks a body in the log. a history message keeps its key and
 // time so a rebuild still knows what was deleted; the rest of its bytes
 // become an unknown field of the same length, so the offsets of the messages
-// after it hold.
+// after it hold. a live location keeps that it was one, see liveMarker.
 func scrubBody(tx *core.Tx, seq int64, off, ln int) error {
 	if off < 0 {
-		_, err := tx.Exec(`UPDATE inputs SET body = NULL WHERE seq = ? AND kind != ?`, seq, core.KindHistoryConversation)
+		var kind string
+		var body []byte
+		if err := tx.QueryRow(`SELECT kind, body FROM inputs WHERE seq = ?`, seq).Scan(&kind, &body); err != nil {
+			if isNoRows(err) {
+				return nil
+			}
+			return err
+		}
+		if kind == core.KindHistoryConversation || body == nil {
+			return nil
+		}
+		var keep []byte
+		var raw waE2E.Message
+		if kind == core.KindMessage && proto.Unmarshal(body, &raw) == nil {
+			if m := liveMarker(Unwrap(&raw).Msg); m != nil {
+				keep, _ = marshal.Marshal(m)
+			}
+		}
+		_, err := tx.Exec(`UPDATE inputs SET body = ? WHERE seq = ?`, keep, seq)
 		return err
 	}
 	var body []byte
@@ -845,6 +872,7 @@ func scrubbedHistoryMsg(b []byte) ([]byte, bool) {
 	keep := &waHistorySync.HistorySyncMsg{Message: &waWeb.WebMessageInfo{
 		Key:              w.GetKey(),
 		MessageTimestamp: w.MessageTimestamp,
+		Message:          liveMarker(Unwrap(w.GetMessage()).Msg),
 	}}
 	out, err := marshal.Marshal(keep)
 	if err != nil || len(out) > len(b) {
