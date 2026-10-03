@@ -204,6 +204,26 @@ func TestRebuildEqualsIncremental(t *testing.T) {
 	}
 }
 
+func TestRebuildOnAskEqualsIncremental(t *testing.T) {
+	r := rand.New(rand.NewPCG(8, 8))
+	path := filepath.Join(t.TempDir(), "core.db")
+	db := open(t, path, Options{})
+	appendAll(t, db, randomNotes(r, 200))
+	settle(t, db)
+	before := dump(t, db)
+	db.Close()
+
+	db = open(t, path, Options{Rebuild: true})
+	defer db.Close()
+	if folded, appended := db.Progress(); folded != 0 || appended == 0 {
+		t.Fatalf("progress %d/%d at open, want the log folded from the start", folded, appended)
+	}
+	settle(t, db)
+	if after := dump(t, db); !reflect.DeepEqual(before, after) {
+		t.Fatalf("rebuild differs:\n%v\n%v", before, after)
+	}
+}
+
 func TestFoldResumesFromLastFoldedSeq(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "core.db")
 	db := open(t, path, Options{})
@@ -373,5 +393,119 @@ func TestAppendBatchLandsWholeAndInOrder(t *testing.T) {
 	}
 	if _, appended := db.Progress(); appended != 3 {
 		t.Fatalf("a refused batch moved the log to %d", appended)
+	}
+}
+
+// TestFinishSeesEveryTouchedID: a summary over 600 notes gets all 600 ids,
+// past where a Change gives up and says "all", in the commit that made them.
+func TestFinishSeesEveryTouchedID(t *testing.T) {
+	notes := noteDomain(1, "notes")
+	var mu sync.Mutex
+	seen := map[string]bool{}
+	sum := Domain{
+		Name:    "sum",
+		Version: 1,
+		Tables:  []string{"note_count"},
+		Schema:  []string{`CREATE TABLE note_count (n INTEGER NOT NULL)`, `INSERT INTO note_count VALUES (0)`},
+		Watch:   []string{"note"},
+		Finish: func(tx *Tx, touched map[string][]string, all map[string]bool) error {
+			mu.Lock()
+			for _, id := range touched["note"] {
+				seen[id] = true
+			}
+			mu.Unlock()
+			tx.Touch("sum", "")
+			_, err := tx.Exec(`UPDATE note_count SET n = (SELECT COUNT(*) FROM notes)`)
+			return err
+		},
+	}
+	var changes []Change
+	db := open(t, filepath.Join(t.TempDir(), "core.db"), Options{Domains: []Domain{notes, sum},
+		OnChange: func(c Change) { mu.Lock(); changes = append(changes, c); mu.Unlock() }})
+	defer db.Close()
+	ins := make([]Input, 600)
+	for i := range ins {
+		ins[i] = noteInput(note{ID: fmt.Sprint("n", i), T: 1, Text: "a"})
+	}
+	if _, err := db.AppendBatch(context.Background(), ins); err != nil {
+		t.Fatal(err)
+	}
+	settle(t, db)
+	var n int
+	if err := db.Read().QueryRow(`SELECT n FROM note_count`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if n != 600 || len(seen) != 600 {
+		t.Fatalf("count %d, finish saw %d ids, want 600 and 600", n, len(seen))
+	}
+	for _, c := range changes {
+		if len(c.Keys["sum"]) == 0 {
+			t.Fatalf("a commit without the summary's touch: %+v", c.Keys)
+		}
+	}
+}
+
+// TestFinishFailingFailsTheCommit: nothing of a batch lands when its summary
+// cannot be kept, and folding resumes once it can.
+func TestFinishFailingFailsTheCommit(t *testing.T) {
+	notes := noteDomain(1, "notes")
+	var fail sync.Map
+	fail.Store("on", true)
+	sum := Domain{
+		Name: "sum", Version: 1, Watch: []string{"note"},
+		Finish: func(tx *Tx, touched map[string][]string, all map[string]bool) error {
+			if v, _ := fail.Load("on"); v == true {
+				panic("summary broke")
+			}
+			return nil
+		},
+	}
+	db := open(t, filepath.Join(t.TempDir(), "core.db"), Options{Domains: []Domain{notes, sum}})
+	defer db.Close()
+	seq := appendAll(t, db, []Input{noteInput(note{ID: "a", T: 1, Text: "x"})})
+	time.Sleep(100 * time.Millisecond)
+	if folded, _ := db.Progress(); folded >= seq {
+		t.Fatalf("folded %d with a failing finish", folded)
+	}
+	if h := db.Health(); h.Fold == nil {
+		t.Fatal("health says the fold works")
+	}
+	fail.Store("on", false)
+	settle(t, db)
+	var n int
+	if err := db.Read().QueryRow(`SELECT COUNT(*) FROM notes`).Scan(&n); err != nil || n != 1 {
+		t.Fatalf("notes %d, %v", n, err)
+	}
+}
+
+// TestFinishWithoutWatchRunsEveryCommit: a Finish that watches nothing runs
+// once per fold commit, however little the batch touched.
+func TestFinishWithoutWatchRunsEveryCommit(t *testing.T) {
+	notes := noteDomain(1, "notes")
+	var mu sync.Mutex
+	runs := 0
+	every := Domain{
+		Name: "every", Version: 1,
+		Finish: func(tx *Tx, touched map[string][]string, all map[string]bool) error {
+			mu.Lock()
+			runs++
+			mu.Unlock()
+			return nil
+		},
+	}
+	db := open(t, filepath.Join(t.TempDir(), "core.db"), Options{Domains: []Domain{notes, every}})
+	defer db.Close()
+	for i := range 3 {
+		if _, err := db.Append(context.Background(), noteInput(note{ID: fmt.Sprint("n", i), T: 1, Text: "a"})); err != nil {
+			t.Fatal(err)
+		}
+		settle(t, db)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if runs < 3 {
+		t.Fatalf("finish ran %d times over 3 commits", runs)
 	}
 }

@@ -21,11 +21,18 @@ import (
 
 	"github.com/mattn/go-sqlite3"
 	"github.com/rs/zerolog"
+
+	"whatevrd/internal/sqlitex"
 )
 
 const (
 	driverName     = "whatevrd-core"
 	readDriverName = "whatevrd-core-ro"
+
+	// statements each connection keeps compiled. a fold runs the same few
+	// dozen over and over, and compiling one costs more than running it.
+	writeStmts = 256
+	readStmts  = 64
 
 	// schemaVersion covers the log's own tables. derived tables are versioned
 	// per domain and rebuilt, never migrated.
@@ -35,9 +42,12 @@ const (
 var ErrClosed = errors.New("core: closed")
 
 func init() {
-	sql.Register(driverName, &sqlite3.SQLiteDriver{})
+	sql.Register(driverName, &sqlite3.SQLiteDriver{ConnectHook: sqlitex.StablePlans})
 	sql.Register(readDriverName, &sqlite3.SQLiteDriver{
 		ConnectHook: func(conn *sqlite3.SQLiteConn) error {
+			if err := sqlitex.StablePlans(conn); err != nil {
+				return err
+			}
 			for _, pragma := range []string{
 				`PRAGMA busy_timeout = 5000`,
 				`PRAGMA query_only = ON`,
@@ -62,6 +72,9 @@ type Options struct {
 	// not block.
 	OnChange func(Change)
 	Log      zerolog.Logger
+	// Rebuild drops every derived table at open and folds the whole log
+	// again, as a fold signature change does
+	Rebuild bool
 }
 
 type DB struct {
@@ -73,6 +86,8 @@ type DB struct {
 
 	folds  map[string][]FoldFunc
 	tables []string
+	// watch is every kind some Finish watches
+	watch map[string]bool
 
 	appended atomic.Int64
 	folded   atomic.Int64
@@ -80,7 +95,8 @@ type DB struct {
 	foldedMu   sync.Mutex
 	foldedWait chan struct{}
 
-	w *writer
+	health health
+	w      *writer
 }
 
 // Open opens or creates the store at path and starts its writer. a fold
@@ -90,9 +106,12 @@ func Open(ctx context.Context, path string, opts Options) (*DB, error) {
 	if opts.Clock == nil {
 		opts.Clock = SystemClock{}
 	}
-	db := &DB{opts: opts, log: opts.Log, folds: map[string][]FoldFunc{}, foldedWait: make(chan struct{})}
+	db := &DB{opts: opts, log: opts.Log, folds: map[string][]FoldFunc{}, watch: map[string]bool{}, foldedWait: make(chan struct{})}
 	seenTable := map[string]bool{}
 	for _, d := range opts.Domains {
+		for _, k := range d.Watch {
+			db.watch[k] = true
+		}
 		for kind, f := range d.Folds {
 			db.folds[kind] = append(db.folds[kind], f)
 		}
@@ -105,7 +124,7 @@ func Open(ctx context.Context, path string, opts Options) (*DB, error) {
 		}
 	}
 
-	write, err := sql.Open(driverName, path)
+	write, err := sql.Open(driverName, sqlitex.DSN(path, writeStmts))
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +135,7 @@ func Open(ctx context.Context, path string, opts Options) (*DB, error) {
 		return nil, err
 	}
 
-	read, err := sql.Open(readDriverName, path)
+	read, err := sql.Open(readDriverName, sqlitex.DSN(path, readStmts))
 	if err != nil {
 		write.Close()
 		return nil, err
@@ -147,6 +166,9 @@ func (db *DB) setup(ctx context.Context) error {
 		`PRAGMA synchronous = FULL`,
 		`PRAGMA foreign_keys = ON`,
 		`PRAGMA mmap_size = 0`,
+		// a checkpoint syncs the whole file: every 4 MB of history (the
+		// default) spent more on syncing than on folding
+		`PRAGMA wal_autocheckpoint = 16384`,
 	} {
 		if _, err := db.write.ExecContext(ctx, pragma); err != nil {
 			return err
@@ -199,7 +221,7 @@ func (db *DB) setup(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if stored != sig {
+	if stored != sig || db.opts.Rebuild {
 		if err := db.rebuildTx(ctx, tx, sig); err != nil {
 			return err
 		}

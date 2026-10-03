@@ -33,14 +33,15 @@ func (SystemClock) Now() time.Time { return time.Now() }
 
 // Inputs reads up to limit inputs after seq, in order.
 func (db *DB) Inputs(ctx context.Context, after int64, limit int) ([]Input, error) {
-	return readInputs(ctx, db.read, after, limit)
+	return readInputs(ctx, db.read, after, limit, 0)
 }
 
 type querier interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }
 
-func readInputs(ctx context.Context, q querier, after int64, limit int) ([]Input, error) {
+// readInputs stops early once the bodies read reach maxBytes, 0 for no cap.
+func readInputs(ctx context.Context, q querier, after int64, limit, maxBytes int) ([]Input, error) {
 	rows, err := q.QueryContext(ctx, `SELECT seq, kind, v, at, head, body FROM inputs
 		WHERE seq > ? ORDER BY seq LIMIT ?`, after, limit)
 	if err != nil {
@@ -48,6 +49,7 @@ func readInputs(ctx context.Context, q querier, after int64, limit int) ([]Input
 	}
 	defer rows.Close()
 	var out []Input
+	size := 0
 	for rows.Next() {
 		var in Input
 		var at int64
@@ -60,6 +62,9 @@ func readInputs(ctx context.Context, q querier, after int64, limit int) ([]Input
 			in.Head = json.RawMessage(head.String)
 		}
 		out = append(out, in)
+		if size += len(in.Body); maxBytes > 0 && size >= maxBytes {
+			break
+		}
 	}
 	return out, rows.Err()
 }

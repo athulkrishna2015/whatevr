@@ -5,15 +5,21 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 )
 
 const (
-	// foldMax and foldBudget cap one fold transaction, so appends waiting
-	// behind it (and the acks waiting on those) never sit out a whole
-	// history chunk.
+	// foldMax, foldBytes and foldBudget cap one fold transaction, so
+	// appends waiting behind it (and the acks waiting on those) never sit
+	// out a whole history chunk, and a batch of big conversations is not
+	// all in memory at once.
 	foldMax    = 512
+	foldBytes  = 4 << 20
 	foldBudget = 50 * time.Millisecond
+	// finishMax ends a batch once it touched this many ids a Finish
+	// watches, so the summing up stays as short as the folding.
+	finishMax = 512
 	// drainMax caps how many queued appends share one commit.
 	drainMax = 1024
 
@@ -43,6 +49,7 @@ type writer struct {
 	sync string
 
 	appends chan appendReq
+	resets  chan resetReq
 	stop    chan struct{}
 	done    chan struct{}
 
@@ -60,6 +67,7 @@ func startWriter(ctx context.Context, db *DB) (*writer, error) {
 		ctx:     context.WithoutCancel(ctx),
 		sync:    "FULL",
 		appends: make(chan appendReq),
+		resets:  make(chan resetReq),
 		stop:    make(chan struct{}),
 		done:    make(chan struct{}),
 	}
@@ -116,10 +124,14 @@ func (w *writer) run() {
 			select {
 			case req := <-w.appends:
 				w.commit(w.drain(req))
+			case req := <-w.resets:
+				req.done <- w.reset(req.backup)
 			case <-w.stop:
 				return
 			default:
-				if err := w.fold(); err != nil {
+				err := w.fold()
+				w.db.health.set(&w.db.health.fold, err)
+				if err != nil {
 					w.retry = min(max(w.retry*2, retryMin), retryMax)
 					w.db.log.Error().Err(err).Dur("retry", w.retry).Msg("core: fold commit failed")
 					wait = time.After(w.retry)
@@ -132,6 +144,8 @@ func (w *writer) run() {
 		select {
 		case req := <-w.appends:
 			w.commit(w.drain(req))
+		case req := <-w.resets:
+			req.done <- w.reset(req.backup)
 		case <-wait:
 			wait = nil
 		case <-w.stop:
@@ -176,6 +190,7 @@ func (w *writer) pragma(mode string) error {
 // commit appends a batch in one transaction. it lands whole or not at all.
 func (w *writer) commit(batch []appendReq) {
 	seqs, err := w.commitTx(batch)
+	w.db.health.set(&w.db.health.append, err)
 	for i, req := range batch {
 		if err != nil {
 			req.done <- appendRes{err: err}
@@ -245,7 +260,7 @@ func (w *writer) fold() error {
 		return err
 	}
 	defer tx.Rollback()
-	inputs, err := readInputs(w.ctx, tx, from, foldMax)
+	inputs, err := readInputs(w.ctx, tx, from, foldMax, foldBytes)
 	if err != nil {
 		return err
 	}
@@ -254,16 +269,19 @@ func (w *writer) fold() error {
 		w.db.appended.Store(from)
 		return nil
 	}
-	ftx := newTx(w.ctx, tx)
+	ftx := newTx(w.ctx, tx, w.db.watch)
 	through := from
 	for _, in := range inputs {
 		if err := w.foldOne(ftx, in); err != nil {
 			return err
 		}
 		through = in.Seq
-		if time.Since(start) > foldBudget {
+		if time.Since(start) > foldBudget || ftx.watchedCount() >= finishMax {
 			break
 		}
+	}
+	if err := ftx.finish(w.db.opts.Domains); err != nil {
+		return err
 	}
 	if err := metaSet(w.ctx, tx, "folded_seq", fmt.Sprint(through)); err != nil {
 		return err
@@ -272,7 +290,13 @@ func (w *writer) fold() error {
 		return err
 	}
 	w.db.setFolded(through)
-	if c := ftx.change(through); w.db.opts.OnChange != nil && !c.Empty() {
+	c := ftx.change(through)
+	if e := w.db.log.Debug(); e.Enabled() {
+		msgs := c.Keys["message"]
+		e.Int64("from", from+1).Int64("input", through).Int("chats", len(c.Keys["chat"])).
+			Strs("msg", msgs[:min(len(msgs), 32)]).Dur("dur", time.Since(start)).Msg("core: folded")
+	}
+	if w.db.opts.OnChange != nil && !c.Empty() {
 		w.db.opts.OnChange(c)
 	}
 	return nil
@@ -339,4 +363,49 @@ func (db *DB) FoldFailures(ctx context.Context) (map[int64]string, error) {
 		out[seq] = e
 	}
 	return out, rows.Err()
+}
+
+// Failure is the last time a part of the writer failed, until it next works.
+type Failure struct {
+	At    time.Time
+	Error string
+}
+
+// Health is what is failing in the writer right now: appends (nothing new is
+// logged) and fold commits (views stop moving). nil is working.
+type Health struct {
+	Append, Fold *Failure
+}
+
+type health struct {
+	mu           sync.Mutex
+	append, fold *Failure
+}
+
+func (h *health) set(slot **Failure, err error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if err == nil {
+		*slot = nil
+		return
+	}
+	if *slot == nil {
+		*slot = &Failure{At: time.Now()}
+	}
+	(*slot).Error = err.Error()
+}
+
+func (db *DB) Health() Health {
+	db.health.mu.Lock()
+	defer db.health.mu.Unlock()
+	var h Health
+	if db.health.append != nil {
+		a := *db.health.append
+		h.Append = &a
+	}
+	if db.health.fold != nil {
+		f := *db.health.fold
+		h.Fold = &f
+	}
+	return h
 }
