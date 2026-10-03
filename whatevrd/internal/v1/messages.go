@@ -14,7 +14,7 @@ import (
 
 	"whatevrd/internal/model"
 	"whatevrd/internal/store"
-	"whatevrd/internal/wa"
+	"whatevrd/internal/whatsapp"
 )
 
 // message is one model row as v1 shows it.
@@ -41,11 +41,10 @@ func (a *Adapter) build(ctx context.Context, w *model.World, c model.Chat, m mod
 	raw, hm := m.Content()
 	switch {
 	case m.Waiting:
-	case hm != nil && a.wa != nil:
-		out, ok = a.wa.DecodeHistory(ctx, jid(m.Chat), hm.GetMessage())
-	case raw != nil && a.wa != nil:
-		evt := a.event(w, m, raw)
-		out, ok = a.wa.Decode(ctx, evt)
+	case hm != nil:
+		out, ok = a.decoder(w).DecodeHistory(ctx, jid(m.Chat), hm.GetMessage())
+	case raw != nil:
+		out, ok = a.decoder(w).Decode(ctx, a.event(w, m, raw))
 	}
 	if !ok && raw != nil && a.old != nil && model.Unwrap(raw).Msg.GetLiveLocationMessage() != nil {
 		// a live share is the old core's to group for now: it folds every
@@ -77,8 +76,8 @@ func (a *Adapter) build(ctx context.Context, w *model.World, c model.Chat, m mod
 		}
 	}
 	f := m.Facts
-	if f.Edit != nil && !f.Revoked && a.wa != nil && raw != nil {
-		if edited, ok := a.wa.DecodeContent(ctx, a.event(w, m, raw), f.Edit); ok {
+	if f.Edit != nil && !f.Revoked && raw != nil {
+		if edited, ok := a.decoder(w).DecodeContent(ctx, a.event(w, m, raw), f.Edit); ok {
 			out.Text = edited.Text
 		}
 		out.IsEdited = true
@@ -410,7 +409,7 @@ func systemRow(w *model.World, chatID string, m model.Message) store.Message {
 		p.Participants = append(p.Participants, person(j))
 	}
 	p.AboutSelf = w.Loud(s) || s.Type == store.SystemTypeIdentityChange
-	out := wa.SystemMessage(jid(m.Chat), p, time.UnixMilli(m.T))
+	out := whatsapp.SystemMessage(jid(m.Chat), p, time.UnixMilli(m.T))
 	out.ID = MessageID(chatID, m.ID)
 	out.ChatID = chatID
 	out.SortMS = m.T

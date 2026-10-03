@@ -5,7 +5,7 @@
 // until the new core owns sending, media and avatars, those stay with the
 // old wa client: commands go to it, and a row takes the media path and
 // avatar the old store keeps for the same message. message content is
-// decoded by the old ingest builders, run without storing.
+// decoded by internal/whatsapp.
 package v1
 
 import (
@@ -35,6 +35,8 @@ type Adapter struct {
 	old    *store.DB
 	daemon *app.Daemon
 	log    zerolog.Logger
+	// mediaDir is where decoded thumbnails go
+	mediaDir string
 
 	mu    sync.Mutex
 	world *model.World
@@ -48,8 +50,12 @@ type Adapter struct {
 }
 
 func New(db *core.DB, waClient *wa.Client, old *store.DB, daemon *app.Daemon, log zerolog.Logger) *Adapter {
-	return &Adapter{core: db, r: model.NewReader(db.Read()), wa: waClient, old: old, daemon: daemon, log: log,
+	a := &Adapter{core: db, r: model.NewReader(db.Read()), wa: waClient, old: old, daemon: daemon, log: log,
 		previews: newPreviews(), queue: make(chan core.Change, 256)}
+	if daemon != nil {
+		a.mediaDir = daemon.Status().Paths.MediaCacheDir
+	}
+	return a
 }
 
 // Bind hands the adapter the wa client once it exists: the core opens first
