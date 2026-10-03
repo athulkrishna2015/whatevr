@@ -249,7 +249,7 @@ func (a *Adapter) publish(ctx context.Context, c core.Change) {
 		a.daemon.PublishBlocklistChanged()
 	}
 	if len(c.Keys["sticker"]) > 0 || c.All["sticker"] {
-		a.daemon.PublishStickerLibraryChanged(app.StickerSourceFavorite)
+		a.daemon.PublishStickerLibraryChanged(app.StickerSourceUnspecified)
 	}
 }
 

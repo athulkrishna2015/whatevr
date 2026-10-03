@@ -39,7 +39,7 @@ const (
 // inside a history conversation).
 var messagesDomain = core.Domain{
 	Name:    "messages",
-	Version: 10,
+	Version: 11,
 	Tables: []string{"msg", "msg_src", "msg_wait", "msg_gone", "f_reaction", "f_edit", "f_revoke", "f_enc",
 		"f_pin", "f_keep", "f_receipt", "f_ephemeral", "sys_msg", "f_seen", "msg_text", "msg_text_q", "live"},
 	Schema: append([]string{
@@ -73,6 +73,8 @@ var messagesDomain = core.Domain{
 		// what unread counts and what moves its horizon, each a seek
 		`CREATE INDEX msg_in ON msg (chat, t) WHERE from_me = 0 AND kind NOT LIKE 'stub:%'`,
 		`CREATE INDEX msg_out ON msg (chat, t) WHERE from_me = 1`,
+		// the stickers we sent are the picker's recents
+		`CREATE INDEX msg_sticker ON msg (t) WHERE from_me = 1 AND kind = 'stickerMessage'`,
 		// search: the newest texts first without reading bodies, and every
 		// three letters of each text, which narrow a rare word to a few rows
 		`CREATE INDEX msg_recent ON msg (t, id, text) WHERE text != ''`,

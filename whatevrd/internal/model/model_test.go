@@ -200,6 +200,12 @@ func scenario() []core.Input {
 		boIn("LV1", 121, liveAt(28.1, 1)),
 		boIn("LV2", 122, liveAt(28.2, 2)),
 		boIn("LVX", 123, revokeOf(target(grp, "LV1", boL))),
+		// the sticker picker
+		recentsIn("N9", 124, recentMeta(1, 11, -100, 2)),
+		recentsIn("N8", 125, recentMeta(1, 11, -90, 1)),
+		stickerIn(core.StickerHead{Op: core.StickerFile, Key: hx(1), Enc: hx(11), Path: "/s/1.webp"}, nil, 126),
+		stickerIn(core.StickerHead{Op: core.StickerFile, Key: hx(1), Enc: hx(11), Path: "/s/1b.webp"}, nil, 127),
+		stickerIn(core.StickerHead{Op: core.StickerInstalled, Key: "P1", On: true}, nil, 128),
 	}
 }
 
@@ -403,7 +409,10 @@ func TestTheScenarioFoldsRight(t *testing.T) {
 	expect(t, db, []string{"100000000001@lid|90000|95000", "100000000002@lid|90000|0", "100000000009@lid|0|0"},
 		`SELECT jid, MAX(snap_t - ?, 0), MAX(out_t - ?, 0) FROM grp_member ORDER BY jid`, at(0).UnixMilli(), at(0).UnixMilli())
 	expect(t, db, []string{"917770000001@s.whatsapp.net|History 917770000001@s.whatsapp.net|1"}, `SELECT chat, name, unread FROM hist_chat WHERE chat LIKE '%whatsapp%'`)
-	expect(t, db, []string{"N1||100"}, `SELECT notification, error, progress FROM hist_blob`)
+	expect(t, db, []string{"N1||100", "N8||0", "N9||0"}, `SELECT notification, error, progress FROM hist_blob ORDER BY notification`)
+	// the newest file and the history's newest use win
+	expect(t, db, []string{"file|" + hx(1) + "|/s/1b.webp", "installed|P1|<nil>"}, `SELECT op, key, json_extract(value, '$.path') FROM stk ORDER BY op`)
+	expect(t, db, []string{hx(1) + "|0|2"}, `SELECT plain, used - ?, weight FROM stk_recent`, at(-90).Unix())
 }
 
 // a delete blanks what it took in the log, and a rebuild from that log ends

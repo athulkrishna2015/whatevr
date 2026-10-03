@@ -36,6 +36,8 @@ const (
 	KindLocal  = "local"
 	KindAvatar = "avatar"
 	KindPrefs  = "prefs"
+	// what this daemon fetched or did for the sticker picker
+	KindSticker = "sticker"
 )
 
 // Times in heads are whatsapp's, unix seconds; 0 when whatsapp gave none,
@@ -355,6 +357,34 @@ const (
 	AvatarNone   = "none"
 	AvatarHidden = "hidden"
 	AvatarError  = "error"
+)
+
+// StickerHead is one thing this daemon fetched or did for the sticker picker.
+// Op says which; a newer one of the same op and key replaces the older.
+type StickerHead struct {
+	Op string `json:"op"`
+	// Key is the pack id for pack and installed, the tray image id for tray,
+	// the sticker's plaintext sha256 in hex for file and upload; "" for index
+	Key string `json:"key,omitempty"`
+	// Enc is the encrypted sha256 in hex a file was fetched by
+	Enc      string `json:"enc,omitempty"`
+	Path     string `json:"path,omitempty"`
+	Archive  string `json:"archive,omitempty"`
+	Animated bool   `json:"animated,omitempty"`
+	On       bool   `json:"on,omitempty"`
+}
+
+const (
+	// the body is the store index as fetched, a json list of packs
+	StickerIndex = "index"
+	// the body is the pack as fetched, json with its stickers
+	StickerPack      = "pack"
+	StickerInstalled = "installed"
+	StickerTray      = "tray"
+	StickerFile      = "file"
+	// the body is the StickerMessage our own upload made, none once it is
+	// no good
+	StickerUpload = "upload"
 )
 
 // PrefsHead is every preference after a change.

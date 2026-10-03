@@ -393,28 +393,26 @@ func (a *Adapter) CountPendingOutgoingMessages(ctx context.Context) (int, error)
 	return len(out), err
 }
 
-// the sticker library is still the old store's
-
 func (a *Adapter) ListRecentStickers(ctx context.Context, limit int) ([]store.Sticker, error) {
-	return a.old.ListRecentStickers(ctx, limit)
+	return a.r.ListRecentStickers(ctx, limit)
 }
 
 func (a *Adapter) ListFavoriteStickers(ctx context.Context, limit int) ([]store.Sticker, error) {
-	return a.old.ListFavoriteStickers(ctx, limit)
+	return a.r.ListFavoriteStickers(ctx, limit)
 }
 
 func (a *Adapter) ListAllStickers(ctx context.Context, limit int) ([]store.Sticker, error) {
-	return a.old.ListAllStickers(ctx, limit)
+	return a.r.ListAllStickers(ctx, limit)
 }
 
 func (a *Adapter) ListStickerPacks(ctx context.Context) ([]store.StickerPack, error) {
-	return a.old.ListStickerPacks(ctx)
+	return a.r.ListStickerPacks(ctx)
 }
 
 func (a *Adapter) GetStickerPack(ctx context.Context, id string) (store.StickerPack, bool, error) {
-	return a.old.GetStickerPack(ctx, id)
+	return a.r.GetStickerPack(ctx, id)
 }
 
 func (a *Adapter) ListPackStickers(ctx context.Context, packID string) ([]store.Sticker, error) {
-	return a.old.ListPackStickers(ctx, packID)
+	return a.r.ListPackStickers(ctx, packID)
 }
