@@ -14,7 +14,7 @@ require (
 	github.com/nyaruka/phonenumbers v1.8.1
 	github.com/rs/zerolog v1.35.1
 	go.mau.fi/libsignal v0.2.2
-	go.mau.fi/whatsmeow v0.0.0-20260921121126-35ae40906e74
+	go.mau.fi/whatsmeow v0.0.0-20260929112325-8b41cfe6d9c4
 	golang.org/x/crypto v0.57.0
 	golang.org/x/sys v0.48.0
 	google.golang.org/protobuf v1.36.12
@@ -39,3 +39,5 @@ require (
 )
 
 replace github.com/codelif/whatevr/proto => ../proto
+
+replace go.mau.fi/util => git.sr.ht/~codelif/go-util v0.10.2-0.20261003185047-cb7dec371f08
