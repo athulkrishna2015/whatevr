@@ -1,0 +1,404 @@
+// Package server serves PROTOCOL.md: protocol 2, protobuf frames on a local
+// socket. views read the model and the daemon's live state; commands go to
+// the whatsapp client.
+package server
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"os"
+	"path/filepath"
+	"slices"
+	"sort"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/rs/zerolog"
+	"google.golang.org/protobuf/reflect/protoreflect"
+
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
+
+	"whatevrd/internal/core"
+)
+
+// Protocol is the version this server speaks.
+const Protocol = 2
+
+// a runaway local frontend opening sockets in a loop, not an attacker: the
+// socket is the user's own
+const maxConnections = 256
+
+type Options struct {
+	// Listener is a socket systemd handed over, nil to bind SocketPath
+	Listener   net.Listener
+	SocketPath string
+	Version    string
+	DataDir    string
+	CacheDir   string
+	Log        zerolog.Logger
+	// Tap sees every frame in and out, and opens and closes, for captures
+	Tap func(conn uint64, dir string, frame []byte)
+}
+
+// Method serves one request arm. a nil response is done.
+type Method func(ctx context.Context, s *Session, req *v2.Request) (*v2.Response, error)
+
+type method struct {
+	fn Method
+	// inline runs on the connection's own loop, so two of them from one
+	// frontend happen in the order sent: sends, local writes
+	inline bool
+}
+
+type Server struct {
+	opts    Options
+	ln      net.Listener
+	owns    bool
+	views   map[protoreflect.FieldNumber]View
+	methods map[protoreflect.FieldNumber]method
+
+	mu    sync.Mutex
+	conns map[*conn]struct{}
+	wg    sync.WaitGroup
+	last  atomic.Uint64
+
+	// OnSessions hears that a frontend came, went, focused, or changed what
+	// it shows. set before Serve
+	OnSessions func()
+	errc       chan error
+}
+
+func New(opts Options) (*Server, error) {
+	s := &Server{opts: opts, views: map[protoreflect.FieldNumber]View{}, methods: map[protoreflect.FieldNumber]method{},
+		conns: map[*conn]struct{}{}, errc: make(chan error, 1)}
+	if opts.Listener != nil {
+		s.ln = opts.Listener
+		// systemd owns the file and reuses it for the next start
+		if u, ok := s.ln.(*net.UnixListener); ok {
+			u.SetUnlinkOnClose(false)
+		}
+		return s, nil
+	}
+	ln, err := listen(opts.SocketPath)
+	if err != nil {
+		return nil, err
+	}
+	s.ln, s.owns = ln, true
+	return s, nil
+}
+
+// View serves the subscribe arm with field number n.
+func (s *Server) View(n protoreflect.FieldNumber, v View) { s.views[n] = v }
+
+// Handle serves the request arm with field number n off the connection's
+// loop, for anything that waits on the network.
+func (s *Server) Handle(n protoreflect.FieldNumber, fn Method) { s.methods[n] = method{fn: fn} }
+
+// HandleInline serves n on the connection's loop, in the order requests came.
+func (s *Server) HandleInline(n protoreflect.FieldNumber, fn Method) {
+	s.methods[n] = method{fn: fn, inline: true}
+}
+
+// features is every view and method served, by its arm name.
+func (s *Server) features() []string {
+	var out []string
+	for n := range s.views {
+		out = append(out, viewName(n))
+	}
+	for n := range s.methods {
+		out = append(out, methodName(n))
+	}
+	out = append(out, "subscribe", "extend", "unsubscribe")
+	sort.Strings(out)
+	return out
+}
+
+var (
+	methodArms = (&v2.Request{}).ProtoReflect().Descriptor().Oneofs().ByName("method").Fields()
+	viewArms   = (&v2.Subscribe{}).ProtoReflect().Descriptor().Oneofs().ByName("view").Fields()
+)
+
+func methodName(n protoreflect.FieldNumber) string {
+	if f := methodArms.ByNumber(n); f != nil {
+		return string(f.Name())
+	}
+	return fmt.Sprint(n)
+}
+
+func viewName(n protoreflect.FieldNumber) string {
+	if f := viewArms.ByNumber(n); f != nil {
+		return string(f.Name())
+	}
+	return fmt.Sprint(n)
+}
+
+// Serve accepts until ctx ends, then closes every connection and the
+// socket. Err's channel closes once that is done.
+func (s *Server) Serve(ctx context.Context) {
+	go func() {
+		defer close(s.errc)
+		accepted := make(chan error, 1)
+		go s.accept(ctx, accepted)
+		select {
+		case err := <-accepted:
+			if err != nil && ctx.Err() == nil {
+				s.errc <- err
+			}
+		case <-ctx.Done():
+			s.ln.Close()
+			<-accepted
+		}
+		s.mu.Lock()
+		conns := make([]*conn, 0, len(s.conns))
+		for c := range s.conns {
+			conns = append(conns, c)
+		}
+		s.mu.Unlock()
+		for _, c := range conns {
+			c.close()
+		}
+		s.wg.Wait()
+		s.ln.Close()
+		if s.owns {
+			_ = os.Remove(s.opts.SocketPath)
+		}
+	}()
+}
+
+func (s *Server) Err() <-chan error { return s.errc }
+
+func (s *Server) accept(ctx context.Context, done chan<- error) {
+	for {
+		nc, err := s.ln.Accept()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				err = nil
+			}
+			done <- err
+			return
+		}
+		if err := samePeer(nc); err != nil {
+			s.opts.Log.Warn().Err(err).Msg("refusing a connection from another user")
+			nc.Close()
+			continue
+		}
+		id := s.last.Add(1)
+		log := s.opts.Log.With().Uint64("conn", id).Logger()
+		cctx, stop := context.WithCancel(log.WithContext(context.Background()))
+		c := &conn{srv: s, nc: nc, id: id, log: log, q: newQueue(), done: make(chan struct{}), ctx: cctx, stop: stop,
+			subs: map[uint64]*subscription{}}
+		c.sess = &Session{conn: c}
+		s.mu.Lock()
+		full := len(s.conns) >= maxConnections
+		if !full {
+			s.conns[c] = struct{}{}
+		}
+		s.mu.Unlock()
+		if full {
+			log.Warn().Msg("refusing a connection: too many open")
+			nc.Close()
+			continue
+		}
+		log.Info().Msg("connection opened")
+		s.wg.Add(1)
+		go c.run()
+	}
+}
+
+func (s *Server) connDone(c *conn) {
+	s.mu.Lock()
+	delete(s.conns, c)
+	s.mu.Unlock()
+	s.wg.Done()
+}
+
+func (s *Server) connections() []*conn {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]*conn, 0, len(s.conns))
+	for c := range s.conns {
+		out = append(out, c)
+	}
+	return out
+}
+
+// Changed wakes every open window c may have moved.
+func (s *Server) Changed(c core.Change) {
+	for _, cn := range s.connections() {
+		for _, sub := range cn.windows() {
+			if sub.win.Wake(c) {
+				sub.kick()
+			}
+		}
+	}
+}
+
+func (s *Server) sessionChanged() {
+	if s.OnSessions != nil {
+		s.OnSessions()
+	}
+}
+
+// Session is one connected frontend, as session_update describes it.
+type Session struct {
+	conn   *conn
+	client string
+
+	mu        sync.Mutex
+	focused   bool
+	active    string
+	notifies  bool
+	touched   time.Time
+	focusedAt time.Time
+}
+
+// Update is session_update.
+func (s *Session) Update(focused bool, active string, notifies bool) {
+	s.mu.Lock()
+	now := time.Now()
+	if focused && !s.focused {
+		s.focusedAt = now
+	}
+	s.focused, s.active, s.notifies, s.touched = focused, active, notifies, now
+	s.mu.Unlock()
+	s.conn.srv.sessionChanged()
+}
+
+// SessionState is a frontend as the daemon's own decisions see it.
+type SessionState struct {
+	Focused bool
+	// Active is the chat id it has open
+	Active    string
+	Notifies  bool
+	Touched   time.Time
+	FocusedAt time.Time
+	// Windows is how many views it has open
+	Windows int
+	// Shown is every view's params, for demand driven work
+	Shown []*v2.Subscribe
+}
+
+func (s *Session) state() SessionState {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return SessionState{Focused: s.focused, Active: s.active, Notifies: s.notifies, Touched: s.touched, FocusedAt: s.focusedAt}
+}
+
+// Sessions is every frontend that said hello.
+func (s *Server) Sessions() []SessionState {
+	var out []SessionState
+	for _, c := range s.connections() {
+		if !c.hello {
+			continue
+		}
+		out = append(out, c.sess.state())
+	}
+	return out
+}
+
+// OpenChat sends open_chat to the frontend most recently focused, or the
+// most recently active one if none is focused. false when there is none.
+func (s *Server) OpenChat(chatID string) bool {
+	var best *conn
+	var bestAt time.Time
+	focused := false
+	for _, c := range s.connections() {
+		if !c.hello {
+			continue
+		}
+		st := c.sess.state()
+		at := st.Touched
+		if st.Focused {
+			at = st.FocusedAt
+		}
+		switch {
+		case st.Focused && !focused:
+			best, bestAt, focused = c, at, true
+		case st.Focused == focused && (best == nil || at.After(bestAt)):
+			best, bestAt = c, at
+		}
+	}
+	if best == nil {
+		return false
+	}
+	e := &v2.Event{}
+	e.SetOpenChat(v2.OpenChat_builder{ChatId: chatID}.Build())
+	best.event(e)
+	return true
+}
+
+// Send hands an event to the connection behind s, if it is still open.
+func (s *Session) Send(e *v2.Event) { s.conn.event(e) }
+
+// Error is a request's failure as the wire says it.
+type Error struct {
+	code v2.ErrorCode
+	msg  string
+}
+
+func (e *Error) Error() string { return e.msg }
+
+func Errorf(code v2.ErrorCode, format string, args ...any) error {
+	return &Error{code: code, msg: fmt.Sprintf(format, args...)}
+}
+
+func asError(err error) *Error {
+	var e *Error
+	if errors.As(err, &e) {
+		return e
+	}
+	return &Error{code: v2.ErrorCode_ERROR_CODE_INTERNAL, msg: err.Error()}
+}
+
+func listen(path string) (net.Listener, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	if err := checkDir(filepath.Dir(path)); err != nil {
+		return nil, err
+	}
+	if err := removeStale(path); err != nil {
+		return nil, err
+	}
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		ln.Close()
+		return nil, err
+	}
+	return ln, nil
+}
+
+func removeStale(path string) error {
+	info, err := os.Lstat(path)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return nil
+	case err != nil:
+		return fmt.Errorf("look at the old socket: %w", err)
+	case info.Mode()&os.ModeSymlink != 0:
+		return fmt.Errorf("a symlink sits at the socket path %s", path)
+	case info.Mode()&os.ModeSocket == 0:
+		return fmt.Errorf("something that isn't a socket sits at %s", path)
+	}
+	return os.Remove(path)
+}
+
+// shown is every open window's params across frontends, for the daemon's
+// demand driven work.
+func (s *Server) shown() []*v2.Subscribe {
+	var out []*v2.Subscribe
+	for _, c := range s.connections() {
+		for _, sub := range c.windows() {
+			if p, ok := sub.win.(interface{ Params() *v2.Subscribe }); ok {
+				out = append(out, p.Params())
+			}
+		}
+	}
+	return slices.Clip(out)
+}
