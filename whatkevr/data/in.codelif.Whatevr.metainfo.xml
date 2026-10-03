@@ -19,6 +19,14 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.11.5" date="2026-10-03">
+      <description>
+        <ul>
+          <li><em><code>just install</code> now actually replaces a running frontend.</em> The restart step matched <code>^$prefix/bin/whatkevr$</code>, but a frontend cold-started from the tray runs as <code>whatkevr whatevr://</code> and a pop-out window as <code>whatkevr --new-window …</code>. Neither matched, so the old process survived, the newly launched one handed its activation to the old one and exited single-instance, and the install completed successfully while changing nothing. Since a tray cold start goes through <code>xdg-open whatevr://</code>, this was the ordinary path, not an edge case: the install would report success and the old build would keep running. Only the trailing anchor is gone — the leading one is what stops the recipe from killing its own shell, and it was the trailing one that was doing the damage.</li>
+          <li><em>A failed QML root object now says so.</em> If the QML root cannot be created the app exited 1 having printed nothing, because Qt's own diagnostic does not always reach stderr. That silence is why a one-line QML mistake once took four builds to track down.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.11.4" date="2026-10-03">
       <description>
         <ul>
