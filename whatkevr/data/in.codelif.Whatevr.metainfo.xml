@@ -19,6 +19,19 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.11.6" date="2026-10-03">
+      <description>
+        <p><em>Added</em></p>
+        <ul>
+          <li>Add a default-on setting to mute notifications from archived chats, covering messages, calls, and reactions.</li>
+        </ul>
+        <p><em>Fixed</em></p>
+        <ul>
+          <li>Replace the indefinite startup connection spinner with a retryable error after a brief loading state.</li>
+          <li>Clamp tray menu placement to screen geometry and open upward when space allows; Wayland compositors may override placement.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.11.5" date="2026-10-03">
       <description>
         <ul>
