@@ -206,6 +206,9 @@ type messagesChatFeed struct {
 	// what the last Items() call actually returned makes the filter exact.
 	subjectsMu     sync.Mutex
 	avatarSubjects map[string]bool
+	// reads counts window reads in flight: an avatar landing during one may
+	// be missing from what it returns
+	reads int
 }
 
 // noteAvatarSubjects records the avatar subjects of the window just built.
@@ -278,10 +281,22 @@ func (f *messagesChatFeed) isDownloading(id string) bool {
 func (f *messagesChatFeed) avatarInWindow(id string) bool {
 	f.subjectsMu.Lock()
 	defer f.subjectsMu.Unlock()
-	return f.avatarSubjects[id]
+	return f.avatarSubjects == nil || f.reads > 0 || f.avatarSubjects[id]
 }
 
-func (f *messagesChatFeed) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (f *messagesChatFeed) readStart() {
+	f.subjectsMu.Lock()
+	f.reads++
+	f.subjectsMu.Unlock()
+}
+
+func (f *messagesChatFeed) readEnd() {
+	f.subjectsMu.Lock()
+	f.reads--
+	f.subjectsMu.Unlock()
+}
+
+func (f *messagesChatFeed) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	for {
 		select {
 		case <-f.done:
@@ -294,7 +309,7 @@ func (f *messagesChatFeed) run(events <-chan app.DaemonEvent, invalidate func())
 	}
 }
 
-func (f *messagesChatFeed) eventAffectsChat(evt app.DaemonEvent) bool {
+func (f *messagesChatFeed) eventAffectsChat(evt *app.DaemonEvent) bool {
 	switch evt.Kind {
 	case app.DaemonEventResync:
 		// Dropped-event gap: re-read the store (Items is authoritative) and the
@@ -350,6 +365,8 @@ func (s *latestMessagesSession) ItemsErr(max int) ([]Item, error) {
 	if s.lister == nil {
 		return nil, nil
 	}
+	s.readStart()
+	defer s.readEnd()
 	limit := max
 	if limit <= 0 {
 		limit = messagesUnboundedLimit
@@ -427,6 +444,8 @@ func (s *anchoredMessagesSession) ItemsErr(int) ([]Item, error) {
 	if s.lister == nil {
 		return nil, nil
 	}
+	s.readStart()
+	defer s.readEnd()
 	s.mu.Lock()
 	olderN, newerN, live := s.olderReach, s.newerReach, s.atLiveEdge
 	s.mu.Unlock()

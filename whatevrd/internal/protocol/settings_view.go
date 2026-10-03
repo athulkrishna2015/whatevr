@@ -93,7 +93,7 @@ func (s *privacySession) set(settings app.PrivacySettings) bool {
 	return true
 }
 
-func (s *privacySession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *privacySession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	// Best-effort background first load (see Open): fills once, if logged in.
 	if s.refetch() {
 		invalidate()
@@ -110,7 +110,7 @@ func (s *privacySession) run(events <-chan app.DaemonEvent, invalidate func()) {
 	}
 }
 
-func (s *privacySession) apply(evt app.DaemonEvent) bool {
+func (s *privacySession) apply(evt *app.DaemonEvent) bool {
 	switch evt.Kind {
 	case app.DaemonEventResync:
 		return s.refetch()
@@ -232,7 +232,7 @@ func (s *preferencesSession) refetch() bool {
 	return true
 }
 
-func (s *preferencesSession) drainInitial(events <-chan app.DaemonEvent) {
+func (s *preferencesSession) drainInitial(events <-chan *app.DaemonEvent) {
 	for {
 		select {
 		case evt := <-events:
@@ -243,7 +243,7 @@ func (s *preferencesSession) drainInitial(events <-chan app.DaemonEvent) {
 	}
 }
 
-func (s *preferencesSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *preferencesSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	for {
 		select {
 		case <-s.done:
@@ -256,7 +256,7 @@ func (s *preferencesSession) run(events <-chan app.DaemonEvent, invalidate func(
 	}
 }
 
-func (s *preferencesSession) apply(evt app.DaemonEvent) bool {
+func (s *preferencesSession) apply(evt *app.DaemonEvent) bool {
 	switch evt.Kind {
 	case app.DaemonEventPreferencesChanged, app.DaemonEventResync:
 		return s.refetch()
@@ -404,7 +404,7 @@ func sameBlocklist(a, b map[string]app.BlockedContact) bool {
 	return true
 }
 
-func (s *blocklistSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *blocklistSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	// Best-effort background first load (see Open): fills once, if logged in.
 	if s.refetch() {
 		invalidate()
@@ -421,7 +421,7 @@ func (s *blocklistSession) run(events <-chan app.DaemonEvent, invalidate func())
 	}
 }
 
-func (s *blocklistSession) apply(evt app.DaemonEvent) bool {
+func (s *blocklistSession) apply(evt *app.DaemonEvent) bool {
 	switch evt.Kind {
 	case app.DaemonEventResync, app.DaemonEventBlocklistChanged:
 		return s.refetch()

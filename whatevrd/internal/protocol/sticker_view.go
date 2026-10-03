@@ -90,7 +90,7 @@ type stickersSession struct {
 	closeOnce    sync.Once
 }
 
-func (s *stickersSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *stickersSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	for {
 		select {
 		case <-s.done:
@@ -103,7 +103,7 @@ func (s *stickersSession) run(events <-chan app.DaemonEvent, invalidate func()) 
 	}
 }
 
-func (s *stickersSession) eventAffects(evt app.DaemonEvent) bool {
+func (s *stickersSession) eventAffects(evt *app.DaemonEvent) bool {
 	switch evt.Kind {
 	case app.DaemonEventResync:
 		return true
@@ -240,7 +240,7 @@ func (s *stickerPacksSession) refreshIndex(invalidate func()) {
 	invalidate()
 }
 
-func (s *stickerPacksSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *stickerPacksSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	for {
 		select {
 		case <-s.done:
@@ -342,7 +342,7 @@ func (s *stickerPackSession) fetchContents(invalidate func()) {
 	invalidate()
 }
 
-func (s *stickerPackSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *stickerPackSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	for {
 		select {
 		case <-s.done:
@@ -355,7 +355,7 @@ func (s *stickerPackSession) run(events <-chan app.DaemonEvent, invalidate func(
 	}
 }
 
-func (s *stickerPackSession) eventAffects(evt app.DaemonEvent) bool {
+func (s *stickerPackSession) eventAffects(evt *app.DaemonEvent) bool {
 	switch evt.Kind {
 	case app.DaemonEventResync:
 		return true

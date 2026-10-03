@@ -140,7 +140,7 @@ type connectionItem struct {
 	PendingOutgoingCount int    `json:"pending_outgoing_count"`
 }
 
-func (s *connectionSession) drainInitial(events <-chan app.DaemonEvent) {
+func (s *connectionSession) drainInitial(events <-chan *app.DaemonEvent) {
 	for {
 		select {
 		case evt := <-events:
@@ -151,7 +151,7 @@ func (s *connectionSession) drainInitial(events <-chan app.DaemonEvent) {
 	}
 }
 
-func (s *connectionSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *connectionSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	for {
 		select {
 		case <-s.done:
@@ -164,7 +164,7 @@ func (s *connectionSession) run(events <-chan app.DaemonEvent, invalidate func()
 	}
 }
 
-func (s *connectionSession) apply(evt app.DaemonEvent) bool {
+func (s *connectionSession) apply(evt *app.DaemonEvent) bool {
 	if evt.Kind == app.DaemonEventResync {
 		return s.reloadState()
 	}
@@ -298,7 +298,7 @@ func inactiveSyncEvent() app.HistorySyncEvent {
 	return app.HistorySyncEvent{ProgressPercent: 100, IsComplete: true, Phase: app.HistorySyncPhaseComplete}
 }
 
-func (s *syncSession) drainInitial(events <-chan app.DaemonEvent) {
+func (s *syncSession) drainInitial(events <-chan *app.DaemonEvent) {
 	for {
 		select {
 		case evt := <-events:
@@ -309,7 +309,7 @@ func (s *syncSession) drainInitial(events <-chan app.DaemonEvent) {
 	}
 }
 
-func (s *syncSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *syncSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	for {
 		select {
 		case <-s.done:
@@ -322,7 +322,7 @@ func (s *syncSession) run(events <-chan app.DaemonEvent, invalidate func()) {
 	}
 }
 
-func (s *syncSession) apply(evt app.DaemonEvent) bool {
+func (s *syncSession) apply(evt *app.DaemonEvent) bool {
 	if evt.Kind == app.DaemonEventResync {
 		return s.reloadState()
 	}

@@ -40,7 +40,7 @@ type Daemon struct {
 	paths             Paths
 	nextSubID         atomic.Uint64
 	subMu             sync.Mutex
-	daemonSubs        map[uint64]chan DaemonEvent
+	daemonSubs        map[uint64]chan *DaemonEvent
 	loginSubs         map[uint64]chan LoginEvent
 	latestQR          *QRCode
 	presenceByChatID  map[string]presenceState
@@ -57,7 +57,7 @@ type Daemon struct {
 func NewDaemon(paths Paths) *Daemon {
 	d := &Daemon{
 		paths:            paths,
-		daemonSubs:       make(map[uint64]chan DaemonEvent),
+		daemonSubs:       make(map[uint64]chan *DaemonEvent),
 		loginSubs:        make(map[uint64]chan LoginEvent),
 		presenceByChatID: make(map[string]presenceState),
 		mediaDownloads:   make(map[string]MediaDownloadEvent),
@@ -641,9 +641,9 @@ func (d *Daemon) PublishQRCode(code string, expiresAt time.Time) {
 	d.broadcastLoginEvent(LoginEvent{Kind: LoginEventQR, QRCode: code, ExpiresAt: expiresAt})
 }
 
-func (d *Daemon) SubscribeDaemonEvents() (<-chan DaemonEvent, func()) {
+func (d *Daemon) SubscribeDaemonEvents() (<-chan *DaemonEvent, func()) {
 	id := d.nextSubID.Add(1)
-	ch := make(chan DaemonEvent, daemonSubscriberBuffer)
+	ch := make(chan *DaemonEvent, daemonSubscriberBuffer)
 
 	// One snapshot, so the replayed event cannot mix a state from one moment
 	// with retry metadata from another.
@@ -660,7 +660,7 @@ func (d *Daemon) SubscribeDaemonEvents() (<-chan DaemonEvent, func()) {
 	}
 	d.subMu.Unlock()
 
-	ch <- DaemonEvent{
+	ch <- &DaemonEvent{
 		Kind:          DaemonEventConnectionChanged,
 		State:         conn.state,
 		Detail:        conn.detail,
@@ -669,10 +669,10 @@ func (d *Daemon) SubscribeDaemonEvents() (<-chan DaemonEvent, func()) {
 		CanReconnect:  conn.canReconnect,
 	}
 	if latestHistorySync != nil {
-		ch <- DaemonEvent{Kind: DaemonEventHistorySyncProgress, HistorySync: *latestHistorySync}
+		ch <- &DaemonEvent{Kind: DaemonEventHistorySyncProgress, HistorySync: *latestHistorySync}
 	}
 	for _, download := range mediaDownloads {
-		ch <- DaemonEvent{Kind: DaemonEventMediaDownloadChanged, MediaDownload: download}
+		ch <- &DaemonEvent{Kind: DaemonEventMediaDownloadChanged, MediaDownload: download}
 	}
 
 	return ch, func() {
@@ -707,7 +707,10 @@ func (d *Daemon) SubscribeLoginEvents() (<-chan LoginEvent, func()) {
 	}
 }
 
-func (d *Daemon) broadcastDaemonEvent(event DaemonEvent) {
+func (d *Daemon) broadcastDaemonEvent(e DaemonEvent) {
+	// one copy for every subscriber: they only read it, and a buffer of
+	// pointers is what makes an open view cheap
+	event := &e
 	// Hold subMu across delivery so the overflow path (drain + post a resync
 	// sentinel) is the only producer touching a given channel: with no
 	// concurrent producer, once the drain sees the channel empty it can post the
@@ -733,12 +736,12 @@ func (d *Daemon) broadcastDaemonEvent(event DaemonEvent) {
 // caller must hold subMu so no other producer refills ch between the drain and
 // the post; the consumer only receives, so once the channel reads empty it stays
 // empty until the resync is posted (which then always fits).
-func drainAndPostResync(ch chan DaemonEvent) {
+func drainAndPostResync(ch chan *DaemonEvent) {
 	for {
 		select {
 		case <-ch:
 		default:
-			ch <- DaemonEvent{Kind: DaemonEventResync}
+			ch <- &DaemonEvent{Kind: DaemonEventResync}
 			return
 		}
 	}

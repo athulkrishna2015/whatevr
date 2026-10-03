@@ -72,7 +72,7 @@ type starredSession struct {
 	closeOnce    sync.Once
 }
 
-func (s *starredSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *starredSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	for {
 		select {
 		case <-s.done:
@@ -90,7 +90,7 @@ func (s *starredSession) run(events <-chan app.DaemonEvent, invalidate func()) {
 // via delete-for-me or a chat delete/clear. For the cross-chat view (chatID
 // "") any chat's event counts; otherwise it is scoped. Items always re-reads,
 // so a spurious hit just diffs to nothing.
-func (s *starredSession) eventAffects(evt app.DaemonEvent) bool {
+func (s *starredSession) eventAffects(evt *app.DaemonEvent) bool {
 	switch evt.Kind {
 	case app.DaemonEventResync:
 		return true
@@ -222,9 +222,10 @@ type pinnedSession struct {
 	mu          sync.Mutex
 	expiryTimer *time.Timer
 	closed      bool
+	avatars     avatarWatch
 }
 
-func (s *pinnedSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *pinnedSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	for {
 		select {
 		case <-s.done:
@@ -237,7 +238,7 @@ func (s *pinnedSession) run(events <-chan app.DaemonEvent, invalidate func()) {
 	}
 }
 
-func (s *pinnedSession) eventAffects(evt app.DaemonEvent) bool {
+func (s *pinnedSession) eventAffects(evt *app.DaemonEvent) bool {
 	switch evt.Kind {
 	case app.DaemonEventResync:
 		return true
@@ -248,7 +249,7 @@ func (s *pinnedSession) eventAffects(evt app.DaemonEvent) bool {
 	case app.DaemonEventChatCleared:
 		return evt.Chat.ID == s.chatID
 	case app.DaemonEventAvatarUpdated:
-		return true
+		return s.avatars.shows(evt.Avatar.ID)
 	default:
 		return false
 	}
@@ -261,7 +262,9 @@ func (s *pinnedSession) Items(int) []Item {
 	if s.lister == nil {
 		return nil
 	}
+	s.avatars.begin()
 	rows, err := s.lister.ListPinnedMessages(s.ctx, s.chatID)
+	s.avatars.end(s.chatID, rows, err == nil)
 	if err != nil {
 		zerolog.Ctx(s.ctx).Warn().Err(err).Msg("list pinned messages")
 		return nil

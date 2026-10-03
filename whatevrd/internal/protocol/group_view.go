@@ -102,7 +102,7 @@ func (s *groupSession) refetch() bool {
 	return true
 }
 
-func (s *groupSession) drainInitial(events <-chan app.DaemonEvent) {
+func (s *groupSession) drainInitial(events <-chan *app.DaemonEvent) {
 	for {
 		select {
 		case evt := <-events:
@@ -113,7 +113,7 @@ func (s *groupSession) drainInitial(events <-chan app.DaemonEvent) {
 	}
 }
 
-func (s *groupSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *groupSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	for {
 		select {
 		case <-s.done:
@@ -126,7 +126,7 @@ func (s *groupSession) run(events <-chan app.DaemonEvent, invalidate func()) {
 	}
 }
 
-func (s *groupSession) apply(evt app.DaemonEvent) bool {
+func (s *groupSession) apply(evt *app.DaemonEvent) bool {
 	if evt.Kind == app.DaemonEventResync {
 		return s.refetch()
 	}
@@ -263,7 +263,7 @@ func (s *groupMembersSession) refetch() bool {
 	return true
 }
 
-func (s *groupMembersSession) drainInitial(events <-chan app.DaemonEvent) {
+func (s *groupMembersSession) drainInitial(events <-chan *app.DaemonEvent) {
 	for {
 		select {
 		case evt := <-events:
@@ -274,7 +274,7 @@ func (s *groupMembersSession) drainInitial(events <-chan app.DaemonEvent) {
 	}
 }
 
-func (s *groupMembersSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *groupMembersSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	for {
 		select {
 		case <-s.done:
@@ -287,7 +287,7 @@ func (s *groupMembersSession) run(events <-chan app.DaemonEvent, invalidate func
 	}
 }
 
-func (s *groupMembersSession) apply(evt app.DaemonEvent) bool {
+func (s *groupMembersSession) apply(evt *app.DaemonEvent) bool {
 	if evt.Kind == app.DaemonEventResync {
 		return s.refetch()
 	}

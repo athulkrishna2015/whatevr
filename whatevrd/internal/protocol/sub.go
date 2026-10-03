@@ -1,8 +1,8 @@
 package protocol
 
 import (
-	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"reflect"
 	"sync"
@@ -55,12 +55,13 @@ type frameSink interface {
 }
 
 // sentItem records the version of an item the client last received, for
-// change detection during recompute. value is the unmarshalled source of body,
-// kept so an unchanged item can be recognised without re-marshalling it.
+// change detection during recompute. value is the Item.Data it was marshalled
+// from, so an unchanged item is recognised without marshalling it again; sum
+// is the hash of the bytes sent, for a value that changed but marshals the
+// same. a big window keeps every row, the bytes themselves cost too much.
 type sentItem struct {
-	sort string
-	body []byte
-	// value is the Item.Data body was produced from.
+	sort  string
+	sum   [sha256.Size]byte
 	value any
 }
 
@@ -278,9 +279,9 @@ func (s *subscription) recompute(window int) (exhausted, reset bool) {
 			zerolog.Ctx(s.ctx).Error().Err(err).Str("item", it.ID).Msg("marshal view item")
 			continue
 		}
-		cur := sentItem{sort: it.Sort, body: body, value: it.Data}
+		cur := sentItem{sort: it.Sort, sum: sha256.Sum256(body), value: it.Data}
 		next[it.ID] = cur
-		if hadPrev && prev.sort == it.Sort && bytes.Equal(prev.body, body) {
+		if hadPrev && prev.sort == it.Sort && prev.sum == cur.sum {
 			continue
 		}
 		upserted = append(upserted, it.ID)

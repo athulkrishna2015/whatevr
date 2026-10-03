@@ -90,7 +90,7 @@ type typingSender struct {
 	Name string `json:"name,omitempty"`
 }
 
-func (s *typingSession) drainInitial(events <-chan app.DaemonEvent) {
+func (s *typingSession) drainInitial(events <-chan *app.DaemonEvent) {
 	for {
 		select {
 		case evt := <-events:
@@ -101,7 +101,7 @@ func (s *typingSession) drainInitial(events <-chan app.DaemonEvent) {
 	}
 }
 
-func (s *typingSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *typingSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	for {
 		select {
 		case <-s.done:
@@ -118,7 +118,7 @@ func (s *typingSession) run(events <-chan app.DaemonEvent, invalidate func()) {
 // set changed. Chat-presence events are overloaded: composing events always
 // carry a SenderID, availability events never do — so a missing SenderID is the
 // discriminator that keeps availability churn from touching the typing view.
-func (s *typingSession) apply(evt app.DaemonEvent) bool {
+func (s *typingSession) apply(evt *app.DaemonEvent) bool {
 	if evt.Kind == app.DaemonEventResync {
 		s.reloadComposing()
 		return true

@@ -64,7 +64,7 @@ type transferItem struct {
 	Error         string `json:"error,omitempty"`
 }
 
-func (s *transfersSession) drainInitial(events <-chan app.DaemonEvent) {
+func (s *transfersSession) drainInitial(events <-chan *app.DaemonEvent) {
 	for {
 		select {
 		case evt := <-events:
@@ -75,7 +75,7 @@ func (s *transfersSession) drainInitial(events <-chan app.DaemonEvent) {
 	}
 }
 
-func (s *transfersSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *transfersSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	for {
 		select {
 		case <-s.done:
@@ -88,7 +88,7 @@ func (s *transfersSession) run(events <-chan app.DaemonEvent, invalidate func())
 	}
 }
 
-func (s *transfersSession) apply(evt app.DaemonEvent) bool {
+func (s *transfersSession) apply(evt *app.DaemonEvent) bool {
 	if evt.Kind == app.DaemonEventResync {
 		s.reloadTransfers()
 		return true

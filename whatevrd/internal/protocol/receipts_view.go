@@ -104,7 +104,7 @@ type receiptsSession struct {
 	closeOnce    sync.Once
 }
 
-func (s *receiptsSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *receiptsSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	for {
 		select {
 		case <-s.done:
@@ -120,7 +120,7 @@ func (s *receiptsSession) run(events <-chan app.DaemonEvent, invalidate func()) 
 // relevant reports whether an event pertains to the watched message. A resync
 // always re-derives (the store is authoritative, so re-reading recovers from a
 // dropped receipt/update event).
-func (s *receiptsSession) relevant(evt app.DaemonEvent) bool {
+func (s *receiptsSession) relevant(evt *app.DaemonEvent) bool {
 	switch evt.Kind {
 	case app.DaemonEventResync:
 		return true

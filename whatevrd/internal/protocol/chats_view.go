@@ -187,7 +187,7 @@ type chatItem struct {
 // run invalidates the window whenever a daemon event may have changed a chat
 // row. Items always re-reads the store, so a redundant invalidate just
 // recomputes to no diff.
-func (s *chatsSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *chatsSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	for {
 		select {
 		case <-s.done:
@@ -200,7 +200,7 @@ func (s *chatsSession) run(events <-chan app.DaemonEvent, invalidate func()) {
 	}
 }
 
-func (s *chatSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *chatSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	for {
 		select {
 		case <-s.done:

@@ -65,7 +65,7 @@ type chatMediaSession struct {
 	closeOnce    sync.Once
 }
 
-func (s *chatMediaSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *chatMediaSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	for {
 		select {
 		case <-s.done:
@@ -83,7 +83,7 @@ func (s *chatMediaSession) run(events <-chan app.DaemonEvent, invalidate func())
 // (which strips the media and drops the row) and a star flip all ride
 // DaemonEventMessageUpdated. Items always re-reads, so a spurious hit just
 // diffs to nothing.
-func (s *chatMediaSession) eventAffects(evt app.DaemonEvent) bool {
+func (s *chatMediaSession) eventAffects(evt *app.DaemonEvent) bool {
 	switch evt.Kind {
 	case app.DaemonEventResync, app.DaemonEventHistoryBackfilled:
 		return true

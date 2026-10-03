@@ -116,7 +116,7 @@ func withComposingPresenceTTL(t *testing.T, ttl time.Duration) {
 	})
 }
 
-func drainInitialDaemonEvent(t *testing.T, events <-chan DaemonEvent) {
+func drainInitialDaemonEvent(t *testing.T, events <-chan *DaemonEvent) {
 	t.Helper()
 	event := nextDaemonEvent(t, events)
 	if event.Kind != DaemonEventConnectionChanged {
@@ -124,18 +124,18 @@ func drainInitialDaemonEvent(t *testing.T, events <-chan DaemonEvent) {
 	}
 }
 
-func nextDaemonEvent(t *testing.T, events <-chan DaemonEvent) DaemonEvent {
+func nextDaemonEvent(t *testing.T, events <-chan *DaemonEvent) DaemonEvent {
 	t.Helper()
 	select {
 	case event := <-events:
-		return event
+		return *event
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for daemon event")
 		return DaemonEvent{}
 	}
 }
 
-func assertNoDaemonEvent(t *testing.T, events <-chan DaemonEvent, timeout time.Duration) {
+func assertNoDaemonEvent(t *testing.T, events <-chan *DaemonEvent, timeout time.Duration) {
 	t.Helper()
 	select {
 	case event := <-events:

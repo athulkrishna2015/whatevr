@@ -127,7 +127,7 @@ type presenceItem struct {
 	LastSeenUnix int64  `json:"last_seen_unix,omitempty"`
 }
 
-func (s *presenceSession) drainInitial(events <-chan app.DaemonEvent) {
+func (s *presenceSession) drainInitial(events <-chan *app.DaemonEvent) {
 	for {
 		select {
 		case evt := <-events:
@@ -138,7 +138,7 @@ func (s *presenceSession) drainInitial(events <-chan app.DaemonEvent) {
 	}
 }
 
-func (s *presenceSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *presenceSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	for {
 		select {
 		case <-s.done:
@@ -155,7 +155,7 @@ func (s *presenceSession) run(events <-chan app.DaemonEvent, invalidate func()) 
 // changed. Availability events are the SenderID-empty half of the overloaded
 // chat-presence event; a set SenderID means composing, which belongs to the
 // `typing` view and is ignored here.
-func (s *presenceSession) apply(evt app.DaemonEvent) bool {
+func (s *presenceSession) apply(evt *app.DaemonEvent) bool {
 	if evt.Kind == app.DaemonEventResync {
 		s.reloadAvailability()
 		return true

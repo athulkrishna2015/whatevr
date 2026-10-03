@@ -77,7 +77,7 @@ type liveLocationsSession struct {
 // banner shows, and this view is at most a handful of rows.
 const liveLocationsTick = 10 * time.Second
 
-func (s *liveLocationsSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *liveLocationsSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	ticker := time.NewTicker(liveLocationsTick)
 	defer ticker.Stop()
 	for {
@@ -94,7 +94,7 @@ func (s *liveLocationsSession) run(events <-chan app.DaemonEvent, invalidate fun
 	}
 }
 
-func (s *liveLocationsSession) eventAffects(evt app.DaemonEvent) bool {
+func (s *liveLocationsSession) eventAffects(evt *app.DaemonEvent) bool {
 	switch evt.Kind {
 	case app.DaemonEventResync:
 		return true

@@ -111,7 +111,7 @@ func (s *selfSession) refetch() bool {
 	return true
 }
 
-func (s *selfSession) drainInitial(events <-chan app.DaemonEvent) {
+func (s *selfSession) drainInitial(events <-chan *app.DaemonEvent) {
 	for {
 		select {
 		case evt := <-events:
@@ -122,7 +122,7 @@ func (s *selfSession) drainInitial(events <-chan app.DaemonEvent) {
 	}
 }
 
-func (s *selfSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *selfSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	for {
 		select {
 		case <-s.done:
@@ -135,7 +135,7 @@ func (s *selfSession) run(events <-chan app.DaemonEvent, invalidate func()) {
 	}
 }
 
-func (s *selfSession) apply(evt app.DaemonEvent) bool {
+func (s *selfSession) apply(evt *app.DaemonEvent) bool {
 	switch evt.Kind {
 	case app.DaemonEventResync, app.DaemonEventSelfProfileChanged:
 		return s.refetch()
@@ -295,7 +295,7 @@ func (s *contactSession) refetch() bool {
 	return true
 }
 
-func (s *contactSession) drainInitial(events <-chan app.DaemonEvent) {
+func (s *contactSession) drainInitial(events <-chan *app.DaemonEvent) {
 	for {
 		select {
 		case evt := <-events:
@@ -306,7 +306,7 @@ func (s *contactSession) drainInitial(events <-chan app.DaemonEvent) {
 	}
 }
 
-func (s *contactSession) run(events <-chan app.DaemonEvent, invalidate func()) {
+func (s *contactSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
 	for {
 		select {
 		case <-s.done:
@@ -319,7 +319,7 @@ func (s *contactSession) run(events <-chan app.DaemonEvent, invalidate func()) {
 	}
 }
 
-func (s *contactSession) apply(evt app.DaemonEvent) bool {
+func (s *contactSession) apply(evt *app.DaemonEvent) bool {
 	if evt.Kind == app.DaemonEventResync {
 		return s.refetch()
 	}
