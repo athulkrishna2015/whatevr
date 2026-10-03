@@ -3827,8 +3827,14 @@ void ProtocolController::openLogs()
 
     m_logsSub = m_client->subscribe(
         QStringLiteral("daemon.logs"),
-        // Full ring for debug: the daemon caps at its 1000-line ring anyway.
-        {{QStringLiteral("limit"), 1000}},
+        // A recent window, not the whole ring. The daemon would happily build
+        // all 1000 lines into rows on the first tick; the view's own default is
+        // 200, and there is no reading of a log that wants the oldest 800 lines
+        // of a 5 MB rotating file. Older history is on disk — "Open folder"
+        // goes there.
+        // ponytail: while the log is actively streaming, every 500 ms tick still
+        // recomputes the whole window. Append-only diffing if that ever shows.
+        {},
         m_logsModel);
     connect(m_logsSub, &Subscription::failed, this,
             [this](const QString &code, const QString &message) {

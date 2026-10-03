@@ -458,12 +458,28 @@ Item {
             return;
         if (!autoDownloadWanted || mediaDownloading || mediaDownloadError.length > 0)
             return;
+        // Offline, there is nothing to fetch from: the daemon fails these
+        // instantly, and because the latch below only arms once we actually ask,
+        // every recycled delegate asks again — a request storm that goes nowhere.
+        if (Whatevr.ProtocolController.connectionPhase !== "connected")
+            return;
         autoDownloadTriggered = true;
         Whatevr.ProtocolController.downloadMessageMedia(messageId);
     }
 
     onActiveInViewportChanged: maybeAutoDownloadMedia()
     onAutoDownloadWantedChanged: maybeAutoDownloadMedia()
+
+    // The offline gate parks these bubbles with the latch unarmed, so without
+    // this they would not fetch until they next scroll out and back in.
+    // stateChanged is the signal connectionPhase actually declares as its NOTIFY,
+    // and unlike the generated per-property change signal it resolves here.
+    Connections {
+        target: Whatevr.ProtocolController
+        function onStateChanged() {
+            maybeAutoDownloadMedia()
+        }
+    }
 
     // Decode images at a stable, layout-independent resolution. Binding
     // sourceSize to the live displayed width re-decodes the image on every

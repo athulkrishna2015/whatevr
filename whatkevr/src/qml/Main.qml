@@ -596,9 +596,17 @@ Kirigami.ApplicationWindow {
                         "selected=" + Whatevr.ProtocolController.hasSelectedChat)
         }
         trayMenuWindow.close()
-        root.show()
-        root.raise()
-        root.requestActivate()
+        // Raising an already-raised window is not free: show + raise +
+        // requestActivate is three round trips to the compositor, and one
+        // left-click on the tray icon can arrive several times a second. Skip
+        // the whole sequence when the window is already up and focused, which is
+        // the common case for the repeat clicks. `visible` is false while hidden
+        // to the tray, so parking it still raises.
+        if (!visible || !active) {
+            root.show()
+            root.raise()
+            root.requestActivate()
+        }
         hiddenToTray = false
         // Single-column restores land on the chat list when no conversation
         // is open, instead of a stale secondary tab left over from hiding.
