@@ -527,7 +527,7 @@ func (r *Reader) unread(ctx context.Context, w *World, c *Chat, states map[strin
 	if n > 0 {
 		if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT DISTINCT m.chat, m.id FROM f_revoke r
 			CROSS JOIN msg m ON m.id = r.target AND m.chat IN (SELECT value FROM json_each(?))
-			WHERE r.chat IN (SELECT value FROM json_each(?)) AND m.from_me = 0 AND m.kind NOT LIKE 'stub:%' AND m.t > ?)`,
+			WHERE r.chat IN (SELECT value FROM json_each(?)) AND r.ok = 1 AND m.from_me = 0 AND m.kind NOT LIKE 'stub:%' AND m.t > ?)`,
 			in, in, from).Scan(&gone); err != nil {
 			return err
 		}

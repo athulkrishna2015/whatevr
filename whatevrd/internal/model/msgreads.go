@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"sort"
-	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -350,159 +349,6 @@ func (r *Reader) AlbumChildren(ctx context.Context, chat, album string) ([]Messa
 // defaultPinSecs is how long whatsapp keeps a pin that names no duration.
 const defaultPinSecs = 7 * 24 * 60 * 60
 
-// facts attaches what was said about each message, all of it in one query:
-// each statement costs more than the rows it reads.
-func (r *Reader) facts(ctx context.Context, ms []Message) error {
-	if len(ms) == 0 {
-		return nil
-	}
-	idx := map[string][]int{}
-	ids := make([]string, 0, len(ms))
-	for i, m := range ms {
-		if _, ok := idx[m.ID]; !ok {
-			ids = append(ids, m.ID)
-		}
-		idx[m.ID] = append(idx[m.ID], i)
-	}
-	each := func(id string, fn func(*Facts)) {
-		for _, i := range idx[id] {
-			fn(&ms[i].Facts)
-		}
-	}
-	rows, err := r.db.QueryContext(ctx, factsQuery, jsonList(ids))
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	// a reaction may come plain or sealed; per sender the newest wins
-	type rkey struct{ id, sender string }
-	reactions := map[rkey]Reaction{}
-	react := func(id string, x Reaction) {
-		k := rkey{id, x.Sender}
-		if old, ok := reactions[k]; !ok || x.T > old.T {
-			reactions[k] = x
-		}
-	}
-	type keep struct {
-		t    int64
-		keep bool
-	}
-	keeps := map[string]keep{}
-	var receipts []struct {
-		id string
-		x  Receipt
-	}
-	for rows.Next() {
-		var what, id, a, b string
-		var t int64
-		var blob []byte
-		if err := rows.Scan(&what, &id, &a, &b, &t, &blob); err != nil {
-			return err
-		}
-		switch what {
-		case "reaction":
-			react(id, Reaction{Sender: a, Emoji: b, T: t})
-		case "sealed":
-			x := Sealed{Sender: a, T: t, Plain: blob}
-			switch b {
-			case useVote:
-				each(id, func(f *Facts) { f.Votes = append(f.Votes, x) })
-			case useEvent:
-				each(id, func(f *Facts) { f.Events = append(f.Events, x) })
-			case useReaction:
-				var rm waE2E.ReactionMessage
-				if proto.Unmarshal(blob, &rm) == nil {
-					react(id, Reaction{Sender: a, Emoji: rm.GetText(), T: t})
-				}
-			}
-		case "edit":
-			var m waE2E.Message
-			if proto.Unmarshal(blob, &m) != nil {
-				continue
-			}
-			each(id, func(f *Facts) {
-				if t > f.EditT {
-					f.Edit, f.EditT = &m, t
-				}
-			})
-		case "revoke":
-			each(id, func(f *Facts) { f.Revoked, f.RevokeBy, f.RevokeT = true, a, t })
-		case "pin":
-			secs, _ := strconv.ParseInt(b, 10, 64)
-			if secs <= 0 {
-				secs = defaultPinSecs
-			}
-			pinned := a == "1"
-			each(id, func(f *Facts) {
-				if t >= f.PinT {
-					f.Pinned, f.PinT, f.PinEnd = pinned, t, t+secs*1000
-				}
-			})
-		case "keep":
-			k := keep{t, a == "1"}
-			if old, ok := keeps[id]; !ok || k.t > old.t || k.t == old.t && k.keep && !old.keep {
-				keeps[id] = k
-			}
-		case "star":
-			on := a == "1"
-			each(id, func(f *Facts) { f.Starred = f.Starred || on })
-		case "receipt":
-			receipts = append(receipts, struct {
-				id string
-				x  Receipt
-			}{id, Receipt{Who: a, Type: b, T: t}})
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	keys := make([]rkey, 0, len(reactions))
-	for k := range reactions {
-		keys = append(keys, k)
-	}
-	sort.Slice(keys, func(i, j int) bool {
-		a, b := reactions[keys[i]], reactions[keys[j]]
-		if a.T != b.T {
-			return a.T < b.T
-		}
-		return keys[i].sender < keys[j].sender
-	})
-	for _, k := range keys {
-		if x := reactions[k]; x.Emoji != "" {
-			each(k.id, func(f *Facts) { f.Reactions = append(f.Reactions, x) })
-		}
-	}
-	for id, k := range keeps {
-		each(id, func(f *Facts) { f.Kept = k.keep })
-	}
-	sort.Slice(receipts, func(i, j int) bool {
-		a, b := receipts[i].x, receipts[j].x
-		if a.T != b.T {
-			return a.T < b.T
-		}
-		if a.Who != b.Who {
-			return a.Who < b.Who
-		}
-		return a.Type < b.Type
-	})
-	for _, r := range receipts {
-		each(r.id, func(f *Facts) { f.Receipts = append(f.Receipts, r.x) })
-	}
-	return nil
-}
-
-// factsQuery is every fact table for the ids in ?1, as (what, id, a, b, t,
-// blob) rows.
-const factsQuery = `WITH ids(id) AS (SELECT value FROM json_each(?1))
-	SELECT 'reaction', target, sender, emoji, t, NULL FROM f_reaction WHERE target IN ids
-	UNION ALL SELECT 'sealed', target, sender, use, t, plain FROM f_enc WHERE target IN ids AND plain IS NOT NULL
-	UNION ALL SELECT 'edit', target, '', '', t, body FROM f_edit WHERE target IN ids
-	UNION ALL SELECT 'revoke', target, by, '', t, NULL FROM f_revoke WHERE target IN ids
-	UNION ALL SELECT 'pin', target, CAST(pinned AS TEXT), CAST(secs AS TEXT), t, NULL FROM f_pin WHERE target IN ids
-	UNION ALL SELECT 'keep', target, CAST(keep AS TEXT), '', t, NULL FROM f_keep WHERE target IN ids
-	UNION ALL SELECT 'star', b, CAST(on_ AS TEXT), '', 0, NULL FROM appstate WHERE kind = 'star' AND op = 'set' AND b IN ids
-	UNION ALL SELECT 'receipt', id, who, type, t, NULL FROM f_receipt WHERE id IN ids`
-
 // Starred is every starred message, newest first, before cursor.
 func (r *Reader) Starred(ctx context.Context, addrs []string, from Cursor, limit int) ([]Message, error) {
 	if from == (Cursor{}) {
@@ -548,7 +394,7 @@ func (r *Reader) Media(ctx context.Context, addrs []string, kinds []string, from
 		from = Cursor{T: tMax}
 	}
 	where := `m.kind IN (` + placeholders(len(kinds)) + `) AND (m.t < ? OR m.t = ? AND m.id < ?)
-		AND m.id NOT IN (SELECT target FROM f_revoke)`
+		AND m.id NOT IN (SELECT target FROM f_revoke WHERE ok = 1)`
 	return r.list(ctx, byChat(len(addrs), where, "DESC"),
 		byChatArgs(addrs, append(anys(kinds), from.T, from.T, from.ID), limit)...)
 }
@@ -561,7 +407,7 @@ func (r *Reader) Search(ctx context.Context, query string, addrs []string, from 
 	}
 	like := "%" + escapeLike(query) + "%"
 	where := `m.text LIKE ? ESCAPE '\' AND (m.t < ? OR m.t = ? AND m.id < ?)
-		AND m.id NOT IN (SELECT target FROM f_revoke)`
+		AND m.id NOT IN (SELECT target FROM f_revoke WHERE ok = 1)`
 	args := []any{like, from.T, from.T, from.ID}
 	rowids, ok, err := r.searchCandidates(ctx, query)
 	if err != nil {

@@ -117,6 +117,10 @@ func mapLID(tx *core.Tx, lid, pn string, t int64) error {
 	tx.Touch("person", pn)
 	tx.Touch("chat", lid)
 	tx.Touch("chat", pn)
+	// a revoke may now be by the author it was waiting on
+	if err := recheckRevokes(tx, "", lid, pn); err != nil {
+		return err
+	}
 	// a clear under one address now reaches the messages under the other
 	cleared, err := exists(tx, `SELECT 1 FROM appstate WHERE kind IN (?, ?) AND a IN (?, ?) LIMIT 1`, asClearChat, asDeleteChat, lid, pn)
 	if err != nil || !cleared {

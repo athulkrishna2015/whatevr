@@ -39,7 +39,7 @@ const (
 // inside a history conversation).
 var messagesDomain = core.Domain{
 	Name:    "messages",
-	Version: 8,
+	Version: 9,
 	Tables: []string{"msg", "msg_src", "msg_wait", "msg_gone", "f_reaction", "f_edit", "f_revoke", "f_enc",
 		"f_pin", "f_keep", "f_receipt", "f_ephemeral", "sys_msg", "f_seen", "msg_text", "msg_text_q"},
 	Schema: []string{
@@ -91,14 +91,17 @@ var messagesDomain = core.Domain{
 		`CREATE TRIGGER msg_text_out AFTER DELETE ON msg WHEN OLD.text != '' BEGIN
 			INSERT INTO msg_text_q (rid, old) VALUES (OLD.rowid, OLD.text);
 		END`,
-		// every body a message came in, so a delete can scrub them all
+		// every body a message came in, so a delete can scrub them all, and who
+		// sent it, which a scrubbed body no longer says
 		`CREATE TABLE msg_src (
-			chat TEXT NOT NULL,
-			id   TEXT NOT NULL,
-			t    INTEGER NOT NULL,
-			seq  INTEGER NOT NULL,
-			off  INTEGER NOT NULL DEFAULT -1,
-			len  INTEGER NOT NULL DEFAULT -1,
+			chat   TEXT NOT NULL,
+			id     TEXT NOT NULL,
+			t      INTEGER NOT NULL,
+			seq    INTEGER NOT NULL,
+			off    INTEGER NOT NULL DEFAULT -1,
+			len    INTEGER NOT NULL DEFAULT -1,
+			sender TEXT NOT NULL DEFAULT '',
+			alt    TEXT NOT NULL DEFAULT '',
 			PRIMARY KEY (chat, id, seq, off)
 		) WITHOUT ROWID`,
 		// messages a delete took, so what is said about them later is dropped too
@@ -127,24 +130,33 @@ var messagesDomain = core.Domain{
 			PRIMARY KEY (chat, target, sender)
 		)`,
 		`CREATE INDEX f_reaction_target ON f_reaction (target)`,
+		// facts about another's message are kept per sender, so one that may
+		// not say it never pushes out one that may. who may is decided where
+		// they are read, against the message's author and the group
 		`CREATE TABLE f_edit (
 			chat   TEXT NOT NULL,
 			target TEXT NOT NULL,
+			by     TEXT NOT NULL,
+			by_alt TEXT NOT NULL DEFAULT '',
 			t      INTEGER NOT NULL,
 			hash   BLOB NOT NULL,
 			body   BLOB NOT NULL,
 			seq    INTEGER NOT NULL,
-			PRIMARY KEY (chat, target)
+			PRIMARY KEY (chat, target, by)
 		)`,
 		`CREATE INDEX f_edit_target ON f_edit (target)`,
+		// ok once the revoke is proven, see revoke.go
 		`CREATE TABLE f_revoke (
 			chat   TEXT NOT NULL,
 			target TEXT NOT NULL,
 			by     TEXT NOT NULL,
+			by_alt TEXT NOT NULL DEFAULT '',
 			t      INTEGER NOT NULL,
-			PRIMARY KEY (chat, target)
+			ok     INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (chat, target, by)
 		)`,
 		`CREATE INDEX f_revoke_target ON f_revoke (target)`,
+		`CREATE INDEX f_revoke_waiting ON f_revoke (chat) WHERE ok = 0`,
 		// a vote, an event response or a reaction, sealed with the target's
 		// message secret. it opens once the target is here; plain holds it.
 		`CREATE TABLE f_enc (
@@ -162,22 +174,28 @@ var messagesDomain = core.Domain{
 			PRIMARY KEY (chat, target, sender, use)
 		)`,
 		`CREATE INDEX f_enc_target ON f_enc (target)`,
-		// secs is how long the pin lasts, 0 when the pin did not say
+		// secs is how long the pin lasts, 0 when the pin did not say. phone is
+		// set for what history carried, which the phone already checked
 		`CREATE TABLE f_pin (
 			chat   TEXT NOT NULL,
 			target TEXT NOT NULL,
+			by     TEXT NOT NULL,
+			by_alt TEXT NOT NULL DEFAULT '',
 			pinned INTEGER NOT NULL,
 			t      INTEGER NOT NULL,
-			by     TEXT NOT NULL,
 			secs   INTEGER NOT NULL DEFAULT 0,
-			PRIMARY KEY (chat, target)
+			phone  INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (chat, target, by)
 		)`,
 		`CREATE TABLE f_keep (
 			chat   TEXT NOT NULL,
 			target TEXT NOT NULL,
+			by     TEXT NOT NULL,
+			by_alt TEXT NOT NULL DEFAULT '',
 			keep   INTEGER NOT NULL,
 			t      INTEGER NOT NULL,
-			PRIMARY KEY (chat, target)
+			phone  INTEGER NOT NULL DEFAULT 0,
+			PRIMARY KEY (chat, target, by)
 		)`,
 		// the first time each recipient got to each state
 		`CREATE TABLE f_receipt (
@@ -303,7 +321,7 @@ func foldMessage(tx *core.Tx, in core.Input) error {
 	}
 	if len(in.Body) == 0 {
 		// scrubbed: only the delete that did it is left to agree with
-		return putMsg(tx, row{chat: chat, id: h.ID, sender: sender, t: ms(h.T, in), seq: in.Seq, off: -1, len: -1})
+		return putMsg(tx, row{chat: chat, id: h.ID, sender: sender, senderAlt: user(h.SenderAlt), t: ms(h.T, in), seq: in.Seq, off: -1, len: -1})
 	}
 	var raw waE2E.Message
 	if err := proto.Unmarshal(in.Body, &raw); err != nil {
@@ -363,10 +381,10 @@ func foldContent(tx *core.Tx, r row, raw *waE2E.Message, fromMe bool) error {
 	case m.GetPinInChatMessage() != nil:
 		x := m.GetPinInChatMessage()
 		secs := max(m.GetMessageContextInfo().GetMessageAddOnDurationInSecs(), raw.GetMessageContextInfo().GetMessageAddOnDurationInSecs())
-		return putPin(tx, f.at(x.GetSenderTimestampMS()), x.GetKey().GetID(), x.GetType() == waE2E.PinInChatMessage_PIN_FOR_ALL, secs)
+		return putPin(tx, f.at(x.GetSenderTimestampMS()), x.GetKey().GetID(), x.GetType() == waE2E.PinInChatMessage_PIN_FOR_ALL, secs, false)
 	case m.GetKeepInChatMessage() != nil:
 		x := m.GetKeepInChatMessage()
-		return putKeep(tx, f.at(x.GetTimestampMS()), x.GetKey().GetID(), x.GetKeepType() == waE2E.KeepType_KEEP_FOR_ALL)
+		return putKeep(tx, f.at(x.GetTimestampMS()), x.GetKey().GetID(), x.GetKeepType() == waE2E.KeepType_KEEP_FOR_ALL, false)
 	}
 	kind := Field(m)
 	if kind == "" {
@@ -446,8 +464,9 @@ var marshal = proto.MarshalOptions{Deterministic: true}
 // better body when it came before. a row without a kind only records where
 // the message was, for a delete to find.
 func putMsg(tx *core.Tx, r row) error {
-	if _, err := tx.Exec(`INSERT INTO msg_src (chat, id, t, seq, off, len) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
-		r.chat, r.id, r.t, r.seq, r.off, r.len); err != nil {
+	if _, err := tx.Exec(`INSERT INTO msg_src (chat, id, t, seq, off, len, sender, alt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT DO UPDATE SET sender = excluded.sender, alt = excluded.alt WHERE msg_src.sender = ''`,
+		r.chat, r.id, r.t, r.seq, r.off, r.len, r.sender, r.senderAlt); err != nil {
 		return err
 	}
 	var clears *[]clear
@@ -462,6 +481,9 @@ func putMsg(tx *core.Tx, r row) error {
 			return err
 		}
 		return dropMessage(tx, r.chat, r.id)
+	}
+	if revoked, err := checkRevokes(tx, r.chat, r.id); err != nil || revoked {
+		return err
 	}
 	if r.kind == "" {
 		return nil
@@ -546,6 +568,9 @@ func exists(tx *core.Tx, q string, args ...any) (bool, error) {
 // the moment it shows up.
 func targetGone(tx *core.Tx, chat, id string) (bool, error) {
 	if gone, err := exists(tx, `SELECT 1 FROM msg_gone WHERE id = ? AND `+sameChatSQL("chat")+` LIMIT 1`, id, chat, chat, chat); err != nil || gone {
+		return gone, err
+	}
+	if gone, err := exists(tx, `SELECT 1 FROM f_revoke WHERE target = ? AND ok = 1 AND `+sameChatSQL("chat")+` LIMIT 1`, id, chat, chat, chat); err != nil || gone {
 		return gone, err
 	}
 	return exists(tx, `SELECT 1 FROM appstate WHERE kind = ? AND op = 'set' AND b = ? AND `+sameChatSQL("a")+` LIMIT 1`,
@@ -897,7 +922,8 @@ func foldUndecryptable(tx *core.Tx, in core.Input) error {
 	}
 	tx.Touch("message", chat+":"+h.ID)
 	tx.Touch("chat", chat)
-	return nil
+	_, err = checkRevokes(tx, chat, h.ID)
+	return err
 }
 
 func foldReceipt(tx *core.Tx, in core.Input) error {
@@ -950,14 +976,15 @@ func putRevoke(tx *core.Tx, f fact, target string) error {
 	if gone, err := targetGone(tx, f.chat, target); err != nil || gone || target == "" {
 		return err
 	}
-	if _, err := tx.Exec(`INSERT INTO f_revoke (chat, target, by, t) VALUES (?, ?, ?, ?)
-		ON CONFLICT (chat, target) DO UPDATE SET by = excluded.by, t = excluded.t
-		WHERE (excluded.t, excluded.by) < (f_revoke.t, f_revoke.by)`, f.chat, target, f.sender, f.t); err != nil {
+	if _, err := tx.Exec(`INSERT INTO f_revoke (chat, target, by, by_alt, t) VALUES (?, ?, ?, ?, ?)
+		ON CONFLICT (chat, target, by) DO UPDATE SET by_alt = excluded.by_alt, t = excluded.t
+		WHERE (excluded.t, excluded.by_alt) < (f_revoke.t, f_revoke.by_alt)`, f.chat, target, f.sender, f.senderAlt, f.t); err != nil {
 		return err
 	}
 	tx.Touch("message", f.chat+":"+target)
 	tx.Touch("chat", f.chat)
-	return nil
+	_, err := checkRevokes(tx, f.chat, target)
+	return err
 }
 
 func putEdit(tx *core.Tx, f fact, target string, body []byte) error {
@@ -965,15 +992,16 @@ func putEdit(tx *core.Tx, f fact, target string, body []byte) error {
 		return nil
 	}
 	if gone, err := targetGone(tx, f.chat, target); err != nil || gone {
-		if err != nil {
+		if err != nil || f.seq <= 0 {
 			return err
 		}
 		return scrubBody(tx, f.seq, -1, -1)
 	}
 	sum := sha256.Sum256(body)
-	if _, err := tx.Exec(`INSERT INTO f_edit (chat, target, t, hash, body, seq) VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT (chat, target) DO UPDATE SET t = excluded.t, hash = excluded.hash, body = excluded.body, seq = excluded.seq
-		WHERE (excluded.t, excluded.hash) > (f_edit.t, f_edit.hash)`, f.chat, target, f.t, sum[:], body, f.seq); err != nil {
+	if _, err := tx.Exec(`INSERT INTO f_edit (chat, target, by, by_alt, t, hash, body, seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (chat, target, by) DO UPDATE SET by_alt = excluded.by_alt, t = excluded.t, hash = excluded.hash,
+			body = excluded.body, seq = excluded.seq
+		WHERE (excluded.t, excluded.hash) > (f_edit.t, f_edit.hash)`, f.chat, target, f.sender, f.senderAlt, f.t, sum[:], body, f.seq); err != nil {
 		return err
 	}
 	tx.Touch("message", f.chat+":"+target)
@@ -981,14 +1009,16 @@ func putEdit(tx *core.Tx, f fact, target string, body []byte) error {
 	return nil
 }
 
-func putPin(tx *core.Tx, f fact, target string, pinned bool, secs uint32) error {
+func putPin(tx *core.Tx, f fact, target string, pinned bool, secs uint32, phone bool) error {
 	if gone, err := targetGone(tx, f.chat, target); err != nil || gone || target == "" {
 		return err
 	}
-	if _, err := tx.Exec(`INSERT INTO f_pin (chat, target, pinned, t, by, secs) VALUES (?, ?, ?, ?, ?, ?)
-		ON CONFLICT (chat, target) DO UPDATE SET pinned = excluded.pinned, t = excluded.t, by = excluded.by, secs = excluded.secs
-		WHERE (excluded.t, excluded.pinned, excluded.by, excluded.secs) > (f_pin.t, f_pin.pinned, f_pin.by, f_pin.secs)`,
-		f.chat, target, pinned, f.t, f.sender, secs); err != nil {
+	if _, err := tx.Exec(`INSERT INTO f_pin (chat, target, by, by_alt, pinned, t, secs, phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (chat, target, by) DO UPDATE SET by_alt = excluded.by_alt, pinned = excluded.pinned, t = excluded.t,
+			secs = excluded.secs, phone = excluded.phone
+		WHERE (excluded.t, excluded.pinned, excluded.secs, excluded.phone, excluded.by_alt)
+			> (f_pin.t, f_pin.pinned, f_pin.secs, f_pin.phone, f_pin.by_alt)`,
+		f.chat, target, f.sender, f.senderAlt, pinned, f.t, secs, phone); err != nil {
 		return err
 	}
 	tx.Touch("message", f.chat+":"+target)
@@ -996,13 +1026,15 @@ func putPin(tx *core.Tx, f fact, target string, pinned bool, secs uint32) error 
 	return nil
 }
 
-func putKeep(tx *core.Tx, f fact, target string, keep bool) error {
+func putKeep(tx *core.Tx, f fact, target string, keep, phone bool) error {
 	if gone, err := targetGone(tx, f.chat, target); err != nil || gone || target == "" {
 		return err
 	}
-	if _, err := tx.Exec(`INSERT INTO f_keep (chat, target, keep, t) VALUES (?, ?, ?, ?)
-		ON CONFLICT (chat, target) DO UPDATE SET keep = excluded.keep, t = excluded.t
-		WHERE (excluded.t, excluded.keep) > (f_keep.t, f_keep.keep)`, f.chat, target, keep, f.t); err != nil {
+	if _, err := tx.Exec(`INSERT INTO f_keep (chat, target, by, by_alt, keep, t, phone) VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (chat, target, by) DO UPDATE SET by_alt = excluded.by_alt, keep = excluded.keep, t = excluded.t,
+			phone = excluded.phone
+		WHERE (excluded.t, excluded.keep, excluded.phone, excluded.by_alt) > (f_keep.t, f_keep.keep, f_keep.phone, f_keep.by_alt)`,
+		f.chat, target, f.sender, f.senderAlt, keep, f.t, phone); err != nil {
 		return err
 	}
 	tx.Touch("message", f.chat+":"+target)
@@ -1158,13 +1190,13 @@ func foldHistoryFacts(tx *core.Tx, r row, w *waWeb.WebMessageInfo) error {
 	}
 	if p := w.GetPinInChat(); p != nil && p.GetKey().GetID() != "" {
 		f := fact{chat: r.chat, sender: keySender(r.chat, p.GetKey()), t: p.GetSenderTimestampMS(), seq: r.seq}
-		if err := putPin(tx, f, r.id, p.GetType() == waWeb.PinInChat_PIN_FOR_ALL, 0); err != nil {
+		if err := putPin(tx, f, r.id, p.GetType() == waWeb.PinInChat_PIN_FOR_ALL, 0, true); err != nil {
 			return err
 		}
 	}
 	if k := w.GetKeepInChat(); k != nil {
 		f := fact{chat: r.chat, t: k.GetClientTimestampMS(), seq: r.seq}
-		if err := putKeep(tx, f, r.id, k.GetKeepType() == waE2E.KeepType_KEEP_FOR_ALL); err != nil {
+		if err := putKeep(tx, f, r.id, k.GetKeepType() == waE2E.KeepType_KEEP_FOR_ALL, true); err != nil {
 			return err
 		}
 	}

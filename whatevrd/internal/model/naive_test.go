@@ -388,7 +388,7 @@ func (r *Reader) naiveUnread(ctx context.Context, w *World, c *Chat, states map[
 	var n int
 	// a message deleted for everyone before it was read is not waiting on anyone
 	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM msg m WHERE m.chat IN (`+ph+`) AND m.from_me = 0 AND m.t > ?
-		AND m.kind NOT LIKE 'stub:%' AND NOT EXISTS (SELECT 1 FROM f_revoke r WHERE r.target = m.id AND r.chat IN (`+ph+`))`,
+		AND m.kind NOT LIKE 'stub:%' AND NOT EXISTS (SELECT 1 FROM f_revoke r WHERE r.target = m.id AND r.ok = 1 AND r.chat IN (`+ph+`))`,
 		append(append(anys(addrs), from), anys(addrs)...)...).Scan(&n); err != nil {
 		return err
 	}

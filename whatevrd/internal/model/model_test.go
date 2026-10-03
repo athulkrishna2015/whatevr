@@ -350,7 +350,7 @@ func TestTheScenarioFoldsRight(t *testing.T) {
 	feed(t, db, scenario())
 
 	expect(t, db, []string{
-		"100000000001@lid|M1|hi", "100000000001@lid|M3|oops", "100000000001@lid|U1|late",
+		"100000000001@lid|M1|hi", "100000000001@lid|M3|", "100000000001@lid|U1|late",
 		"120363000000000001@g.us|G1|in the group", "120363000000000001@g.us|P1|dinner?\npizza\ndosa",
 		"917770000001@s.whatsapp.net|H1|older", "917770000001@s.whatsapp.net|H3|before the clear",
 		"917770000001@s.whatsapp.net|M1|hi", "917770000001@s.whatsapp.net|M2|yes",

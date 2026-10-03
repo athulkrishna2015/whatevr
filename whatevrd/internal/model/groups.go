@@ -83,10 +83,12 @@ func foldGroupInfo(tx *core.Tx, in core.Input) error {
 	tx.Touch("chat", grp)
 	tx.Touch("group", grp)
 	if h.Error != "" {
-		_, err := tx.Exec(`INSERT INTO grp_error (grp, t, error) VALUES (?, ?, ?)
+		if _, err := tx.Exec(`INSERT INTO grp_error (grp, t, error) VALUES (?, ?, ?)
 			ON CONFLICT (grp) DO UPDATE SET t = excluded.t, error = excluded.error
-			WHERE (excluded.t, excluded.error) > (grp_error.t, grp_error.error)`, grp, t, h.Error)
-		return err
+			WHERE (excluded.t, excluded.error) > (grp_error.t, grp_error.error)`, grp, t, h.Error); err != nil {
+			return err
+		}
+		return recheckRevokes(tx, grp)
 	}
 	if h.Full {
 		if _, err := tx.Exec(`DELETE FROM grp_error WHERE grp = ? AND t < ?`, grp, t); err != nil {
@@ -148,6 +150,10 @@ func foldGroupInfo(tx *core.Tx, in core.Input) error {
 		if err := memberAdmin(tx, grp, j, t, false, false); err != nil {
 			return err
 		}
+	}
+	if h.Full || len(h.Promote) > 0 || len(h.Demote) > 0 {
+		// who was an admin when is known further now
+		return recheckRevokes(tx, grp)
 	}
 	return nil
 }
