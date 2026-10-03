@@ -17,6 +17,7 @@ require (
 	go.mau.fi/util v0.10.1
 	go.mau.fi/whatsmeow v0.0.0-20260921121126-35ae40906e74
 	golang.org/x/crypto v0.57.0
+	golang.org/x/sys v0.48.0
 	google.golang.org/protobuf v1.36.12
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	rsc.io/qr v0.2.0
@@ -33,6 +34,5 @@ require (
 	golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba // indirect
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 )
