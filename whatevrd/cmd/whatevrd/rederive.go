@@ -22,7 +22,8 @@ const rederiveUsage = `usage: whatevrd rederive [flags]
 
 drops every table the new core derives and folds its whole log again, as a
 fold version change does at startup. the log itself is not touched. refuses
-while a daemon holds the data directory.
+while a daemon or anything else has the store open. exits 1 when any input
+failed to fold.
 
 flags:
 `
@@ -53,13 +54,6 @@ func runRederive(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "whatevrd rederive: %v\n", err)
 			return 1
 		}
-		// the daemon folds into the same file, two writers would race
-		lock, err := app.AcquireProcessLock(paths.LockPath)
-		if err != nil {
-			fmt.Fprintf(stderr, "whatevrd rederive: %v\n", err)
-			return 1
-		}
-		defer lock.Close()
 		dir = paths.DataDir
 	}
 	path := filepath.Join(dir, "core.db")
@@ -104,6 +98,9 @@ func rederive(ctx context.Context, path string, stdout, stderr io.Writer) int {
 			}
 			if h := db.Health(); h.Fold != nil {
 				fmt.Fprintf(stderr, "whatevrd rederive: folding failed: %s\n", h.Fold.Error)
+				return 1
+			}
+			if len(failures) > 0 {
 				return 1
 			}
 			return 0

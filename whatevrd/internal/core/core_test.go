@@ -509,3 +509,23 @@ func TestFinishWithoutWatchRunsEveryCommit(t *testing.T) {
 		t.Fatalf("finish ran %d times over 3 commits", runs)
 	}
 }
+
+func TestOnlyOneOpenHoldsAFile(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "core.db")
+	db, err := Open(ctx, path, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(ctx, path, Options{}); !errors.Is(err, ErrLocked) {
+		t.Fatalf("a second open: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Open(ctx, path, Options{})
+	if err != nil {
+		t.Fatalf("open after close: %v", err)
+	}
+	again.Close()
+}

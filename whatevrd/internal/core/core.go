@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -40,6 +41,10 @@ const (
 )
 
 var ErrClosed = errors.New("core: closed")
+
+// ErrLocked is Open on a file another DB, this process's or another's, has
+// open.
+var ErrLocked = errors.New("open elsewhere")
 
 func init() {
 	sql.Register(driverName, &sqlite3.SQLiteDriver{ConnectHook: sqlitex.StablePlans})
@@ -86,6 +91,8 @@ type DB struct {
 
 	write *sql.DB
 	read  *sql.DB
+	// held while open: two writers folding into one file would race
+	lock *os.File
 
 	folds  map[string][]FoldFunc
 	tables []string
@@ -127,20 +134,28 @@ func Open(ctx context.Context, path string, opts Options) (*DB, error) {
 		}
 	}
 
+	lock, err := lockFile(path + ".lock")
+	if err != nil {
+		return nil, fmt.Errorf("core: %s: %w", path, err)
+	}
+	db.lock = lock
 	write, err := sql.Open(driverName, sqlitex.DSN(path, writeStmts))
 	if err != nil {
+		lock.Close()
 		return nil, err
 	}
 	write.SetMaxOpenConns(1)
 	db.write = write
 	if err := db.setup(ctx); err != nil {
 		write.Close()
+		lock.Close()
 		return nil, err
 	}
 
 	read, err := sql.Open(readDriverName, sqlitex.DSN(path, readStmts))
 	if err != nil {
 		write.Close()
+		lock.Close()
 		return nil, err
 	}
 	read.SetMaxOpenConns(4)
@@ -148,6 +163,7 @@ func Open(ctx context.Context, path string, opts Options) (*DB, error) {
 	if err := read.PingContext(ctx); err != nil {
 		read.Close()
 		write.Close()
+		lock.Close()
 		return nil, err
 	}
 	db.read = read
@@ -156,6 +172,7 @@ func Open(ctx context.Context, path string, opts Options) (*DB, error) {
 	if err != nil {
 		read.Close()
 		write.Close()
+		lock.Close()
 		return nil, err
 	}
 	db.w = w
@@ -298,7 +315,9 @@ func (db *DB) rebuildTx(ctx context.Context, tx *sql.Tx, sig string) error {
 // committed. folding left undone resumes at the next open.
 func (db *DB) Close() error {
 	db.w.close()
-	return errors.Join(db.read.Close(), db.write.Close())
+	// the lock file stays: unlinking it would let a waiter lock a file no
+	// one else can see
+	return errors.Join(db.read.Close(), db.write.Close(), db.lock.Close())
 }
 
 // Read is the reader pool. it sees folded state only, never a fold in flight.
