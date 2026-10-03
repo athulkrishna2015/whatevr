@@ -63,6 +63,7 @@ type chatMediaSession struct {
 	cancelCtx    context.CancelFunc
 	done         chan struct{}
 	closeOnce    sync.Once
+	avatars      avatarWatch
 }
 
 func (s *chatMediaSession) run(events <-chan *app.DaemonEvent, invalidate func()) {
@@ -93,6 +94,9 @@ func (s *chatMediaSession) eventAffects(evt *app.DaemonEvent) bool {
 		return evt.DeletedChatID == s.chatID
 	case app.DaemonEventChatCleared:
 		return evt.Chat.ID == s.chatID
+	case app.DaemonEventAvatarUpdated:
+		// rows carry their sender's avatar
+		return s.avatars.shows(evt.Avatar.ID)
 	default:
 		return false
 	}
@@ -113,7 +117,9 @@ func (s *chatMediaSession) ItemsErr(max int) ([]Item, error) {
 	if limit <= 0 {
 		limit = messagesUnboundedLimit
 	}
+	s.avatars.begin()
 	rows, err := s.lister.ListChatMediaMessages(s.ctx, s.chatID, limit, "")
+	s.avatars.end(s.chatID, rows, err == nil)
 	if err != nil {
 		zerolog.Ctx(s.ctx).Warn().Err(err).Msg("list chat media")
 		return nil, err

@@ -29,9 +29,13 @@ func (p *avatarRows) ListPinnedMessages(context.Context, string) ([]store.Messag
 	return p.read()
 }
 
-// TestRowViewsWakeForTheAvatarsTheyShow: the pinned view wakes for an avatar
-// of a sender or the chat in its rows, for any avatar before its first read
-// or during one, and not otherwise.
+func (p *avatarRows) ListChatMediaMessages(context.Context, string, int, string) ([]store.Message, error) {
+	return p.read()
+}
+
+// TestRowViewsWakeForTheAvatarsTheyShow: the pinned and media views wake for
+// an avatar of a sender or the chat in their rows, for any avatar before
+// their first read or during one, and not otherwise.
 func TestRowViewsWakeForTheAvatarsTheyShow(t *testing.T) {
 	avatar := func(id string) *app.DaemonEvent {
 		return &app.DaemonEvent{Kind: app.DaemonEventAvatarUpdated, Avatar: app.Avatar{ID: id}}
@@ -43,6 +47,10 @@ func TestRowViewsWakeForTheAvatarsTheyShow(t *testing.T) {
 	for name, open := range map[string]func(*avatarRows) session{
 		"pinned": func(l *avatarRows) session {
 			s := &pinnedSession{lister: l, chatID: "c@g.us", ctx: context.Background()}
+			return session{s.eventAffects, func() { s.Items(0) }}
+		},
+		"chat_media": func(l *avatarRows) session {
+			s := &chatMediaSession{lister: l, chatID: "c@g.us", ctx: context.Background()}
 			return session{s.eventAffects, func() { s.Items(0) }}
 		},
 	} {
