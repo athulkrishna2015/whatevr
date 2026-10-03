@@ -309,33 +309,53 @@ const (
 	ProblemKind_PROBLEM_KIND_UNDECRYPTED ProblemKind = 8
 	// the disk is full or the database can't be written
 	ProblemKind_PROBLEM_KIND_STORAGE ProblemKind = 9
+	// connected, but whatsapp never said we're logged in
+	ProblemKind_PROBLEM_KIND_STUCK_BEFORE_LOGIN ProblemKind = 10
+	// whatsapp turned the login down, text says why
+	ProblemKind_PROBLEM_KIND_SERVER_REFUSED ProblemKind = 11
+	// whatsapp was opened on another computer; reconnecting takes it back
+	ProblemKind_PROBLEM_KIND_STREAM_REPLACED ProblemKind = 12
+	// the connection went quiet and is being replaced
+	ProblemKind_PROBLEM_KIND_KEEPALIVE_LOST ProblemKind = 13
+	// downloads keep failing, not just one message's
+	ProblemKind_PROBLEM_KIND_MEDIA_FAILING ProblemKind = 14
 )
 
 // Enum value maps for ProblemKind.
 var (
 	ProblemKind_name = map[int32]string{
-		0: "PROBLEM_KIND_UNSPECIFIED",
-		1: "PROBLEM_KIND_OFFLINE",
-		2: "PROBLEM_KIND_LOGGED_OUT",
-		3: "PROBLEM_KIND_TEMP_BANNED",
-		4: "PROBLEM_KIND_CLIENT_OUTDATED",
-		5: "PROBLEM_KIND_SEND_FAILING",
-		6: "PROBLEM_KIND_HISTORY_STALLED",
-		7: "PROBLEM_KIND_APP_STATE",
-		8: "PROBLEM_KIND_UNDECRYPTED",
-		9: "PROBLEM_KIND_STORAGE",
+		0:  "PROBLEM_KIND_UNSPECIFIED",
+		1:  "PROBLEM_KIND_OFFLINE",
+		2:  "PROBLEM_KIND_LOGGED_OUT",
+		3:  "PROBLEM_KIND_TEMP_BANNED",
+		4:  "PROBLEM_KIND_CLIENT_OUTDATED",
+		5:  "PROBLEM_KIND_SEND_FAILING",
+		6:  "PROBLEM_KIND_HISTORY_STALLED",
+		7:  "PROBLEM_KIND_APP_STATE",
+		8:  "PROBLEM_KIND_UNDECRYPTED",
+		9:  "PROBLEM_KIND_STORAGE",
+		10: "PROBLEM_KIND_STUCK_BEFORE_LOGIN",
+		11: "PROBLEM_KIND_SERVER_REFUSED",
+		12: "PROBLEM_KIND_STREAM_REPLACED",
+		13: "PROBLEM_KIND_KEEPALIVE_LOST",
+		14: "PROBLEM_KIND_MEDIA_FAILING",
 	}
 	ProblemKind_value = map[string]int32{
-		"PROBLEM_KIND_UNSPECIFIED":     0,
-		"PROBLEM_KIND_OFFLINE":         1,
-		"PROBLEM_KIND_LOGGED_OUT":      2,
-		"PROBLEM_KIND_TEMP_BANNED":     3,
-		"PROBLEM_KIND_CLIENT_OUTDATED": 4,
-		"PROBLEM_KIND_SEND_FAILING":    5,
-		"PROBLEM_KIND_HISTORY_STALLED": 6,
-		"PROBLEM_KIND_APP_STATE":       7,
-		"PROBLEM_KIND_UNDECRYPTED":     8,
-		"PROBLEM_KIND_STORAGE":         9,
+		"PROBLEM_KIND_UNSPECIFIED":        0,
+		"PROBLEM_KIND_OFFLINE":            1,
+		"PROBLEM_KIND_LOGGED_OUT":         2,
+		"PROBLEM_KIND_TEMP_BANNED":        3,
+		"PROBLEM_KIND_CLIENT_OUTDATED":    4,
+		"PROBLEM_KIND_SEND_FAILING":       5,
+		"PROBLEM_KIND_HISTORY_STALLED":    6,
+		"PROBLEM_KIND_APP_STATE":          7,
+		"PROBLEM_KIND_UNDECRYPTED":        8,
+		"PROBLEM_KIND_STORAGE":            9,
+		"PROBLEM_KIND_STUCK_BEFORE_LOGIN": 10,
+		"PROBLEM_KIND_SERVER_REFUSED":     11,
+		"PROBLEM_KIND_STREAM_REPLACED":    12,
+		"PROBLEM_KIND_KEEPALIVE_LOST":     13,
+		"PROBLEM_KIND_MEDIA_FAILING":      14,
 	}
 )
 
@@ -1307,7 +1327,7 @@ const file_whatevr_v2_account_proto_rawDesc = "" +
 	"\x0fSYNC_PHASE_IDLE\x10\x01\x12\x16\n" +
 	"\x12SYNC_PHASE_RUNNING\x10\x02\x12\x16\n" +
 	"\x12SYNC_PHASE_STALLED\x10\x03\x12\x13\n" +
-	"\x0fSYNC_PHASE_DONE\x10\x04*\xb7\x02\n" +
+	"\x0fSYNC_PHASE_DONE\x10\x04*\xe0\x03\n" +
 	"\vProblemKind\x12\x1c\n" +
 	"\x18PROBLEM_KIND_UNSPECIFIED\x10\x00\x12\x18\n" +
 	"\x14PROBLEM_KIND_OFFLINE\x10\x01\x12\x1b\n" +
@@ -1318,7 +1338,13 @@ const file_whatevr_v2_account_proto_rawDesc = "" +
 	"\x1cPROBLEM_KIND_HISTORY_STALLED\x10\x06\x12\x1a\n" +
 	"\x16PROBLEM_KIND_APP_STATE\x10\a\x12\x1c\n" +
 	"\x18PROBLEM_KIND_UNDECRYPTED\x10\b\x12\x18\n" +
-	"\x14PROBLEM_KIND_STORAGE\x10\tB\xa1\x01\n" +
+	"\x14PROBLEM_KIND_STORAGE\x10\t\x12#\n" +
+	"\x1fPROBLEM_KIND_STUCK_BEFORE_LOGIN\x10\n" +
+	"\x12\x1f\n" +
+	"\x1bPROBLEM_KIND_SERVER_REFUSED\x10\v\x12 \n" +
+	"\x1cPROBLEM_KIND_STREAM_REPLACED\x10\f\x12\x1f\n" +
+	"\x1bPROBLEM_KIND_KEEPALIVE_LOST\x10\r\x12\x1e\n" +
+	"\x1aPROBLEM_KIND_MEDIA_FAILING\x10\x0eB\xa1\x01\n" +
 	"\x0ecom.whatevr.v2B\fAccountProtoZ5github.com/codelif/whatevr/proto/whatevr/v2;whatevrv2\xa2\x02\x03WXX\xaa\x02\n" +
 	"Whatevr.V2\xca\x02\n" +
 	"Whatevr\\V2\xe2\x02\x16Whatevr\\V2\\GPBMetadata\xea\x02\vWhatevr::V2\x92\x03\x02\b\x02b\beditionsp\xe9\a"

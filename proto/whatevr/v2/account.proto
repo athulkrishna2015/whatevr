@@ -127,6 +127,16 @@ enum ProblemKind {
   PROBLEM_KIND_UNDECRYPTED = 8;
   // the disk is full or the database can't be written
   PROBLEM_KIND_STORAGE = 9;
+  // connected, but whatsapp never said we're logged in
+  PROBLEM_KIND_STUCK_BEFORE_LOGIN = 10;
+  // whatsapp turned the login down, text says why
+  PROBLEM_KIND_SERVER_REFUSED = 11;
+  // whatsapp was opened on another computer; reconnecting takes it back
+  PROBLEM_KIND_STREAM_REPLACED = 12;
+  // the connection went quiet and is being replaced
+  PROBLEM_KIND_KEEPALIVE_LOST = 13;
+  // downloads keep failing, not just one message's
+  PROBLEM_KIND_MEDIA_FAILING = 14;
 }
 
 // what this frontend is doing, for notifications and routing
