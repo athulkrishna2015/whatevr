@@ -19,6 +19,13 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.11.4" date="2026-10-03">
+      <description>
+        <ul>
+          <li><em>Fixes a regression from 0.11.3.</em> The offline media gate shipped with a <code>Connections</code> block so that bubbles parked while offline would start fetching again on reconnect. A <code>Connections</code> block is one QObject per delegate, and the chat bubble has a hard object budget per row, so all of the budget checks failed by exactly one object. The gate now lives in the <code>autoDownloadWanted</code> property, which already had a change handler and already reads the connection phase — so reconnecting restarts those bubbles just the same, and the delegate costs nothing extra.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.11.3" date="2026-10-03">
       <description>
         <ul>
