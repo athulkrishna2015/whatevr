@@ -247,6 +247,24 @@ func TestReadFiltersAcrossRotatedGzippedParts(t *testing.T) {
 	}
 }
 
+// a fold or a view diff lists every message it touched; one of them is
+// enough to match
+func TestReadFilterMatchesAListElement(t *testing.T) {
+	dir := t.TempDir()
+	r, _ := startRun(t, dir, zerolog.DebugLevel, zerolog.Disabled)
+	r.Logger.Debug().Strs("msg", []string{"c:A", "c:B"}).Msg("folded")
+	r.Logger.Debug().Strs("msg", []string{"c:C"}).Msg("other")
+	r.Logger.Info().Str("msg", "c:B").Msg("single")
+	runs, _ := ListRuns(dir)
+	var out bytes.Buffer
+	if err := Read(t.Context(), runs[0], ReadOptions{Filters: []Filter{{"msg", "c:B"}}, MinLevel: zerolog.TraceLevel, JSON: true}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if s := out.String(); strings.Count(s, "\n") != 2 || !strings.Contains(s, "folded") || strings.Contains(s, "other") {
+		t.Fatalf("got %q", s)
+	}
+}
+
 type lockedBuffer struct {
 	mu sync.Mutex
 	b  bytes.Buffer

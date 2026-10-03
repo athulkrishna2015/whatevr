@@ -192,16 +192,27 @@ func (p *printer) matches(line []byte) bool {
 	}
 	for _, f := range p.opts.Filters {
 		v, ok := m[f.Field]
-		if !ok {
-			return false
-		}
-		s, ok := v.(string)
-		if !ok {
-			s = fmt.Sprint(v)
-		}
-		if s != f.Value {
+		if !ok || !matchValue(v, f.Value) {
 			return false
 		}
 	}
 	return true
+}
+
+// matchValue is v equal to want, or holding it when v is a list: a fold or
+// a view diff names every message it touched in one field.
+func matchValue(v any, want string) bool {
+	if l, ok := v.([]any); ok {
+		for _, e := range l {
+			if matchValue(e, want) {
+				return true
+			}
+		}
+		return false
+	}
+	s, ok := v.(string)
+	if !ok {
+		s = fmt.Sprint(v)
+	}
+	return s == want
 }
