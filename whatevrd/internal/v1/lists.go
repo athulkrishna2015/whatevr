@@ -34,13 +34,16 @@ func (a *Adapter) view(ctx context.Context, chatID string) (view, error) {
 
 func (a *Adapter) rows(ctx context.Context, v view, ms []model.Message) []store.Message {
 	out := make([]store.Message, len(ms))
+	all := make([]*store.Message, len(ms))
 	over := make([]*store.Message, 0, len(ms))
 	for i, m := range ms {
 		var ok bool
 		if out[i], ok = a.build(ctx, v.w, v.chat, m); ok {
 			over = append(over, &out[i])
 		}
+		all[i] = &out[i]
 	}
+	a.senderAvatars(ctx, v.w, all)
 	a.overlay(ctx, over)
 	return out
 }
@@ -353,12 +356,10 @@ func (a *Adapter) SenderDisplay(ctx context.Context, id string) (string, string,
 	if err != nil {
 		return "", "", err
 	}
-	name, _ := w.Name(w.Now(model.Norm(id)))
-	avatar := ""
-	if a.old != nil {
-		_, avatar, _ = a.old.SenderDisplay(ctx, id)
-	}
-	return name, avatar, nil
+	k := w.Now(model.Norm(id))
+	name, _ := w.Name(k)
+	x, _ := avatar(w, a.avatars(ctx, w, []string{k}), k)
+	return name, x.Path, nil
 }
 
 // the rest of the store interfaces stay with the old store until their

@@ -524,3 +524,37 @@ func TestALiveShareIsOneRowAtItsNewestPoint(t *testing.T) {
 		t.Fatalf("a quiet share still runs %+v", shares)
 	}
 }
+
+// what the daemon did on its own reaches the row: a file, a play, the group
+// an invite points at, and the sender's picture under either address
+func TestWhatTheDaemonDidShowsOnTheRow(t *testing.T) {
+	ctx := context.Background()
+	db := open(t, nil)
+	invite, _ := json.Marshal(store.GroupInvitePayload{Subject: "Hikers", MemberCount: 12, ResolvedAt: 7})
+	feed(t, db, append(account(),
+		msgIn("V1", ashaL, ashaL, false, 70, &waE2E.Message{AudioMessage: &waE2E.AudioMessage{PTT: proto.Bool(true), Mimetype: proto.String("audio/ogg")}}),
+		msgIn("I1", ashaL, ashaL, false, 71, &waE2E.Message{GroupInviteMessage: &waE2E.GroupInviteMessage{
+			GroupJID: proto.String(grp), InviteCode: proto.String("abc"), GroupName: proto.String("hikers?")}}),
+		in(core.KindLocal, core.LocalHead{Chat: ashaL, ID: "V1", Op: core.MediaFile, Path: "/m/v1.ogg"}, nil, at(72)),
+		in(core.KindLocal, core.LocalHead{Chat: ashaL, ID: "V1", Op: core.MediaPlayed}, nil, at(73)),
+		in(core.KindLocal, core.LocalHead{Chat: ashaL, ID: "I1", Op: core.LocalInvite, Invite: invite}, nil, at(74)),
+		in(core.KindAvatar, core.AvatarHead{JID: ashaPN, Status: core.AvatarOK, PictureID: "p1", Path: "/a/asha.jpg"}, nil, at(75)),
+		in(core.KindAvatar, core.AvatarHead{JID: ashaL, Status: core.AvatarError, Error: "timeout"}, nil, at(76)),
+	)...)
+	a := New(db, nil, nil, nil, zerolog.Nop())
+	v, err := a.GetMessage(ctx, ashaPN+":V1")
+	if err != nil || v.MediaLocalPath != "/m/v1.ogg" || !v.MediaPlayed || v.SenderAvatarLocalPath != "/a/asha.jpg" {
+		t.Fatalf("V1 %+v %v", v, err)
+	}
+	i, err := a.GetMessage(ctx, ashaPN+":I1")
+	if p := store.DecodePayload(i.PayloadJSON).GroupInvite; err != nil || p == nil || p.Subject != "Hikers" || p.MemberCount != 12 || i.PayloadSummary != "Hikers" {
+		t.Fatalf("I1 %+v %+v %v", i, p, err)
+	}
+	c, err := a.GetChat(ctx, ashaPN)
+	if err != nil || c.AvatarLocalPath != "/a/asha.jpg" || c.AvatarPictureID != "p1" || c.AvatarStatus != store.AvatarStatusAvailable {
+		t.Fatalf("chat %+v %v", c, err)
+	}
+	if _, path, _ := a.SenderDisplay(ctx, ashaL); path != "/a/asha.jpg" {
+		t.Fatalf("typing avatar %q", path)
+	}
+}

@@ -27,9 +27,10 @@ func (a *Adapter) ListChatsForView(ctx context.Context, f store.ChatListFilter) 
 	if err != nil {
 		return nil, err
 	}
+	av := a.avatars(ctx, w, chatKeys(chats))
 	out := make([]store.Chat, 0, len(chats))
 	for _, c := range chats {
-		out = append(out, a.chat(ctx, gen, w, c))
+		out = append(out, a.chat(ctx, gen, w, c, av))
 	}
 	// in the order of v1's sort key, which goes by second and chat id where
 	// the model goes by millisecond and person key
@@ -70,14 +71,14 @@ func (a *Adapter) GetChat(ctx context.Context, chatID string) (store.Chat, error
 	if !ok {
 		return store.Chat{}, errNotFound
 	}
-	return a.chat(ctx, gen, w, c), nil
+	return a.chat(ctx, gen, w, c, a.avatars(ctx, w, []string{c.Key})), nil
 }
 
 // chat is a model chat in v1's shape, its preview decoded from the newest
-// message and its avatar from the old store. gen is the preview generation
+// message and its avatar out of av. gen is the preview generation
 // taken before w and c were read: a preview built from them is kept only if
 // nothing was dropped since.
-func (a *Adapter) chat(ctx context.Context, gen uint64, w *model.World, c model.Chat) store.Chat {
+func (a *Adapter) chat(ctx context.Context, gen uint64, w *model.World, c model.Chat, av map[string]model.Avatar) store.Chat {
 	id := ChatID(w, c.Key)
 	out := store.Chat{
 		ID:               id,
@@ -111,12 +112,16 @@ func (a *Adapter) chat(ctx context.Context, gen uint64, w *model.World, c model.
 	if p.ok {
 		out.LastMessage, out.LastMessageDirection, out.LastMessageStatus = p.text, p.direction, p.msgStatus
 	}
-	if a.old != nil {
-		// never kept: the old core tells the views of a new avatar itself
-		path, pic, st, checked, err := a.old.ChatAvatar(ctx, id)
-		if err == nil {
-			out.AvatarLocalPath, out.AvatarPictureID, out.AvatarStatus, out.AvatarCheckedAt = path, pic, st, checked
-		}
+	if x, ok := avatar(w, av, c.Key); ok {
+		out.AvatarLocalPath, out.AvatarPictureID, out.AvatarStatus, out.AvatarCheckedAt = x.Path, x.PictureID, avatarStatus(x), x.LastTry/1000
+	}
+	return out
+}
+
+func chatKeys(cs []model.Chat) []string {
+	out := make([]string, len(cs))
+	for i, c := range cs {
+		out[i] = c.Key
 	}
 	return out
 }
@@ -168,9 +173,10 @@ func (a *Adapter) SearchChats(ctx context.Context, query string, limit int) ([]s
 	if err != nil {
 		return nil, err
 	}
+	av := a.avatars(ctx, w, chatKeys(chats))
 	out := make([]store.Chat, 0, len(chats))
 	for _, c := range chats {
-		out = append(out, a.chat(ctx, gen, w, c))
+		out = append(out, a.chat(ctx, gen, w, c, av))
 	}
 	return out, nil
 }

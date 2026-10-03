@@ -20,10 +20,32 @@ import (
 // message is one model row as v1 shows it.
 func (a *Adapter) message(ctx context.Context, w *model.World, c model.Chat, m model.Message) store.Message {
 	out, over := a.build(ctx, w, c, m)
+	a.senderAvatars(ctx, w, []*store.Message{&out})
 	if over {
 		a.overlay(ctx, []*store.Message{&out})
 	}
 	return out
+}
+
+// senderAvatars puts each incoming row's sender's picture on it, in one read.
+func (a *Adapter) senderAvatars(ctx context.Context, w *model.World, ms []*store.Message) {
+	var keys []string
+	for _, m := range ms {
+		if m.Direction == store.DirectionIncoming && m.SenderID != "" {
+			keys = append(keys, w.Now(model.Norm(m.SenderID)))
+		}
+	}
+	if len(keys) == 0 {
+		return
+	}
+	av := a.avatars(ctx, w, keys)
+	for _, m := range ms {
+		if m.Direction == store.DirectionIncoming && m.SenderID != "" {
+			if x, ok := avatar(w, av, w.Now(model.Norm(m.SenderID))); ok {
+				m.SenderAvatarLocalPath = x.Path
+			}
+		}
+	}
 }
 
 // build is message without the old store's overlay, and whether the row
@@ -80,6 +102,9 @@ func (a *Adapter) build(ctx context.Context, w *model.World, c model.Chat, m mod
 			out.Text = t
 		}
 		out.IsEdited = true
+	}
+	if !f.Revoked {
+		local(&out, f.Local)
 	}
 	if f.Revoked {
 		out = revoked(out)
