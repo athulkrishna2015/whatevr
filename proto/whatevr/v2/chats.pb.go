@@ -1106,7 +1106,7 @@ func (b0 ChatRequestOlderResult_builder) Build() *ChatRequestOlderResult {
 	return m0
 }
 
-// the direct chat with someone, made if it isn't there
+// the direct chat with someone, there to open even before anything is in it
 type ChatEnsureDirect struct {
 	state             protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_Person *Address               `protobuf:"bytes,1,opt,name=person"`

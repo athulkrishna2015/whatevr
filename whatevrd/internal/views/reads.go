@@ -41,6 +41,9 @@ type Options struct {
 	Log      zerolog.Logger
 	// Login is told a login view opened, to start pairing when logged out
 	Login func()
+	// Shown hears every person and chat key a row was built with, for
+	// fetching what the rows want, avatars first
+	Shown func(keys []string)
 }
 
 type Reads struct {
@@ -52,6 +55,7 @@ type Reads struct {
 	media string
 	log   zerolog.Logger
 	login func()
+	seen  func(keys []string)
 	srv   *server.Server
 
 	mu    sync.Mutex
@@ -67,7 +71,7 @@ type Reads struct {
 
 func New(o Options) *Reads {
 	return &Reads{core: o.Core, r: model.NewReader(o.Core.Read()), ids: o.IDs, live: o.Live, board: o.Board,
-		media: o.MediaDir, log: o.Log, login: o.Login, previews: newPreviews(), queue: make(chan core.Change, 1024)}
+		media: o.MediaDir, log: o.Log, login: o.Login, seen: o.Shown, previews: newPreviews(), queue: make(chan core.Change, 1024)}
 }
 
 // Reader is the model reader the views use.

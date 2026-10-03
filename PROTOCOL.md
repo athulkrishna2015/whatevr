@@ -295,7 +295,7 @@ ids for correlation.
 | `chat_mute` | `chat_id`, `muted`, `duration_ms` (0 is forever) | `done` |
 | `chat_typing` | `chat_id`, `composing`, `recording` | `done` |
 | `chat_request_older` | `chat_id` | `requested`: false when the phone has nothing older or a request is out |
-| `chat_ensure_direct` | `person` | `chat_id`: the row appears in `chats` |
+| `chat_ensure_direct` | `person` | `chat_id`: open it with `chat` and `messages`; its row appears in `chats` once something is in it, the first send included |
 
 **Sends.** Each answers with the new message's id at once; the message
 arrives through views, `PENDING` until it leaves.

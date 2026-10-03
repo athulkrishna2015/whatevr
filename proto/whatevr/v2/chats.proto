@@ -103,7 +103,7 @@ message ChatRequestOlderResult {
   bool requested = 1;
 }
 
-// the direct chat with someone, made if it isn't there
+// the direct chat with someone, there to open even before anything is in it
 message ChatEnsureDirect {
   Address person = 1;
 }

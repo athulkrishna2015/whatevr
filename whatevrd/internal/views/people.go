@@ -77,6 +77,9 @@ func (c *rc) finish() error {
 	if err := c.ids.Ensure(c.ctx, c.w, keys...); err != nil {
 		return err
 	}
+	if c.seen != nil {
+		c.seen(keys)
+	}
 	av, err := c.r.Avatars(c.ctx, addrs)
 	if err != nil {
 		c.log.Warn().Err(err).Msg("views: avatars")
