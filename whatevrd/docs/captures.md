@@ -123,10 +123,11 @@ daemon restart between segments.
     scripts/replay --self-test          capture mock scenarios, replay, compare
 
 Per segment it runs a mock daemon on the capture in a scratch dir kept between
-segments, waits for the replay to finish, subscribes to every view (every chat
-with its messages, pins, media, group and members) and keeps the final items,
-runs `scripts/conformance` over a recorded stream, stops the daemon and checks
-both databases with `integrity_check` and `foreign_key_check`.
+segments, waits for the replay to finish, takes `whatevrd mock snapshot` (every
+view, every chat with its messages, pins, media, group and members, as their
+final items), stops the daemon and checks `core.db` and the whatsmeow session
+with `integrity_check` and `foreign_key_check`, and `core.db` for inputs that
+did not fold.
 
 A capture becomes a regression test when its snapshot has been read and
 accepted. It stays opt-in: nothing runs a capture unless asked, and CI only

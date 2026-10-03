@@ -2,8 +2,8 @@
 
 `whatevrd --mock <scenario>` runs the **real daemon** against a fake WhatsApp
 Web server instead of WhatsApp. Nothing above the network is stubbed: the
-protocol server, the view engine, the sort keys, the sqlite store, `internal/wa`
-and whatsmeow itself are all production code. What is fake is the thing on the
+protocol server, the views, the sort keys, the core, `internal/whatsapp` and
+whatsmeow itself are all production code. What is fake is the thing on the
 other end of the websocket.
 
 This is what frontend work runs against. No phone, no pairing dance, no history
@@ -34,12 +34,12 @@ release binary rejects the flag. It runs in `just test` and in CI.
 ## Where state goes
 
 Mock mode repoints the whole XDG triple at a scratch tree, so the socket, the
-lock, the app database and the whatsmeow session all land inside it and a mock
+lock, the core and the whatsmeow session all land inside it and a mock
 run can never open a real account:
 
     /run/user/$UID/whatevr-mock/<scenario>/
       run/whatevr/whatevrd.sock
-      data/whatevrd/whatevrd.db
+      data/whatevrd/core.db
       data/whatevrd/session/whatsmeow.db
       cache/whatevrd/
 
@@ -90,7 +90,7 @@ The pieces, in the order the client meets them:
 
 1. **Transport.** `installTransport` replaces `http.DefaultTransport`.
    whatsmeow's `NewClient` builds its websocket, pre-login and media clients by
-   cloning it, so all three are captured without `internal/wa` changing. Any
+   cloning it, so all three are captured without `internal/whatsapp` changing. Any
    host that is not a WhatsApp one is refused at dial time rather than reaching
    the internet.
 2. **Noise.** `noise.go` is the responder half of
@@ -233,6 +233,15 @@ of sleeping long enough to be fairly sure.
 | `{"cmd":"replay"}` | a replay's progress: done, position, misses, gate timeouts, junk payloads, the id map |
 
 A replay keeps `sync` blocked until its segment is fully played.
+
+The frontend side has its own helpers, in mock builds only, each a plain
+protocol 2 client:
+
+| command | does |
+|---|---|
+| `whatevrd mock snapshot --socket S` | subscribes to every view, every chat's included, and prints all of it as json once filled and quiet |
+| `whatevrd mock send --socket S --to PHONE --text T` | opens the direct chat and sends |
+| `whatevrd mock watch --socket S VIEW...` | prints every row of the named global views as a json line as it lands |
 
 `sync` is only the server's half. Whether a view has emitted `ready`, and
 whether the daemon has finished ingesting what it was sent, are things only the

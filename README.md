@@ -121,7 +121,7 @@ Distro packages install both units to `/usr/lib/systemd/user/` (shipped disabled
 Whatevr is very early-stage software. It is usable for development and testing, but the should be treated as **EXPERIMENTAL**. 
 There is lots of missing functionality that is considered essential, and there WILL be bugs.
 
-The **protocol**, on the other hand, is stable at version 1: new views, commands
+The **protocol**, on the other hand, is stable at version 2: new views, commands
 and message kinds will be added, but nothing already in PROTOCOL.md changes
 shape. A frontend written against it today keeps working.
 
@@ -193,23 +193,24 @@ computed that order.
 
 The daemon is Go (`whatevrd/`); the terminal frontend is `whattui`, in Go on a
 fork of vaxis (`whattui/`). A scriptable CLI is wanted and
-unclaimed (see *Write a frontend* above); that work needs no changes to the
-daemon.
+unclaimed; that work needs no changes to the daemon.
 
 Whatevr will be Linux-first for now until its stable. I am open to contributions for porting functionality to other platforms as long as they don't affect existing performance and Linux functionality significantly. 
 
 
 ## The protocol is the point
 
-[**PROTOCOL.md**](PROTOCOL.md) is the contract: newline-delimited JSON over
-`$XDG_RUNTIME_DIR/whatevr/whatevrd.sock`, protocol version 1, stable. Four ideas
-carry the whole thing:
+[**PROTOCOL.md**](PROTOCOL.md) is the contract: protobuf frames, each preceded
+by its length as a varint, over `$XDG_RUNTIME_DIR/whatevr/whatevrd.sock`.
+Protocol version 2. The schema lives in [`proto/`](proto) and generates for
+any language; Go and Python types are checked in. Four ideas carry the whole
+thing:
 
 - **The daemon owns all state.** A frontend does no sorting, merging, dedup or
   cache invalidation. Ever. It keeps a map of items and renders it.
 - **You subscribe to views, not endpoints.** `subscribe` to `chats`, `messages`,
   `typing`, `presence`… and the daemon sends the contents, then keeps your copy
-  correct forever with keyed `upsert`/`remove` events. Every item carries a
+  correct forever with keyed upserts and removes. Every item carries a
   daemon-computed `sort` key; ordering is never your problem.
 - **Commands only ever return an id.** Send a message and the response is a
   message id. The message itself arrives through the view you already had open,
@@ -218,19 +219,9 @@ carry the whole thing:
   string, so a client that has never heard of stickers still shows something
   sensible. Partial frontends are first-class.
 
-The whole surface is slim, and it is meant to be driven by hand:
-
-```console
-$ socat - UNIX-CONNECT:"$XDG_RUNTIME_DIR/whatevr/whatevrd.sock"
-{"id":1,"method":"hello","params":{"client":"human","protocol":1}}
-{"id":1,"result":{"daemon":"whatevrd","version":"0.6.0","protocol":1,"state":"online","data_dir":"…","cache_dir":"…"}}
-{"id":2,"method":"subscribe","params":{"view":"chats","limit":2}}
-{"id":2,"result":{"sub":1}}
-{"sub":1,"event":"upsert","sort":"0-…","item":{"id":"12036…@g.us","name":"family","unread":3,"preview":"📷 Photo","pinned":true}}
-{"sub":1,"event":"ready"}
-{"id":3,"method":"send.text","params":{"chat_id":"91887…@s.whatsapp.net","text":"oi"}}
-{"id":3,"result":{"message_id":"3EB0…"}}
-```
+The whole surface is slim. [`examples/frontend.py`](examples/frontend.py) is a
+complete frontend in under 80 lines: it says hello, subscribes to the chat
+list, keeps it live, and sends a message.
 
 ## Acknowledgements
 Whatevr stands on the shoulders of:
