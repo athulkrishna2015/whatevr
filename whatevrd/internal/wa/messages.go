@@ -921,7 +921,7 @@ func (c *Client) clearComposingAfterLiveIncomingMessage(message app.Message) {
 
 func (c *Client) shouldNotifyLiveMessage(message app.Message, chat app.Chat, countUnread bool) bool {
 	return countUnread && notificationTimestampFresh(message.TimestampUnix, time.Now()) &&
-		c.ShouldNotifyChat(chat.ID) && !chatNotificationsMuted(chat.IsMuted, chat.MuteEndTimestamp)
+		c.shouldNotifyChat(chat)
 }
 
 // chatNotificationsMuted reports whether a chat's mute is currently in effect.

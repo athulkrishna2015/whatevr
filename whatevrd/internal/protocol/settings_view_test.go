@@ -156,6 +156,9 @@ func TestPreferencesViewChangeRefetch(t *testing.T) {
 	if !itemBool(t, first, "notifications_enabled") {
 		t.Fatalf("notifications_enabled default = false, want true")
 	}
+	if !itemBool(t, first, "mute_archived_chats") {
+		t.Fatalf("mute_archived_chats default = false, want true")
+	}
 	if itemBool(t, first, "auto_download_photos") {
 		t.Fatalf("auto_download_photos default = true, want false")
 	}

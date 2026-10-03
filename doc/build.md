@@ -63,6 +63,18 @@ suite, the Qt suite, and a full Arch build+install. The AUR check regenerates
 and diffs: after touching any PKGBUILD `depends`, update the matching
 `.SRCINFO` by hand (no makepkg off Arch).
 
+On Linux desktops without an exposed OpenGL window (for example a headless
+session), `tst_mpvrender` cannot exercise real frame presentation and may fail
+or skip depending on the Qt platform plugin. Run it on a graphical session for
+meaningful mpv-render verification; an offscreen/software-rendered pass does
+not validate video output.
+
+Historical example: the v0.11.3 Arch CI run failed in `tst_chatbubbleperf`.
+An extra `Connections` object in every `ChatBubble` exceeded the test's
+per-delegate QObject budget by one (and also pushed the chat-open total over its
+limit). The offline auto-download guard was moved into the existing derived
+property in v0.11.4, removing that per-row object; v0.11.4 and v0.11.5 CI passed.
+
 ## Releases
 
 `just release` only forwards the version (see `scripts/release.py` — pass

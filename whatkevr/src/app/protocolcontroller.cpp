@@ -525,6 +525,13 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
         Q_EMIT stateChanged();
     });
 
+    m_connectionTimeoutTimer = new QTimer(this);
+    m_connectionTimeoutTimer->setSingleShot(true);
+    m_connectionTimeoutTimer->setInterval(kStartupGraceMs);
+    connect(m_connectionTimeoutTimer, &QTimer::timeout, this, [this] {
+        Q_EMIT stateChanged();
+    });
+
     // While a QR is on screen, re-emit once a second so the countdown text the
     // login page derives stays live (qrExpiryText() recomputes on read).
     m_qrTimer = new QTimer(this);
@@ -686,6 +693,7 @@ void ProtocolController::start()
         return; // already started
     }
     m_startupGraceTimer->start();
+    m_connectionTimeoutTimer->start();
     // Both views are tiny object views observed for the whole session: the
     // connection view is the authoritative state source; subscribing the login
     // view attaches to the daemon's QR pairing flow while logged out (and simply
@@ -4706,7 +4714,7 @@ void ProtocolController::setAppPreference(const QString &key, bool value)
         QStringLiteral("auto_download_videos"), QStringLiteral("auto_download_audio"),
         QStringLiteral("auto_download_documents"), QStringLiteral("auto_download_stickers"),
         QStringLiteral("anti_delete"), QStringLiteral("send_typing_indicators"),
-        QStringLiteral("keep_chats_archived")};
+        QStringLiteral("keep_chats_archived"), QStringLiteral("mute_archived_chats")};
     if (!keys.contains(key)) {
         return;
     }
@@ -4870,6 +4878,11 @@ bool ProtocolController::starting() const
     // routed to a neutral splash so a sub-second connect never flashes the
     // daemon-status page.
     return m_startupGrace && !m_connectionModel->isPresent();
+}
+
+bool ProtocolController::connectionTimedOut() const
+{
+    return m_connectionTimeoutTimer->isActive() == false && !m_clientReady && m_connectionSub;
 }
 
 bool ProtocolController::loginRequired() const
@@ -5045,6 +5058,12 @@ void ProtocolController::triggerPrimaryAction()
     // client's backoff tick.
     m_bannerText.clear();
     m_client->start();
+    Q_EMIT stateChanged();
+}
+
+void ProtocolController::retryConnectionTimeout()
+{
+    m_connectionTimeoutTimer->start();
     Q_EMIT stateChanged();
 }
 
@@ -5445,6 +5464,8 @@ void ProtocolController::tryApplyPendingDeepLink()
 
 void ProtocolController::onClientReady()
 {
+    m_connectionTimeoutTimer->stop();
+    Q_EMIT stateChanged();
     m_clientReady = true;
     // A fresh successful connection clears any stale start/reconnect banner and
     // the sticky launch error.
@@ -5459,6 +5480,9 @@ void ProtocolController::onClientReady()
 void ProtocolController::onClientDisconnected()
 {
     m_clientReady = false;
+    if (m_connectionSub) {
+        m_connectionTimeoutTimer->start();
+    }
     m_mediaStreamMessages.clear();
     // The client reset the object-view sinks on drop; their valueChanged already
     // fired. Recompute the gate from the new phase.

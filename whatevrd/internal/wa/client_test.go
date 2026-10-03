@@ -1,8 +1,10 @@
 package wa
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 	"go.mau.fi/whatsmeow/types"
 
 	"whatevrd/internal/app"
+	appstore "whatevrd/internal/store"
 )
 
 func TestShouldNotifyChatNoFocusedSession(t *testing.T) {
@@ -19,6 +22,49 @@ func TestShouldNotifyChatNoFocusedSession(t *testing.T) {
 
 	if !c.ShouldNotifyChat("chat-a") {
 		t.Fatal("unfocused session should not suppress notifications")
+	}
+}
+
+func TestShouldNotifyChatRespectsArchivedPreference(t *testing.T) {
+	c := &Client{frontendSessions: make(map[string]frontendSession)}
+	c.appPrefs.Store(&app.AppPreferences{MuteArchivedChats: true})
+	if c.shouldNotifyChat(app.Chat{ID: "archived", IsArchived: true}) {
+		t.Fatal("archived chat should be muted by default preference")
+	}
+	if !c.shouldNotifyChat(app.Chat{ID: "active", IsArchived: false}) {
+		t.Fatal("unarchived chat should still notify")
+	}
+	c.appPrefs.Store(&app.AppPreferences{MuteArchivedChats: false})
+	if !c.shouldNotifyChat(app.Chat{ID: "archived", IsArchived: true}) {
+		t.Fatal("archived chat should notify when archived muting is disabled")
+	}
+}
+
+func TestLoadAppPreferencesArchivedMuteMigration(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		json string
+		want bool
+	}{
+		{name: "missing field defaults on", json: `{"NotificationsEnabled":true}`, want: true},
+		{name: "explicit false remains off", json: `{"NotificationsEnabled":true,"MuteArchivedChats":false}`, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			db, err := appstore.Open(ctx, filepath.Join(t.TempDir(), "prefs.db"))
+			if err != nil {
+				t.Fatalf("open db: %v", err)
+			}
+			defer db.Close()
+			if err := db.SetDaemonConfig(ctx, daemonConfigAppPreferencesKey, tc.json); err != nil {
+				t.Fatalf("save preferences: %v", err)
+			}
+			c := &Client{store: db}
+			c.loadAppPreferences(ctx)
+			if got := c.appPreferences().MuteArchivedChats; got != tc.want {
+				t.Fatalf("MuteArchivedChats = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

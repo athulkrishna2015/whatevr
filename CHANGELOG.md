@@ -27,6 +27,19 @@ PROTOCOL.md (stable at version 1: additive changes only).
   parameter. Neither was, and the batch command had no frontend test coverage;
   it does now.
 
+- Notifications from archived chats can be muted globally from Settings. The
+  preference defaults to on and covers messages, calls, and reactions; existing
+  per-chat mute behavior is unchanged.
+
+### Fixed
+
+- The initial daemon connection screen now has a finite loading state and a
+  retryable error instead of leaving the app on an indefinite spinner. A
+  successful connection clears the timeout, and Retry starts a fresh wait.
+- Tray context-menu placement now clamps to the screen's virtual geometry and
+  opens upward when needed. Wayland compositors may still override popup
+  positioning.
+
 ### Fixed
 
 - Panning a zoomed photo stopped being clamped correctly once it had been

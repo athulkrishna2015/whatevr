@@ -249,8 +249,6 @@ Kirigami.ApplicationWindow {
         }
 
         function showAt(sx, sy) {
-            const screenW = Screen.desktopAvailableWidth > 0 ? Screen.desktopAvailableWidth : Screen.width
-            const screenH = Screen.desktopAvailableHeight > 0 ? Screen.desktopAvailableHeight : Screen.height
             // The anchors-based column fills the window, so before any size is
             // set there is nothing to read. Size the window from the buttons'
             // own implicit sizes, then the column and card fill it.
@@ -268,9 +266,32 @@ Kirigami.ApplicationWindow {
             trayMenuWindow.height = h + pad - trayMenuColumn.spacing
             const w2 = trayMenuWindow.width
             const h2 = trayMenuWindow.height
-            trayMenuWindow.x = sx > 0 ? Math.max(0, Math.min(sx - w2 / 2, screenW - w2)) : screenW - w2
-            // Open upward from the click: panel trays sit at a screen edge.
-            trayMenuWindow.y = sy > 0 ? Math.max(0, sy - h2) : Math.max(0, screenH - h2)
+
+            // Tray hosts provide screen coordinates. Clamp against this window's
+            // actual screen geometry, not the primary screen's 0-based size:
+            // monitors can have negative origins and non-primary coordinates.
+            const left = Screen.virtualX
+            const top = Screen.virtualY
+            const right = left + (Screen.desktopAvailableWidth > 0
+                ? Screen.desktopAvailableWidth : Screen.width)
+            const bottom = top + (Screen.desktopAvailableHeight > 0
+                ? Screen.desktopAvailableHeight : Screen.height)
+
+            // Wayland compositors commonly withhold global pointer coordinates
+            // from StatusNotifierItem.ContextMenu and send (0, 0). In that case
+            // place the menu at the bottom edge of the screen, where the panel
+            // normally lives, rather than treating zero as an invalid value and
+            // centering it over the main window.
+            const hasPosition = Number.isFinite(sx) && Number.isFinite(sy)
+                && (sx !== 0 || sy !== 0)
+            const anchorX = hasPosition ? sx : right
+            const anchorY = hasPosition ? sy : bottom
+            trayMenuWindow.x = Math.max(left, Math.min(anchorX - w2 / 2, right - w2))
+            // Open upward from the tray click; constrain on-screen if the click
+            // is near the top edge instead.
+            trayMenuWindow.y = anchorY - h2 >= top
+                ? anchorY - h2
+                : Math.max(top, Math.min(anchorY, bottom - h2))
             trayMenuWindow.visible = true
         }
     }
@@ -351,9 +372,37 @@ Kirigami.ApplicationWindow {
         Kirigami.Page {
             padding: 0
 
-            QQC2.BusyIndicator {
+            ColumnLayout {
                 anchors.centerIn: parent
-                running: true
+                spacing: Kirigami.Units.largeSpacing
+
+                QQC2.BusyIndicator {
+                    Layout.alignment: Qt.AlignHCenter
+                    running: Whatevr.ProtocolController.starting
+                    visible: running
+                }
+
+                Kirigami.Heading {
+                    Layout.alignment: Qt.AlignHCenter
+                    visible: Whatevr.ProtocolController.connectionTimedOut
+                    text: Whatevr.I18n.i18nc("@title", "Can't connect to whatevrd")
+                }
+
+                QQC2.Label {
+                    Layout.alignment: Qt.AlignHCenter
+                    visible: Whatevr.ProtocolController.connectionTimedOut
+                    text: Whatevr.I18n.i18nc("@info", "The background service did not respond. Check that it is running, then retry.")
+                }
+
+                QQC2.Button {
+                    Layout.alignment: Qt.AlignHCenter
+                    visible: Whatevr.ProtocolController.connectionTimedOut
+                    text: Whatevr.I18n.i18nc("@action:button", "Retry")
+                    onClicked: {
+                        Whatevr.ProtocolController.triggerPrimaryAction()
+                        root.restartConnectionTimeout()
+                    }
+                }
             }
         }
     }
@@ -585,6 +634,10 @@ Kirigami.ApplicationWindow {
             }
             break
         }
+    }
+
+    function restartConnectionTimeout() {
+        Whatevr.ProtocolController.retryConnectionTimeout()
     }
 
     function activateWindow() {

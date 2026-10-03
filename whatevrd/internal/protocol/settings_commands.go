@@ -75,6 +75,7 @@ func knownPrivacyAudience(value string) bool {
 
 type preferencesSetParams struct {
 	NotificationsEnabled  *bool  `json:"notifications_enabled"`
+	MuteArchivedChats     *bool  `json:"mute_archived_chats"`
 	NotificationSound     *bool  `json:"notification_sound"`
 	NotificationPreview   *bool  `json:"notification_preview"`
 	AutoDownloadPhotos    *bool  `json:"auto_download_photos"`
@@ -109,6 +110,9 @@ func (h commandHandlers) preferencesSet(_ *conn, req request) (any, *Error) {
 func applyPreferencesPatch(prefs *app.AppPreferences, p preferencesSetParams) {
 	if p.NotificationsEnabled != nil {
 		prefs.NotificationsEnabled = *p.NotificationsEnabled
+	}
+	if p.MuteArchivedChats != nil {
+		prefs.MuteArchivedChats = *p.MuteArchivedChats
 	}
 	if p.NotificationSound != nil {
 		prefs.NotificationSound = *p.NotificationSound

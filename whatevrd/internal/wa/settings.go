@@ -27,6 +27,14 @@ func (c *Client) loadAppPreferences(ctx context.Context) {
 	prefs := app.DefaultAppPreferences()
 	if raw, err := c.store.GetDaemonConfig(ctx, daemonConfigAppPreferencesKey); err == nil && raw != "" {
 		_ = json.Unmarshal([]byte(raw), &prefs)
+		// Older preference records predate archived-chat muting. Since the new
+		// setting defaults on, distinguish an absent field from an explicit off.
+		var stored map[string]json.RawMessage
+		if json.Unmarshal([]byte(raw), &stored) == nil {
+			if _, ok := stored["MuteArchivedChats"]; !ok {
+				prefs.MuteArchivedChats = true
+			}
+		}
 	}
 	c.appPrefs.Store(&prefs)
 }
@@ -43,6 +51,11 @@ func (c *Client) appPreferences() app.AppPreferences {
 func (c *Client) notificationOptions() (notify.Options, bool) {
 	p := c.appPreferences()
 	return notify.Options{Preview: p.NotificationPreview, Sound: p.NotificationSound}, p.NotificationsEnabled
+}
+
+func (c *Client) shouldNotifyChat(chat app.Chat) bool {
+	return !(chat.IsArchived && c.appPreferences().MuteArchivedChats) &&
+		c.ShouldNotifyChat(chat.ID) && !chatNotificationsMuted(chat.IsMuted, chat.MuteEndTimestamp)
 }
 
 // GetAppPreferences returns the cached daemon-side preferences.

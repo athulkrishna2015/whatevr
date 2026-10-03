@@ -228,7 +228,7 @@ func (c *Client) notifyCall(ctx context.Context, chat appstore.Chat, label strin
 		return
 	}
 	opts, enabled := c.notificationOptions()
-	if !enabled || !c.ShouldNotifyChat(chat.ID) || chatNotificationsMuted(chat.IsMuted, chat.MuteEndTimestamp) {
+	if !enabled || !c.shouldNotifyChat(toDaemonChat(chat)) {
 		return
 	}
 	daemonChat := toDaemonChat(chat)

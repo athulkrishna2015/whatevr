@@ -118,6 +118,13 @@ Record the new pseudo-version in the changelog entry under "Unreleased" →
 `codelif/whatevr`. Check what landed upstream before assuming a tree is
 current:
 
+### Release publishing permission
+
+This machine is authorized to publish releases only to `origin`
+(`athulkrishna2015/whatevr`). Never push release tags or publish releases to
+`upstream` (`codelif/whatevr`), even if explicitly asked; the maintainer of
+that repository must publish them.
+
 ```sh
 git fetch upstream
 git log --oneline main..upstream/main      # what we are missing

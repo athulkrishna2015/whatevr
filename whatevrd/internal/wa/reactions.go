@@ -87,8 +87,7 @@ func (c *Client) applyReaction(ctx context.Context, internalID, reactorID, react
 	c.daemon.PublishChatUpdated(toDaemonChat(chat))
 
 	if !fromMe && emoji != "" && message.Direction == appstore.DirectionOutgoing && c.notifier != nil &&
-		notificationTimestampFresh(timestamp.Unix(), time.Now()) && c.ShouldNotifyChat(chat.ID) &&
-		!chatNotificationsMuted(chat.IsMuted, chat.MuteEndTimestamp) {
+		notificationTimestampFresh(timestamp.Unix(), time.Now()) && c.shouldNotifyChat(toDaemonChat(chat)) {
 		if opts, enabled := c.notificationOptions(); enabled {
 			c.notifyWithAvatar(ctx, reactionNotification(message, reactorID, reactorName, emoji), toDaemonChat(chat), opts)
 		}

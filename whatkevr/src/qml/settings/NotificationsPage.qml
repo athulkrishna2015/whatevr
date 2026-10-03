@@ -14,6 +14,7 @@ SettingsPage {
         notificationsSwitch.checked = Qt.binding(() => Whatevr.ProtocolController.appPreferences.notifications_enabled ?? true)
         previewSwitch.checked = Qt.binding(() => Whatevr.ProtocolController.appPreferences.notification_preview ?? true)
         soundSwitch.checked = Qt.binding(() => Whatevr.ProtocolController.appPreferences.notification_sound ?? false)
+        archivedSwitch.checked = Qt.binding(() => Whatevr.ProtocolController.appPreferences.mute_archived_chats ?? true)
     }
 
     Connections {
@@ -57,6 +58,18 @@ SettingsPage {
             enabled: page.notificationsOn
             checked: Whatevr.ProtocolController.appPreferences.notification_sound ?? false
             onToggled: Whatevr.ProtocolController.setAppPreference("notification_sound", checked)
+        }
+
+        FormCard.FormDelegateSeparator {}
+
+        FormCard.FormSwitchDelegate {
+            id: archivedSwitch
+            objectName: "notifications.muteArchivedChats"
+            text: Whatevr.I18n.i18nc("@option:check", "Mute archived chats")
+            description: Whatevr.I18n.i18nc("@info", "Don't show notifications for chats in the archive.")
+            enabled: page.notificationsOn
+            checked: Whatevr.ProtocolController.appPreferences.mute_archived_chats ?? true
+            onToggled: Whatevr.ProtocolController.setAppPreference("mute_archived_chats", checked)
         }
     }
 }

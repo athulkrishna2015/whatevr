@@ -53,6 +53,7 @@ class ProtocolController final : public QObject
 
     // Shell routing, driven by the `connection`/`login` views.
     Q_PROPERTY(bool starting READ starting NOTIFY stateChanged FINAL)
+    Q_PROPERTY(bool connectionTimedOut READ connectionTimedOut NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool loginRequired READ loginRequired NOTIFY stateChanged FINAL)
     Q_PROPERTY(bool shellVisible READ shellVisible NOTIFY stateChanged FINAL)
 
@@ -346,6 +347,7 @@ public:
     [[nodiscard]] whatevr::proto::ProtocolClient *client() const { return m_client; }
 
     [[nodiscard]] bool starting() const;
+    [[nodiscard]] bool connectionTimedOut() const;
     [[nodiscard]] bool loginRequired() const;
     [[nodiscard]] bool shellVisible() const;
     [[nodiscard]] QString connectionPhase() const;
@@ -812,6 +814,7 @@ public:
 
     Q_INVOKABLE void startDaemon();
     Q_INVOKABLE void triggerPrimaryAction();
+    Q_INVOKABLE void retryConnectionTimeout();
     Q_INVOKABLE void copyToClipboard(const QString &text);
 
     // Chat-list mutations, mapped to the daemon's `chat.*` commands (acks only;
@@ -1350,6 +1353,7 @@ private:
     QVariantMap m_pendingEventRSVPs;
 
     QTimer *m_startupGraceTimer = nullptr;
+    QTimer *m_connectionTimeoutTimer = nullptr;
     QTimer *m_qrTimer = nullptr;
     QTimer *m_readTimer = nullptr;
     QTimer *m_phoneHistoryTimer = nullptr;

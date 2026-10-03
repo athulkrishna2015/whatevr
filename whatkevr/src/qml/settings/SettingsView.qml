@@ -226,6 +226,10 @@ QtObject {
           rowId: "notifications.sound", label: Whatevr.I18n.i18nc("@label", "Play a sound"),
           description: "",
           keywords: ["notification", "sound", "audio", "beep"] },
+        { moduleId: "notifications", category: Whatevr.I18n.i18nc("@title settings category", "Notifications"),
+          rowId: "notifications.muteArchivedChats", label: Whatevr.I18n.i18nc("@label", "Mute archived chats"),
+          description: Whatevr.I18n.i18nc("@info", "Don't show notifications for chats in the archive."),
+          keywords: ["notification", "archive", "mute", "silent"] },
 
         { moduleId: "privacy", category: Whatevr.I18n.i18nc("@title settings category", "Privacy"),
           rowId: "privacy.lastSeen", label: Whatevr.I18n.i18nc("@label", "Last seen"),

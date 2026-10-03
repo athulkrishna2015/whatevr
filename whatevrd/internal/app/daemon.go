@@ -610,6 +610,7 @@ type BlockedContact struct {
 // account: notification gating and media auto-download policy.
 type AppPreferences struct {
 	NotificationsEnabled  bool
+	MuteArchivedChats     bool
 	NotificationSound     bool
 	NotificationPreview   bool
 	AutoDownloadPhotos    bool
@@ -651,6 +652,7 @@ func DefaultAppPreferences() AppPreferences {
 		NotificationsEnabled: true,
 		NotificationSound:    false,
 		NotificationPreview:  true,
+		MuteArchivedChats:    true,
 		AutoDownloadMaxBytes: 16 * 1024 * 1024,
 		AntiDelete:           true,
 		SendTypingIndicators: true,

@@ -184,6 +184,7 @@ type preferencesView struct {
 type preferencesItem struct {
 	ID                    string `json:"id"` // "self"
 	NotificationsEnabled  bool   `json:"notifications_enabled"`
+	MuteArchivedChats     bool   `json:"mute_archived_chats"`
 	NotificationSound     bool   `json:"notification_sound"`
 	NotificationPreview   bool   `json:"notification_preview"`
 	AutoDownloadPhotos    bool   `json:"auto_download_photos"`
@@ -304,6 +305,7 @@ func (s *preferencesSession) Items(max int) []Item {
 	item := preferencesItem{
 		ID:                    "self",
 		NotificationsEnabled:  p.NotificationsEnabled,
+		MuteArchivedChats:     p.MuteArchivedChats,
 		NotificationSound:     p.NotificationSound,
 		NotificationPreview:   p.NotificationPreview,
 		AutoDownloadPhotos:    p.AutoDownloadPhotos,

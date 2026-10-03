@@ -1,5 +1,19 @@
 # Troubleshooting
 
+## Startup stays on a connection screen
+
+The neutral startup indicator is brief. If `whatevrd` does not connect, the
+frontend displays a retryable error instead of waiting indefinitely. Check
+`systemctl --user status whatevrd.service` and
+`journalctl --user -u whatevrd.service`; for socket activation also check
+`systemctl --user status whatevrd.socket`. If the daemon exits immediately,
+inspect its log under `${XDG_CACHE_HOME:-~/.cache}/whatevrd/whatevrd.log`.
+
+After an install, verify the actual executable is complete and matches the
+build output before diagnosing account data. Compare sizes or checksums of
+`/home/admin/.local/bin/whatevrd` and `build/debug/whatevrd`; a truncated ELF
+can fail before the daemon reaches its own startup logging.
+
 ## Tray clicks do nothing
 
 Chain: tray icon (daemon `tray/`) → `activate_window` / `show_tray_menu`

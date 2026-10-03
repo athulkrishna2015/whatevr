@@ -162,6 +162,11 @@ The **protocol**, on the other hand, is stable at version 1: new views, commands
 and message kinds will be added, but nothing already in PROTOCOL.md changes
 shape. A frontend written against it today keeps working.
 
+The desktop frontend includes configurable notification muting for archived
+chats (enabled by default) and shows a retryable connection error if the daemon
+does not respond during startup. See [CHANGELOG.md](CHANGELOG.md) for recent
+changes.
+
 Now with that, here is the current feature map for `whatevrd`. It is a map of
 the **daemon**: what it speaks over the protocol. What each frontend has built
 on top of it is its own business, and the gaps are tracked per frontend in
