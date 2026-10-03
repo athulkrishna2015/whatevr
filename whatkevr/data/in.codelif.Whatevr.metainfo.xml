@@ -19,6 +19,15 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.11.3" date="2026-10-03">
+      <description>
+        <ul>
+          <li><em>Opening the Logs tab no longer builds the whole log.</em> It subscribed with <code>limit: 1000</code>, so the daemon materialised its entire ring into rows on the first tick. The page now asks for a recent window, which is the view's own default. Older history is in the rotated file that "Open folder" opens.</li>
+          <li><em>Clicking the tray icon no longer re-raises a window that is already up.</em> <code>activateWindow()</code> ran show + raise + requestActivate unconditionally — three round trips to the compositor — and the icon's <code>Activate</code> arrives several times a second at the same coordinates. The sequence is now skipped when the window is already visible and focused. A window parked to the tray still raises, because <code>visible</code> is false while it is hidden.</li>
+          <li><em>No more media requests while the client is offline.</em> Auto-downloading asked the daemon for bytes with no connection to serve them; the daemon failed each one instantly, and because a bubble only arms its latch <em>after</em> asking — and resets it when the delegate is reused — every recycled bubble asked again. That was the flood of <code>media.download … WhatsApp is not connected</code> in the log. Requests are now gated on the connection phase, and the latch is left unarmed on that path so reconnecting starts the bubbles again rather than silently leaving them unfetched.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.11.2" date="2026-10-02">
       <description>
         <ul>
