@@ -119,6 +119,41 @@ func (m Message) Content() (*waE2E.Message, *waHistorySync.HistorySyncMsg) {
 	return &raw, nil
 }
 
+// readTo is the newest sign the chat at the addresses in json list in was
+// read: something we sent, or a read of ours. what comes after it in the
+// transcript is unread.
+func (r *Reader) readTo(ctx context.Context, in string) (Cursor, error) {
+	var to Cursor
+	// one seek per address on msg_out
+	for _, q := range []string{`SELECT m.t, m.ord FROM json_each(?1) j CROSS JOIN msg m
+		ON m.rowid = (SELECT rowid FROM msg WHERE chat = j.value AND from_me = 1 ORDER BY t DESC, ord DESC LIMIT 1)`,
+		`SELECT t, ord FROM f_seen WHERE rchat IN (SELECT value FROM json_each(?1))
+		AND mchat IN (SELECT value FROM json_each(?1))`} {
+		rows, err := r.db.QueryContext(ctx, q, in)
+		if err != nil {
+			return to, err
+		}
+		for rows.Next() {
+			var c Cursor
+			if err := rows.Scan(&c.T, &c.Ord); err != nil {
+				rows.Close()
+				return to, err
+			}
+			if c.after(to) {
+				to = c
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return to, err
+		}
+	}
+	return to, nil
+}
+
+// after says c comes later than d, ids aside.
+func (c Cursor) after(d Cursor) bool { return c.T > d.T || c.T == d.T && c.Ord > d.Ord }
+
 // Cursor is a place in a chat's transcript.
 type Cursor struct {
 	T   int64
@@ -430,8 +465,9 @@ func (r *Reader) Media(ctx context.Context, addrs []string, kinds []string, from
 	if from == (Cursor{}) {
 		from = Cursor{T: tMax}
 	}
-	where := `m.kind IN (` + placeholders(len(kinds)) + `) AND (m.t, m.ord, m.id) < (?, ?, ?)
-		AND m.id NOT IN (SELECT target FROM f_revoke WHERE ok = 1)`
+	// a proven delete already made the row a tombstone, which no kind or
+	// text matches
+	where := `m.kind IN (` + placeholders(len(kinds)) + `) AND (m.t, m.ord, m.id) < (?, ?, ?)`
 	return r.list(ctx, byChat(len(addrs), where, "DESC"),
 		byChatArgs(addrs, append(anys(kinds), from.T, from.Ord, from.ID), limit)...)
 }
@@ -443,8 +479,7 @@ func (r *Reader) Search(ctx context.Context, query string, addrs []string, from 
 		from = Cursor{T: tMax}
 	}
 	like := "%" + escapeLike(query) + "%"
-	where := `m.text LIKE ? ESCAPE '\' AND (m.t, m.ord, m.id) < (?, ?, ?)
-		AND m.id NOT IN (SELECT target FROM f_revoke WHERE ok = 1)`
+	where := `m.text != '' AND m.text LIKE ? ESCAPE '\' AND (m.t, m.ord, m.id) < (?, ?, ?)`
 	args := []any{like, from.T, from.Ord, from.ID}
 	rowids, ok, err := r.searchCandidates(ctx, query)
 	if err != nil {
@@ -598,19 +633,14 @@ func (r *Reader) Homes(ctx context.Context, addrs, ids []string) (map[string]str
 // here or anywhere, oldest first, at most limit of the newest.
 func (r *Reader) Unseen(ctx context.Context, addrs []string, upTo Cursor, limit int) ([]Message, error) {
 	in := jsonList(addrs)
-	var mine, seen sql.NullInt64
-	if err := r.db.QueryRowContext(ctx, `SELECT MAX((SELECT MAX(t) FROM msg WHERE chat = j.value AND from_me = 1))
-		FROM json_each(?) j`, in).Scan(&mine); err != nil {
-		return nil, err
-	}
-	if err := r.db.QueryRowContext(ctx, `SELECT MAX(t) FROM f_seen WHERE rchat IN (SELECT value FROM json_each(?))
-		AND mchat IN (SELECT value FROM json_each(?))`, in, in).Scan(&seen); err != nil {
+	from, err := r.readTo(ctx, in)
+	if err != nil {
 		return nil, err
 	}
 	ms, err := r.list(ctx, `SELECT `+msgCols+` FROM msg m
 		WHERE m.chat IN (SELECT value FROM json_each(?)) AND m.from_me = 0 AND m.kind NOT LIKE 'stub:%'
-		AND m.t > ? AND (m.t, m.ord, m.id) <= (?, ?, ?)
-		ORDER BY m.t DESC, m.ord DESC, m.id DESC LIMIT ?`, in, max(mine.Int64, seen.Int64), upTo.T, upTo.Ord, upTo.ID, limit)
+		AND (m.t, m.ord) > (?, ?) AND (m.t, m.ord, m.id) <= (?, ?, ?)
+		ORDER BY m.t DESC, m.ord DESC, m.id DESC LIMIT ?`, in, from.T, from.Ord, upTo.T, upTo.Ord, upTo.ID, limit)
 	if err != nil {
 		return nil, err
 	}

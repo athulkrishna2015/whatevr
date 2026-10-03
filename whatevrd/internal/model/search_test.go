@@ -25,7 +25,7 @@ func naiveSearch(ctx context.Context, db *sql.DB, query string, addrs []string, 
 	}
 	q := `SELECT m.chat, m.id FROM msg m NOT INDEXED
 		WHERE m.text LIKE ? ESCAPE '\' AND (m.t, m.ord, m.id) < (?, ?, ?)
-		AND m.id NOT IN (SELECT target FROM f_revoke WHERE ok = 1)`
+		AND m.text != ''`
 	args := []any{"%" + escapeLike(query) + "%", from.T, from.Ord, from.ID}
 	if len(addrs) > 0 {
 		q += ` AND m.chat IN (` + placeholders(len(addrs)) + `)`

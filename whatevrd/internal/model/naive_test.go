@@ -7,6 +7,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"reflect"
 	"sort"
 	"strings"
@@ -343,37 +344,42 @@ func (r *Reader) naiveName(w *World, c *Chat, hist *histChat) (string, string) {
 func (r *Reader) naiveUnread(ctx context.Context, w *World, c *Chat, states map[string]*chatState) error {
 	addrs := c.Addrs
 	ph := placeholders(len(addrs))
-	var horizon int64
+	var horizon Cursor
 	for _, a := range addrs {
 		s := states[a]
 		if s == nil {
 			continue
 		}
-		if x, ok := s.as[asMarkRead]; ok && x.on && x.n*1000 > horizon {
-			horizon = x.n * 1000
+		if x, ok := s.as[asMarkRead]; ok && x.on {
+			if m := (Cursor{T: x.n * 1000, Ord: math.MaxInt64}); m.after(horizon) {
+				horizon = m
+			}
 		}
 	}
-	var t sql.NullInt64
-	if err := r.db.QueryRowContext(ctx, `SELECT MAX(t) FROM msg WHERE chat IN (`+ph+`) AND from_me = 1`, anys(addrs)...).Scan(&t); err != nil {
+	newest := func(q string, args ...any) error {
+		var c Cursor
+		err := r.db.QueryRowContext(ctx, q+` ORDER BY t DESC, ord DESC LIMIT 1`, args...).Scan(&c.T, &c.Ord)
+		if isNoRows(err) {
+			return nil
+		}
+		if err == nil && c.after(horizon) {
+			horizon = c
+		}
 		return err
 	}
-	if t.Int64 > horizon {
-		horizon = t.Int64
+	if err := newest(`SELECT t, ord FROM msg WHERE chat IN (`+ph+`) AND from_me = 1`, anys(addrs)...); err != nil {
+		return err
 	}
 	// a read from this account's phone comes as read-self, or as a plain
-	// read with from_me set. two branches, each on its own index: an OR
-	// would walk every receipt the chat has
-	if err := r.db.QueryRowContext(ctx, `SELECT MAX(t) FROM (
-		SELECT m.t FROM f_receipt f JOIN msg m ON m.id = f.id AND m.chat IN (`+ph+`)
+	// read with from_me set
+	if err := newest(`SELECT t, ord FROM (
+		SELECT m.t, m.ord FROM f_receipt f JOIN msg m ON m.id = f.id AND m.chat IN (`+ph+`)
 			WHERE f.type = 'read-self' AND f.chat IN (`+ph+`)
 		UNION ALL
-		SELECT m.t FROM f_receipt f JOIN msg m ON m.id = f.id AND m.chat IN (`+ph+`)
+		SELECT m.t, m.ord FROM f_receipt f JOIN msg m ON m.id = f.id AND m.chat IN (`+ph+`)
 			WHERE f.who = ? AND f.type IN ('read', 'played', 'played-self') AND f.chat IN (`+ph+`))`,
-		append(append(append(append(anys(addrs), anys(addrs)...), anys(addrs)...), Me), anys(addrs)...)...).Scan(&t); err != nil {
+		append(append(append(append(anys(addrs), anys(addrs)...), anys(addrs)...), Me), anys(addrs)...)...); err != nil {
 		return err
-	}
-	if t.Int64 > horizon {
-		horizon = t.Int64
 	}
 	var hist *histChat
 	for _, a := range addrs {
@@ -382,17 +388,19 @@ func (r *Reader) naiveUnread(ctx context.Context, w *World, c *Chat, states map[
 		}
 	}
 	from, base := horizon, 0
-	if hist != nil && hist.t > horizon {
-		from, base = hist.t, hist.unread
+	if hist != nil {
+		if h := (Cursor{T: hist.t, Ord: math.MaxInt64}); h.after(horizon) {
+			from, base = h, hist.unread
+		}
 	}
 	var n int
 	// a message deleted for everyone before it was read is not waiting on anyone
-	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM msg m WHERE m.chat IN (`+ph+`) AND m.from_me = 0 AND m.t > ?
+	if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM msg m WHERE m.chat IN (`+ph+`) AND m.from_me = 0 AND (m.t, m.ord) > (?, ?)
 		AND m.kind NOT LIKE 'stub:%' AND NOT EXISTS (SELECT 1 FROM f_revoke r WHERE r.target = m.id AND r.ok = 1 AND r.chat IN (`+ph+`))`,
-		append(append(anys(addrs), from), anys(addrs)...)...).Scan(&n); err != nil {
+		append(append(anys(addrs), from.T, from.Ord), anys(addrs)...)...).Scan(&n); err != nil {
 		return err
 	}
-	sys, err := r.systemRows(ctx, addrs, `m.t > ? AND m.who != ''`, "ASC", []any{from}, 1000)
+	sys, err := r.systemRows(ctx, addrs, `(m.t, m.ord) > (?, ?) AND m.who != ''`, "ASC", []any{from.T, from.Ord}, 1000)
 	if err != nil {
 		return err
 	}

@@ -30,7 +30,7 @@ const (
 // came open (plain), and opens it if the target is already here.
 func putEnc(tx *core.Tx, f fact, key *waCommon.MessageKey, use string, iv, payload, plain []byte) error {
 	target := key.GetID()
-	if gone, err := targetGone(tx, f.chat, target); err != nil || gone || target == "" {
+	if gone, err := targetGone(tx, f.chat, target, f.known()...); err != nil || gone || target == "" {
 		return err
 	}
 	orig := ""
@@ -54,7 +54,11 @@ func putEnc(tx *core.Tx, f fact, key *waCommon.MessageKey, use string, iv, paylo
 		return err
 	}
 	tx.Touch("message", f.chat+":"+target)
-	return openSealed(tx, f.chat, target)
+	cs, err := sameChats(tx, f.chat, target, f.known()...)
+	if err != nil {
+		return err
+	}
+	return openSealed(tx, cs, target)
 }
 
 // sealedEdit is the new content an opened edit carries, and when it was
@@ -90,11 +94,11 @@ func nonEmpty(ss ...string) []string {
 
 // openSealed opens what is sealed against chat/id now that the secret may
 // be here.
-func openSealed(tx *core.Tx, chat, id string) error {
+func openSealed(tx *core.Tx, cs, id string) error {
 	// nearly every message has a secret and almost none has anything
 	// sealed against it: look for that first
 	rows, err := tx.Query(`SELECT chat, sender, use, mod_jids, orig_jid, iv, payload FROM f_enc
-		WHERE target = ? AND plain IS NULL AND payload IS NOT NULL AND `+sameChatSQL("chat"), id, chat, chat, chat)
+		WHERE target = ? AND plain IS NULL AND payload IS NOT NULL AND `+inChats("chat"), id, cs)
 	if err != nil {
 		return err
 	}
@@ -117,8 +121,8 @@ func openSealed(tx *core.Tx, chat, id string) error {
 	}
 	var secret []byte
 	var sender, senderAlt string
-	err = tx.QueryRow(`SELECT secret, sender, sender_alt FROM msg WHERE id = ? AND secret IS NOT NULL AND `+sameChatSQL("chat")+`
-		ORDER BY chat LIMIT 1`, id, chat, chat, chat).Scan(&secret, &sender, &senderAlt)
+	err = tx.QueryRow(`SELECT secret, sender, sender_alt FROM msg WHERE id = ? AND secret IS NOT NULL AND `+inChats("chat")+`
+		ORDER BY chat LIMIT 1`, id, cs).Scan(&secret, &sender, &senderAlt)
 	if isNoRows(err) || len(secret) == 0 {
 		return nil
 	}

@@ -12,7 +12,7 @@ import (
 // here: one the phone left pending or failed in history never does.
 var outboxDomain = core.Domain{
 	Name:    "outbox",
-	Version: 3,
+	Version: 4,
 	Tables:  []string{"outbox", "outbox_try"},
 	Schema: []string{
 		// queued_t 0 is a cancel seen before its queue. body and file are
@@ -22,6 +22,8 @@ var outboxDomain = core.Domain{
 			id        TEXT NOT NULL,
 			queued_t  INTEGER NOT NULL DEFAULT 0,
 			ord       INTEGER NOT NULL DEFAULT 0,
+			-- the queue's place in the log: what was queued first goes first
+			seq       INTEGER NOT NULL DEFAULT 0,
 			cancelled INTEGER NOT NULL DEFAULT 0,
 			body      BLOB NOT NULL DEFAULT x'',
 			file      TEXT NOT NULL DEFAULT '',
@@ -53,10 +55,11 @@ func foldOutbox(tx *core.Tx, in core.Input) error {
 	switch h.Op {
 	case core.OutboxQueue:
 		// one id is queued once; were it twice, the first queue wins
-		_, err = tx.Exec(`INSERT INTO outbox (chat, id, queued_t, ord, body, file) VALUES (?, ?, ?, ?, COALESCE(?, x''), ?)
-			ON CONFLICT (chat, id) DO UPDATE SET queued_t = excluded.queued_t, ord = excluded.ord, body = excluded.body, file = excluded.file
+		_, err = tx.Exec(`INSERT INTO outbox (chat, id, queued_t, ord, seq, body, file) VALUES (?, ?, ?, ?, ?, COALESCE(?, x''), ?)
+			ON CONFLICT (chat, id) DO UPDATE SET queued_t = excluded.queued_t, ord = excluded.ord, seq = excluded.seq,
+				body = excluded.body, file = excluded.file
 			WHERE outbox.queued_t = 0 OR (excluded.queued_t, excluded.body, excluded.file) < (outbox.queued_t, outbox.body, outbox.file)`,
-			h.Chat, h.ID, t, arrival(in.At, -1), in.Body, h.File)
+			h.Chat, h.ID, t, arrival(in.At, -1), in.Seq, in.Body, h.File)
 	case core.OutboxCancel:
 		_, err = tx.Exec(`INSERT INTO outbox (chat, id, cancelled) VALUES (?, ?, 1)
 			ON CONFLICT (chat, id) DO UPDATE SET cancelled = 1`, h.Chat, h.ID)
@@ -93,7 +96,13 @@ const outgoingCols = `o.chat, o.id, o.queued_t, o.ord, o.cancelled,
 	EXISTS (SELECT 1 FROM outbox_try x WHERE x.chat = o.chat AND x.id = o.id AND x.final = 1),
 	(SELECT COUNT(*) FROM outbox_try x WHERE x.chat = o.chat AND x.id = o.id),
 	COALESCE((SELECT x.error FROM outbox_try x WHERE x.chat = o.chat AND x.id = o.id ORDER BY x.t DESC, x.error DESC LIMIT 1), ''),
-	EXISTS (SELECT 1 FROM msg_src s WHERE s.id = o.id), o.body, o.file`
+	EXISTS (SELECT 1 FROM msg_src s WHERE ` + sentCopy + `), o.body, o.file`
+
+// sentCopy is the sql for "s is the copy of queued send o in the log": ours,
+// under its chat or, for a person, the chat's other address. an incoming
+// message reusing the id elsewhere is not it.
+const sentCopy = `s.id = o.id AND s.sender = '` + Me + `' AND (s.chat = o.chat
+	OR (s.chat LIKE '%@lid' OR s.chat LIKE '%@s.whatsapp.net') AND (o.chat LIKE '%@lid' OR o.chat LIKE '%@s.whatsapp.net'))`
 
 func scanOutgoing(row interface{ Scan(...any) error }) (Outgoing, error) {
 	var o Outgoing
@@ -117,8 +126,8 @@ func (r *Reader) Unsent(ctx context.Context) ([]Outgoing, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT `+outgoingCols+` FROM outbox o
 		WHERE o.queued_t > 0 AND o.cancelled = 0
 		AND NOT EXISTS (SELECT 1 FROM outbox_try x WHERE x.chat = o.chat AND x.id = o.id AND x.final = 1)
-		AND NOT EXISTS (SELECT 1 FROM msg_src s WHERE s.id = o.id)
-		ORDER BY o.queued_t, o.id`)
+		AND NOT EXISTS (SELECT 1 FROM msg_src s WHERE `+sentCopy+`)
+		ORDER BY o.queued_t, o.seq, o.id`)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +150,7 @@ func (r *Reader) queuedRows(ctx context.Context, addrs []string, cmp, order stri
 	cmp = strings.NewReplacer("m.t", "o.queued_t", "m.ord", "o.ord", "m.id", "o.id").Replace(cmp)
 	rows, err := r.db.QueryContext(ctx, `SELECT `+outgoingCols+` FROM outbox o
 		WHERE o.chat IN (`+ph+`) AND o.queued_t > 0 AND o.cancelled = 0 AND `+cmp+`
-		AND NOT EXISTS (SELECT 1 FROM msg_src s WHERE s.id = o.id)
+		AND NOT EXISTS (SELECT 1 FROM msg_src s WHERE `+sentCopy+`)
 		ORDER BY o.queued_t `+order+`, o.ord `+order+`, o.id `+order+` LIMIT ?`, append(append(anys(addrs), args...), limit)...)
 	if err != nil {
 		return nil, err

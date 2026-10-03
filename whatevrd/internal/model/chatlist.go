@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"math"
 	"sort"
 	"strings"
 
@@ -487,52 +488,53 @@ func assemble(w *World, states map[string]*chatState) []Chat {
 func (r *Reader) unread(ctx context.Context, w *World, c *Chat, states map[string]*chatState) error {
 	addrs := c.Addrs
 	in := jsonList(addrs)
-	var horizon int64
+	// a mark on the phone covers its whole second
+	var horizon Cursor
 	var hist *histChat
 	for _, a := range addrs {
 		s := states[a]
 		if s == nil {
 			continue
 		}
-		if x, ok := s.as[asMarkRead]; ok && x.on && x.n*1000 > horizon {
-			horizon = x.n * 1000
+		if x, ok := s.as[asMarkRead]; ok && x.on {
+			if m := (Cursor{T: x.n * 1000, Ord: math.MaxInt64}); m.after(horizon) {
+				horizon = m
+			}
 		}
 		if s.hist != nil && (hist == nil || s.hist.t > hist.t) {
 			hist = s.hist
 		}
 	}
-	var t sql.NullInt64
-	if err := r.db.QueryRowContext(ctx, `SELECT MAX((SELECT MAX(t) FROM msg WHERE chat = j.value AND from_me = 1))
-		FROM json_each(?) j`, in).Scan(&t); err != nil {
+	seen, err := r.readTo(ctx, in)
+	if err != nil {
 		return err
 	}
-	horizon = max(horizon, t.Int64)
-	if err := r.db.QueryRowContext(ctx, `SELECT MAX(t) FROM f_seen WHERE rchat IN (SELECT value FROM json_each(?))
-		AND mchat IN (SELECT value FROM json_each(?))`, in, in).Scan(&t); err != nil {
-		return err
+	if seen.after(horizon) {
+		horizon = seen
 	}
-	horizon = max(horizon, t.Int64)
 	from, base := horizon, 0
-	if hist != nil && hist.t > horizon {
-		from, base = hist.t, hist.unread
+	if hist != nil {
+		if h := (Cursor{T: hist.t, Ord: math.MaxInt64}); h.after(horizon) {
+			from, base = h, hist.unread
+		}
 	}
 	// a message deleted for everyone before it was read is not waiting on
 	// anyone: counted on the index of incoming messages, the deleted taken
 	// off after, starting from the few deletes (cross join keeps that order)
 	var n, gone int
 	if err := r.db.QueryRowContext(ctx, `SELECT SUM((SELECT COUNT(*) FROM msg WHERE chat = j.value AND from_me = 0
-		AND kind NOT LIKE 'stub:%' AND t > ?)) FROM json_each(?) j`, from, in).Scan(&n); err != nil {
+		AND kind NOT LIKE 'stub:%' AND (t, ord) > (?, ?))) FROM json_each(?) j`, from.T, from.Ord, in).Scan(&n); err != nil {
 		return err
 	}
 	if n > 0 {
 		if err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM (SELECT DISTINCT m.chat, m.id FROM f_revoke r
 			CROSS JOIN msg m ON m.id = r.target AND m.chat IN (SELECT value FROM json_each(?))
-			WHERE r.chat IN (SELECT value FROM json_each(?)) AND r.ok = 1 AND m.from_me = 0 AND m.kind NOT LIKE 'stub:%' AND m.t > ?)`,
-			in, in, from).Scan(&gone); err != nil {
+			WHERE r.chat IN (SELECT value FROM json_each(?)) AND r.ok = 1 AND m.from_me = 0 AND m.kind NOT LIKE 'stub:%' AND (m.t, m.ord) > (?, ?))`,
+			in, in, from.T, from.Ord).Scan(&gone); err != nil {
 			return err
 		}
 	}
-	sys, err := r.systemRows(ctx, addrs, `m.t > ? AND m.who != ''`, "ASC", []any{from}, 1000)
+	sys, err := r.systemRows(ctx, addrs, `(m.t, m.ord) > (?, ?) AND m.who != ''`, "ASC", []any{from.T, from.Ord}, 1000)
 	if err != nil {
 		return err
 	}
