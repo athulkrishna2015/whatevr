@@ -67,16 +67,6 @@ var ErrMapsDisabled = errors.New("map fetching is disabled")
 // main overwrites the version at startup.
 var MapUserAgent = "whatevrd/dev (+https://github.com/codelif/whatevr)"
 
-// SetMapUserAgent replaces the identity sent to tile servers. Called once at
-// startup so the version in it is the real build's.
-func SetMapUserAgent(version string) {
-	version = strings.TrimSpace(version)
-	if version == "" {
-		return
-	}
-	MapUserAgent = fmt.Sprintf("whatevrd/%s (+https://github.com/codelif/whatevr)", version)
-}
-
 // mapTileCoord is one tile in the slippy-map scheme.
 type mapTileCoord struct {
 	Z, X, Y int

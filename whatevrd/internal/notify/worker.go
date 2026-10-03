@@ -7,7 +7,7 @@ import (
 	"github.com/godbus/dbus/v5"
 	"github.com/rs/zerolog"
 
-	"whatevrd/internal/app"
+	"whatevrd/internal/live"
 )
 
 const (
@@ -17,43 +17,44 @@ const (
 	dbusObjectPath   = dbus.ObjectPath("/org/freedesktop/DBus")
 	dbusInterface    = "org.freedesktop.DBus"
 	defaultTimeoutMS = int32(-1)
+	queueSize        = 64
 )
 
-// ChatOpener delivers an "open this chat" request to a running frontend. It
-// reports whether at least one frontend received it. The protocol Server
-// implements it by fanning out connection-directed open_chat events.
-type ChatOpener interface {
-	OpenChat(chatID string) bool
-}
-
+// Worker shows notifications on the session bus, one desktop notification
+// per id, replaced in place as it changes.
 type Worker struct {
-	conn   *dbus.Conn
-	obj    dbus.BusObject
-	caps   Capabilities
-	opener ChatOpener
+	conn *dbus.Conn
+	obj  dbus.BusObject
+	caps Capabilities
+	log  zerolog.Logger
+	// open hands a clicked chat to a frontend, false with none to take it
+	open func(chat string) bool
 
-	mu     sync.Mutex
-	active map[uint32]string
-	queue  chan queuedMessage
+	mu sync.Mutex
+	// ids is ours to the server's, chats the server's to the chat it opens
+	ids   map[string]uint32
+	chats map[uint32]string
+	queue chan op
 }
 
-type queuedMessage struct {
-	message app.Message
-	chat    app.Chat
-	opts    Options
+type op struct {
+	show  *live.Notification
+	close string
 }
 
-func NewWorker(ctx context.Context, opener ChatOpener) (*Worker, error) {
+func NewWorker(ctx context.Context, log zerolog.Logger, open func(chat string) bool) (*Worker, error) {
 	conn, err := dbus.SessionBus()
 	if err != nil {
 		return nil, err
 	}
 	w := &Worker{
-		conn:   conn,
-		obj:    conn.Object(busName, objectPath),
-		opener: opener,
-		active: make(map[uint32]string),
-		queue:  make(chan queuedMessage, 64),
+		conn:  conn,
+		obj:   conn.Object(busName, objectPath),
+		log:   log,
+		open:  open,
+		ids:   map[string]uint32{},
+		chats: map[uint32]string{},
+		queue: make(chan op, queueSize),
 	}
 	w.refreshCapabilities(ctx)
 	return w, nil
@@ -71,8 +72,12 @@ func (w *Worker) Start(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
-			case item := <-w.queue:
-				w.send(ctx, item.message, item.chat, item.opts)
+			case o := <-w.queue:
+				if o.show != nil {
+					w.show(ctx, *o.show)
+				} else {
+					w.close(ctx, o.close)
+				}
 			case signal := <-signals:
 				w.handleSignal(ctx, signal)
 			}
@@ -80,65 +85,77 @@ func (w *Worker) Start(ctx context.Context) {
 	}()
 }
 
-func (w *Worker) NotifyMessage(ctx context.Context, message app.Message, chat app.Chat, opts Options) {
-	// A daemon with no session bus has no worker, and a nil *Worker put into
-	// an interface is not a nil interface: the caller's nil check passes and
-	// the call lands here. Saying so once is cheaper than every caller
-	// remembering, and the alternative is a segfault on the first message.
+// Show puts n up, over the one with its id if that is still up.
+func (w *Worker) Show(n live.Notification) { w.push(op{show: &n}) }
+
+// Close takes the notification with id down.
+func (w *Worker) Close(id string) { w.push(op{close: id}) }
+
+func (w *Worker) push(o op) {
+	// a nil *Worker in an interface is not a nil interface; without a
+	// session bus this is the call that lands
 	if w == nil {
 		return
 	}
 	select {
-	case <-ctx.Done():
-	case w.queue <- queuedMessage{message: message, chat: chat, opts: opts}:
+	case w.queue <- o:
 	default:
-		zerolog.Ctx(ctx).Warn().Str("chat", chat.ID).Str("msg", message.ID).Msg("notification queue full, dropping a notification")
+		w.log.Warn().Msg("notify: queue full, dropping one")
 	}
 }
 
 func (w *Worker) refreshCapabilities(ctx context.Context) {
 	var values []string
-	if err := w.obj.Call(interfaceName+".GetCapabilities", 0).Store(&values); err != nil {
-		zerolog.Ctx(ctx).Warn().Err(err).Msg("notification capabilities unavailable")
+	if err := w.obj.CallWithContext(ctx, interfaceName+".GetCapabilities", 0).Store(&values); err != nil {
+		w.log.Warn().Err(err).Msg("notify: capabilities unavailable")
 		w.caps = Capabilities{}
 		return
 	}
 	w.caps = ParseCapabilities(values)
 }
 
-func (w *Worker) send(ctx context.Context, message app.Message, chat app.Chat, opts Options) {
-	content := FormatMessage(w.caps, message, chat, opts)
+func (w *Worker) show(ctx context.Context, n live.Notification) {
+	content := Format(w.caps, n)
 	hints := make(map[string]dbus.Variant, len(content.Hints))
 	for key, value := range content.Hints {
 		hints[key] = dbus.MakeVariant(value)
 	}
+	w.mu.Lock()
+	replaces := w.ids[n.ID]
+	w.mu.Unlock()
 
 	var id uint32
 	call := w.obj.CallWithContext(ctx, interfaceName+".Notify", 0,
-		"whatevr",
-		uint32(0),
-		content.Icon,
-		content.Summary,
-		content.Body,
-		content.Actions,
-		hints,
-		defaultTimeoutMS,
-	)
+		"whatevr", replaces, content.Icon, content.Summary, content.Body, content.Actions, hints, defaultTimeoutMS)
 	if err := call.Store(&id); err != nil {
-		zerolog.Ctx(ctx).Warn().Err(err).Str("chat", chat.ID).Str("msg", message.ID).Msg("send notification")
+		w.log.Warn().Err(err).Str("chat", n.Chat).Msg("notify: send")
 		return
 	}
-	zerolog.Ctx(ctx).Info().Str("chat", chat.ID).Str("msg", message.ID).Uint32("notification", id).Msg("notified")
-
-	// Play the sound ourselves rather than trusting the server to honour the
-	// sound-name hint — many notification daemons ignore or never advertise it.
-	if opts.Sound {
+	// many servers neither advertise nor honour the sound hint
+	if n.Sound {
 		playSound()
 	}
-
 	w.mu.Lock()
-	w.active[id] = chat.ID
+	if replaces != 0 && replaces != id {
+		delete(w.chats, replaces)
+	}
+	w.ids[n.ID] = id
+	w.chats[id] = n.Chat
 	w.mu.Unlock()
+}
+
+func (w *Worker) close(ctx context.Context, key string) {
+	w.mu.Lock()
+	id, ok := w.ids[key]
+	delete(w.ids, key)
+	delete(w.chats, id)
+	w.mu.Unlock()
+	if !ok {
+		return
+	}
+	if err := w.obj.CallWithContext(ctx, interfaceName+".CloseNotification", 0, id).Err; err != nil {
+		w.log.Debug().Err(err).Msg("notify: close")
+	}
 }
 
 func (w *Worker) handleSignal(ctx context.Context, signal *dbus.Signal) {
@@ -154,45 +171,36 @@ func (w *Worker) handleSignal(ctx context.Context, signal *dbus.Signal) {
 		if !ok {
 			return
 		}
-		chatID, ok := w.activeChat(id)
-		if !ok {
-			return
+		w.mu.Lock()
+		chat, ok := w.chats[id]
+		w.mu.Unlock()
+		// a terminal frontend can't be started from a notification, so with
+		// none connected the click goes nowhere
+		if ok && (w.open == nil || !w.open(chat)) {
+			w.log.Info().Str("chat", chat).Msg("notify: clicked with no frontend connected")
 		}
-		w.openChat(ctx, chatID)
 	case interfaceName + ".NotificationClosed":
 		if len(signal.Body) < 1 {
 			return
 		}
 		id, ok := signal.Body[0].(uint32)
-		if ok {
-			w.mu.Lock()
-			delete(w.active, id)
-			w.mu.Unlock()
+		if !ok {
+			return
 		}
+		w.mu.Lock()
+		delete(w.chats, id)
+		for k, v := range w.ids {
+			if v == id {
+				delete(w.ids, k)
+			}
+		}
+		w.mu.Unlock()
 	case dbusInterface + ".NameOwnerChanged":
 		if len(signal.Body) < 3 {
 			return
 		}
-		name, ok := signal.Body[0].(string)
-		if ok && name == busName {
+		if name, ok := signal.Body[0].(string); ok && name == busName {
 			w.refreshCapabilities(ctx)
 		}
 	}
-}
-
-func (w *Worker) activeChat(id uint32) (string, bool) {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	chatID, ok := w.active[id]
-	return chatID, ok
-}
-
-// openChat hands a clicked notification to a running frontend. With none
-// connected there is nothing to open: a terminal frontend cannot be started
-// from a notification.
-func (w *Worker) openChat(ctx context.Context, chatID string) {
-	if w.opener != nil && w.opener.OpenChat(chatID) {
-		return
-	}
-	zerolog.Ctx(ctx).Info().Str("chat", chatID).Msg("notification clicked with no frontend connected")
 }

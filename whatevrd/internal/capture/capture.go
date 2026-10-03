@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 const (
@@ -36,6 +38,10 @@ const (
 	KindConn      = "conn"
 	KindEnd       = "end"
 )
+
+// FrameJSON is how a frontend frame is kept: protocol 2 as json, with the
+// schema's field names.
+var FrameJSON = protojson.MarshalOptions{UseProtoNames: true}
 
 // frontend line directions
 const (

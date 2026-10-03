@@ -60,31 +60,6 @@ func TestGroupInviteIngestKeepsWhatTheSenderClaimed(t *testing.T) {
 	}
 }
 
-// An expired code cannot be resolved and cannot be joined, so it must not cost
-// a round trip. This is what stops a history sync full of old invites turning
-// into a query storm on first run.
-func TestGroupInviteExpiryIsWhatBoundsResolution(t *testing.T) {
-	now := time.Unix(1_700_000_000, 0)
-	cases := []struct {
-		name    string
-		payload *appstore.GroupInvitePayload
-		want    bool
-	}{
-		{"still open", &appstore.GroupInvitePayload{ExpiresAt: now.Unix() + 60}, false},
-		{"lapsed", &appstore.GroupInvitePayload{ExpiresAt: now.Unix() - 1}, true},
-		{"exactly now", &appstore.GroupInvitePayload{ExpiresAt: now.Unix()}, true},
-		{"no stated expiry never lapses", &appstore.GroupInvitePayload{}, false},
-		{"nil payload", nil, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := groupInviteExpired(tc.payload, now); got != tc.want {
-				t.Fatalf("groupInviteExpired() = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
 // A group invite quoted in a reply has to say which group, the same way a
 // quoted location says where.
 func TestQuotedGroupInvitePreviewNamesTheGroup(t *testing.T) {

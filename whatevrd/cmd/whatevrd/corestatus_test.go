@@ -1,5 +1,3 @@
-//go:build whatevr_core
-
 package main
 
 import (

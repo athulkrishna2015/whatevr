@@ -16,8 +16,6 @@ import (
 	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/util/keys"
-
-	"whatevrd/internal/app"
 )
 
 const (
@@ -72,11 +70,11 @@ type Options struct {
 	Socket  string
 }
 
-// LoginWatcher is the slice of app.Daemon the mock depends on. Keeping it an
-// interface means the fake server never reaches further into the daemon than
-// the QR it has to scan.
+// LoginWatcher is where the mock reads the daemon's QR codes: the mock plays
+// the phone, and the adv secret is in the QR and nowhere else.
 type LoginWatcher interface {
-	SubscribeLoginEvents() (<-chan app.LoginEvent, func())
+	// QRCodes hears every QR the daemon shows from now on, until stop
+	QRCodes() (codes <-chan string, stop func())
 }
 
 // Server is the fake WhatsApp Web endpoint. It binds loopback TLS, points the
@@ -373,19 +371,19 @@ func (s *Server) waitForQR(ctx context.Context) (string, error) {
 	if s.opts.Login == nil {
 		return "", errors.New("no login watcher wired, cannot read the qr")
 	}
-	events, cancel := s.opts.Login.SubscribeLoginEvents()
-	defer cancel()
+	codes, stop := s.opts.Login.QRCodes()
+	defer stop()
 
 	deadline := time.NewTimer(qrWait)
 	defer deadline.Stop()
 	for {
 		select {
-		case evt, ok := <-events:
+		case code, ok := <-codes:
 			if !ok {
 				return "", errNoQR
 			}
-			if evt.Kind == app.LoginEventQR && evt.QRCode != "" {
-				return evt.QRCode, nil
+			if code != "" {
+				return code, nil
 			}
 		case <-deadline.C:
 			return "", errNoQR

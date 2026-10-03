@@ -7,7 +7,6 @@ import (
 	"image"
 	"net/url"
 	"strings"
-	"time"
 	appstore "whatevrd/internal/store"
 
 	"github.com/rs/zerolog"
@@ -309,34 +308,6 @@ func formatCoordinates(lat, lng float64) string {
 	return fmt.Sprintf("%.5f, %.5f", lat, lng)
 }
 
-// isLocationKind reports whether a row's media is a map we draw rather than a
-// blob WhatsApp holds. An event counts when it named a venue: its map is the
-// same map, drawn the same way, and giving events their own lesser one would
-// be the only reason an event's place ever looked different from a shared one.
-func isLocationKind(message appstore.Message) bool {
-	switch message.MediaKind {
-	case appstore.MediaKindLocation, appstore.MediaKindLiveLocation:
-		return true
-	case appstore.MediaKindEvent:
-		return appstore.DecodePayload(message.PayloadJSON).Event.HasVenue()
-	default:
-		return false
-	}
-}
-
-// mapLocationFor picks the place a row's map should be drawn around, whichever
-// kind of row it is.
-func mapLocationFor(message appstore.Message) *appstore.LocationPayload {
-	payload := appstore.DecodePayload(message.PayloadJSON)
-	if payload.Location != nil {
-		return payload.Location
-	}
-	if payload.Event != nil {
-		return payload.Event.Location
-	}
-	return nil
-}
-
 // pollCreationFromMessage finds the poll in whichever slot it arrived in.
 func pollCreationFromMessage(msg *waE2E.Message) *waE2E.PollCreationMessage {
 	if msg == nil {
@@ -444,34 +415,6 @@ func (d *Decoder) eventMessageInput(ctx context.Context, evt *events.Message, op
 	return input, true
 }
 
-// eventResponseValue maps the wire enum to the string the store and the wire
-// both use. UNKNOWN becomes "maybe" rather than an empty answer, because a
-// response we cannot name is still somebody having answered.
-func eventResponseValue(response waE2E.EventResponseMessage_EventResponseType) string {
-	switch response {
-	case waE2E.EventResponseMessage_GOING:
-		return appstore.EventResponseGoing
-	case waE2E.EventResponseMessage_NOT_GOING:
-		return appstore.EventResponseNotGoing
-	default:
-		return appstore.EventResponseMaybe
-	}
-}
-
-// eventResponseType is the inverse, for our own outgoing answer.
-func eventResponseType(value string) (waE2E.EventResponseMessage_EventResponseType, bool) {
-	switch value {
-	case appstore.EventResponseGoing:
-		return waE2E.EventResponseMessage_GOING, true
-	case appstore.EventResponseNotGoing:
-		return waE2E.EventResponseMessage_NOT_GOING, true
-	case appstore.EventResponseMaybe:
-		return waE2E.EventResponseMessage_MAYBE, true
-	default:
-		return waE2E.EventResponseMessage_UNKNOWN, false
-	}
-}
-
 // eventSummary is the detail on the one-line rendering: the event's name, which
 // is the whole point of it.
 func eventSummary(event *waE2E.EventMessage) string {
@@ -479,10 +422,6 @@ func eventSummary(event *waE2E.EventMessage) string {
 		return ""
 	}
 	return strings.TrimSpace(event.GetName())
-}
-
-func ptrTo[T any](value T) *T {
-	return &value
 }
 
 func (d *Decoder) groupInviteMessageInput(ctx context.Context, evt *events.Message, opts ingestOptions) (appstore.MediaMessageInput, bool) {
@@ -524,12 +463,6 @@ func (d *Decoder) groupInviteMessageInput(ctx context.Context, evt *events.Messa
 		MediaKind:        appstore.MediaKindGroupInvite,
 		PayloadSummary:   payload.DisplayName(),
 	}, true
-}
-
-// groupInviteExpired reports whether the code has lapsed. An invite with no
-// stated expiry never does.
-func groupInviteExpired(payload *appstore.GroupInvitePayload, now time.Time) bool {
-	return payload != nil && payload.ExpiresAt > 0 && now.Unix() >= payload.ExpiresAt
 }
 
 // groupInviteSummary is the detail on the one-line rendering. The name is the

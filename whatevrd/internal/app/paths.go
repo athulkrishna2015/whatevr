@@ -6,10 +6,13 @@ import (
 	"path/filepath"
 )
 
+// SocketEnv names the socket on every OS, for the daemon and its frontends.
+const SocketEnv = "WHATEVR_SOCKET"
+
 type Paths struct {
 	RuntimeDir string
-	// SocketDir/SocketPath serve the whatevr protocol (PROTOCOL.md) — the
-	// daemon's only socket.
+	// SocketDir/SocketPath serve the whatevr protocol (PROTOCOL.md), the
+	// daemon's only socket. WHATEVR_SOCKET moves it
 	SocketDir  string
 	SocketPath string
 	// LockDir/LockPath deliberately keep the pre-teardown location rather than
@@ -21,7 +24,6 @@ type Paths struct {
 	LockPath      string
 	DataDir       string
 	CacheDir      string
-	DatabasePath  string
 	SessionDir    string
 	SessionDBPath string
 	MediaCacheDir string
@@ -56,6 +58,13 @@ func ResolvePaths() (Paths, error) {
 	}
 
 	socketDir := filepath.Join(runtimeBase, "whatevr")
+	socket := filepath.Join(socketDir, "whatevrd.sock")
+	if s := os.Getenv(SocketEnv); s != "" {
+		if !filepath.IsAbs(s) {
+			return Paths{}, errors.New(SocketEnv + " must be an absolute path")
+		}
+		socketDir, socket = filepath.Dir(s), s
+	}
 	lockDir := filepath.Join(runtimeBase, "whatevrd")
 	dataDir := filepath.Join(dataBase, "whatevrd")
 	cacheDir := filepath.Join(cacheBase, "whatevrd")
@@ -63,12 +72,11 @@ func ResolvePaths() (Paths, error) {
 	return Paths{
 		RuntimeDir:    runtimeBase,
 		SocketDir:     socketDir,
-		SocketPath:    filepath.Join(socketDir, "whatevrd.sock"),
+		SocketPath:    socket,
 		LockDir:       lockDir,
 		LockPath:      filepath.Join(lockDir, "whatevrd.lock"),
 		DataDir:       dataDir,
 		CacheDir:      cacheDir,
-		DatabasePath:  filepath.Join(dataDir, "whatevrd.db"),
 		SessionDir:    filepath.Join(dataDir, "session"),
 		SessionDBPath: filepath.Join(dataDir, "session", "whatsmeow.db"),
 		MediaCacheDir: filepath.Join(cacheDir, "media"),

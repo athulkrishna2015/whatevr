@@ -8,9 +8,6 @@ import (
 	"io"
 
 	"github.com/rs/zerolog"
-
-	"whatevrd/internal/protocol"
-	"whatevrd/internal/wa"
 )
 
 // captures hold every message in plaintext, so a shipped binary cannot make
@@ -29,11 +26,11 @@ func captureFlags(log zerolog.Logger) *captureFlagSet {
 
 func capturePrepare(zerolog.Logger, *captureFlagSet, string) *captureRun { return nil }
 
-func captureStart(context.Context, *captureRun, string) (wa.Instrument, func()) {
-	return wa.Instrument{}, func() {}
+func captureStart(context.Context, *captureRun, string) (clientHooks, func()) {
+	return clientHooks{}, func() {}
 }
 
-func captureTap(*captureRun) protocol.Tap { return nil }
+func captureTap(*captureRun) tap { return nil }
 
 func runCapture(_ []string, _, stderr io.Writer) int {
 	fmt.Fprintln(stderr, "whatevrd capture: this whatevrd was built without capture support; rebuild with -tags whatevr_capture")

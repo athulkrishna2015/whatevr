@@ -290,7 +290,7 @@ def build_binaries(run_dir: Path) -> dict[str, Path]:
             "build",
             "-buildvcs=false",
             "-tags",
-            "sqlite_fts5 whatevr_mock whatevr_core",
+            "sqlite_fts5 whatevr_mock",
             "-o",
             str(daemon),
             "./cmd/whatevrd",

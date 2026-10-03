@@ -5,18 +5,11 @@ import (
 	"strings"
 )
 
-// The kind-specific payloads a message row can carry in its payload_json
-// column. They live here, in the store, because the store writes them and the
-// protocol layer reads them back out; the json tags are the wire shape and
-// PROTOCOL.md is their contract.
-//
-// Anything static enough to be written once at ingest belongs here. State that
-// keeps moving after the message lands (a poll's tally, a live share's trail,
-// an event's RSVPs) gets a real table instead, because it has to be queried and
-// updated rather than replaced wholesale.
+// the kind-specific part of a decoded message. what keeps moving after the
+// message lands (a tally, a live trail, rsvps) comes from the model instead.
 
-// MessagePayload is the envelope stored in payload_json. Exactly one field is
-// set, chosen by the row's media_kind, so decoding never has to guess.
+// MessagePayload is the envelope in Message.PayloadJSON. exactly one field is
+// set, chosen by the message's kind.
 type MessagePayload struct {
 	Location    *LocationPayload    `json:"location,omitempty"`
 	LiveShare   *LiveSharePayload   `json:"live,omitempty"`
@@ -337,20 +330,6 @@ type SystemPayload struct {
 	AboutSelf bool `json:"about_self,omitempty"`
 }
 
-// NamesParticipant reports whether a JID is already in the list, so a repeat of
-// the same event does not name somebody twice.
-func (p *SystemPayload) NamesParticipant(jid string) bool {
-	if p == nil {
-		return false
-	}
-	for _, participant := range p.Participants {
-		if participant.JID == jid {
-			return true
-		}
-	}
-	return false
-}
-
 // LinkPreviewPayload is the card a sender's client built for a link in their
 // message. It is the one payload that does not stand for the message: the text
 // is still the message, and this describes something the text points at, so it
@@ -401,10 +380,8 @@ func (p *LinkPreviewPayload) HasCard() bool {
 }
 
 // AlbumPayload is everything an AlbumMessage carries on the wire, which is only
-// how many pictures to expect. The pictures themselves are separate messages
-// pointing back at this one; they are joined from the messages table at read
-// time rather than listed here, because each one keeps its own id, download
-// state and receipts and none of that could survive being snapshotted.
+// how many pictures to expect. the pictures are their own messages pointing
+// back at this one.
 //
 // The counts are still worth keeping: they are what the sender promised, so a
 // half-arrived album can say it is still filling instead of quietly rendering
@@ -598,9 +575,7 @@ type LocationPayload struct {
 	Live bool `json:"live,omitempty"`
 }
 
-// EncodePayload serializes a payload for the payload_json column. An empty
-// payload encodes as the empty string rather than "{}", so the common case (a
-// message with no structured payload at all) costs nothing on disk.
+// EncodePayload is "" for an empty payload, not "{}".
 func EncodePayload(payload MessagePayload) (string, error) {
 	if payload.isZero() {
 		return "", nil
@@ -612,18 +587,14 @@ func EncodePayload(payload MessagePayload) (string, error) {
 	return string(encoded), nil
 }
 
-// DecodePayload reads a payload_json column back. A row written by an older
-// build, or by a newer one carrying a payload this build has never heard of,
-// decodes into whatever fields it does recognise and drops the rest, which is
-// the same forward-compatibility rule the wire follows.
+// DecodePayload keeps the fields it knows and drops the rest.
 func DecodePayload(raw string) MessagePayload {
 	if strings.TrimSpace(raw) == "" {
 		return MessagePayload{}
 	}
 	var payload MessagePayload
 	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
-		// A payload that will not parse is a daemon bug, not a reason to lose
-		// the message: the row still has its kind, its text and its summary.
+		// a bug, but the message still has its kind, text and summary
 		return MessagePayload{}
 	}
 	return payload

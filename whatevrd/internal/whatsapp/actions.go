@@ -70,18 +70,6 @@ func (a acted) key() *waCommon.MessageKey {
 	return a.cli.BuildMessageKey(a.chat, a.sender, types.MessageID(a.m.ID))
 }
 
-func (a acted) info() *types.MessageInfo {
-	sender := a.sender
-	if a.m.FromMe {
-		sender = a.cli.Store.GetJID().ToNonAD()
-	}
-	return &types.MessageInfo{
-		MessageSource: types.MessageSource{Chat: a.chat, Sender: sender, IsFromMe: a.m.FromMe, IsGroup: model.IsGroup(a.m.Chat)},
-		ID:            types.MessageID(a.m.ID),
-		Timestamp:     time.UnixMilli(a.m.T),
-	}
-}
-
 // sendNow sends body into a's chat right away, past the queue: what it says
 // is about a message already there, and it is worth nothing late.
 func (c *Client) sendNow(ctx context.Context, a acted, body *waE2E.Message) error {

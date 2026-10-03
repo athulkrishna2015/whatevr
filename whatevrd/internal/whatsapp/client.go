@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mattn/go-sqlite3"
 	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
@@ -27,7 +28,6 @@ import (
 	"whatevrd/internal/live"
 	"whatevrd/internal/model"
 	"whatevrd/internal/sqlitex"
-	appstore "whatevrd/internal/store"
 )
 
 type Options struct {
@@ -53,6 +53,9 @@ type Options struct {
 	Mocked bool
 	// Notifier shows a notification on the desktop. nil shows none
 	Notifier Notifier
+	// Media hears how each download from the network ended, nil for one
+	// that worked
+	Media func(err error)
 }
 
 // Client is the account on whatsapp: one whatsmeow client at a time, the
@@ -533,9 +536,15 @@ func waLogger(log zerolog.Logger) waLog.Logger {
 	return waLog.Zerolog(log.With().Str("module", "whatsmeow").Logger())
 }
 
+const sessionDriver = "whatevrd-session"
+
+func init() {
+	sql.Register(sessionDriver, &sqlite3.SQLiteDriver{ConnectHook: sqlitex.StablePlans})
+}
+
 func openSessionStore(ctx context.Context, path string, log waLog.Logger) (*sqlstore.Container, error) {
 	dsn := fmt.Sprintf("file:%s?_foreign_keys=on&_busy_timeout=5000&_journal_mode=WAL", filepath.ToSlash(path))
-	db, err := sql.Open(appstore.SQLiteDriverName, sqlitex.DSN(dsn, 128))
+	db, err := sql.Open(sessionDriver, sqlitex.DSN(dsn, 128))
 	if err != nil {
 		return nil, err
 	}

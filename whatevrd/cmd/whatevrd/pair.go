@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,34 +12,16 @@ import (
 	"syscall"
 	"time"
 
+	"google.golang.org/protobuf/encoding/protodelim"
 	"rsc.io/qr"
+
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 
 	"whatevrd/internal/app"
 )
 
 // quietZone is the blank border the qr spec asks for, in modules.
 const quietZone = 4
-
-type pairLogin struct {
-	State  string `json:"state"`
-	Detail string `json:"detail"`
-	QR     *struct {
-		Code      string    `json:"code"`
-		ExpiresAt time.Time `json:"expires_at"`
-	} `json:"qr"`
-}
-
-type pairFrame struct {
-	ID     *json.RawMessage `json:"id"`
-	Result json.RawMessage  `json:"result"`
-	Error  *struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	} `json:"error"`
-	Sub   int64           `json:"sub"`
-	Event string          `json:"event"`
-	Item  json.RawMessage `json:"item"`
-}
 
 // runPair is `whatevrd pair`: a protocol client for the login view, so a
 // headless box can link a phone without any frontend.
@@ -81,96 +62,83 @@ func runPair(args []string, stdout, stderr io.Writer) int {
 }
 
 func pairSession(conn io.ReadWriter, stdout, stderr io.Writer, tty bool) int {
-	send := func(id int, method string, params any) error {
-		line, err := json.Marshal(map[string]any{"id": id, "method": method, "params": params})
-		if err != nil {
-			return err
+	fail := func(err error) int {
+		fmt.Fprintf(stderr, "whatevrd pair: %v\n", err)
+		return 1
+	}
+	hello := v2.Request_builder{Id: 1, Hello: v2.Hello_builder{Client: "whatevrd-pair", Protocol: 2}.Build()}.Build()
+	sub := v2.Request_builder{Id: 2, Subscribe: v2.Subscribe_builder{Login: &v2.LoginView{}}.Build()}.Build()
+	for _, r := range []*v2.Request{hello, sub} {
+		if _, err := protodelim.MarshalTo(conn, v2.Frame_builder{Request: r}.Build()); err != nil {
+			return fail(err)
 		}
-		_, err = conn.Write(append(line, '\n'))
-		return err
-	}
-	if err := send(1, "hello", map[string]any{"client": "whatevrd-pair", "protocol": 1}); err != nil {
-		fmt.Fprintf(stderr, "whatevrd pair: %v\n", err)
-		return 1
-	}
-	if err := send(2, "subscribe", map[string]any{"view": "login"}); err != nil {
-		fmt.Fprintf(stderr, "whatevrd pair: %v\n", err)
-		return 1
 	}
 
-	lines := bufio.NewScanner(conn)
-	lines.Buffer(make([]byte, 0, 64*1024), 1<<20)
-	var sub int64
+	in := bufio.NewReader(conn)
+	var subID uint64
 	sawQR := false
 	shown := ""
-	for lines.Scan() {
-		var f pairFrame
-		if err := json.Unmarshal(lines.Bytes(), &f); err != nil {
-			fmt.Fprintf(stderr, "whatevrd pair: bad frame from daemon: %v\n", err)
-			return 1
-		}
-		if f.ID != nil {
-			if f.Error != nil {
-				fmt.Fprintf(stderr, "whatevrd pair: %s: %s\n", f.Error.Code, f.Error.Message)
+	for {
+		var f v2.Frame
+		if err := protodelim.UnmarshalFrom(in, &f); err != nil {
+			if errors.Is(err, io.EOF) {
+				fmt.Fprintln(stderr, "whatevrd pair: the daemon closed the connection")
 				return 1
 			}
-			var r struct {
-				Sub int64 `json:"sub"`
+			return fail(err)
+		}
+		if r := f.GetResponse(); r != nil {
+			if e := r.GetError(); e != nil {
+				return fail(fmt.Errorf("%s: %s", e.GetCode(), e.GetMessage()))
 			}
-			if json.Unmarshal(f.Result, &r) == nil && r.Sub != 0 {
-				sub = r.Sub
-			}
-			continue
-		}
-		if f.Event != "upsert" || sub == 0 || f.Sub != sub {
-			continue
-		}
-		var login pairLogin
-		if err := json.Unmarshal(f.Item, &login); err != nil {
-			fmt.Fprintf(stderr, "whatevrd pair: bad login item: %v\n", err)
-			return 1
-		}
-		switch login.State {
-		case "starting":
-			continue
-		case "need_login":
-		default:
-			// anything past need_login means an account is behind the daemon
-			if sawQR {
-				fmt.Fprintln(stdout, "linked.")
-			} else {
-				fmt.Fprintln(stdout, "already linked to a phone.")
-			}
-			return 0
-		}
-		if login.QR == nil || login.QR.Code == "" || login.QR.Code == shown {
-			if login.Detail != "" && login.QR == nil {
-				fmt.Fprintln(stdout, login.Detail)
+			if r.GetId() == 2 {
+				subID = r.GetSubscribe().GetSub()
 			}
 			continue
 		}
-		code, err := qr.Encode(login.QR.Code, qr.L)
-		if err != nil {
-			fmt.Fprintf(stderr, "whatevrd pair: encode qr: %v\n", err)
-			return 1
+		u := f.GetEvent().GetUpdate()
+		if u == nil || subID == 0 || u.GetSub() != subID {
+			continue
 		}
-		shown, sawQR = login.QR.Code, true
-		if tty {
-			// one code on screen at a time; an old one only fails the scan
-			fmt.Fprint(stdout, "\x1b[H\x1b[2J")
-		}
-		fmt.Fprint(stdout, halfBlocks(code))
-		fmt.Fprintln(stdout, "on your phone: WhatsApp > Linked devices > Link a device, then scan this.")
-		if !login.QR.ExpiresAt.IsZero() {
-			fmt.Fprintf(stdout, "a new code replaces this one at %s.\n", login.QR.ExpiresAt.Local().Format("15:04:05"))
+		for _, ch := range u.GetChanges() {
+			login := ch.GetUpsert().GetLogin()
+			if login == nil {
+				continue
+			}
+			switch login.GetState() {
+			case v2.LoginState_LOGIN_STATE_LOGGED_IN:
+				if sawQR {
+					fmt.Fprintln(stdout, "linked.")
+				} else {
+					fmt.Fprintln(stdout, "already linked to a phone.")
+				}
+				return 0
+			case v2.LoginState_LOGIN_STATE_QR:
+			default:
+				if login.GetDetail() != "" {
+					fmt.Fprintln(stdout, login.GetDetail())
+				}
+				continue
+			}
+			if login.GetQr() == "" || login.GetQr() == shown {
+				continue
+			}
+			code, err := qr.Encode(login.GetQr(), qr.L)
+			if err != nil {
+				return fail(fmt.Errorf("encode qr: %w", err))
+			}
+			shown, sawQR = login.GetQr(), true
+			if tty {
+				// one code on screen at a time; an old one only fails the scan
+				fmt.Fprint(stdout, "\x1b[H\x1b[2J")
+			}
+			fmt.Fprint(stdout, halfBlocks(code))
+			fmt.Fprintln(stdout, "on your phone: WhatsApp > Linked devices > Link a device, then scan this.")
+			if ms := login.GetQrExpiresMs(); ms > 0 {
+				fmt.Fprintf(stdout, "a new code replaces this one at %s.\n", time.UnixMilli(ms).Local().Format("15:04:05"))
+			}
 		}
 	}
-	if err := lines.Err(); err != nil {
-		fmt.Fprintf(stderr, "whatevrd pair: %v\n", err)
-	} else {
-		fmt.Fprintln(stderr, "whatevrd pair: the daemon closed the connection")
-	}
-	return 1
 }
 
 // halfBlocks draws two module rows per text row, dark on light whatever the

@@ -9,9 +9,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
+	"google.golang.org/protobuf/encoding/protodelim"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"whatevrd/internal/capture"
 )
@@ -30,10 +35,10 @@ type frontendPlayer struct {
 	socket string
 
 	conns map[int64]*frontConn
-	// recorded responses by connection and raw request id
+	// recorded responses by connection and request id
 	resps map[frontKey]json.RawMessage
 	ids   map[string]string
-	subs  map[string]json.Number
+	subs  map[string]string
 }
 
 type frontKey struct {
@@ -53,21 +58,20 @@ func newFrontendPlayer(r *replay, socket string, recs []capture.Record) *fronten
 		conns: map[int64]*frontConn{},
 		resps: map[frontKey]json.RawMessage{},
 		ids:   map[string]string{},
-		subs:  map[string]json.Number{},
+		subs:  map[string]string{},
 	}
 	for _, rec := range recs {
 		f := rec.Frontend
 		if f == nil || f.Dir != capture.FrontendResp {
 			continue
 		}
-		var head struct {
-			ID json.RawMessage `json:"id"`
+		var fr v2.Frame
+		if protojson.Unmarshal(f.Line, &fr) != nil || !fr.HasResponse() {
+			continue
 		}
-		if json.Unmarshal(f.Line, &head) == nil && len(head.ID) > 0 {
-			k := frontKey{f.Conn, string(head.ID)}
-			if _, seen := p.resps[k]; !seen {
-				p.resps[k] = f.Line
-			}
+		k := frontKey{f.Conn, strconv.FormatUint(fr.GetResponse().GetId(), 10)}
+		if _, seen := p.resps[k]; !seen {
+			p.resps[k] = f.Line
 		}
 	}
 	return p
@@ -110,24 +114,28 @@ func (p *frontendPlayer) open(ctx context.Context, id int64) {
 }
 
 func (c *frontConn) read() {
-	sc := bufio.NewScanner(c.nc)
-	sc.Buffer(make([]byte, 64<<10), 64<<20)
-	for sc.Scan() {
-		line := sc.Bytes()
-		var head struct {
-			ID    json.RawMessage `json:"id"`
-			Sub   json.RawMessage `json:"sub"`
-			Event json.RawMessage `json:"event"`
+	br := bufio.NewReader(c.nc)
+	opts := protodelim.UnmarshalOptions{MaxSize: 64 << 20}
+	for {
+		var fr v2.Frame
+		if opts.UnmarshalFrom(br, &fr) != nil {
+			break
 		}
-		if json.Unmarshal(line, &head) != nil || len(head.ID) == 0 || len(head.Event) > 0 {
+		if !fr.HasResponse() {
 			continue
 		}
+		id := strconv.FormatUint(fr.GetResponse().GetId(), 10)
 		c.mu.Lock()
-		ch := c.waiting[string(head.ID)]
-		delete(c.waiting, string(head.ID))
+		ch := c.waiting[id]
+		delete(c.waiting, id)
 		c.mu.Unlock()
-		if ch != nil {
-			ch <- append(json.RawMessage(nil), line...)
+		if ch == nil {
+			continue
+		}
+		if j, err := capture.FrameJSON.Marshal(&fr); err == nil {
+			ch <- j
+		} else {
+			close(ch)
 		}
 	}
 	c.mu.Lock()
@@ -143,36 +151,30 @@ func (p *frontendPlayer) request(ctx context.Context, f *capture.Frontend) {
 	if c == nil {
 		return
 	}
+	// a line that is no protocol 2 request (an older capture's) is skipped
+	var fr v2.Frame
+	if protojson.Unmarshal(f.Line, &fr) != nil || !fr.HasRequest() {
+		return
+	}
 	var req map[string]any
 	d := json.NewDecoder(bytes.NewReader(f.Line))
 	d.UseNumber()
 	if d.Decode(&req) != nil {
-		// a line the daemon rejected as garbage, send it as it was
-		c.nc.Write(append(append([]byte(nil), f.Line...), '\n'))
 		return
 	}
-	for k, v := range req {
-		if k != "id" {
-			req[k] = p.remap(v, k)
-		}
+	line, _ := json.Marshal(p.remap(req, "", 0))
+	fr.Reset()
+	if err := protojson.Unmarshal(line, &fr); err != nil {
+		p.r.log().Warn().Err(err).Int64("conn", f.Conn).Msg("replay frontend remap")
+		return
 	}
-	line, _ := json.Marshal(req)
-	rawID, hasID := req["id"]
-	var ch chan json.RawMessage
-	var key string
-	if hasID {
-		idJSON, _ := json.Marshal(rawID)
-		key = string(idJSON)
-		ch = make(chan json.RawMessage, 1)
-		c.mu.Lock()
-		c.waiting[key] = ch
-		c.mu.Unlock()
-	}
-	if _, err := c.nc.Write(append(line, '\n')); err != nil {
+	key := strconv.FormatUint(fr.GetRequest().GetId(), 10)
+	ch := make(chan json.RawMessage, 1)
+	c.mu.Lock()
+	c.waiting[key] = ch
+	c.mu.Unlock()
+	if _, err := protodelim.MarshalTo(c.nc, &fr); err != nil {
 		p.r.log().Warn().Err(err).Int64("conn", f.Conn).Msg("replay frontend write")
-		return
-	}
-	if ch == nil {
 		return
 	}
 	select {
@@ -200,14 +202,15 @@ func (p *frontendPlayer) learn(recorded, got json.RawMessage) {
 	if da.Decode(&a) != nil || db.Decode(&b) != nil {
 		return
 	}
-	p.walk(a, b, "")
+	p.walk(a, b, "", 0)
 }
 
 func idField(k string) bool {
 	return k == "id" || k == "ids" || strings.HasSuffix(k, "_id") || strings.HasSuffix(k, "_ids")
 }
 
-func (p *frontendPlayer) walk(a, b any, key string) {
+// walk's depth 1 is inside {"response": ...}, where id is the request's own.
+func (p *frontendPlayer) walk(a, b any, key string, depth int) {
 	switch av := a.(type) {
 	case map[string]any:
 		bv, ok := b.(map[string]any)
@@ -215,10 +218,10 @@ func (p *frontendPlayer) walk(a, b any, key string) {
 			return
 		}
 		for k, v := range av {
-			if key == "" && k == "id" {
+			if depth == 1 && k == "id" {
 				continue
 			}
-			p.walk(v, bv[k], k)
+			p.walk(v, bv[k], k, depth+1)
 		}
 	case []any:
 		bv, ok := b.([]any)
@@ -226,50 +229,46 @@ func (p *frontendPlayer) walk(a, b any, key string) {
 			return
 		}
 		for i := 0; i < len(av) && i < len(bv); i++ {
-			p.walk(av[i], bv[i], key)
+			p.walk(av[i], bv[i], key, depth)
 		}
 	case string:
-		if bs, ok := b.(string); ok && bs != av && idField(key) {
+		bs, ok := b.(string)
+		switch {
+		case !ok || bs == av:
+		case key == "sub":
+			p.subs[av] = bs
+		case idField(key):
 			p.ids[av] = bs
-		}
-	case json.Number:
-		if bn, ok := b.(json.Number); ok && bn != av && key == "sub" {
-			p.subs[av.String()] = bn
 		}
 	}
 }
 
-func (p *frontendPlayer) remap(v any, key string) any {
+// remap swaps every recorded id in a request for the replayed one. the
+// request's own id stays: the replayer picks the same ones.
+func (p *frontendPlayer) remap(v any, key string, depth int) any {
 	switch tv := v.(type) {
 	case map[string]any:
 		for k, inner := range tv {
-			tv[k] = p.remap(inner, k)
+			if depth != 1 || k != "id" {
+				tv[k] = p.remap(inner, k, depth+1)
+			}
 		}
 		return tv
 	case []any:
 		for i := range tv {
-			tv[i] = p.remap(tv[i], key)
+			tv[i] = p.remap(tv[i], key, depth)
 		}
 		return tv
 	case string:
-		if m, ok := p.ids[tv]; ok {
-			return m
-		}
-	case json.Number:
+		m, ok := p.ids[tv]
 		if key == "sub" {
-			if m, ok := p.subs[tv.String()]; ok {
-				return m
-			}
+			m, ok = p.subs[tv]
+		}
+		if ok {
+			return m
 		}
 	}
 	return v
-}
-
-func (p *frontendPlayer) close() {
-	for id, c := range p.conns {
-		c.nc.Close()
-		delete(p.conns, id)
-	}
 }
 
 func (k frontKey) String() string { return fmt.Sprintf("%d/%s", k.conn, k.id) }

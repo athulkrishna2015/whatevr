@@ -204,8 +204,12 @@ func (md *media) fetch(ctx context.Context, t target) (string, error) {
 	if started {
 		c.live.EndTransfer(t.m.Chat, t.m.ID)
 	}
+	cancelled := d.cancelled.Load() || errors.Is(err, context.Canceled)
+	if started && !cancelled && c.o.Media != nil {
+		c.o.Media(err)
+	}
 	switch {
-	case d.cancelled.Load(), errors.Is(err, context.Canceled):
+	case cancelled:
 	case err != nil:
 		c.log.Info().Err(err).Str("chat", t.m.Chat).Str("id", t.m.ID).Msg("whatsapp: download")
 		c.logLocal(context.WithoutCancel(ctx), core.LocalHead{Chat: t.m.Chat, ID: t.m.ID, Op: core.MediaError, Error: err.Error()})

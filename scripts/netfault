@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Break the network under a mock daemon and watch what it tells frontends.
 
-    scripts/netfault --core new                 every fault, a fresh daemon each
-    scripts/netfault --core old --fault stall   one fault
-    scripts/netfault --bin build/debug/whatevrd --core new
+    scripts/netfault                            every fault, a fresh daemon each
+    scripts/netfault --fault stall              one fault
+    scripts/netfault --bin build/debug/whatevrd
 
 Per fault: start `whatevrd --mock busy`, wait for online, break the network
 through the mock's control socket, hold it broken, clear it, and require the
@@ -11,7 +11,7 @@ connection view to say online again within the bound, with the client really
 logged in (a message said on the mock arrives). Every state the connection
 view showed is printed with its time.
 
-Needs a debug build (mock and core tags). Never touches the real account.
+Needs a debug build (the mock tag). Never touches the real account.
 """
 
 from __future__ import annotations
@@ -19,11 +19,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import queue
 import shutil
 import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -46,7 +48,7 @@ def log(msg: str) -> None:
 
 
 class Line:
-    """one ndjson socket"""
+    """the mock's control socket, one json object a line"""
 
     def __init__(self, path: Path, wait: float = 30) -> None:
         deadline = time.time() + wait
@@ -61,13 +63,6 @@ class Line:
                     raise
                 time.sleep(0.1)
         self.buf = b""
-        self.next = 1
-
-    def send(self, obj: dict[str, object]) -> int:
-        n = self.next
-        self.next += 1
-        self.sock.sendall(json.dumps(dict(obj, id=n)).encode() + b"\n")
-        return n
 
     def raw(self, obj: dict[str, object]) -> None:
         self.sock.sendall(json.dumps(obj).encode() + b"\n")
@@ -87,50 +82,58 @@ class Line:
 
 
 class Run:
-    def __init__(self, binary: Path, core: str, work: Path) -> None:
+    def __init__(self, binary: Path, work: Path) -> None:
         self.dir = work / "mock"
         self.control = work / "control.sock"
         self.logf = open(work / "whatevrd.log", "w")
         self.proc = subprocess.Popen(
-            [str(binary), "--mock", "busy", "--mock-dir", str(self.dir), "--mock-control", str(self.control),
-             "--core", core],
+            [str(binary), "--mock", "busy", "--mock-dir", str(self.dir), "--mock-control", str(self.control)],
             stdout=self.logf, stderr=subprocess.STDOUT)
         self.start = time.time()
         self.states: list[tuple[float, dict[str, object]]] = []
         self.ctl = Line(self.control)
-        self.ui = Line(self.dir / "run" / "whatevr" / "whatevrd.sock")
-        hello = self.ui.send({"method": "hello", "params": {"client": "netfault", "protocol": 1}})
-        while (m := self.ui.read(10)) is not None and m.get("id") != hello:
-            pass
-        self.ui.send({"method": "subscribe", "params": {"view": "connection"}})
-        self.ui.send({"method": "subscribe", "params": {"view": "chats", "limit": 50}})
+        self.watch = subprocess.Popen(
+            [str(binary), "mock", "watch", "--socket", str(self.dir / "run" / "whatevr" / "whatevrd.sock"), "connection", "chats"],
+            stdout=subprocess.PIPE, stderr=self.logf, text=True)
+        self.rows: queue.Queue[dict[str, object]] = queue.Queue()
+        threading.Thread(target=self.read_rows, daemon=True).start()
         self.waiting: set[str] = set()
         self.arrived: dict[str, float] = {}
 
     def say(self, text: str) -> None:
         self.waiting.add(text)
-        self.ctl.raw({"cmd": "say", "chat": "Team standup", "from": "Asha", "text": text})
+        # asha's dm: the team chat gets a scripted message at 3s, and one in
+        # the same second as this one may well sort ahead of it
+        self.ctl.raw({"cmd": "say", "chat": "917770000001@s.whatsapp.net", "from": "Asha", "text": text})
         resp = self.ctl.read(10)
         if not resp or not resp.get("ok"):
             raise RuntimeError("say: %r" % (resp,))
 
+    def read_rows(self) -> None:
+        assert self.watch.stdout
+        for line in self.watch.stdout:
+            self.rows.put(json.loads(line))
+
     def pump(self, seconds: float) -> None:
         end = time.time() + seconds
         while (left := end - time.time()) > 0:
-            m = self.ui.read(min(left, 0.2))
-            if m is None:
+            try:
+                m = self.rows.get(timeout=min(left, 0.2))
+            except queue.Empty:
                 continue
-            item = m.get("item")
-            if m.get("event") != "upsert" or not isinstance(item, dict):
-                continue
+            item = m["item"]
             at = time.time() - self.start
-            if "state" in item and "pending_outgoing_count" in item:
-                if not self.states or self.states[-1][1] != item:
-                    self.states.append((at, item))
-                    log("  %7.2fs %-12s %s" % (at, item["state"], item.get("detail") or ""))
-            elif isinstance(item.get("preview"), str):
+            if m["view"] == "connection":
+                conn = dict(item["connection"])
+                conn.pop("since_ms", None)
+                conn["state"] = str(conn.get("state", "")).removeprefix("CONNECTION_STATE_").lower()
+                if not self.states or self.states[-1][1] != conn:
+                    self.states.append((at, conn))
+                    log("  %7.2fs %-12s %s" % (at, conn["state"], conn.get("detail") or ""))
+            elif m["view"] == "chats":
+                preview = json.dumps(item["chat"].get("preview", {}))
                 for text in list(self.waiting):
-                    if text in item["preview"]:
+                    if text in preview:
                         self.waiting.discard(text)
                         self.arrived[text] = at
 
@@ -152,6 +155,7 @@ class Run:
             raise RuntimeError("fault %s: %r" % (name, resp))
 
     def stop(self) -> None:
+        self.watch.terminate()
         self.proc.terminate()
         try:
             self.proc.wait(10)
@@ -160,10 +164,10 @@ class Run:
         self.logf.close()
 
 
-def one(binary: Path, core: str, name: str) -> bool:
+def one(binary: Path, name: str) -> bool:
     steps, hold, bound = FAULTS[name]
     work = Path(tempfile.mkdtemp(prefix="wnf-"))
-    run = Run(binary, core, work)
+    run = Run(binary, work)
     try:
         if run.until_online(60) is None:
             log("%s: never online to begin with" % name)
@@ -208,7 +212,6 @@ def one(binary: Path, core: str, name: str) -> bool:
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--core", choices=["old", "new"], required=True)
     p.add_argument("--fault", action="append", choices=sorted(FAULTS))
     p.add_argument("--bin", default=str(ROOT / "build" / "debug" / "whatevrd"))
     args = p.parse_args()
@@ -218,8 +221,8 @@ def main() -> int:
         return 1
     results = {}
     for name in args.fault or list(FAULTS):
-        log("--- %s, core %s" % (name, args.core))
-        results[name] = one(binary, args.core, name)
+        log("--- %s" % name)
+        results[name] = one(binary, name)
     for name, ok in results.items():
         log("%-10s %s" % (name, "recovered" if ok else "STUCK"))
     return 0 if all(results.values()) else 1

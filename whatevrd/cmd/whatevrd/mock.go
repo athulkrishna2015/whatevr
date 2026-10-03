@@ -129,6 +129,10 @@ func mockPrepare(log zerolog.Logger, f *mockFlagSet) *mockRun {
 		log.Fatal().Err(err).Msg("prepare mock dir")
 	}
 
+	// a socket set for the real daemon is not this one's
+	if err := os.Unsetenv(app.SocketEnv); err != nil {
+		log.Fatal().Err(err).Msg("unset " + app.SocketEnv)
+	}
 	// Every XDG base moves, so the socket, the lock, the app database, the
 	// whatsmeow session and the run logs all land inside the scratch tree. Two
 	// mock runs of different scenarios cannot collide, and neither can touch a
@@ -200,14 +204,14 @@ func prepareMockDir(root string, keep bool) error {
 	return os.WriteFile(marker, []byte("whatevrd --mock scratch directory\n"), 0o600)
 }
 
-// mockStart brings up the fake server. It must run before wa.New, because
-// whatsmeow snapshots http.DefaultTransport when it builds its client.
-func mockStart(ctx context.Context, run *mockRun, daemon *app.Daemon) (func(), error) {
+// mockStart brings up the fake server. It must run before the client exists,
+// because whatsmeow snapshots http.DefaultTransport when it builds one.
+func mockStart(ctx context.Context, run *mockRun, login qrSource, socket string) (func(), error) {
 	if run == nil {
 		return func() {}, nil
 	}
-	run.opts.Login = daemon
-	run.opts.Socket = daemon.Status().Paths.SocketPath
+	run.opts.Login = login
+	run.opts.Socket = socket
 	srv, err := wamock.New(ctx, run.opts)
 	if err != nil {
 		return nil, err

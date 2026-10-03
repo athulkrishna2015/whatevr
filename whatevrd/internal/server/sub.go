@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"sync"
@@ -226,6 +225,3 @@ func (s *subscription) pass(limit int, ready, reset bool) bool {
 	}
 	return true
 }
-
-// sortBefore is bytewise order, the one frontends use.
-func sortBefore(a, b *v2.Upsert) bool { return bytes.Compare(a.GetSort(), b.GetSort()) < 0 }

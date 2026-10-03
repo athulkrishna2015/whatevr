@@ -293,25 +293,6 @@ func disappearingTimerLabel(seconds uint32) string {
 	}
 }
 
-// systemEventIsLoud reports whether a system row behaves like a message: it
-// bumps the chat up the list, replaces its preview and adds to its unread
-// badge. Almost everything that happens to a chat is quiet; being named is what
-// makes a row worth interrupting somebody for.
-//
-// A changed security code is the exception to the exception. It names us, so it
-// reads as about-self, but it is not something anybody did and not something
-// most people act on: it fires when the other side reinstalls or changes phone,
-// which for a chat full of people is constant. Left loud it dragged silent
-// contacts to the top of the list and put unread badges on conversations
-// nobody had written in. The pill still appears in the transcript, where
-// somebody who cares can see it and check the code.
-func systemEventIsLoud(payload appstore.SystemPayload) bool {
-	if payload.Type == appstore.SystemTypeIdentityChange {
-		return false
-	}
-	return payload.AboutSelf
-}
-
 // historyStubSystemPayload turns a backfilled group stub into the same pill the
 // live path builds from events.GroupInfo. A stub carries no message, so it
 // matched no builder and wrote no row: a group pulled out of backfill had no

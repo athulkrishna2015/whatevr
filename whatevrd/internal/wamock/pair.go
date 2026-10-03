@@ -20,12 +20,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// qrRefreshInterval is how long each ref is offered before the next one. The
-// real server hands whatsmeow a batch of refs up front and the client rotates
-// through them, so a scenario that wants to watch the QR change just has to
-// wait.
-const qrRefreshInterval = 20 * time.Second
-
 // pairedDevice is what a completed pairing produced, so a scenario can report
 // which account it ended up as.
 type pairedDevice struct {

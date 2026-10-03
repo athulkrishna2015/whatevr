@@ -2,11 +2,11 @@ package notify
 
 import (
 	"html"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
-	"whatevrd/internal/app"
-	"whatevrd/internal/textutil"
+	"whatevrd/internal/live"
 )
 
 const previewLimit = 200
@@ -27,14 +27,6 @@ type Content struct {
 	Icon    string
 	Actions []string
 	Hints   map[string]any
-}
-
-// Options carries the user's notification preferences into formatting. Preview
-// off hides the message text (sender/chat only); Sound asks the server to play
-// its default message sound when the daemon supports it.
-type Options struct {
-	Preview bool
-	Sound   bool
 }
 
 func ParseCapabilities(values []string) Capabilities {
@@ -60,103 +52,42 @@ func ParseCapabilities(values []string) Capabilities {
 	return caps
 }
 
-func FormatMessage(caps Capabilities, message app.Message, chat app.Chat, opts Options) Content {
-	chatName := strings.TrimSpace(chat.Name)
-	if chatName == "" {
-		chatName = chat.ID
+// Format lays a notification out for what the server can show. an empty
+// body is a hidden preview, and says only that something came.
+func Format(caps Capabilities, n live.Notification) Content {
+	title := strings.TrimSpace(n.Title)
+	if title == "" {
+		title = n.Chat
 	}
-
-	var preview string
-	if opts.Preview {
-		preview = previewText(message)
-		if chat.IsGroup && message.SenderID != "" && message.SenderID != "me" {
-			preview = senderDisplay(message) + ": " + preview
-		}
-	} else {
-		// Preview disabled: never leak message content.
-		preview = "New message"
+	if n.Count > 1 {
+		title += " (" + strconv.Itoa(n.Count) + ")"
 	}
-
-	content := Content{
-		Summary: chatName,
-		Hints: map[string]any{
-			"category": "im.received",
-		},
+	body := strings.Join(strings.Fields(n.Body), " ")
+	if body == "" {
+		body = "New message"
 	}
-
-	// Sound is played by the worker itself (see playSound); we deliberately do
-	// not set the "sound-name" hint, so servers that honour it don't double up
-	// with our own playback. caps.Sound is still parsed for capability probing.
-
+	body = truncate(body, previewLimit)
+	// no sound-name hint: the worker plays the sound, and a server that
+	// honours the hint would play it twice
+	content := Content{Summary: title, Hints: map[string]any{"category": "im.received"}}
 	if caps.Actions {
 		content.Actions = []string{"default", "Open Chat"}
 	}
-
-	if (caps.ImagePath || caps.IconStatic) && strings.TrimSpace(chat.AvatarLocalPath) != "" {
-		content.Icon = chat.AvatarLocalPath
+	if (caps.ImagePath || caps.IconStatic) && n.Avatar != "" {
+		content.Icon = n.Avatar
 		if caps.ImagePath {
-			content.Hints["image-path"] = chat.AvatarLocalPath
+			content.Hints["image-path"] = n.Avatar
 		}
 	}
-
 	if caps.Body {
-		content.Body = preview
+		content.Body = body
 		if caps.BodyMarkup {
-			content.Body = html.EscapeString(preview)
+			content.Body = html.EscapeString(body)
 		}
 		return content
 	}
-
-	if chat.IsGroup {
-		content.Summary = chatName + " - " + preview
-	} else {
-		content.Summary = chatName + ": " + preview
-	}
-	content.Summary = truncate(content.Summary, previewLimit)
+	content.Summary = truncate(title+": "+body, previewLimit)
 	return content
-}
-
-// previewText is the notification body. It rides the one-line rendering the
-// store already computed, so a voice note reads "🎤 Voice message (0:12)" here
-// exactly as it does in the chat list, rather than falling through to the
-// mime-sniffing this used to do (which had never heard of voice notes or
-// documents and announced both as "New message").
-func previewText(message app.Message) string {
-	line := strings.TrimSpace(message.Preview)
-	if line == "" {
-		// Every message the daemon publishes carries a Preview. Falling back to
-		// the raw text costs nothing and keeps a caller that built a Message by
-		// hand from announcing "New message" for something with words in it.
-		line = strings.TrimSpace(message.Text)
-	}
-	text := textutil.ExpandMentions(line, toTextutilMentions(message.Mentions))
-	if text == "" {
-		text = "New message"
-	}
-	text = strings.Join(strings.Fields(text), " ")
-	return truncate(text, previewLimit)
-}
-
-func toTextutilMentions(mentions []app.Mention) []textutil.Mention {
-	if len(mentions) == 0 {
-		return nil
-	}
-	out := make([]textutil.Mention, len(mentions))
-	for i, m := range mentions {
-		out[i] = textutil.Mention{JID: m.JID, DisplayName: m.DisplayName}
-	}
-	return out
-}
-
-func senderDisplay(message app.Message) string {
-	if name := strings.TrimSpace(message.SenderName); name != "" {
-		return name
-	}
-	senderID := message.SenderID
-	if at := strings.IndexByte(senderID, '@'); at > 0 {
-		return senderID[:at]
-	}
-	return senderID
 }
 
 func truncate(text string, limit int) string {

@@ -1,5 +1,3 @@
-//go:build whatevr_core
-
 package main
 
 import (
@@ -198,9 +196,8 @@ func coreProblems(db *core.DB) status.Provider {
 	}
 }
 
-// watchBoard logs every problem as it starts and ends. nothing outside the
-// daemon reads the board yet: v1 has only the connection view, the full list
-// waits for protocol 2.
+// watchBoard logs every problem as it starts and ends; the problems view
+// reads the board on its own.
 func watchBoard(ctx context.Context, log zerolog.Logger, b *status.Board, poke <-chan struct{}, every time.Duration) {
 	seen := map[status.Kind]status.Problem{}
 	check := func() {

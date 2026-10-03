@@ -302,18 +302,6 @@ func sendKind(mimeType string, asDocument bool) sendAs {
 	return sendDocument
 }
 
-func (k sendAs) media() whatsmeow.MediaType {
-	switch k {
-	case sendImage:
-		return whatsmeow.MediaImage
-	case sendVideo:
-		return whatsmeow.MediaVideo
-	case sendAudio:
-		return whatsmeow.MediaAudio
-	}
-	return whatsmeow.MediaDocument
-}
-
 // mediaBody is a media message with everything but the upload's keys,
 // which the sender fills in.
 func (c *Client) mediaBody(ctx context.Context, kind sendAs, path, mimeType, name, caption string, size uint64, viewOnce bool, ci *waE2E.ContextInfo) *waE2E.Message {

@@ -291,7 +291,6 @@ type outcome struct {
 	cause  Cause
 	// fresh resets the backoff: conditions changed, the next try is a first
 	fresh bool
-	wait  time.Duration
 }
 
 type phase int

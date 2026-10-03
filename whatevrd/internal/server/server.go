@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -392,18 +391,4 @@ func removeStale(path string) error {
 		return fmt.Errorf("something that isn't a socket sits at %s", path)
 	}
 	return os.Remove(path)
-}
-
-// shown is every open window's params across frontends, for the daemon's
-// demand driven work.
-func (s *Server) shown() []*v2.Subscribe {
-	var out []*v2.Subscribe
-	for _, c := range s.connections() {
-		for _, sub := range c.windows() {
-			if p, ok := sub.win.(interface{ Params() *v2.Subscribe }); ok {
-				out = append(out, p.Params())
-			}
-		}
-	}
-	return slices.Clip(out)
 }

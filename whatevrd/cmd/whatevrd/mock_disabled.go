@@ -4,10 +4,10 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"io"
 
 	"github.com/rs/zerolog"
-
-	"whatevrd/internal/app"
 )
 
 // mockRun never exists in a release binary. The mock server mutates
@@ -30,7 +30,7 @@ func mockPrepare(zerolog.Logger, *mockFlagSet) *mockRun { return nil }
 
 func mockScenario(*mockRun) string { return "" }
 
-func mockStart(context.Context, *mockRun, *app.Daemon) (func(), error) {
+func mockStart(context.Context, *mockRun, qrSource, string) (func(), error) {
 	return func() {}, nil
 }
 
@@ -42,3 +42,8 @@ func mockSilencesNotifications(*mockRun) bool { return false }
 func mockTime(*mockRun) *mockClocks { return nil }
 
 func heapProfiles(context.Context) {}
+
+func runMock(_ []string, _, stderr io.Writer) int {
+	fmt.Fprintln(stderr, "whatevrd mock: this whatevrd was built without mock support; rebuild with -tags whatevr_mock")
+	return 2
+}

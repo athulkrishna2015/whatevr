@@ -34,38 +34,9 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-TAGS = "sqlite_fts5 whatevr_mock whatevr_capture whatevr_core"
+TAGS = "sqlite_fts5 whatevr_mock whatevr_capture"
 # pinned so two runs agree on "now"
 MOCK_NOW = "2026-10-01T12:00:00Z"
-
-GLOBAL_VIEWS: list[dict[str, object]] = [
-    {"view": "connection"},
-    {"view": "sync"},
-    {"view": "self"},
-    {"view": "chats", "limit": 10000},
-    {"view": "chats", "limit": 10000, "archived": True},
-    {"view": "typing"},
-    {"view": "privacy"},
-    {"view": "preferences"},
-    {"view": "blocklist"},
-    {"view": "starred", "limit": 10000},
-    {"view": "stickers", "source": "all", "limit": 10000},
-    {"view": "sticker_packs"},
-]
-CHAT_VIEWS: list[dict[str, object]] = [
-    {"view": "chat"},
-    {"view": "messages", "limit": 10000, "anchor": "latest"},
-    {"view": "pinned"},
-    {"view": "live_locations"},
-    {"view": "chat_media", "limit": 10000},
-]
-GROUP_VIEWS: list[dict[str, object]] = [
-    {"view": "group"},
-    {"view": "group_members"},
-]
-
-# per-chat views loading at once while taking a snapshot
-CHAT_VIEWS_AT_ONCE = 32
 
 # a first sync downloads every history blob the capture saw, which takes
 # well over an hour
@@ -73,7 +44,7 @@ SEGMENT_WAIT_MS = 6 * 3_600_000
 
 # fields that come from the daemon's own clock or the scratch dir, not from
 # the capture
-VOLATILE = {"next_retry", "next_retry_unix", "retry_attempt", "updated_at", "fetched_at", "expires_at"}
+VOLATILE = {"since_ms", "next_retry_ms", "qr_expires_ms", "retry_at_ms", "first_seen_ms"}
 
 
 class Failure(Exception):
@@ -126,6 +97,7 @@ class Daemon:
     """One mock daemon run in a kept scratch dir."""
 
     def __init__(self, binary: Path, scratch: Path, args: list[str], keep: bool) -> None:
+        self.binary = binary
         self.scratch = scratch
         self.control = scratch.with_name(scratch.name + ".ctl")
         cmd = [str(binary), *args, "--mock-dir", str(scratch), "--mock-control", str(self.control), "--mock-now", MOCK_NOW]
@@ -167,128 +139,6 @@ class Daemon:
         self.errlog.close()
 
 
-class Snapshot:
-    """Subscribes to every view and keeps each one's final items."""
-
-    def __init__(self, path: Path) -> None:
-        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        deadline = time.time() + 30
-        while True:
-            try:
-                self.sock.connect(str(path))
-                break
-            except OSError:
-                if time.time() > deadline:
-                    raise Failure("no daemon socket at %s" % path)
-                time.sleep(0.1)
-        self.buf = b""
-        self.next_id = 1
-        self.pending: dict[int, str] = {}
-        self.windows: dict[int, str] = {}
-        self.items: dict[str, dict[str, object]] = {}
-        self.unready: set[int] = set()
-        self.errors: list[str] = []
-        self.chat_requests: set[int] = set()
-
-    def send(self, method: str, params: dict[str, object]) -> int:
-        rid = self.next_id
-        self.next_id += 1
-        self.sock.sendall(json.dumps({"id": rid, "method": method, "params": params}).encode() + b"\n")
-        return rid
-
-    def read(self, timeout: float) -> dict[str, object] | None:
-        self.sock.settimeout(timeout)
-        while b"\n" not in self.buf:
-            try:
-                chunk = self.sock.recv(1 << 20)
-            except (TimeoutError, socket.timeout):
-                return None
-            if not chunk:
-                raise Failure("daemon closed the socket")
-            self.buf += chunk
-        line, self.buf = self.buf.split(b"\n", 1)
-        return json.loads(line)
-
-    def subscribe(self, params: dict[str, object]) -> int:
-        name = params["view"]
-        if "chat_id" in params:
-            name = "%s %s" % (name, params["chat_id"])
-        if params.get("archived"):
-            name += " archived"
-        rid = self.send("subscribe", params)
-        self.pending[rid] = str(name)
-        return rid
-
-    def take(self) -> None:
-        hello = self.send("hello", {"client": "replay", "protocol": 1})
-        while True:
-            msg = self.read(30)
-            if msg is None:
-                raise Failure("no hello answer")
-            if msg.get("id") == hello:
-                break
-        for params in GLOBAL_VIEWS:
-            self.subscribe(dict(params))
-        opened: set[str] = set()
-        # a few chat views loading at a time: all of a first sync at once
-        # overflows the daemon's outbound queue, and it rightly drops the
-        # connection. they stay open, a group's info lands after its ready
-        waiting: collections.deque[dict[str, object]] = collections.deque()
-        chat_subs: set[int] = set()
-
-        def more() -> None:
-            while waiting and len(self.pending) + len(chat_subs) < CHAT_VIEWS_AT_ONCE:
-                params = waiting.popleft()
-                self.chat_requests.add(self.subscribe(params))
-
-        quiet_since = time.time()
-        while True:
-            more()
-            msg = self.read(0.5)
-            if msg is None:
-                if not waiting and not self.pending and not self.unready and time.time() - quiet_since > 1.0:
-                    return
-                continue
-            quiet_since = time.time()
-            if "id" in msg and "sub" not in msg:
-                name = self.pending.pop(msg["id"], None)
-                if name is None:
-                    continue
-                if "error" in msg:
-                    self.errors.append("%s: %s" % (name, msg["error"]))
-                    continue
-                sub = msg["result"]["sub"]
-                self.windows[sub] = name
-                self.items.setdefault(name, {})
-                self.unready.add(sub)
-                if msg["id"] in self.chat_requests:
-                    chat_subs.add(sub)
-                continue
-            sub = msg.get("sub")
-            name = self.windows.get(sub)
-            if name is None:
-                continue
-            event = msg.get("event")
-            if event == "upsert":
-                item = msg["item"]
-                self.items[name][str(item.get("id"))] = {"sort": msg.get("sort"), "item": item}
-                if name.startswith("chats") and item.get("id") not in opened:
-                    chat = str(item["id"])
-                    opened.add(chat)
-                    for params in CHAT_VIEWS + (GROUP_VIEWS if chat.endswith("@g.us") else []):
-                        waiting.append(dict(params, chat_id=chat))
-            elif event == "remove":
-                self.items[name].pop(str(msg.get("id")), None)
-            elif event == "reset":
-                self.items[name] = {}
-            elif event == "ready":
-                self.unready.discard(sub)
-                chat_subs.discard(sub)
-
-    def close(self) -> None:
-        self.sock.close()
-
-
 def normalize(value: object, scratch: str) -> object:
     if isinstance(value, dict):
         return {k: normalize(v, scratch) for k, v in sorted(value.items()) if k not in VOLATILE}
@@ -300,18 +150,19 @@ def normalize(value: object, scratch: str) -> object:
 
 
 def snapshot(daemon: Daemon) -> dict[str, object]:
-    snap = Snapshot(daemon.socket_path)
-    try:
-        snap.take()
-    finally:
-        snap.close()
-    views = {name: normalize(items, str(daemon.scratch)) for name, items in sorted(snap.items.items())}
-    return {"views": views, "errors": snap.errors}
+    out = subprocess.run([str(daemon.binary), "mock", "snapshot", "--socket", str(daemon.socket_path)],
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        raise Failure("snapshot: %s" % out.stderr.strip())
+    snap = json.loads(out.stdout)
+    views = {name: normalize(items, str(daemon.scratch)) for name, items in sorted(snap["views"].items())}
+    return {"views": views, "errors": snap["errors"]}
 
 
 def check_db(scratch: Path) -> list[str]:
     problems = []
-    for db in [scratch / "data" / "whatevrd" / "whatevrd.db", scratch / "data" / "whatevrd" / "session" / "whatsmeow.db"]:
+    data = scratch / "data" / "whatevrd"
+    for db in [data / "core.db", data / "session" / "whatsmeow.db"]:
         if not db.exists():
             problems.append("%s missing" % db.name)
             continue
@@ -323,36 +174,14 @@ def check_db(scratch: Path) -> list[str]:
             fk = con.execute("PRAGMA foreign_key_check").fetchall()
             if fk:
                 problems.append("%s foreign keys: %s" % (db.name, fk[:5]))
+            if db.name == "core.db":
+                failed = con.execute("SELECT seq, kind, error FROM fold_failures ORDER BY seq").fetchall()
+                if failed:
+                    problems.append("core.db: %d inputs did not fold, first %s" % (len(failed), failed[:5]))
             con.close()
         except sqlite3.Error as err:
             problems.append("%s: %s" % (db.name, err))
-    # the new core, when the run had it on
-    core = scratch / "data" / "whatevrd" / "core.db"
-    if core.exists():
-        try:
-            con = sqlite3.connect("file:%s?mode=ro" % core, uri=True)
-            ok = con.execute("PRAGMA integrity_check").fetchall()
-            if ok != [("ok",)]:
-                problems.append("core.db integrity: %s" % ok[:5])
-            failed = con.execute("SELECT seq, kind, error FROM fold_failures ORDER BY seq").fetchall()
-            if failed:
-                problems.append("core.db: %d inputs did not fold, first %s" % (len(failed), failed[:5]))
-            con.close()
-        except sqlite3.Error as err:
-            problems.append("core.db: %s" % err)
     return problems
-
-
-def conformance(daemon: Daemon, out: Path) -> list[str]:
-    stream = out / "stream.ndjson"
-    rec = subprocess.run([str(ROOT / "scripts" / "record-stream"), "--socket", str(daemon.socket_path),
-                          "--out", str(stream), "--seconds", "3", "--chats", "5"], capture_output=True, text=True)
-    if rec.returncode != 0:
-        return ["record-stream: %s" % rec.stderr.strip()]
-    conf = subprocess.run([str(ROOT / "scripts" / "conformance"), "--replay", str(stream)], capture_output=True, text=True)
-    if conf.returncode != 0:
-        return ["conformance: %s" % (conf.stdout + conf.stderr).strip()[-2000:]]
-    return []
 
 
 def diff(expected: dict[str, object], got: dict[str, object], label: str) -> list[str]:
@@ -405,8 +234,7 @@ def capture_segments(capture: Path) -> list[int]:
     return segs
 
 
-def replay(binary: Path, capture: Path, work: Path, speed: float, scratch: Path | None = None,
-           extra: list[str] | None = None) -> list[dict[str, object]]:
+def replay(binary: Path, capture: Path, work: Path, speed: float, scratch: Path | None = None) -> list[dict[str, object]]:
     scratch = scratch or work / "r"
     results = []
     for i, seg in enumerate(capture_segments(capture)):
@@ -414,15 +242,13 @@ def replay(binary: Path, capture: Path, work: Path, speed: float, scratch: Path 
         args = ["--mock-capture", str(capture), "--mock-segment", str(seg)]
         if speed:
             args += ["--mock-speed", str(speed)]
-        args += extra or []
         daemon = Daemon(binary, scratch, args, keep=i > 0)
         try:
             stats = daemon.settle(SEGMENT_WAIT_MS)
             snap = snapshot(daemon)
-            problems = conformance(daemon, work)
         finally:
             daemon.stop()
-        problems += check_db(scratch)
+        problems = check_db(scratch)
         snap["problems"] = problems
         results.append({"segment": seg, "stats": stats, "snapshot": snap,
                         "events": run_events(scratch / "state" / "whatevr" / "logs")})
@@ -440,21 +266,11 @@ def resolve(arg: str) -> Path:
     return state / "whatevr" / "captures" / arg
 
 
-def send_text(daemon: Daemon, chat: str, text: str) -> None:
-    snap = Snapshot(daemon.socket_path)
-    try:
-        hello = snap.send("hello", {"client": "replay", "protocol": 1})
-        req = snap.send("send.text", {"chat_id": chat, "text": text})
-        while True:
-            msg = snap.read(30)
-            if msg is None:
-                raise Failure("send.text never answered")
-            if msg.get("id") == req:
-                if "error" in msg:
-                    raise Failure("send.text: %s" % msg["error"])
-                return
-    finally:
-        snap.close()
+def send_text(daemon: Daemon, phone: str, text: str) -> None:
+    out = subprocess.run([str(daemon.binary), "mock", "send", "--socket", str(daemon.socket_path), "--to", phone, "--text", text],
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        raise Failure("send: %s" % out.stderr.strip())
 
 
 # scenario -> what each daemon run of the original does after it settles
@@ -463,23 +279,23 @@ SELF_TESTS: dict[str, list[list[tuple[str, str]]]] = {
     "busy": [[]],
     # sends and their receipts and replies, across a restart
     "echo": [
-        [("917770000001@s.whatsapp.net", "first run")],
-        [("917770000001@s.whatsapp.net", "second run")],
+        [("917770000001", "first run")],
+        [("917770000001", "second run")],
     ],
 }
 
 
-def self_test(binary: Path, work: Path, scenario: str, verbose: bool, extra: list[str] | None = None) -> bool:
+def self_test(binary: Path, work: Path, scenario: str, verbose: bool) -> bool:
     scratch = work / ("o-" + scenario)
     runs = SELF_TESTS.get(scenario, [[]])
     originals = []
     for i, sends in enumerate(runs):
         log("capturing the %s scenario, run %d" % (scenario, i + 1))
-        daemon = Daemon(binary, scratch, ["--mock", scenario, "--capture", "selftest", *(extra or [])], keep=i > 0)
+        daemon = Daemon(binary, scratch, ["--mock", scenario, "--capture", "selftest"], keep=i > 0)
         try:
             daemon.settle(120_000)
-            for chat, text in sends:
-                send_text(daemon, chat, text)
+            for phone, text in sends:
+                send_text(daemon, phone, text)
                 daemon.settle(120_000)
             originals.append(snapshot(daemon))
         finally:
@@ -487,7 +303,7 @@ def self_test(binary: Path, work: Path, scenario: str, verbose: bool, extra: lis
         originals[-1]["events"] = run_events(scratch / "state" / "whatevr" / "logs")
     capture = scratch / "state" / "whatevr" / "captures" / "selftest"
     replay_dir = work / ("r-" + scenario)
-    results = replay(binary, capture, work, 0, replay_dir, extra)
+    results = replay(binary, capture, work, 0, replay_dir)
     failed = False
     ids: dict[str, str] = {}
     for original, result in zip(originals, results):
@@ -511,14 +327,14 @@ def self_test(binary: Path, work: Path, scenario: str, verbose: bool, extra: lis
             failed = True
             log("segment %d: whatsmeow events differ:" % seg)
             print("\n".join(events))
-        # the old core folds history chunks on its own goroutine, so how they
-        # interleave with live messages differs run to run: shown, not judged
+        # every install mints its own chat and person ids, and sync rows
+        # land in whatever order the chunks did: shown, not judged
         views = json.dumps(original["views"])
         for old, new in ids.items():
             views = views.replace(old, new)
         lines = diff(json.loads(views), got["views"], "segment %d" % seg)
         if lines:
-            log("segment %d: views differ in %d diff lines, order and clock effects of the old core%s" % (
+            log("segment %d: views differ in %d diff lines, minted ids and sync order%s" % (
                 seg, len(lines), "" if verbose else " (--verbose shows them)"))
             if verbose:
                 print("\n".join(lines))
@@ -535,7 +351,6 @@ def main() -> int:
     parser.add_argument("--speed", type=float, default=0, help="replay pace, 1 is the recorded clock, 0 as fast as possible")
     parser.add_argument("--bin", help="use this whatevrd instead of building one (needs the mock and capture tags)")
     parser.add_argument("--keep", action="store_true", help="leave the scratch dir behind")
-    parser.add_argument("--core", choices=["old", "new"], help="which core the daemon runs (default: its own default)")
     parser.add_argument("--save", help="also write each segment's snapshot into this dir")
     parser.add_argument("--verbose", action="store_true", help="--self-test: print the view differences it does not judge")
     args = parser.parse_args()
@@ -546,12 +361,11 @@ def main() -> int:
     work = Path(tempfile.mkdtemp(prefix="whatevr-replay-"))
     try:
         binary = Path(args.bin).resolve() if args.bin else build(work)
-        extra = ["--core", args.core] if args.core else None
         if args.self_test:
-            ok = [self_test(binary, work, sc, args.verbose, extra) for sc in (args.scenario or list(SELF_TESTS))]
+            ok = [self_test(binary, work, sc, args.verbose) for sc in (args.scenario or list(SELF_TESTS))]
             return 0 if all(ok) else 1
         capture = resolve(args.capture)
-        results = replay(binary, capture, work, args.speed, extra=extra)
+        results = replay(binary, capture, work, args.speed)
         if args.save:
             save = Path(args.save)
             save.mkdir(parents=True, exist_ok=True)

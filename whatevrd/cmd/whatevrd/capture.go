@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
@@ -16,8 +17,6 @@ import (
 
 	"whatevrd/internal/app"
 	"whatevrd/internal/capture"
-	"whatevrd/internal/protocol"
-	"whatevrd/internal/wa"
 )
 
 type captureFlagSet struct {
@@ -85,6 +84,10 @@ func isolate(log zerolog.Logger, run *captureRun) {
 	if runtimeBase == "" {
 		log.Fatal().Msg("XDG_RUNTIME_DIR is unset")
 	}
+	// the capture's daemon has its own socket, never one set for the real one
+	if err := os.Unsetenv(app.SocketEnv); err != nil {
+		log.Fatal().Err(err).Msg("unset " + app.SocketEnv)
+	}
 	home := filepath.Join(run.dir, "home")
 	for env, path := range map[string]string{
 		"XDG_DATA_HOME":   filepath.Join(home, "data"),
@@ -101,14 +104,14 @@ func isolate(log zerolog.Logger, run *captureRun) {
 	}
 }
 
-// captureStart opens the segment and builds what wa hangs on each client.
-func captureStart(ctx context.Context, run *captureRun, runID string) (wa.Instrument, func()) {
+// captureStart opens the segment and builds what hangs on each client.
+func captureStart(ctx context.Context, run *captureRun, runID string) (clientHooks, func()) {
 	if run == nil {
-		return wa.Instrument{}, func() {}
+		return clientHooks{}, func() {}
 	}
 	log := zerolog.Ctx(ctx)
 	var hooks []func(*whatsmeow.Client)
-	inst := wa.Instrument{}
+	inst := clientHooks{}
 	if run.guard {
 		hooks = append(hooks, func(cli *whatsmeow.Client) {
 			cli.SendGuard = &whatsmeow.SendGuard{Allow: guardAllow}
@@ -118,14 +121,14 @@ func captureStart(ctx context.Context, run *captureRun, runID string) (wa.Instru
 	stop := func() {}
 	if run.dir != "" {
 		w, err := capture.Open(run.dir, run.name, capture.Start{
-			Version: protocol.Version, Run: runID, Mock: run.mock, Guard: run.guard, PID: os.Getpid(),
+			Version: version, Run: runID, Mock: run.mock, Guard: run.guard, PID: os.Getpid(),
 		})
 		if err != nil {
 			log.Fatal().Err(err).Str("dir", run.dir).Msg("open capture")
 		}
 		run.rec = capture.NewRecorder(w, log.With().Str("module", "capture").Logger())
 		hooks = append(hooks, run.rec.Hook)
-		inst.Transport = run.rec.Transport(nil)
+		inst.transport = run.rec.Transport(nil)
 		log.Info().Str("dir", run.dir).Int("segment", w.Segment()).Msg("capturing")
 		if run.mock == "" {
 			log.Warn().Str("XDG_RUNTIME_DIR", os.Getenv("XDG_RUNTIME_DIR")).
@@ -137,7 +140,7 @@ func captureStart(ctx context.Context, run *captureRun, runID string) (wa.Instru
 			}
 		}
 	}
-	inst.Client = func(cli *whatsmeow.Client) {
+	inst.client = func(cli *whatsmeow.Client) {
 		for _, h := range hooks {
 			h(cli)
 		}
@@ -145,9 +148,25 @@ func captureStart(ctx context.Context, run *captureRun, runID string) (wa.Instru
 	return inst, stop
 }
 
-func captureTap(run *captureRun) protocol.Tap {
+// captureTap records every frame as its json, so a capture reads without
+// the schema and the replayer can swap ids in it.
+func captureTap(run *captureRun) tap {
 	if run == nil || run.rec == nil {
 		return nil
 	}
-	return run.rec.Frontend
+	dirs := map[string]string{"in": capture.FrontendReq, "out": capture.FrontendResp}
+	return func(conn uint64, dir string, frame []byte) {
+		if d, ok := dirs[dir]; ok {
+			dir = d
+		}
+		if len(frame) > 0 {
+			var f v2.Frame
+			if proto.Unmarshal(frame, &f) == nil {
+				if j, err := capture.FrameJSON.Marshal(&f); err == nil {
+					frame = j
+				}
+			}
+		}
+		run.rec.Frontend(int64(conn), dir, frame)
+	}
 }

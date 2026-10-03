@@ -72,19 +72,23 @@ func TestAnswerBookTakesInOrderThenRepeatsTheLast(t *testing.T) {
 }
 
 func TestFrontendIDsCarryOver(t *testing.T) {
-	p := &frontendPlayer{ids: map[string]string{}, subs: map[string]json.Number{}}
-	p.learn(json.RawMessage(`{"id":3,"result":{"message_id":"OLD","sub":1,"state":"x"}}`),
-		json.RawMessage(`{"id":3,"result":{"message_id":"NEW","sub":7,"state":"y"}}`))
+	p := &frontendPlayer{ids: map[string]string{}, subs: map[string]string{}}
+	p.learn(json.RawMessage(`{"response":{"id":"3","chat_ensure_direct":{"chat_id":"OLD"},"subscribe":{"sub":"1"}}}`),
+		json.RawMessage(`{"response":{"id":"4","chat_ensure_direct":{"chat_id":"NEW"},"subscribe":{"sub":"7"}}}`))
 	var req map[string]any
-	d := json.NewDecoder(strings.NewReader(`{"message_id":"OLD","sub":1,"reply_to":"OLD","state":"x"}`))
+	d := json.NewDecoder(strings.NewReader(`{"request":{"id":"3","x":{"chat_id":"OLD","sub":"1","reply_to_id":"OLD"}}}`))
 	d.UseNumber()
 	d.Decode(&req)
-	got := p.remap(req, "params").(map[string]any)
-	if got["message_id"] != "NEW" || got["reply_to"] != "NEW" || got["sub"] != json.Number("7") {
+	got := p.remap(req, "", 0).(map[string]any)["request"].(map[string]any)
+	x := got["x"].(map[string]any)
+	if x["chat_id"] != "NEW" || x["reply_to_id"] != "NEW" || x["sub"] != "7" {
 		t.Fatalf("not remapped: %v", got)
 	}
-	if got["state"] != "x" {
-		t.Fatalf("a field that is not an id was learned: %v", got)
+	if got["id"] != "3" {
+		t.Fatalf("the request's own id moved: %v", got)
+	}
+	if _, ok := p.ids["3"]; ok {
+		t.Fatalf("a response id was learned: %v", p.ids)
 	}
 }
 

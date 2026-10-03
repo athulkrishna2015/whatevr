@@ -28,23 +28,22 @@ artifacts arch=`uname -m`:
     @just _binary-tarball "{{arch}}"
     @just _checksums
 
-# Run tests. Target: all, daemon, whattui, protocol.
+# Run tests. Target: all, daemon, whattui.
 test target="all":
     @case "{{target}}" in \
-        all) just _test-daemon && just _test-whattui && scripts/conformance ;; \
+        all) just _test-daemon && just _test-whattui ;; \
         daemon) just _test-daemon ;; \
         whattui) just _test-whattui ;; \
-        protocol) scripts/conformance ;; \
         *) printf 'unknown target: %s\n' "{{target}}" >&2; exit 1 ;; \
     esac
 
 _test-daemon:
     @just _require-whatsmeow
     @cd whatevrd && go test -tags sqlite_fts5 ./...
-    @cd whatevrd && go test -tags sqlite_fts5 -race ./internal/core/... ./internal/ingest/... ./internal/model/... ./internal/v1/... ./internal/status/...
+    @cd whatevrd && go test -tags sqlite_fts5 -race ./internal/core/... ./internal/ingest/... ./internal/model/... ./internal/status/... ./internal/live/... ./internal/server/... ./internal/views/... ./internal/commands/... ./internal/whatsapp/...
     @cd whatevrd && go test -tags "sqlite_fts5 whatevr_mock" ./internal/wamock/... ./internal/ingest/...
     @cd whatevrd && go test -tags "sqlite_fts5 whatevr_mock" -race ./internal/conn/...
-    @cd whatevrd && go test -tags "sqlite_fts5 whatevr_mock whatevr_capture whatevr_core" ./cmd/whatevrd/
+    @cd whatevrd && go test -tags "sqlite_fts5 whatevr_mock whatevr_capture" ./cmd/whatevrd/
     @scripts/check-mock-gate
     @scripts/replay --self-test
 
@@ -140,13 +139,13 @@ _build-daemon profile dir=build_dir:
         /*) out_dir="$build_root/$profile" ;; \
         *) out_dir="$(pwd)/$build_root/$profile" ;; \
     esac; \
-    ldflags="-X whatevrd/internal/protocol.Version={{version}}"; \
+    ldflags="-X main.version={{version}}"; \
     tags="sqlite_fts5"; \
     if [ "$profile" = release ]; then \
         go_flags=(-trimpath -buildvcs=false); \
         ldflags="$ldflags -s -w"; \
     else \
-        tags="$tags whatevr_mock whatevr_capture whatevr_core"; \
+        tags="$tags whatevr_mock whatevr_capture"; \
         go_flags=(-buildvcs=false); \
     fi; \
     go_flags+=(-tags "$tags"); \

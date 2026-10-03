@@ -3,13 +3,15 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"encoding/json"
 	"net"
 	"strings"
 	"testing"
 	"time"
 
+	"google.golang.org/protobuf/encoding/protodelim"
 	"rsc.io/qr"
+
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 )
 
 // reading the glyphs back must give the code's own modules, quiet zone included
@@ -46,8 +48,13 @@ func TestHalfBlocksDrawsEveryModule(t *testing.T) {
 	}
 }
 
-// fakeDaemon answers hello and the login subscribe, then sends items in order
-func fakeDaemon(t *testing.T, items ...map[string]any) net.Conn {
+// login is one login row as the daemon sends it
+func login(state v2.LoginState, code string) *v2.LoginRow {
+	return v2.LoginRow_builder{State: state, Qr: code, QrExpiresMs: time.Now().Add(time.Minute).UnixMilli()}.Build()
+}
+
+// fakeDaemon answers hello and the login subscribe, then sends rows in order
+func fakeDaemon(t *testing.T, rows ...*v2.LoginRow) net.Conn {
 	t.Helper()
 	// a real socket: net.Pipe has no buffer, and the client writes twice
 	// before it reads, exactly as it does against the daemon
@@ -62,31 +69,31 @@ func fakeDaemon(t *testing.T, items ...map[string]any) net.Conn {
 			return
 		}
 		defer server.Close()
-		in := bufio.NewScanner(server)
-		out := json.NewEncoder(server)
-		for in.Scan() {
-			var req struct {
-				ID     int            `json:"id"`
-				Method string         `json:"method"`
-				Params map[string]any `json:"params"`
-			}
-			if json.Unmarshal(in.Bytes(), &req) != nil {
+		in := bufio.NewReader(server)
+		send := func(f *v2.Frame) { protodelim.MarshalTo(server, f) }
+		for {
+			var f v2.Frame
+			if protodelim.UnmarshalFrom(in, &f) != nil {
 				return
 			}
-			switch req.Method {
-			case "hello":
-				out.Encode(map[string]any{"id": req.ID, "result": map[string]any{"protocol": 1}})
-			case "subscribe":
-				if req.Params["view"] != "login" {
-					out.Encode(map[string]any{"id": req.ID, "error": map[string]any{"code": "not_found", "message": "no view"}})
+			req := f.GetRequest()
+			switch {
+			case req.HasHello():
+				send(v2.Frame_builder{Response: v2.Response_builder{Id: req.GetId(),
+					Hello: v2.HelloResult_builder{Protocol: 2}.Build()}.Build()}.Build())
+			case req.HasSubscribe():
+				if !req.GetSubscribe().HasLogin() {
+					send(v2.Frame_builder{Response: v2.Response_builder{Id: req.GetId(),
+						Error: v2.Error_builder{Code: v2.ErrorCode_ERROR_CODE_UNKNOWN_METHOD}.Build()}.Build()}.Build())
 					return
 				}
-				out.Encode(map[string]any{"id": req.ID, "result": map[string]any{"sub": 7}})
-				for _, item := range items {
-					item["id"] = "self"
-					out.Encode(map[string]any{"sub": 7, "event": "upsert", "sort": "0", "item": item})
+				send(v2.Frame_builder{Response: v2.Response_builder{Id: req.GetId(),
+					Subscribe: v2.SubscribeResult_builder{Sub: 7}.Build()}.Build()}.Build())
+				for _, row := range rows {
+					up := v2.Upsert_builder{Id: "login", Login: row}.Build()
+					send(v2.Frame_builder{Event: v2.Event_builder{Update: v2.ViewUpdate_builder{Sub: 7,
+						Changes: []*v2.Change{v2.Change_builder{Upsert: up}.Build()}}.Build()}.Build()}.Build())
 				}
-				out.Encode(map[string]any{"sub": 7, "event": "ready"})
 			}
 		}
 	}()
@@ -99,13 +106,13 @@ func fakeDaemon(t *testing.T, items ...map[string]any) net.Conn {
 }
 
 func TestPairShowsEachCodeOnceAndStopsWhenLinked(t *testing.T) {
-	expires := time.Now().Add(time.Minute).UTC().Format(time.RFC3339)
 	conn := fakeDaemon(t,
-		map[string]any{"state": "starting"},
-		map[string]any{"state": "need_login", "qr": map[string]any{"code": "2@first", "expires_at": expires}},
-		map[string]any{"state": "need_login", "qr": map[string]any{"code": "2@first", "expires_at": expires}},
-		map[string]any{"state": "need_login", "qr": map[string]any{"code": "2@second", "expires_at": expires}},
-		map[string]any{"state": "connecting"},
+		login(v2.LoginState_LOGIN_STATE_UNSPECIFIED, ""),
+		login(v2.LoginState_LOGIN_STATE_QR, "2@first"),
+		login(v2.LoginState_LOGIN_STATE_QR, "2@first"),
+		login(v2.LoginState_LOGIN_STATE_QR, "2@second"),
+		login(v2.LoginState_LOGIN_STATE_PAIRING, ""),
+		login(v2.LoginState_LOGIN_STATE_LOGGED_IN, ""),
 	)
 	var out, errs bytes.Buffer
 	if rc := pairSession(conn, &out, &errs, true); rc != 0 {
@@ -121,7 +128,7 @@ func TestPairShowsEachCodeOnceAndStopsWhenLinked(t *testing.T) {
 
 func TestPairOnALinkedDaemonSaysSoWithoutAQR(t *testing.T) {
 	var out, errs bytes.Buffer
-	if rc := pairSession(fakeDaemon(t, map[string]any{"state": "online"}), &out, &errs, false); rc != 0 {
+	if rc := pairSession(fakeDaemon(t, login(v2.LoginState_LOGIN_STATE_LOGGED_IN, "")), &out, &errs, false); rc != 0 {
 		t.Fatalf("exit %d, stderr %q", rc, errs.String())
 	}
 	if got := out.String(); got != "already linked to a phone.\n" {
@@ -130,10 +137,9 @@ func TestPairOnALinkedDaemonSaysSoWithoutAQR(t *testing.T) {
 }
 
 func TestPairNeverClearsAScreenItIsNotWritingTo(t *testing.T) {
-	expires := time.Now().Add(time.Minute).UTC().Format(time.RFC3339)
 	conn := fakeDaemon(t,
-		map[string]any{"state": "need_login", "qr": map[string]any{"code": "2@only", "expires_at": expires}},
-		map[string]any{"state": "online"},
+		login(v2.LoginState_LOGIN_STATE_QR, "2@only"),
+		login(v2.LoginState_LOGIN_STATE_LOGGED_IN, ""),
 	)
 	var out, errs bytes.Buffer
 	if rc := pairSession(conn, &out, &errs, false); rc != 0 {

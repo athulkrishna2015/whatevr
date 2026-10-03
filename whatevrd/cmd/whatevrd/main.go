@@ -5,32 +5,46 @@ import (
 	"flag"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"sync/atomic"
 	"syscall"
+	"time"
 
 	"github.com/rs/zerolog"
 
 	"whatevrd/internal/app"
+	"whatevrd/internal/commands"
+	"whatevrd/internal/conn"
+	"whatevrd/internal/core"
+	"whatevrd/internal/live"
 	"whatevrd/internal/logx"
+	"whatevrd/internal/model"
 	"whatevrd/internal/notify"
-	"whatevrd/internal/protocol"
-	"whatevrd/internal/store"
-	"whatevrd/internal/wa"
+	"whatevrd/internal/server"
+	"whatevrd/internal/status"
+	"whatevrd/internal/views"
+	"whatevrd/internal/whatsapp"
 )
+
+// version is set at build time: -ldflags "-X main.version=..."
+var version = "dev"
 
 func main() {
 	memstatusOff()
 	limitMemory()
-	if len(os.Args) > 1 && os.Args[1] == "pair" {
-		os.Exit(runPair(os.Args[2:], os.Stdout, os.Stderr))
-	}
-	if len(os.Args) > 1 && os.Args[1] == "logs" {
-		os.Exit(runLogs(os.Args[2:], os.Stdout, os.Stderr))
-	}
-	if len(os.Args) > 1 && os.Args[1] == "capture" {
-		os.Exit(runCapture(os.Args[2:], os.Stdout, os.Stderr))
-	}
-	if len(os.Args) > 1 && os.Args[1] == "rederive" {
-		os.Exit(runRederive(os.Args[2:], os.Stdout, os.Stderr))
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "pair":
+			os.Exit(runPair(os.Args[2:], os.Stdout, os.Stderr))
+		case "logs":
+			os.Exit(runLogs(os.Args[2:], os.Stdout, os.Stderr))
+		case "capture":
+			os.Exit(runCapture(os.Args[2:], os.Stdout, os.Stderr))
+		case "mock":
+			os.Exit(runMock(os.Args[2:], os.Stdout, os.Stderr))
+		case "rederive":
+			os.Exit(runRederive(os.Args[2:], os.Stdout, os.Stderr))
+		}
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -48,16 +62,13 @@ func main() {
 	// starting a daemon on the real account
 	mockFlagSet := mockFlags(log)
 	captureFlagSet := captureFlags(log)
-	coreFlagSet := coreFlags(log)
 	flag.Parse()
 	if flag.NArg() > 0 {
 		log.Fatal().Strs("args", flag.Args()).Msg("unexpected arguments")
 	}
 
-	// Mock mode repoints the XDG directories at a scratch tree, so it has to
-	// settle before anything resolves a path. A capture of the real account
-	// does the same for its own linked device. In a release build both return
-	// nil.
+	// mock and capture runs move the XDG dirs, so they settle before any
+	// path resolves. both are nil in a release build
 	mock := mockPrepare(log, mockFlagSet)
 	capture := capturePrepare(log, captureFlagSet, mockScenario(mock))
 
@@ -65,7 +76,6 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("resolve paths")
 	}
-
 	if err := paths.Ensure(); err != nil {
 		log.Fatal().Err(err).Msg("create runtime/data directories")
 	}
@@ -77,111 +87,216 @@ func main() {
 	defer run.Close()
 	log = run.Logger
 	ctx = log.WithContext(ctx)
-	log.Info().Str("version", protocol.Version).Int("pid", os.Getpid()).Str("file", run.Path).
+	log.Info().Str("version", version).Int("pid", os.Getpid()).Str("file", run.Path).
 		Stringer("file_level", fileLevel).Stringer("stderr_level", stderrLevel).Msg("whatevrd starting")
 
-	instrument, stopCapture := captureStart(ctx, capture, run.ID)
+	hooks, stopCapture := captureStart(ctx, capture, run.ID)
 	defer stopCapture()
 
-	// Adopt a systemd-activated socket if present (and clear LISTEN_* so it is
-	// never inherited by child processes). nil means run standalone.
-	activatedListener, err := app.SystemdListener()
+	// a socket systemd handed over, with LISTEN_* cleared so no child
+	// inherits it. nil runs standalone
+	activated, err := app.SystemdListener()
 	if err != nil {
 		log.Fatal().Err(err).Msg("adopt systemd socket")
 	}
-
 	processLock, err := app.AcquireProcessLock(paths.LockPath)
 	if err != nil {
 		log.Fatal().Err(err).Msg("acquire process lock")
 	}
 	defer processLock.Close()
 
-	db, err := store.Open(ctx, paths.DatabasePath)
+	clocks := mockTime(mock)
+	var clock core.Clock
+	var wall func() time.Time
+	if clocks != nil {
+		clock, wall = clockFunc(clocks.stamp), clocks.wall
+	}
+
+	// the views hear every change the log and the live hub make
+	var reads atomic.Pointer[views.Reads]
+	tell := func(c core.Change) {
+		if rs := reads.Load(); rs != nil {
+			rs.Tell(c)
+		}
+	}
+	corePath := filepath.Join(paths.DataDir, "core.db")
+	db, err := core.Open(ctx, corePath, core.Options{
+		Clock:      clock,
+		Domains:    model.Domains(),
+		OnChange:   tell,
+		Log:        log.With().Str("module", "core").Logger(),
+		LogIndexes: []string{model.IDIndex},
+	})
 	if err != nil {
-		log.Fatal().Err(err).Msg("open sqlite database")
+		log.Fatal().Err(err).Msg("open the core")
 	}
 	defer db.Close()
+	ids, err := model.LoadIDs(ctx, db)
+	if err != nil {
+		log.Fatal().Err(err).Msg("read ids")
+	}
 
-	daemon := app.NewDaemon(paths)
+	hub := live.New()
+	qr := newQRWatch(hub)
+	hub.OnChange = func(c core.Change) {
+		tell(c)
+		qr.changed(c)
+	}
 
-	newCore := coreOpen(ctx, log, coreFlagSet, paths, daemon, db, mockTime(mock))
-	defer newCore.close()
-	instrument = newCore.instrument(instrument)
+	board := status.New()
+	poke := make(chan struct{}, 1)
+	board.OnChange = func(status.Kind, *status.Problem) {
+		hub.Problems()
+		select {
+		case poke <- struct{}{}:
+		default:
+		}
+	}
+	board.Provide("sync", syncProblems(db))
+	board.Provide("outbox", outboxProblems(db))
+	board.Provide("core", coreProblems(db))
+	media := &mediaWatch{board: board, log: log, now: time.Now}
 
-	// The fake WhatsApp server has to bind before wa.New, because whatsmeow
-	// snapshots http.DefaultTransport when it constructs its client.
-	stopMock, err := mockStart(ctx, mock, daemon)
+	// the fake server binds before the client: whatsmeow snapshots
+	// http.DefaultTransport when it builds one
+	stopMock, err := mockStart(ctx, mock, qr, paths.SocketPath)
 	if err != nil {
 		log.Fatal().Err(err).Msg("start mock server")
 	}
 	defer stopMock()
 
-	// The whatevr protocol server (PROTOCOL.md) is the daemon's only frontend
-	// interface.
-	protocolServer, err := protocol.New(paths.SocketPath, activatedListener, daemon)
+	srv, err := server.New(server.Options{
+		Listener:   activated,
+		SocketPath: paths.SocketPath,
+		Version:    version,
+		DataDir:    paths.DataDir,
+		CacheDir:   paths.CacheDir,
+		Log:        log.With().Str("module", "server").Logger(),
+		Tap:        captureTap(capture),
+	})
 	if err != nil {
-		log.Fatal().Err(err).Msg("start protocol server")
-	}
-	if tap := captureTap(capture); tap != nil {
-		protocolServer.SetTap(tap)
+		log.Fatal().Err(err).Msg("start the protocol server")
 	}
 
-	// The protocol server routes daemon→frontend pushes (open_chat on a
-	// notification click) as connection-directed events.
-	var notificationWorker *notify.Worker
+	// a nil *notify.Worker in the interface would not be a nil interface
+	var notifier whatsapp.Notifier
 	if mockSilencesNotifications(mock) {
 		log.Info().Msg("notifications disabled: mock mode")
-	} else if notificationWorker, err = notify.NewWorker(ctx, protocolServer); err != nil {
+	} else if w, err := notify.NewWorker(ctx, log.With().Str("module", "notify").Logger(), srv.OpenChat); err != nil {
 		log.Warn().Err(err).Msg("notifications disabled")
-	}
-	// Built separately rather than passed straight in: a nil *notify.Worker
-	// inside an interface is not a nil interface, and wa.Client checks for a
-	// nil interface before it notifies.
-	var notifier wa.MessageNotifier
-	if notificationWorker != nil {
-		notifier = notificationWorker
-	}
-	if notificationWorker != nil {
-		notificationWorker.Start(ctx)
+	} else {
+		w.Start(ctx)
+		notifier = w
 	}
 
-	waClient, err := wa.New(ctx, paths, daemon, db, notifier, instrument)
+	var network conn.Network
+	if mock == nil {
+		network = conn.WatchNetwork(ctx, log.With().Str("module", "conn").Logger())
+	}
+	var client *whatsapp.Client
+	rs := views.New(views.Options{
+		Core:     db,
+		IDs:      ids,
+		Live:     hub,
+		Board:    board,
+		MediaDir: paths.MediaCacheDir,
+		Log:      log.With().Str("module", "views").Logger(),
+		Login:    func() { client.WantLogin() },
+		Shown:    func(keys []string) { client.WantAvatars(keys) },
+	})
+	client, err = whatsapp.New(ctx, whatsapp.Options{
+		Paths:     paths,
+		Core:      db,
+		IDs:       ids,
+		Live:      hub,
+		World:     rs.World,
+		Log:       log.With().Str("module", "whatsapp").Logger(),
+		Hook:      hooks.client,
+		Transport: hooks.transport,
+		Network:   network,
+		Wall:      wall,
+		Conn: func(s conn.Status) {
+			if ps, ok := connProblems(s); ok {
+				if err := board.Only("conn", ps...); err != nil {
+					log.Error().Err(err).Msg("status: conn")
+				}
+			}
+		},
+		Mocked:   mock != nil,
+		Notifier: notifier,
+		Media:    media.result,
+	})
 	if err != nil {
-		log.Fatal().Err(err).Msg("initialize WhatsApp client")
+		log.Fatal().Err(err).Msg("start the whatsapp client")
 	}
-	defer waClient.Close()
+	defer client.Close()
+	reads.Store(rs)
 
-	// The loopback range server backs media.stream: it hands players the bytes
-	// of an in-progress download. It is bound before commands are registered
-	// so a media.stream can never arrive before there is somewhere to point it.
-	if err := waClient.StartMediaServer(); err != nil {
-		log.Warn().Err(err).Msg("media streaming disabled")
-	}
-	defer waClient.StopMediaServer()
-
-	newCore.register(ctx, protocolServer, daemon, db, waClient)
-	if protocol.DevCommandsEnabled() {
-		// Not part of PROTOCOL.md, off unless the environment asks for it. See
-		// internal/protocol/dev_commands.go.
-		protocol.RegisterDevCommands(protocolServer, waClient)
-		log.Warn().Str("env", protocol.DevEnvVar).Msg("development commands enabled")
-	}
-	// Every view and command is registered above; only now do we accept
-	// connections, so no client can race a half-populated handler surface.
-	protocolServer.Serve(ctx)
-	waClient.Start(ctx)
-
+	rs.Register(srv)
+	commands.Register(commands.Options{Server: srv, Client: client, Reads: rs, Log: log.With().Str("module", "commands").Logger()})
+	go rs.Run(ctx)
+	go watchBoard(ctx, log.With().Str("module", "status").Logger(), board, poke, 30*time.Second)
+	// every view and command is on the server before it accepts
+	srv.Serve(ctx)
+	go client.Run(ctx)
 	log.Info().Str("socket", paths.SocketPath).Msg("whatevrd listening")
 
 	select {
 	case <-ctx.Done():
 		log.Info().Msg("whatevrd shutting down")
-		if err := <-protocolServer.Err(); err != nil {
+		if err := <-srv.Err(); err != nil {
 			log.Fatal().Err(err).Msg("protocol server failed during shutdown")
 		}
-	case err := <-protocolServer.Err():
+	case err := <-srv.Err():
 		if err != nil {
 			log.Fatal().Err(err).Msg("protocol server failed")
 		}
 	}
+}
+
+type clockFunc func() time.Time
+
+func (f clockFunc) Now() time.Time { return f() }
+
+// qrWatch hands the mock every QR the daemon shows, as the mock's phone
+// scans what is on screen.
+type qrWatch struct {
+	hub  *live.Hub
+	wake chan struct{}
+}
+
+func newQRWatch(hub *live.Hub) *qrWatch { return &qrWatch{hub: hub, wake: make(chan struct{}, 1)} }
+
+func (q *qrWatch) changed(c core.Change) {
+	if _, ok := c.Keys[live.TouchLogin]; !ok && !c.All[live.TouchLogin] {
+		return
+	}
+	select {
+	case q.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (q *qrWatch) QRCodes() (<-chan string, func()) {
+	out := make(chan string, 1)
+	done := make(chan struct{})
+	go func() {
+		last := ""
+		for {
+			if l := q.hub.Login(); l.State == live.ShowingQR && l.QR != "" && l.QR != last {
+				last = l.QR
+				select {
+				case out <- l.QR:
+				case <-done:
+					return
+				}
+			}
+			select {
+			case <-q.wake:
+			case <-done:
+				return
+			}
+		}
+	}()
+	return out, func() { close(done) }
 }

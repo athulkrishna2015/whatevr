@@ -142,20 +142,6 @@ func TestQuotedReplyPreviewExtractsImageCaption(t *testing.T) {
 	}
 }
 
-func TestFormatPhoneDisplayNameFormatsInternationalNumber(t *testing.T) {
-	jid := types.NewJID("917060029183", types.DefaultUserServer)
-	if got, want := formatPhoneDisplayName(jid), "+91 70600 29183"; got != want {
-		t.Fatalf("formatPhoneDisplayName() = %q, want %q", got, want)
-	}
-}
-
-func TestFormatPhoneDisplayNameRejectsLID(t *testing.T) {
-	jid := types.NewJID("123456", types.HiddenUserServer)
-	if got := formatPhoneDisplayName(jid); got != "" {
-		t.Fatalf("formatPhoneDisplayName(lid) = %q, want empty", got)
-	}
-}
-
 func TestUnsupportedMessageLabel(t *testing.T) {
 	cases := []struct {
 		name   string

@@ -16,6 +16,7 @@ func TestResolvePathsSocketAndLockLocations(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(runtimeDir, "data"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(runtimeDir, "cache"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(runtimeDir, "state"))
+	t.Setenv(SocketEnv, "")
 
 	paths, err := ResolvePaths()
 	if err != nil {
@@ -44,5 +45,22 @@ func TestResolvePathsSocketAndLockLocations(t *testing.T) {
 		if perm := info.Mode().Perm(); perm != 0o700 {
 			t.Errorf("%s permissions = %o, want 700", dir, perm)
 		}
+	}
+}
+
+func TestSocketEnvMovesTheSocket(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", dir)
+	t.Setenv(SocketEnv, filepath.Join(dir, "elsewhere", "w.sock"))
+	paths, err := ResolvePaths()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paths.SocketPath != filepath.Join(dir, "elsewhere", "w.sock") || paths.SocketDir != filepath.Join(dir, "elsewhere") {
+		t.Errorf("socket %q in %q", paths.SocketPath, paths.SocketDir)
+	}
+	t.Setenv(SocketEnv, "w.sock")
+	if _, err := ResolvePaths(); err == nil {
+		t.Error("a relative socket path resolved")
 	}
 }

@@ -14,7 +14,6 @@ require (
 	github.com/nyaruka/phonenumbers v1.8.1
 	github.com/rs/zerolog v1.35.1
 	go.mau.fi/libsignal v0.2.2
-	go.mau.fi/util v0.10.1
 	go.mau.fi/whatsmeow v0.0.0-20260921121126-35ae40906e74
 	golang.org/x/crypto v0.57.0
 	golang.org/x/sys v0.48.0
@@ -32,6 +31,7 @@ require (
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/petermattis/goid v0.0.0-20260820044319-269ab09b5261 // indirect
 	github.com/vektah/gqlparser/v2 v2.5.37 // indirect
+	go.mau.fi/util v0.10.1 // indirect
 	golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba // indirect
 	golang.org/x/net v0.59.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect

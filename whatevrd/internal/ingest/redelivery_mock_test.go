@@ -22,7 +22,6 @@ import (
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 
-	"whatevrd/internal/app"
 	"whatevrd/internal/core"
 	"whatevrd/internal/wamock"
 )
@@ -40,11 +39,11 @@ func init() {
 
 type qrRelay struct {
 	mu  sync.Mutex
-	chs []chan app.LoginEvent
+	chs []chan string
 }
 
-func (q *qrRelay) SubscribeLoginEvents() (<-chan app.LoginEvent, func()) {
-	ch := make(chan app.LoginEvent, 8)
+func (q *qrRelay) QRCodes() (<-chan string, func()) {
+	ch := make(chan string, 8)
 	q.mu.Lock()
 	q.chs = append(q.chs, ch)
 	q.mu.Unlock()
@@ -56,7 +55,7 @@ func (q *qrRelay) publish(code string) {
 	defer q.mu.Unlock()
 	for _, ch := range q.chs {
 		select {
-		case ch <- app.LoginEvent{Kind: app.LoginEventQR, QRCode: code}:
+		case ch <- code:
 		default:
 		}
 	}

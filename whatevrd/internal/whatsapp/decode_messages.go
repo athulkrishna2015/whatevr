@@ -7,11 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 	appstore "whatevrd/internal/store"
 
-	"github.com/nyaruka/phonenumbers"
 	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 
@@ -34,17 +32,10 @@ const (
 )
 
 type ingestOptions struct {
-	source           ingestSource
-	chatNameOverride string
-	chatNameSource   string
+	source ingestSource
 	// historyStatus is set only for sourceHistorySync; mapped from
 	// WebMessageInfo.Status. Empty string means "no override".
-	historyStatus string
-	// forceRead, when true, suppresses unread counting for this message.
-	// Used during history sync when the conversation is already read on
-	// the phone — we don't want to spuriously bump unread badges that
-	// the user already cleared.
-	forceRead         bool
+	historyStatus     string
 	timestampOverride time.Time
 }
 
@@ -1126,48 +1117,6 @@ func mapWebMessageStatus(webMsg *waWeb.WebMessageInfo) string {
 	default:
 		return ""
 	}
-}
-
-func formatPhoneDisplayName(jid types.JID) string {
-	if jid.Server != types.DefaultUserServer || jid.User == "" {
-		return ""
-	}
-	if v, ok := phones.Load(jid.User); ok {
-		return v.(string)
-	}
-	out := formatPhone(jid.User)
-	phones.Store(jid.User, out)
-	return out
-}
-
-// phones remembers formatted numbers: parsing one allocates kilobytes, and
-// every message of a history sync asks again for its sender's.
-var phones sync.Map
-
-func formatPhone(user string) string {
-	digits := strings.Map(func(r rune) rune {
-		if r >= '0' && r <= '9' {
-			return r
-		}
-		return -1
-	}, user)
-	if digits == "" {
-		return ""
-	}
-	number, err := phonenumbers.Parse("+"+digits, "ZZ")
-	if err != nil || !phonenumbers.IsValidNumber(number) {
-		return "+" + digits
-	}
-	return phonenumbers.Format(number, phonenumbers.INTERNATIONAL)
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if trimmed := strings.TrimSpace(value); trimmed != "" {
-			return trimmed
-		}
-	}
-	return ""
 }
 
 func internalMessageIDForChat(chatID string, messageID types.MessageID) string {
