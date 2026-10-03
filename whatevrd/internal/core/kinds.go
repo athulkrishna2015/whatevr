@@ -38,6 +38,9 @@ const (
 	KindPrefs  = "prefs"
 	// what this daemon fetched or did for the sticker picker
 	KindSticker = "sticker"
+	// the id this daemon gave an address the first time it showed it. read
+	// from the log directly, never folded
+	KindPersonID = "person_id"
 )
 
 // Times in heads are whatsapp's, unix seconds; 0 when whatsapp gave none,
@@ -123,6 +126,11 @@ type SyncStateHead struct {
 	// Step is how far recovering an app state collection got, whatsmeow's
 	// AppStateRecoveryStep. nil is an input that says nothing about it
 	Step *int `json:"step,omitempty"`
+}
+
+type PersonIDHead struct {
+	Addr string `json:"a"`
+	ID   string `json:"id"`
 }
 
 const (

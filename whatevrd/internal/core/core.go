@@ -75,6 +75,9 @@ type Options struct {
 	// Rebuild drops every derived table at open and folds the whole log
 	// again, as a fold signature change does
 	Rebuild bool
+	// LogIndexes are CREATE INDEX IF NOT EXISTS statements on inputs, for
+	// readers that look facts up in the log itself rather than in a fold
+	LogIndexes []string
 }
 
 type DB struct {
@@ -213,6 +216,11 @@ func (db *DB) setup(ctx context.Context) error {
 	} {
 		if _, err := tx.ExecContext(ctx, stmt); err != nil {
 			return err
+		}
+	}
+	for _, stmt := range db.opts.LogIndexes {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("core: log index: %w", err)
 		}
 	}
 
