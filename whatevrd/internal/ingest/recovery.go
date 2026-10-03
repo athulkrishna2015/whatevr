@@ -43,11 +43,19 @@ func (g *Ingest) saveStep(ctx context.Context, name appstate.WAPatchName, step w
 // folded waits until everything appended so far is folded, so a read sees
 // what was just written.
 func (g *Ingest) folded(ctx context.Context) error {
+	wctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return g.Folded(wctx)
+}
+
+// Folded is folded with no limit but ctx.
+func (g *Ingest) Folded(ctx context.Context) error {
+	if g.db == nil {
+		return nil
+	}
 	_, appended := g.db.Progress()
 	if appended == 0 {
 		return nil
 	}
-	wctx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	return g.db.WaitFolded(wctx, appended)
+	return g.db.WaitFolded(ctx, appended)
 }

@@ -474,6 +474,10 @@ func (c *Client) sendDue(ctx context.Context, tries map[Ref]time.Time) time.Dura
 	if cli == nil || !cli.IsLoggedIn() {
 		return time.Hour
 	}
+	// a send queued a moment ago is only in the log until it folds
+	if err := c.ingest.Folded(ctx); err != nil {
+		return 5 * time.Second
+	}
 	out, err := c.r.Unsent(ctx)
 	if err != nil {
 		c.log.Warn().Err(err).Msg("whatsapp: read the outbox")

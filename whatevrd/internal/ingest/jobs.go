@@ -53,9 +53,9 @@ func (g *Ingest) startJobs(cli *whatsmeow.Client, read *sql.DB) {
 	j.history = newPool("history", historyWorkers, 0, func(b model.Blob) string { return b.ID }, j.download)
 	j.group = newPool("group", groupWorkers, groupGap, func(g string) string { return g }, j.fetchGroup)
 	g.jobs = j
-	j.requeueHistory(g.ctx)
 	j.history.start(g.ctx)
 	j.group.start(g.ctx)
+	go j.requeueHistory(g.ctx)
 	go j.groupLoop()
 }
 
@@ -75,9 +75,16 @@ func (j *jobs) client() *whatsmeow.Client {
 func (j *jobs) queueHistory(b model.Blob) { j.history.add(b) }
 
 // requeueHistory queues every notification the log has no download for:
-// the last run ended before it got to them.
+// the last run ended before it got to them. one still folding at startup
+// is not pending yet, so it waits for the fold first.
 func (j *jobs) requeueHistory(ctx context.Context) {
 	log := zerolog.Ctx(ctx)
+	if err := j.g.Folded(ctx); err != nil {
+		if ctx.Err() == nil {
+			log.Error().Err(err).Msg("ingest: pending history not read")
+		}
+		return
+	}
 	pending, err := model.PendingHistory(ctx, j.read)
 	if err != nil {
 		log.Error().Err(err).Msg("ingest: pending history not read")
@@ -113,6 +120,9 @@ func (j *jobs) download(ctx context.Context, b model.Blob) error {
 		ChunkOrder: b.Notif.GetChunkOrder(), Progress: b.Notif.GetProgress(),
 	}
 	cli := j.client()
+	if cli == nil {
+		return errors.New("no client yet")
+	}
 	hs, err := cli.DownloadHistorySync(ctx, b.Notif, true)
 	if err != nil {
 		if !gone(err) && !undecodable(err) {
