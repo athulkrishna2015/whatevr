@@ -34,7 +34,9 @@ On the real server this does three things:
 
 - **The send guard.** Every outward stanza (messages, read/played receipts,
   typing, calls, group and profile changes, app state writes) is refused
-  unless it goes to this account or to +91 0000000000. The rules live in the
+  unless it goes to this account or to a number in
+  `$XDG_CONFIG_HOME/whatevr/send-guard`: one number with its country code per
+  line, `#` for comments. It stays out of the repo. The rules live in the
   fork, `whatsmeow/sendguard.go`. `--send-guard` alone turns the guard on for a
   plain run on the real database without recording anything.
 - **The recording.** Every daemon run is one segment. Running the same

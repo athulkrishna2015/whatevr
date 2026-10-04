@@ -4,9 +4,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"github.com/rs/zerolog"
@@ -30,9 +34,36 @@ func captureFlags(zerolog.Logger) *captureFlagSet {
 	}
 }
 
-// guardAllow is who a real-account run may write to besides the account
-// itself. the fork's guard adds the account's own pn and lid.
-var guardAllow = []types.JID{types.NewJID("910000000000", types.DefaultUserServer)}
+// guardAllow reads who a real-account run may write to besides the account
+// itself (the fork's guard adds its own pn and lid): one number with its
+// country code per line of $XDG_CONFIG_HOME/whatevr/send-guard, # for
+// comments. kept out of the repo, they are real people's numbers
+func guardAllow() ([]types.JID, error) {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return nil, err
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "whatevr", "send-guard"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var allow []types.JID
+	for i, line := range strings.Split(string(raw), "\n") {
+		line, _, _ = strings.Cut(line, "#")
+		line = strings.NewReplacer(" ", "", "\t", "", "+", "", "-", "", "\r", "").Replace(line)
+		if line == "" {
+			continue
+		}
+		if strings.Trim(line, "0123456789") != "" {
+			return nil, fmt.Errorf("send-guard line %d: %q is not a phone number", i+1, line)
+		}
+		allow = append(allow, types.NewJID(line, types.DefaultUserServer))
+	}
+	return allow, nil
+}
 
 type captureRun struct {
 	// dir is empty for a --send-guard run that records nothing
@@ -40,6 +71,7 @@ type captureRun struct {
 	name  string
 	mock  string
 	guard bool
+	allow []types.JID
 	rec   *capture.Recorder
 }
 
@@ -50,9 +82,17 @@ func capturePrepare(log zerolog.Logger, f *captureFlagSet, mockScenario string) 
 	if mockScenario != "" && *f.guard {
 		log.Fatal().Msg("--send-guard is for real-account runs, the mock never takes it")
 	}
+	var allow []types.JID
+	if mockScenario == "" {
+		// before isolate moves the xdg dirs
+		var err error
+		if allow, err = guardAllow(); err != nil {
+			log.Fatal().Err(err).Msg("read the send guard's allowlist")
+		}
+	}
 	if *f.name == "" {
 		if *f.guard {
-			return &captureRun{guard: true}
+			return &captureRun{guard: true, allow: allow}
 		}
 		return nil
 	}
@@ -64,7 +104,7 @@ func capturePrepare(log zerolog.Logger, f *captureFlagSet, mockScenario string) 
 	if err != nil {
 		log.Fatal().Err(err).Msg("resolve --capture")
 	}
-	run := &captureRun{dir: dir, name: filepath.Base(dir), mock: mockScenario, guard: mockScenario == ""}
+	run := &captureRun{dir: dir, name: filepath.Base(dir), mock: mockScenario, guard: mockScenario == "", allow: allow}
 	if run.mock == "" {
 		isolate(log, run)
 	}
@@ -109,9 +149,9 @@ func captureStart(ctx context.Context, run *captureRun, runID string) (clientHoo
 	inst := clientHooks{}
 	if run.guard {
 		hooks = append(hooks, func(cli *whatsmeow.Client) {
-			cli.SendGuard = &whatsmeow.SendGuard{Allow: guardAllow}
+			cli.SendGuard = &whatsmeow.SendGuard{Allow: run.allow}
 		})
-		log.Warn().Stringer("allow", guardAllow[0]).Msg("send guard on, outward sends go only to this account and the allowlist")
+		log.Warn().Int("allow", len(run.allow)).Msg("send guard on, outward sends go only to this account and the allowlist")
 	}
 	stop := func() {}
 	if run.dir != "" {

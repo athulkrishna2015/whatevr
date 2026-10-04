@@ -55,3 +55,28 @@ func TestSendGuardAloneRecordsNothing(t *testing.T) {
 		t.Fatalf("got %+v", run)
 	}
 }
+
+func TestTheAllowlistComesFromConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	if allow, err := guardAllow(); err != nil || len(allow) != 0 {
+		t.Fatalf("no file gave %v, %v", allow, err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "whatevr"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "whatevr", "send-guard")
+	if err := os.WriteFile(file, []byte("# friends\n+91 77700 00001\n\n917770000002 # me again\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	allow, err := guardAllow()
+	if err != nil || len(allow) != 2 || allow[0].User != "917770000001" || allow[1].User != "917770000002" {
+		t.Fatalf("got %v, %v", allow, err)
+	}
+	if err := os.WriteFile(file, []byte("mum\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := guardAllow(); err == nil {
+		t.Error("a name passed as a number")
+	}
+}
