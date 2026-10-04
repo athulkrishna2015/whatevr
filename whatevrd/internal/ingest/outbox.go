@@ -26,9 +26,13 @@ var (
 	ErrGuarded = errors.New("blocked by the send guard")
 )
 
+// Once is a send's key and a digest of the rest of its params, zero for a
+// send without a key.
+type Once struct{ Key, Params string }
+
 // Queued logs that this daemon queued id for chat: body as it will go, file
 // the media to upload into it first. only a send logged here ever goes out.
-func (g *Ingest) Queued(ctx context.Context, chat, id string, body *waE2E.Message, file string) error {
+func (g *Ingest) Queued(ctx context.Context, chat, id string, body *waE2E.Message, file string, o Once) error {
 	var raw []byte
 	if body != nil {
 		var err error
@@ -36,7 +40,7 @@ func (g *Ingest) Queued(ctx context.Context, chat, id string, body *waE2E.Messag
 			return err
 		}
 	}
-	return g.append(ctx, core.OutboxHead{Op: core.OutboxQueue, Chat: chat, ID: id, File: file}, raw)
+	return g.append(ctx, core.OutboxHead{Op: core.OutboxQueue, Chat: chat, ID: id, File: file, Key: o.Key, Params: o.Params}, raw)
 }
 
 // Cancel takes a queued send back, if it has not gone out.

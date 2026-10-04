@@ -243,8 +243,20 @@ func (c *Client) Pin(ctx context.Context, ref Ref, on bool, d time.Duration) err
 
 // Forward queues a copy of a message to each chat, marked forwarded, and
 // says the new messages in chats' order. a media copy goes with the
-// original's keys, no upload.
-func (c *Client) Forward(ctx context.Context, ref Ref, chats []string) ([]Ref, error) {
+// original's keys, no upload. a repeat under o's key queues only the chats
+// the first did not get to.
+func (c *Client) Forward(ctx context.Context, ref Ref, chats []string, o Once) ([]Ref, error) {
+	var out []Ref
+	if o.Key != "" {
+		done, err := c.turns.take(ctx, o.Key)
+		if err != nil {
+			return nil, err
+		}
+		defer done()
+		if out, err = c.earlier(ctx, o); err != nil || len(out) >= len(chats) {
+			return out, err
+		}
+	}
 	cli, err := c.loggedIn()
 	if err != nil {
 		return nil, err
@@ -273,9 +285,8 @@ func (c *Client) Forward(ctx context.Context, ref Ref, chats []string) ([]Ref, e
 			return nil, err
 		}
 	}
-	out := make([]Ref, 0, len(chats))
-	for _, to := range tos {
-		r, err := c.queue(ctx, cli, to, proto.Clone(body).(*waE2E.Message), "")
+	for _, to := range tos[len(out):] {
+		r, err := c.queue(ctx, cli, to, proto.Clone(body).(*waE2E.Message), "", o)
 		if err != nil {
 			return out, err
 		}

@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -92,6 +93,93 @@ type Draft struct {
 	Chat     string
 	ReplyTo  *Ref
 	Mentions []string
+	Once     Once
+}
+
+// Once is a send's key and a digest of the rest of its params: a second send
+// under the key queues nothing and answers what the first queued.
+type Once = ingest.Once
+
+// turns makes sends under one key go one at a time, so a repeat sees what the
+// first queued.
+type turns struct {
+	mu sync.Mutex
+	on map[string]chan struct{}
+}
+
+func (t *turns) take(ctx context.Context, key string) (func(), error) {
+	for {
+		t.mu.Lock()
+		wait, busy := t.on[key]
+		if !busy {
+			if t.on == nil {
+				t.on = map[string]chan struct{}{}
+			}
+			done := make(chan struct{})
+			t.on[key] = done
+			t.mu.Unlock()
+			return func() {
+				t.mu.Lock()
+				delete(t.on, key)
+				t.mu.Unlock()
+				close(done)
+			}, nil
+		}
+		t.mu.Unlock()
+		select {
+		case <-wait:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+}
+
+// earlier is what sends under o's key already queued, oldest first. the key
+// with other params is ErrInvalid.
+func (c *Client) earlier(ctx context.Context, o Once) ([]Ref, error) {
+	// the first one's queue may still be folding
+	wctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := c.ingest.Folded(wctx); err != nil {
+		return nil, err
+	}
+	out, params, err := c.r.Keyed(ctx, o.Key)
+	if err != nil {
+		return nil, err
+	}
+	if len(out) > 0 && params != o.Params {
+		return nil, Errorf(ErrInvalid, "key %q was used for a different send", o.Key)
+	}
+	refs := make([]Ref, len(out))
+	for i, x := range out {
+		refs[i] = Ref{Chat: x.Chat, ID: x.ID}
+	}
+	return refs, nil
+}
+
+// once runs send unless a send under o's key already queued, and then
+// answers that one.
+func (c *Client) once(ctx context.Context, o Once, send func() (Ref, error)) (Ref, error) {
+	if o.Key == "" {
+		return send()
+	}
+	done, err := c.turns.take(ctx, o.Key)
+	if err != nil {
+		return Ref{}, err
+	}
+	defer done()
+	refs, err := c.earlier(ctx, o)
+	if err != nil || len(refs) > 0 {
+		return first(refs), err
+	}
+	return send()
+}
+
+func first(refs []Ref) Ref {
+	if len(refs) == 0 {
+		return Ref{}
+	}
+	return refs[0]
 }
 
 // context is the reply and mentions a draft carries, nil for none.
@@ -182,13 +270,13 @@ func stripContext(m *waE2E.Message) {
 
 // queue logs a send and wakes the sender. the token it returns is final:
 // the sent message comes back under the same address and id.
-func (c *Client) queue(ctx context.Context, cli *whatsmeow.Client, to types.JID, body *waE2E.Message, file string) (Ref, error) {
+func (c *Client) queue(ctx context.Context, cli *whatsmeow.Client, to types.JID, body *waE2E.Message, file string, o Once) (Ref, error) {
 	chat := to.ToNonAD().String()
 	if err := c.guard(ctx, to); err != nil {
 		return Ref{}, err
 	}
 	id := string(cli.GenerateMessageID())
-	if err := c.ingest.Queued(ctx, chat, id, body, file); err != nil {
+	if err := c.ingest.Queued(ctx, chat, id, body, file, o); err != nil {
 		return Ref{}, err
 	}
 	c.signalSender()
@@ -198,6 +286,10 @@ func (c *Client) queue(ctx context.Context, cli *whatsmeow.Client, to types.JID,
 
 // SendText queues a text message.
 func (c *Client) SendText(ctx context.Context, d Draft, text string) (Ref, error) {
+	return c.once(ctx, d.Once, func() (Ref, error) { return c.sendText(ctx, d, text) })
+}
+
+func (c *Client) sendText(ctx context.Context, d Draft, text string) (Ref, error) {
 	cli, err := c.loggedIn()
 	if err != nil {
 		return Ref{}, err
@@ -217,13 +309,17 @@ func (c *Client) SendText(ctx context.Context, d Draft, text string) (Ref, error
 	if ci != nil {
 		body = &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: proto.String(text), ContextInfo: ci}}
 	}
-	return c.queue(ctx, cli, to, body, "")
+	return c.queue(ctx, cli, to, body, "", d.Once)
 }
 
 // SendMedia queues a file: a picture, video or audio as itself, anything
 // else, or anything asked to, as a document. the file is copied first, the
 // caller may drop it once this returns.
 func (c *Client) SendMedia(ctx context.Context, d Draft, path, caption string, asDocument, viewOnce bool) (Ref, error) {
+	return c.once(ctx, d.Once, func() (Ref, error) { return c.sendMedia(ctx, d, path, caption, asDocument, viewOnce) })
+}
+
+func (c *Client) sendMedia(ctx context.Context, d Draft, path, caption string, asDocument, viewOnce bool) (Ref, error) {
 	cli, err := c.loggedIn()
 	if err != nil {
 		return Ref{}, err
@@ -272,7 +368,7 @@ func (c *Client) SendMedia(ctx context.Context, d Draft, path, caption string, a
 		return Ref{}, err
 	}
 	body := c.mediaBody(ctx, kind, tmp.Name(), mimeType, filepath.Base(path), caption, uint64(size), viewOnce, ci)
-	ref, err := c.queue(ctx, cli, to, body, tmp.Name())
+	ref, err := c.queue(ctx, cli, to, body, tmp.Name(), d.Once)
 	if err != nil {
 		os.Remove(tmp.Name())
 	}
@@ -382,6 +478,10 @@ func openOutbound(path string) (*os.File, int64, error) {
 // SendSticker queues a sticker from the library. an upload of it that is
 // still good goes again as is.
 func (c *Client) SendSticker(ctx context.Context, d Draft, key string) (Ref, error) {
+	return c.once(ctx, d.Once, func() (Ref, error) { return c.sendSticker(ctx, d, key) })
+}
+
+func (c *Client) sendSticker(ctx context.Context, d Draft, key string) (Ref, error) {
 	cli, err := c.loggedIn()
 	if err != nil {
 		return Ref{}, err
@@ -434,7 +534,7 @@ func (c *Client) SendSticker(ctx context.Context, d Draft, key string) (Ref, err
 		}
 	}
 	sm.ContextInfo = ci
-	return c.queue(ctx, cli, to, &waE2E.Message{StickerMessage: &sm}, file)
+	return c.queue(ctx, cli, to, &waE2E.Message{StickerMessage: &sm}, file, d.Once)
 }
 
 // stickerUploadGood is how long an upload of ours is sent again rather than

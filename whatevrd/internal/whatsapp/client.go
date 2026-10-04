@@ -94,6 +94,7 @@ type Client struct {
 	// appState serializes our app state patches
 	appState sync.Mutex
 	older    older
+	turns    turns
 }
 
 // New opens the session store and makes the first client. nothing connects

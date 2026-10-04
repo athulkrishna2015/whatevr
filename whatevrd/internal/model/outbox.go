@@ -12,7 +12,7 @@ import (
 // here: one the phone left pending or failed in history never does.
 var outboxDomain = core.Domain{
 	Name:    "outbox",
-	Version: 4,
+	Version: 5,
 	Tables:  []string{"outbox", "outbox_try"},
 	Schema: []string{
 		// queued_t 0 is a cancel seen before its queue. body and file are
@@ -27,8 +27,11 @@ var outboxDomain = core.Domain{
 			cancelled INTEGER NOT NULL DEFAULT 0,
 			body      BLOB NOT NULL DEFAULT x'',
 			file      TEXT NOT NULL DEFAULT '',
+			key       TEXT NOT NULL DEFAULT '',
+			params    TEXT NOT NULL DEFAULT '',
 			PRIMARY KEY (chat, id)
 		)`,
+		`CREATE INDEX outbox_key ON outbox (key) WHERE key != ''`,
 		// one row per failed try, so a try logged twice counts once
 		`CREATE TABLE outbox_try (
 			chat  TEXT NOT NULL,
@@ -55,11 +58,12 @@ func foldOutbox(tx *core.Tx, in core.Input) error {
 	switch h.Op {
 	case core.OutboxQueue:
 		// one id is queued once; were it twice, the first queue wins
-		_, err = tx.Exec(`INSERT INTO outbox (chat, id, queued_t, ord, seq, body, file) VALUES (?, ?, ?, ?, ?, COALESCE(?, x''), ?)
+		_, err = tx.Exec(`INSERT INTO outbox (chat, id, queued_t, ord, seq, body, file, key, params) VALUES (?, ?, ?, ?, ?, COALESCE(?, x''), ?, ?, ?)
 			ON CONFLICT (chat, id) DO UPDATE SET queued_t = excluded.queued_t, ord = excluded.ord, seq = excluded.seq,
-				body = excluded.body, file = excluded.file
-			WHERE outbox.queued_t = 0 OR (excluded.queued_t, excluded.body, excluded.file) < (outbox.queued_t, outbox.body, outbox.file)`,
-			h.Chat, h.ID, t, arrival(in.At, -1), in.Seq, in.Body, h.File)
+				body = excluded.body, file = excluded.file, key = excluded.key, params = excluded.params
+			WHERE outbox.queued_t = 0 OR (excluded.queued_t, excluded.body, excluded.file, excluded.key, excluded.params) <
+				(outbox.queued_t, outbox.body, outbox.file, outbox.key, outbox.params)`,
+			h.Chat, h.ID, t, arrival(in.At, -1), in.Seq, in.Body, h.File, h.Key, h.Params)
 	case core.OutboxCancel:
 		_, err = tx.Exec(`INSERT INTO outbox (chat, id, cancelled) VALUES (?, ?, 1)
 			ON CONFLICT (chat, id) DO UPDATE SET cancelled = 1`, h.Chat, h.ID)
@@ -121,6 +125,31 @@ func (r *Reader) Outgoing(ctx context.Context, chat, id string) (Outgoing, bool,
 		return Outgoing{}, false, nil
 	}
 	return o, err == nil, err
+}
+
+// Keyed is the sends queued under a frontend's key, in the order they were
+// queued, and the params digest the first came with.
+func (r *Reader) Keyed(ctx context.Context, key string) ([]Outgoing, string, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT `+outgoingCols+`, o.params FROM outbox o
+		WHERE o.key = ? AND o.queued_t > 0 ORDER BY o.seq, o.id`, key)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+	var out []Outgoing
+	var params string
+	for rows.Next() {
+		var o Outgoing
+		var p string
+		if err := rows.Scan(&o.Chat, &o.ID, &o.T, &o.Ord, &o.Seq, &o.Cancelled, &o.Failed, &o.Attempts, &o.Error, &o.Sent, &o.Body, &o.File, &p); err != nil {
+			return nil, "", err
+		}
+		if len(out) == 0 {
+			params = p
+		}
+		out = append(out, o)
+	}
+	return out, params, rows.Err()
 }
 
 // owed is the sql for "queued send o is still owed"

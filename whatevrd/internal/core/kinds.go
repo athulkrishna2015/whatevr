@@ -314,6 +314,10 @@ type OutboxHead struct {
 	File  string `json:"file,omitempty"`
 	Error string `json:"error,omitempty"`
 	Final bool   `json:"final,omitempty"`
+	// Key is the frontend's key for a queued send, Params a digest of the
+	// rest of what it asked
+	Key    string `json:"key,omitempty"`
+	Params string `json:"params,omitempty"`
 }
 
 const (

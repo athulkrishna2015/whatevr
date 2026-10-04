@@ -5,6 +5,8 @@ package commands
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"strings"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
@@ -304,6 +307,22 @@ func (x *commands) draft(ctx context.Context, chatID, replyTo string, mentions [
 	return d, nil
 }
 
+// once is a send's key and a digest of the rest of p
+func once(p interface {
+	proto.Message
+	GetKey() string
+}) whatsapp.Once {
+	if p.GetKey() == "" {
+		return whatsapp.Once{}
+	}
+	rest := proto.Clone(p)
+	r := rest.ProtoReflect()
+	r.Clear(r.Descriptor().Fields().ByName("key"))
+	b, _ := proto.MarshalOptions{Deterministic: true}.Marshal(rest)
+	sum := sha256.Sum256(b)
+	return whatsapp.Once{Key: p.GetKey(), Params: hex.EncodeToString(sum[:16])}
+}
+
 func sent(r whatsapp.Ref, err error) (*v2.Response, error) {
 	if err != nil {
 		return nil, wire(err)
@@ -322,6 +341,7 @@ func (x *commands) sendText(ctx context.Context, s *server.Session, req *v2.Requ
 	if err != nil {
 		return nil, err
 	}
+	d.Once = once(p)
 	return sent(x.c.SendText(ctx, d, p.GetText()))
 }
 
@@ -334,6 +354,7 @@ func (x *commands) sendMedia(ctx context.Context, s *server.Session, req *v2.Req
 	if err != nil {
 		return nil, err
 	}
+	d.Once = once(p)
 	return sent(x.c.SendMedia(ctx, d, p.GetPath(), p.GetCaption(), p.GetAsDocument(), p.GetViewOnce()))
 }
 
@@ -346,6 +367,7 @@ func (x *commands) sendSticker(ctx context.Context, s *server.Session, req *v2.R
 	if err != nil {
 		return nil, err
 	}
+	d.Once = once(p)
 	return sent(x.c.SendSticker(ctx, d, p.GetStickerId()))
 }
 
@@ -409,7 +431,7 @@ func (x *commands) forward(ctx context.Context, s *server.Session, req *v2.Reque
 			return nil, err
 		}
 	}
-	refs, err := x.c.Forward(ctx, r, keys)
+	refs, err := x.c.Forward(ctx, r, keys, once(p))
 	if err != nil {
 		return nil, wire(err)
 	}
