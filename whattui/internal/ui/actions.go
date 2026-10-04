@@ -55,17 +55,20 @@ func (a *App) editSelected() {
 	if !ok {
 		return
 	}
-	a.mu.Lock()
-	a.composer.replyTo = ""
-	a.composer.editing = m.GetId()
-	a.composer.targetName = "editing"
-	a.composer.targetText = oneLine(m.GetText())
-	a.composer.targetColour = a.theme.Warning
-	a.composer.text = []rune(m.GetText())
-	a.composer.cursor = len(a.composer.text)
-	a.mu.Unlock()
-	a.clearCursor()
-	a.setFocus(FocusComposer)
+	a.wholeText(m, func(text string) {
+		a.mu.Lock()
+		a.composer.replyTo = ""
+		a.composer.editing = m.GetId()
+		a.composer.targetName = "editing"
+		a.composer.targetText = oneLine(text)
+		a.composer.targetColour = a.theme.Warning
+		a.composer.text = []rune(text)
+		a.composer.cursor = len(a.composer.text)
+		a.mu.Unlock()
+		a.clearCursor()
+		a.setFocus(FocusComposer)
+		a.vx.PostEvent(redraw{})
+	})
 }
 
 // copySelected puts the message on the clipboard through OSC 52, which is the
@@ -75,12 +78,14 @@ func (a *App) copySelected() {
 	if !ok {
 		return
 	}
-	text := messageBody(m)
-	if strings.TrimSpace(text) == "" {
-		return
-	}
-	a.vx.ClipboardPush(text)
-	a.toast("copied " + plural(utf8.RuneCountInString(text), "character") + " to the clipboard")
+	a.wholeText(m, func(whole string) {
+		text := messageBody(m, whole)
+		if strings.TrimSpace(text) == "" {
+			return
+		}
+		a.vx.ClipboardPush(text)
+		a.toast("copied " + plural(utf8.RuneCountInString(text), "character") + " to the clipboard")
+	})
 }
 
 // reactSelected opens the emoji picker on the message the cursor is on. The

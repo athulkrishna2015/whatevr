@@ -11,3 +11,4 @@ func Login(u *v2.Upsert) (*v2.LoginRow, bool)           { return u.GetLogin(), u
 func Self(u *v2.Upsert) (*v2.SelfRow, bool)             { return u.GetSelf(), u.HasSelf() }
 func Sync(u *v2.Upsert) (*v2.SyncRow, bool)             { return u.GetSync(), u.HasSync() }
 func Problem(u *v2.Upsert) (*v2.ProblemRow, bool)       { return u.GetProblem(), u.HasProblem() }
+func Reaction(u *v2.Upsert) (*v2.Reaction, bool)        { return u.GetReaction(), u.HasReaction() }

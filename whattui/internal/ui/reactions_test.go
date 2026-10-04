@@ -1,11 +1,13 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
+	gproto "google.golang.org/protobuf/proto"
 
 	"whattui/internal/term"
 )
@@ -247,5 +249,49 @@ func TestTheReactionPickerLeadsWithWhatIsAlreadyOnTheMessage(t *testing.T) {
 		if c.Emoji == "👍" || c.Emoji == "🔥" {
 			t.Errorf("the palette offers %q again, which is already on the message", c.Emoji)
 		}
+	}
+}
+
+// the row names a sample; the picker asks the daemon for everyone while it is
+// open, and lets go when it closes
+func TestThePickerNamesEveryReactorWhileOpen(t *testing.T) {
+	a := stubApp(120, 30, 4, 6)
+	_, m := pointAt(a, t, false)
+	var all []rx
+	for i := 0; i < 20; i++ {
+		all = append(all, rx{"👍", fmt.Sprintf("reactor %d", i), false})
+	}
+	row := gproto.Clone(m).(*v2.MessageRow)
+	row.SetReactionCounts(counts(all))
+	row.SetReactions(reactors(all[:2]))
+	sortOf := func() string {
+		it, _ := a.conversation.msgs.Get(m.GetId())
+		return string(it.Sort)
+	}
+	putMsg(a.conversation.msgs, sortOf(), row)
+	a.paint()
+
+	a.reactSelected()
+	if first := a.modal.selector.Items()[0].Label; !strings.Contains(first, "+18") {
+		t.Fatalf("before the daemon answers the picker says %q, want the sample and +18", first)
+	}
+	a.paint()
+	if a.reactionsFor != m.GetId() || a.reactionsSub == nil {
+		t.Fatal("the open picker did not ask who reacted")
+	}
+	for i, r := range reactors(all) {
+		upsert(a.reactions, v2.Upsert_builder{Id: fmt.Sprint(i), Sort: []byte(fmt.Sprintf("%03d", i)), Reaction: r})
+	}
+	ready(a.reactions, false)
+	a.paint()
+	if first := a.modal.selector.Items()[0].Label; !strings.Contains(first, "reactor 19") || strings.Contains(first, "+") {
+		t.Errorf("with everyone in, the picker says %q", first)
+	}
+
+	sub := a.reactionsSub
+	a.onKey(arrow(vaxis.KeyEsc))
+	a.paint()
+	if a.reactionsSub != nil || a.reactionsFor != "" || sub.Active() {
+		t.Error("the closed picker is still subscribed")
 	}
 }

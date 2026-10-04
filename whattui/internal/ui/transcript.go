@@ -90,10 +90,12 @@ func (a *App) refreshTranscript(c *conversation, items []view.Item[*v2.MessageRo
 	if row, ok := a.chatRow(c.chatID); ok {
 		group = isGroup(row)
 	}
-	if c.cache != nil && c.cacheWidth == w && c.cacheRows == rows &&
+	expandGen := a.expandGeneration()
+	if c.cache != nil && c.cacheWidth == w && c.cacheRows == rows && c.cacheExpand == expandGen &&
 		c.cacheVer == ver && c.cacheGroup == group && c.cacheBoxed == a.boxed && c.cacheTop == above {
 		return
 	}
+	a.pruneExpanded(items)
 	// rows count up from the live edge, so anything landing below the reader
 	// would push them up the screen: hold the middle message where it is
 	if c.hold == nil && c.scroll > 0 && c.cacheWidth == w && c.cacheRows == rows {
@@ -104,9 +106,10 @@ func (a *App) refreshTranscript(c *conversation, items []view.Item[*v2.MessageRo
 	// A version bump is the daemon changing a row, which may well be the row
 	// the cursor is on, or the row the cursor was on leaving the window.
 	a.syncCursor(c, items)
-	if c.cache == nil || c.cacheWidth != w || c.cacheRows != rows {
+	if c.cache == nil || c.cacheWidth != w || c.cacheRows != rows || c.cacheExpand != expandGen {
 		c.cache = make(map[string]entry, len(items))
 	}
+	c.cacheExpand = expandGen
 	c.cacheWidth, c.cacheRows, c.cacheVer = w, rows, ver
 	c.cacheGroup, c.cacheBoxed, c.cacheTop = group, a.boxed, above
 

@@ -32,6 +32,7 @@ const (
 	cmdMenu          commandID = "message.menu"
 	cmdEditMessage   commandID = "message.edit"
 	cmdCopyMessage   commandID = "message.copy"
+	cmdExpand        commandID = "message.expand"
 	cmdStar          commandID = "message.star"
 	cmdDelete        commandID = "message.delete"
 	cmdDeleteForMe   commandID = "message.delete-for-me"
@@ -180,6 +181,18 @@ func (a *App) initCommands() {
 			return true, ""
 		}, Run: a.editSelected},
 		{ID: cmdCopyMessage, Title: "Copy message", Description: "Put the message on the clipboard", Direct: "y", Scope: scopeMessage, Slash: "copy", Enabled: hasLiveMessage, Run: a.copySelected},
+		{ID: cmdExpand, Title: "Expand message", Description: "Show the rest of a message whatevrd cut short", Scope: scopeMessage, Slash: "expand", Needs: needs(v2.Request_MessageText_case), Enabled: func(state commandState) (bool, string) {
+			if ok, why := hasLiveMessage(state); !ok {
+				return false, why
+			}
+			if !state.message.GetTextTruncated() {
+				return false, "that message is already whole"
+			}
+			if _, ok := a.expandedOf(state.message); ok {
+				return false, "that message is already expanded"
+			}
+			return true, ""
+		}, Run: a.expandSelected},
 		{ID: cmdStar, Title: "Star message", Description: "Star the message, or take the star off", Direct: "s", Scope: scopeMessage, Slash: "star", Needs: needs(v2.Request_MessageStar_case), Enabled: hasLiveMessage, Run: a.starSelected},
 		{ID: cmdDelete, Title: "Delete message", Description: "Ask which kind of delete this is", Direct: "d", Scope: scopeMessage, Slash: "delete", Needs: needs(v2.Request_MessageDelete_case, v2.Request_MessageRevoke_case), Enabled: hasMessage, Run: a.deleteSelected},
 		{ID: cmdDeleteForMe, Title: "Delete for me", Description: "Take the message off this device only", Slash: "delete-for-me", Needs: needs(v2.Request_MessageDelete_case), Enabled: hasMessage, Run: a.deleteSelectedForMe},

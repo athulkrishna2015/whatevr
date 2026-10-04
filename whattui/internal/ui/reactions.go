@@ -4,6 +4,9 @@ import (
 	"strings"
 
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
+
+	"whattui/internal/proto"
+	"whattui/internal/view"
 )
 
 // A reaction is the one thing in a chat that is content without being a
@@ -156,7 +159,11 @@ func (a *App) react(messageID, emoji string) {
 // it. Searching runs over the names, which is the only part of an emoji a
 // keyboard can type.
 func (a *App) reactChoices(m *v2.MessageRow, query string) []modalChoice {
-	groups := reactionGroups(m.GetReactionCounts(), m.GetReactions())
+	reactors := m.GetReactions()
+	if a.reactionsFor == m.GetId() && a.reactors != nil {
+		reactors = a.reactors
+	}
+	groups := reactionGroups(m.GetReactionCounts(), reactors)
 	out := make([]modalChoice, 0, len(groups)+len(reactionPalette))
 	on := map[string]bool{}
 	for _, g := range groups {
@@ -191,6 +198,61 @@ func (a *App) reactChoices(m *v2.MessageRow, query string) []modalChoice {
 		out = append(out, modalChoice{Emoji: e.emoji, Label: e.emoji + "  " + e.name})
 	}
 	return out
+}
+
+// reactorsPage is how many reactors the picker asks for. the row's counts stay
+// whole past it, as "+n"
+const reactorsPage = 50
+
+// followReactions keeps a reactions subscription on the message the picker is
+// open on and none otherwise, and refills the picker when it changes. outside
+// App.mu, on every paint
+func (a *App) followReactions() {
+	a.mu.Lock()
+	want := ""
+	if a.modal.kind == modalReact {
+		want = a.modal.message
+	}
+	c, sub, had, seen := a.reactions, a.reactionsSub, a.reactionsFor, a.reactionsSeen
+	a.mu.Unlock()
+
+	if want != had {
+		if sub != nil {
+			sub.Close()
+		}
+		c, sub = nil, nil
+		if want != "" {
+			c = view.NewCollection(view.Reaction)
+			sub = a.client.Subscribe(v2.Subscribe_builder{
+				Limit:     reactorsPage,
+				Reactions: v2.ReactionsView_builder{MessageId: want}.Build(),
+			}.Build(), c, proto.Hooks{})
+		}
+		a.mu.Lock()
+		a.reactions, a.reactionsSub, a.reactionsFor, a.reactionsSeen, a.reactors = c, sub, want, 0, nil
+		a.mu.Unlock()
+		return
+	}
+	if c == nil || !c.IsReady() || c.Version() == seen {
+		return
+	}
+	version := c.Version()
+	var reactors []*v2.Reaction
+	c.Read(func(items []view.Item[*v2.Reaction], _ view.State) {
+		reactors = make([]*v2.Reaction, 0, len(items))
+		for _, it := range items {
+			reactors = append(reactors, it.Value)
+		}
+	})
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.reactionsFor != want || a.modal.kind != modalReact {
+		return
+	}
+	a.reactors, a.reactionsSeen = reactors, version
+	if m, ok := a.selectedMessageLocked(); ok && m.GetId() == want {
+		a.modal.selector.Refresh(a.reactChoices(m, string(a.modal.query)), maxInt(a.modal.visible, 1))
+	}
 }
 
 // The emoji a reaction is, in practice. The first six are the ones WhatsApp

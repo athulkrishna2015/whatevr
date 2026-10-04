@@ -46,6 +46,7 @@ func (a *App) paint() {
 	win := a.vx.Window()
 	l := a.layout()
 	a.followChat(max(l.Transcript.Height, 1))
+	a.followReactions()
 
 	if a.pairing() {
 		a.drawPairing(win)
@@ -741,7 +742,7 @@ func (a *App) layoutMessage(m *v2.MessageRow, paneWidth int) block {
 
 	// A message that is nothing but emoji draws big, the way it does in every
 	// other chat client, because the size is what the message means.
-	if n := emojiOnlyCount(m.GetText()); n > 0 && !m.GetRevoked() && len(b.body) == 1 &&
+	if n := emojiOnlyCount(a.textOf(m)); n > 0 && !m.GetRevoked() && len(b.body) == 1 &&
 		a.caps.TextScale && bigEmojiWanted() {
 		// Clamped to the room the column can grow into, not the room it
 		// currently occupies: the message is sized by its content, and at

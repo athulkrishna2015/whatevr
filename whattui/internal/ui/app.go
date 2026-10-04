@@ -60,6 +60,20 @@ type App struct {
 	// statusTick is a countdown redraw already waiting
 	statusTick bool
 
+	// everyone who reacted to the message the picker is open on, subscribed
+	// only while it is open. reactors is what the picker last read of it
+	reactions     *view.Collection[*v2.Reaction]
+	reactionsSub  *proto.Subscription
+	reactionsFor  string
+	reactionsSeen uint64
+	reactors      []*v2.Reaction
+
+	// expanded is what /expand fetched, by message id. expandMu is a leaf
+	// lock, taken from paint with or without App.mu
+	expandMu  sync.Mutex
+	expanded  map[string]expansion
+	expandGen uint64
+
 	// The rasteriser for the scripts a cell grid cannot hold, and the images
 	// it has already produced. shaping is snapshotted once per frame so
 	// measuring and drawing cannot disagree across the moment it comes up.

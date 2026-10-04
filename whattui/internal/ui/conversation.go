@@ -71,6 +71,8 @@ type conversation struct {
 	cacheBoxed bool
 	// cacheTop is what sits above the oldest message
 	cacheTop topMark
+	// cacheExpand is the expand generation the cache was laid out at
+	cacheExpand uint64
 	// runs is the window gathered into runs, newest first, which is the order
 	// the transcript draws them in.
 	runs []run

@@ -25,10 +25,11 @@ func plainText(m *v2.MessageRow) bool {
 	return m.WhichBody() == v2.MessageRow_TextBody_case
 }
 
-// messageBody is what to draw as the message's words. a body whattui does not
-// draw falls back to the daemon's one-liner, with the caption under it.
-func messageBody(m *v2.MessageRow) string {
-	text, fallback := m.GetText(), m.GetFallback()
+// messageBody is what to draw as the message's words, text being the row's or
+// the whole of it. a body whattui does not draw falls back to the daemon's
+// one-liner, with the caption under it.
+func messageBody(m *v2.MessageRow, text string) string {
+	fallback := m.GetFallback()
 	switch {
 	case m.GetRevoked():
 		return "This message was deleted"
