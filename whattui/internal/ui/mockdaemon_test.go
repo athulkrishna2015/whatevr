@@ -262,18 +262,20 @@ func mockApp(t testing.TB, scenario, chatName string, cols, rows int) *App {
 	// something to measure off.
 	win := vaxis.NewOffscreenWindowPixels(cols, rows, 10, 20)
 	a := &App{
-		vx:      win.Vx,
-		caps:    term.Caps{Tier: term.TierColor, RGB: true},
-		theme:   theme.Derive(vaxis.RGBColor(0x12, 0x14, 0x18), vaxis.RGBColor(0xe4, 0xe4, 0xe6)),
-		chats:   view.NewCollection(view.Chat),
-		conn:    view.NewObject(view.Connection),
-		focus:   FocusComposer,
-		focused: true,
-		hovered: -1,
-		images:  map[imgKey]*vaxis.KittyImage{},
-		seen:    map[imgKey]bool{},
-		glyphs:  map[glyphKey]*image.NRGBA{},
-		drag:    drag{chat: -1},
+		vx:       win.Vx,
+		caps:     term.Caps{Tier: term.TierColor, RGB: true},
+		theme:    theme.Derive(vaxis.RGBColor(0x12, 0x14, 0x18), vaxis.RGBColor(0xe4, 0xe4, 0xe6)),
+		chats:    view.NewCollection(view.Chat),
+		conn:     view.NewObject(view.Connection),
+		syncs:    view.NewObject(view.Sync),
+		problems: view.NewCollection(view.Problem),
+		focus:    FocusComposer,
+		focused:  true,
+		hovered:  -1,
+		images:   map[imgKey]*vaxis.KittyImage{},
+		seen:     map[imgKey]bool{},
+		glyphs:   map[glyphKey]*image.NRGBA{},
+		drag:     drag{chat: -1},
 	}
 	a.client = proto.New(d.socket, "whattui-test")
 	a.request = a.client.Do
@@ -287,6 +289,7 @@ func mockApp(t testing.TB, scenario, chatName string, cols, rows int) *App {
 	t.Cleanup(a.client.Stop)
 
 	a.connSub = a.client.Subscribe(v2.Subscribe_builder{Connection: &v2.ConnectionView{}}.Build(), a.conn, proto.Hooks{})
+	a.subscribeStatus()
 	a.subscribeChats()
 	waitFor(t, "the socket", func() bool {
 		a.mu.Lock()

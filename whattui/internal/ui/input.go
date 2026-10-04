@@ -360,11 +360,19 @@ func (a *App) onMouse(m vaxis.Mouse) bool {
 			over = top + at
 		}
 	}
+	onStatus := a.overStatus(m)
 	dirty := a.hover(over)
 	if a.hoverMessage(a.messageUnder(m)) {
 		dirty = true
 	}
-	a.pointer(a.shapeFor(m, over))
+	if a.hoverStatus(onStatus) {
+		dirty = true
+	}
+	if onStatus {
+		a.pointer(vaxis.MouseShapeClickable)
+	} else {
+		a.pointer(a.shapeFor(m, over))
+	}
 
 	switch m.Button {
 	case vaxis.MouseWheelUp, vaxis.MouseWheelDown:
@@ -411,6 +419,9 @@ func (a *App) onMouse(m vaxis.Mouse) bool {
 		p := point{m.Col, m.Row}
 		switch m.EventType {
 		case vaxis.EventPress:
+			if onStatus {
+				return dirty
+			}
 			// A press is only ever the start of a selection. What the click
 			// meant waits for the release, because a click that acts on the
 			// way down cannot also be a drag.
@@ -425,6 +436,11 @@ func (a *App) onMouse(m vaxis.Mouse) bool {
 			return a.onSelectMotion(p)
 		case vaxis.EventRelease:
 			if a.onSelectRelease() {
+				return true
+			}
+			if onStatus {
+				a.hoverStatus(false)
+				a.openStatus()
 				return true
 			}
 			a.mu.Lock()

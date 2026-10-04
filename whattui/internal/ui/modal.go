@@ -3,6 +3,7 @@ package ui
 import (
 	"image/color"
 	"strings"
+	"time"
 
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
@@ -33,6 +34,8 @@ const (
 	// modalMenu is the context menu: the actions that apply to one message,
 	// where the pointer asked for them.
 	modalMenu
+	// modalStatus is /status: rows to read, live, nothing to pick
+	modalStatus
 )
 
 type modalChoice struct {
@@ -81,6 +84,30 @@ func (a *App) openModal(kind modalKind) {
 	a.mu.Unlock()
 	if issue {
 		a.searchChats(search, generation)
+	}
+	if kind == modalStatus {
+		a.refreshStatus()
+	}
+}
+
+// refreshStatus rebuilds the open /status panel from the views, and keeps a
+// redraw coming once a second while something in it counts down
+func (a *App) refreshStatus() {
+	choices, ticking := a.statusChoices(time.Now())
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.modal.kind != modalStatus {
+		return
+	}
+	a.modal.selector.Refresh(choices, maxInt(a.modal.visible, 1))
+	if ticking && !a.statusTick {
+		a.statusTick = true
+		time.AfterFunc(time.Second, func() {
+			a.mu.Lock()
+			a.statusTick = false
+			a.mu.Unlock()
+			a.vx.PostEvent(redraw{})
+		})
 	}
 }
 
@@ -276,6 +303,15 @@ func (a *App) onModalKey(k vaxis.Key) bool {
 		a.dismissModalLocked()
 		a.mu.Unlock()
 		return true
+	case a.modal.kind == modalStatus:
+		switch {
+		case k.Matches(vaxis.KeyUp), k.Matches('p', vaxis.ModCtrl):
+			a.modal.selector.Wheel(-1, visible)
+		case k.Matches(vaxis.KeyDown), k.Matches('n', vaxis.ModCtrl):
+			a.modal.selector.Wheel(1, visible)
+		}
+		a.mu.Unlock()
+		return true
 	case k.Matches(vaxis.KeyUp), k.Matches('p', vaxis.ModCtrl):
 		a.modal.selector.Move(-1, visible)
 		a.mu.Unlock()
@@ -388,7 +424,7 @@ func (a *App) modalShape(m vaxis.Mouse) vaxis.MouseShape {
 	if a.modal.kind == modalNone {
 		return vaxis.MouseShapeDefault
 	}
-	if inRect(m, a.modal.list) {
+	if inRect(m, a.modal.list) && a.modal.kind != modalStatus {
 		if at := a.modal.selector.top + m.Row - a.modal.list.Row; at < len(a.modal.selector.items) {
 			return vaxis.MouseShapeClickable
 		}
@@ -443,6 +479,10 @@ func (a *App) onModalMouse(m vaxis.Mouse) (bool, bool) {
 			a.mu.Unlock()
 			return true, true
 		}
+		if m.EventType == vaxis.EventRelease && inside && a.modal.kind == modalStatus {
+			a.mu.Unlock()
+			return true, dirty
+		}
 		if m.EventType == vaxis.EventRelease && inside {
 			choice, ok := a.modal.selector.Click(itemRow, visible)
 			if ok && choice.Disabled != "" {
@@ -488,6 +528,16 @@ func (a *App) modalRect(w, h, rows int) layout.Rect {
 	return layout.Rect{Col: maxInt((w-width)/2, 0), Row: maxInt((h-height)/3, 0), Width: width, Height: height}
 }
 
+// statusRect is the /status panel: the palette's place, as tall as its rows
+// and the frame, with no query line
+func (a *App) statusRect(w, h, rows int) layout.Rect {
+	r := a.modalRect(w, h, rows)
+	if r.Height > 4 {
+		r.Height = minInt(rows+2, r.Height)
+	}
+	return r
+}
+
 // menuRect is where a context menu sits: under the cell it was asked for, as
 // wide as the longest thing in it, and pulled back onto the screen when there
 // is not enough screen that way. That last part is the whole of what makes a
@@ -521,6 +571,12 @@ const menuGap = 3
 
 func (a *App) drawModal(win vaxis.Window) {
 	a.mu.Lock()
+	status := a.modal.kind == modalStatus
+	a.mu.Unlock()
+	if status {
+		a.refreshStatus()
+	}
+	a.mu.Lock()
 	if a.modal.kind == modalNone {
 		a.mu.Unlock()
 		return
@@ -537,13 +593,16 @@ func (a *App) drawModal(win vaxis.Window) {
 	// long as they are.
 	rows := modalPage
 	switch kind {
-	case modalConfirm, modalMenu:
+	case modalConfirm, modalMenu, modalStatus:
 		rows = answers
 	}
 	w, h := win.Size()
 	outer := a.modalRect(w, h, rows)
 	if kind == modalMenu {
 		outer = a.menuRect(w, h, items, at)
+	}
+	if kind == modalStatus {
+		outer = a.statusRect(w, h, answers)
 	}
 	if outer.Empty() {
 		return
@@ -572,6 +631,8 @@ func (a *App) drawModal(win vaxis.Window) {
 		title, prompt = "React", "> "
 	case modalMenu:
 		title = "Message"
+	case modalStatus:
+		title = "Status"
 	case modalForward:
 		title, prompt = "Forward to", "> "
 		if len(marked) > 0 {
@@ -583,8 +644,10 @@ func (a *App) drawModal(win vaxis.Window) {
 	// rather than a hole in it, and in the focused border colour because a
 	// modal is the only thing with focus while it is open. A terminal too
 	// small for a frame gets the content instead of the decoration.
+	// a panel with no query line needs only the frame around its rows
+	framed := height > 4 || (kind == modalStatus || kind == modalMenu) && height >= 3
 	inner := outer
-	if width > 4 && height > 4 {
+	if width > 4 && framed {
 		bx := boxFor(a.caps)
 		edge := vaxis.Style{Foreground: a.theme.BorderActive, Background: panel}
 		a.print(pane, 0, 0, edge, bx.topLeft+strings.Repeat(bx.horizontal, width-2)+bx.topRight)
@@ -613,7 +676,7 @@ func (a *App) drawModal(win vaxis.Window) {
 	// A menu is the rows and nothing else: there is no query, and a blank line
 	// where one would be is a menu with a hole in the top of it.
 	head := 2
-	if kind == modalMenu {
+	if kind == modalMenu || kind == modalStatus {
 		head = 0
 	} else {
 		line := vaxis.Style{Foreground: a.theme.Text, Background: panel}
@@ -650,6 +713,18 @@ func (a *App) drawModal(win vaxis.Window) {
 		if keys > 0 {
 			split = maxInt(inner.Width-keys, 1)
 		}
+	case kind == modalStatus:
+		// the names column is as wide as its widest name, a problem row has
+		// no name and takes the whole line
+		names := 0
+		for _, item := range items {
+			if item.Detail != "" {
+				names = maxInt(names, a.width(item.Label))
+			}
+		}
+		if names > 0 {
+			split = minInt(names+menuGap, inner.Width/2)
+		}
 	case inner.Width >= 44:
 		split = inner.Width / 2
 	}
@@ -657,9 +732,11 @@ func (a *App) drawModal(win vaxis.Window) {
 	for i, item := range shown {
 		absolute := top + i
 		bg := panel
-		if absolute == selected {
+		switch {
+		case kind == modalStatus:
+		case absolute == selected:
 			bg = a.theme.BackgroundActive
-		} else if absolute == hovered {
+		case absolute == hovered:
 			bg = a.theme.BackgroundHover
 		}
 		line := body.New(0, head+i, inner.Width, 1)
@@ -677,8 +754,12 @@ func (a *App) drawModal(win vaxis.Window) {
 			col = a.print(line, 0, 0, vaxis.Style{Foreground: a.theme.Accent, Background: bg},
 				a.markGlyph(marked[item.ChatID]))
 		}
-		a.print(line, col, 0, style, a.clip(item.Label, maxInt(split-col-1, 1)))
-		if split < inner.Width {
+		labelWidth := split - col - 1
+		if kind == modalStatus && item.Detail == "" {
+			labelWidth = inner.Width - col
+		}
+		a.print(line, col, 0, style, a.clip(item.Label, maxInt(labelWidth, 1)))
+		if split < inner.Width && (kind != modalStatus || item.Detail != "") {
 			a.print(line, split, 0, vaxis.Style{Foreground: a.theme.TextMuted, Background: bg},
 				a.clip(detail, inner.Width-split))
 		}

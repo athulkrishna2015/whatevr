@@ -17,6 +17,16 @@ func (s *selector[T]) Set(items []T) {
 	s.hovered = -1
 }
 
+// Refresh swaps the items for a newer copy of the same list, keeping the place
+func (s *selector[T]) Refresh(items []T, visible int) {
+	s.items = append(s.items[:0], items...)
+	s.selected = clamp(s.selected, 0, maxInt(len(s.items)-1, 0))
+	s.top = clamp(s.top, 0, maxInt(len(s.items)-visible, 0))
+	if s.hovered >= len(s.items) {
+		s.hovered = -1
+	}
+}
+
 func (s *selector[T]) Items() []T { return s.items }
 
 func (s *selector[T]) Current() (T, bool) {

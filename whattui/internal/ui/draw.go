@@ -568,14 +568,65 @@ func (a *App) drawHeader(win vaxis.Window, r layout.Rect) {
 	}
 	a.noteBlock(pane, 1, 0, maxInt(a.width(title), 1), 1)
 	a.print(pane, 1, 0, style, title)
+	a.drawSummary(pane, r, a.width(title)+2)
+}
 
-	if msg, colour, show := a.status(); show {
-		w, _ := pane.Size()
-		if len(msg) < w-2 {
-			a.print(pane, w-len(msg)-1, 0, vaxis.Style{
-				Foreground: colour, Background: a.theme.BackgroundPanel,
-			}, msg)
-		}
+// summarySep sits between the header's two status slots
+const summarySep = " · "
+
+// drawSummary is the right of the header: what is wrong, then a running sync.
+// the sync goes first when both don't fit beside the title, then the rest is
+// clipped. it opens /status, so it answers the pointer
+func (a *App) drawSummary(pane vaxis.Window, r layout.Rect, taken int) {
+	msg, colour, show := a.status()
+	syncing := a.syncSlot()
+	w, _ := pane.Size()
+	// a cell of air each side of the summary, plus one between it and the title
+	room := w - taken - 3
+	sep := summarySep
+	if a.caps.Tier <= term.TierPlain {
+		sep = " - "
+	}
+	parts := []string{}
+	if show && msg != "" {
+		parts = append(parts, msg)
+	}
+	if syncing != "" {
+		parts = append(parts, syncing)
+	}
+	if len(parts) == 2 && a.width(parts[0]+sep+parts[1]) > room {
+		parts = parts[:1]
+	}
+	if len(parts) == 0 || room < 1 {
+		a.mu.Lock()
+		a.statusAt = layout.Rect{}
+		a.mu.Unlock()
+		return
+	}
+	if !show || msg == "" {
+		colour = a.theme.TextMuted
+	}
+	first := a.clip(parts[0], room)
+	width := a.width(first)
+	if len(parts) == 2 {
+		width += a.width(sep + parts[1])
+	}
+
+	a.mu.Lock()
+	hovered := a.statusHovered
+	a.statusAt = layout.Rect{Col: r.Col + w - width - 2, Row: r.Row, Width: width + 2, Height: 1}
+	a.mu.Unlock()
+
+	bg := a.theme.BackgroundPanel
+	if hovered {
+		bg = a.theme.BackgroundHover
+		fill(pane.New(w-width-2, 0, width+2, 1), bg)
+	}
+	col := a.print(pane, w-width-1, 0, vaxis.Style{Foreground: colour, Background: bg}, first)
+	if len(parts) == 2 {
+		muted := vaxis.Style{Foreground: a.theme.TextMuted, Background: bg}
+		col = a.print(pane, col, 0, vaxis.Style{Foreground: a.theme.TextFaint, Background: bg}, sep)
+		a.print(pane, col, 0, muted, parts[1])
 	}
 }
 
@@ -947,6 +998,7 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 	typed := !a.composer.empty()
 	leader := a.leader
 	modal := a.modal.kind
+	statusRows := len(a.modal.selector.items)
 	message, pointing := a.selectedMessageLocked()
 	readOnly := a.conversation != nil && a.conversation.readOnly
 	a.mu.Unlock()
@@ -971,6 +1023,14 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 	// rather than what the pane behind it would have done.
 	case modal != modalNone:
 		hints = []hint{{"", "\u2191\u2193 move"}, {"", "\u23ce run"}, {"", "esc close"}}
+		if modal == modalStatus {
+			// nothing to pick, only to read
+			hints = []hint{{"", "esc close"}}
+			w, h := win.Size()
+			if r := a.statusRect(w, h, statusRows); statusRows > r.Height-2 {
+				hints = []hint{{"", "\u2191\u2193 scroll"}, {"", "esc close"}}
+			}
+		}
 		if modal == modalForward {
 			// The one panel that takes more than one answer has to say so:
 			// nothing else on the screen suggests a list can be marked.

@@ -48,6 +48,18 @@ type App struct {
 	login    *view.Object[*v2.LoginRow]
 	loginSub *proto.Subscription
 
+	// the header's summary and the /status panel read these two
+	syncs       *view.Object[*v2.SyncRow]
+	syncSub     *proto.Subscription
+	problems    *view.Collection[*v2.ProblemRow]
+	problemsSub *proto.Subscription
+	// statusAt is where the last frame drew the summary, statusHovered the
+	// pointer being on it
+	statusAt      layout.Rect
+	statusHovered bool
+	// statusTick is a countdown redraw already waiting
+	statusTick bool
+
 	// The rasteriser for the scripts a cell grid cannot hold, and the images
 	// it has already produced. shaping is snapshotted once per frame so
 	// measuring and drawing cannot disagree across the moment it comes up.
@@ -150,21 +162,23 @@ func (a *App) followFolds() {
 // New wires an app to a terminal and a daemon. It does not connect.
 func New(vx *vaxis.Vaxis, caps term.Caps, client *proto.Client) *App {
 	a := &App{
-		vx:      vx,
-		caps:    caps,
-		theme:   paletteFor(vx, caps),
-		client:  client,
-		chats:   view.NewCollection(view.Chat),
-		conn:    view.NewObject(view.Connection),
-		login:   view.NewObject(view.Login),
-		focus:   FocusList,
-		focused: true,
-		hovered: -1,
-		shape:   vaxis.MouseShapeDefault,
-		images:  map[imgKey]*vaxis.KittyImage{},
-		seen:    map[imgKey]bool{},
-		glyphs:  map[glyphKey]*image.NRGBA{},
-		drag:    drag{chat: -1},
+		vx:       vx,
+		caps:     caps,
+		theme:    paletteFor(vx, caps),
+		client:   client,
+		chats:    view.NewCollection(view.Chat),
+		conn:     view.NewObject(view.Connection),
+		login:    view.NewObject(view.Login),
+		syncs:    view.NewObject(view.Sync),
+		problems: view.NewCollection(view.Problem),
+		focus:    FocusList,
+		focused:  true,
+		hovered:  -1,
+		shape:    vaxis.MouseShapeDefault,
+		images:   map[imgKey]*vaxis.KittyImage{},
+		seen:     map[imgKey]bool{},
+		glyphs:   map[glyphKey]*image.NRGBA{},
+		drag:     drag{chat: -1},
 	}
 	a.shaper = shaperFor(vx, caps)
 	a.request = client.Do
@@ -348,6 +362,7 @@ func (a *App) Run() error {
 	sub = &v2.Subscribe{}
 	sub.SetLogin(&v2.LoginView{})
 	a.loginSub = a.client.Subscribe(sub, a.login, proto.Hooks{})
+	a.subscribeStatus()
 	a.subscribeChats()
 
 	a.draw()
@@ -445,6 +460,13 @@ func (a *App) subscribeChats() {
 
 const chatPageSize = 50
 
+// subscribeStatus holds the sync and problems views for the whole run, the
+// header summarises them
+func (a *App) subscribeStatus() {
+	a.syncSub = a.client.Subscribe(v2.Subscribe_builder{Sync: &v2.SyncView{}}.Build(), a.syncs, proto.Hooks{})
+	a.problemsSub = a.client.Subscribe(v2.Subscribe_builder{Problems: &v2.ProblemsView{}}.Build(), a.problems, proto.Hooks{})
+}
+
 // status is the one line that says what is wrong, or nothing at all. The two
 // failures are different and a reader has to be able to tell them apart: the
 // socket being down is whattui's problem, WhatsApp being down is not.
@@ -470,6 +492,9 @@ func (a *App) status() (string, vaxis.Color, bool) {
 	}
 	switch connState(c) {
 	case v2.ConnectionState_CONNECTION_STATE_ONLINE:
+		if p, ok := a.topProblem(); ok {
+			return p.GetText(), a.theme.Warning, true
+		}
 		return "", 0, false
 	case v2.ConnectionState_CONNECTION_STATE_NEED_LOGIN:
 		return "not linked to a phone: scan the code", a.theme.Warning, true

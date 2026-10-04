@@ -25,6 +25,7 @@ const (
 	cmdFocusPrevious commandID = "focus.previous"
 	cmdBoxes         commandID = "transcript.boxes"
 	cmdRedraw        commandID = "app.redraw"
+	cmdStatus        commandID = "status.open"
 	cmdReply         commandID = "message.reply"
 	cmdReact         commandID = "message.react"
 	cmdForward       commandID = "message.forward"
@@ -145,6 +146,7 @@ func (a *App) initCommands() {
 		{ID: cmdFocusNext, Title: "Focus next pane", Description: "Move focus clockwise", Direct: "tab", Slash: "focus-next", Run: func() { a.cycleFocus(1) }},
 		{ID: cmdFocusPrevious, Title: "Focus previous pane", Description: "Move focus anticlockwise", Direct: "s-tab", Slash: "focus-previous", Run: func() { a.cycleFocus(-1) }},
 		{ID: cmdBoxes, Title: "Toggle message boxes", Description: "Draw a panel per message instead of a rule per run", Leader: "b", Slash: "boxes", Run: a.toggleBoxes},
+		{ID: cmdStatus, Title: "Status", Description: "The connection, the sync and anything wrong, as whatevrd sees them", Slash: "status", Run: a.openStatus},
 		{ID: cmdRedraw, Title: "Redraw the screen", Description: "Throw away what the terminal is showing and draw it again", Direct: "^l", Slash: "redraw", Run: a.redraw},
 		{ID: cmdReply, Title: "Reply to message", Description: "Answer the message the cursor is on", Direct: "r", Scope: scopeMessage, Slash: "reply", Needs: needs(v2.Request_SendText_case), Enabled: func(state commandState) (bool, string) {
 			if ok, why := canSend(state); !ok {
