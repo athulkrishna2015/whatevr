@@ -42,28 +42,29 @@ type mockFlagSet struct {
 	scenario, dir, phone, control, now, capture *string
 	list, keep, notify                          *bool
 	seed                                        *int64
-	scanDelay, histDelay, gate                  *time.Duration
+	scanDelay, histDelay, olderDelay, gate      *time.Duration
 	segment                                     *int
 	speed                                       *float64
 }
 
 func mockFlags(zerolog.Logger) *mockFlagSet {
 	return &mockFlagSet{
-		scenario:  flag.String("mock", "", "run against a fake WhatsApp server using this scenario"),
-		list:      flag.Bool("mock-list", false, "list mock scenarios and exit"),
-		dir:       flag.String("mock-dir", "", "scratch directory for mock state (default: a per-scenario dir under XDG_RUNTIME_DIR)"),
-		seed:      flag.Int64("mock-seed", 1, "seed for every key and identifier the mock generates"),
-		scanDelay: flag.Duration("mock-scan-delay", 0, "how long a published QR sits unscanned before the mock phone pairs"),
-		phone:     flag.String("mock-phone", "", "phone number the mock account answers as"),
-		keep:      flag.Bool("mock-keep", false, "keep existing mock state instead of starting fresh"),
-		histDelay: flag.Duration("mock-history-delay", 0, "how long between history sync chunks, to make the sync view watchable"),
-		control:   flag.String("mock-control", "", "bind a control socket here for the quiescence barrier"),
-		now:       flag.String("mock-now", "", "pin the clock scenario timestamps hang off, as RFC3339, for reproducible frames"),
-		notify:    flag.Bool("mock-notify", false, "let a mock run raise desktop notifications"),
-		capture:   flag.String("mock-capture", "", "replay this capture (a name or a path) instead of a scenario"),
-		segment:   flag.Int("mock-segment", 1, "which segment of --mock-capture this run plays"),
-		speed:     flag.Float64("mock-speed", 0, "replay pace against the recorded clock, 1 is real time, 0 as fast as the gates allow"),
-		gate:      flag.Duration("mock-gate", 5*time.Second, "how long a replayed push waits for the client to catch up"),
+		scenario:   flag.String("mock", "", "run against a fake WhatsApp server using this scenario"),
+		list:       flag.Bool("mock-list", false, "list mock scenarios and exit"),
+		dir:        flag.String("mock-dir", "", "scratch directory for mock state (default: a per-scenario dir under XDG_RUNTIME_DIR)"),
+		seed:       flag.Int64("mock-seed", 1, "seed for every key and identifier the mock generates"),
+		scanDelay:  flag.Duration("mock-scan-delay", 0, "how long a published QR sits unscanned before the mock phone pairs"),
+		phone:      flag.String("mock-phone", "", "phone number the mock account answers as"),
+		keep:       flag.Bool("mock-keep", false, "keep existing mock state instead of starting fresh"),
+		histDelay:  flag.Duration("mock-history-delay", 0, "how long between history sync chunks, to make the sync view watchable"),
+		olderDelay: flag.Duration("mock-older-delay", 0, "how long the mock phone takes to answer a request for older history"),
+		control:    flag.String("mock-control", "", "bind a control socket here for the quiescence barrier"),
+		now:        flag.String("mock-now", "", "pin the clock scenario timestamps hang off, as RFC3339, for reproducible frames"),
+		notify:     flag.Bool("mock-notify", false, "let a mock run raise desktop notifications"),
+		capture:    flag.String("mock-capture", "", "replay this capture (a name or a path) instead of a scenario"),
+		segment:    flag.Int("mock-segment", 1, "which segment of --mock-capture this run plays"),
+		speed:      flag.Float64("mock-speed", 0, "replay pace against the recorded clock, 1 is real time, 0 as fast as the gates allow"),
+		gate:       flag.Duration("mock-gate", 5*time.Second, "how long a replayed push waits for the client to catch up"),
 	}
 }
 
@@ -159,6 +160,7 @@ func mockPrepare(log zerolog.Logger, f *mockFlagSet) *mockRun {
 		AccountPhone: *phone,
 		ScanDelay:    *scanDelay,
 		HistoryDelay: *histDelay,
+		OlderDelay:   *f.olderDelay,
 		Control:      *control,
 		Capture:      capturePath,
 		Segment:      *f.segment,

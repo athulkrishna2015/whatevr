@@ -16,6 +16,7 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/proto/waWeb"
+	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -85,7 +86,8 @@ func (w *World) historyChunks() []*waHistorySync.HistorySync {
 
 	conversations := make([]*waHistorySync.Conversation, 0, len(chats))
 	for _, chat := range chats {
-		conversations = append(conversations, chat.conversation(byChat[chat.JID.String()]))
+		msgs := byChat[chat.JID.String()]
+		conversations = append(conversations, chat.conversation(msgs[min(chat.held, len(msgs)):]))
 	}
 
 	var chunks []*waHistorySync.HistorySync
@@ -151,6 +153,10 @@ func (c *Chat) conversation(messages []*Msg) *waHistorySync.Conversation {
 		ID:                   proto.String(c.JID.String()),
 		UnreadCount:          proto.Uint32(c.unread),
 		EndOfHistoryTransfer: proto.Bool(true),
+		ReadOnly:             proto.Bool(c.readOnly),
+	}
+	if c.historyEnd {
+		conv.EndOfHistoryTransferType = waHistorySync.Conversation_COMPLETE_AND_NO_MORE_MESSAGE_REMAIN_ON_PRIMARY.Enum()
 	}
 	if c.IsGroup {
 		conv.Name = proto.String(c.Name)
@@ -172,6 +178,77 @@ func (c *Chat) conversation(messages []*Msg) *waHistorySync.Conversation {
 		conv.Messages = append(conv.Messages, &waHistorySync.HistorySyncMsg{Message: msg.webMessage()})
 	}
 	return conv
+}
+
+// olderThan is up to count of a chat's held back history messages from just
+// before the one with id, oldest first. Nothing for an id it never sent.
+func (w *World) olderThan(chat *Chat, id string, count int) []*Msg {
+	w.mu.Lock()
+	var msgs []*Msg
+	for _, msg := range w.history {
+		if msg.Chat == chat {
+			msgs = append(msgs, msg)
+		}
+	}
+	w.mu.Unlock()
+	sort.SliceStable(msgs, func(i, j int) bool { return msgs[i].At.Before(msgs[j].At) })
+
+	held := min(chat.held, len(msgs))
+	for i, msg := range msgs {
+		if msg.ID == id {
+			end := min(i, held)
+			return msgs[max(end-count, 0):end]
+		}
+	}
+	return nil
+}
+
+// answerOlder is the phone answering a request for older history: an
+// on-demand sync of the held back messages before the oldest one the client
+// has, after the delay the run asked for. A chat with nothing more held
+// still gets an answer, an empty one, because that is what clears the
+// client's request.
+func (s *session) answerOlder(req *waE2E.PeerDataOperationRequestMessage_HistorySyncOnDemandRequest) {
+	world := s.srv.world
+	if world == nil {
+		return
+	}
+	jid, err := types.ParseJID(req.GetChatJID())
+	if err != nil {
+		s.srv.log.Printf("older history for a chat that is not a jid: %q", req.GetChatJID())
+		return
+	}
+	if jid.Server == types.HiddenUserServer {
+		jid.Server = types.DefaultUserServer
+	}
+	chat, ok := world.chatByJID(jid)
+	if !ok {
+		s.srv.log.Printf("older history for %s, which is not in this world", jid)
+		return
+	}
+	conv := &waHistorySync.Conversation{ID: proto.String(chat.JID.String())}
+	for _, msg := range world.olderThan(chat, req.GetOldestMsgID(), int(req.GetOnDemandMsgCount())) {
+		conv.Messages = append(conv.Messages, &waHistorySync.HistorySyncMsg{Message: msg.webMessage()})
+	}
+	syncType := waHistorySync.HistorySync_ON_DEMAND
+	chunk := &waHistorySync.HistorySync{
+		SyncType:      &syncType,
+		ChunkOrder:    proto.Uint32(1),
+		Progress:      proto.Uint32(100),
+		Conversations: []*waHistorySync.Conversation{conv},
+	}
+	delay := s.srv.opts.OlderDelay
+	// counted from here, or sync calls it quiet while the answer waits
+	s.srv.quiet.addWork(1)
+	go func() {
+		defer s.srv.quiet.addWork(-1)
+		select {
+		case <-time.After(delay):
+		case <-s.done:
+			return
+		}
+		s.enqueue(func(ctx context.Context) error { return s.sendHistoryChunk(ctx, chunk) })
+	}()
 }
 
 // webMessage is the WebMessageInfo shape ParseWebMessage reads. History sync is

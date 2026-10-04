@@ -45,6 +45,10 @@ type Options struct {
 	// finishes before the first frame can be watched.
 	HistoryDelay time.Duration
 
+	// OlderDelay is how long the phone takes to answer a request for older
+	// history, so the wait for it can be looked at.
+	OlderDelay time.Duration
+
 	// Now pins the clock every relative scenario timestamp hangs off. Zero
 	// means the real one, which is what you want when looking at the thing; a
 	// fixed instant is what you want when comparing frames byte for byte.

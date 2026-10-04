@@ -149,6 +149,33 @@ type Chat struct {
 	pinOrder uint32
 	archived bool
 	muted    bool
+
+	// readOnly is a chat the account may not send to, historyEnd one the
+	// phone has nothing older for, and held how many of its oldest history
+	// messages stay on the phone until the client asks for them.
+	readOnly   bool
+	historyEnd bool
+	held       int
+}
+
+// SetReadOnly makes the chat one the account may not send to, the way an
+// announcement group or a channel arrives in history sync.
+func (c *Chat) SetReadOnly(readOnly bool) *Chat {
+	c.readOnly = readOnly
+	return c
+}
+
+// SetHistoryEnd says in history sync that the phone has nothing older.
+func (c *Chat) SetHistoryEnd(end bool) *Chat {
+	c.historyEnd = end
+	return c
+}
+
+// HoldBack keeps the chat's oldest n history messages off the initial sync.
+// They go out only as answers to the client asking for older history.
+func (c *Chat) HoldBack(n int) *Chat {
+	c.held = n
+	return c
 }
 
 // Archive puts the chat in the archived section. It arrives as an app state
