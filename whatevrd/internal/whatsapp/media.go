@@ -51,6 +51,8 @@ type media struct {
 	retries   map[string]*mediaRetry
 	streams   map[string]*streamEntry
 	keys      map[string]*keyLock
+	// admit bounds the downloads and streams running at once
+	admit *admission
 
 	// arrivals is live messages to look at once they fold
 	arrivals chan arrival
@@ -101,6 +103,7 @@ func newMedia(c *Client) *media {
 		keys:      map[string]*keyLock{},
 		arrivals:  make(chan arrival, 256),
 		made:      make(chan made, 256),
+		admit:     newAdmission(mediaFetches),
 	}
 }
 
@@ -141,7 +144,7 @@ func (c *Client) Download(ctx context.Context, ref Ref) error {
 	if t.location() && !c.prefs(ctx).GetAutoFetchMaps() {
 		return Errorf(ErrRejected, "map fetching is turned off")
 	}
-	c.spawn(func(ctx context.Context) { _, _ = c.media.fetch(ctx, t) })
+	c.spawn(func(ctx context.Context) { _, _ = c.media.fetch(ctx, t, true) })
 	return nil
 }
 
@@ -172,8 +175,9 @@ func (c *Client) CancelDownload(ctx context.Context, ref Ref) error {
 }
 
 // fetch downloads t's media, or joins the download already running, and
-// says where it landed.
-func (md *media) fetch(ctx context.Context, t target) (string, error) {
+// says where it landed. asked is someone wanting it now, ahead of what the
+// preferences fetch.
+func (md *media) fetch(ctx context.Context, t target, asked bool) (string, error) {
 	md.mu.Lock()
 	if d := md.downloads[t.key]; d != nil {
 		md.mu.Unlock()
@@ -198,7 +202,7 @@ func (md *media) fetch(ctx context.Context, t target) (string, error) {
 		close(d.done)
 		md.mu.Unlock()
 	}()
-	path, started, err := md.fetchOne(ctx, t)
+	path, started, err := md.fetchOne(ctx, t, asked)
 	d.err = err
 	c := md.c
 	if started {
@@ -225,7 +229,7 @@ func (md *media) landed(ctx context.Context, t target) string {
 	return ""
 }
 
-func (md *media) fetchOne(ctx context.Context, t target) (string, bool, error) {
+func (md *media) fetchOne(ctx context.Context, t target, asked bool) (string, bool, error) {
 	c := md.c
 	m, sm := t.m, t.sm
 	if p := sm.MediaLocalPath; p != "" {
@@ -245,6 +249,11 @@ func (md *media) fetchOne(ctx context.Context, t target) (string, bool, error) {
 		// a retry clears the error before it starts
 		c.logLocal(ctx, core.LocalHead{Chat: m.Chat, ID: m.ID, Op: core.MediaError})
 	}
+	release, err := md.admit.take(ctx, asked)
+	if err != nil {
+		return "", false, err
+	}
+	defer release()
 	if t.location() {
 		return md.fetchMap(ctx, t)
 	}
@@ -630,7 +639,7 @@ func (md *media) look(ctx context.Context, a arrival) {
 		on = false
 	}
 	if on {
-		c.spawn(func(ctx context.Context) { _, _ = md.fetch(ctx, t) })
+		c.spawn(func(ctx context.Context) { _, _ = md.fetch(ctx, t, false) })
 	}
 }
 

@@ -95,7 +95,16 @@ func (c *Client) StreamMedia(ctx context.Context, ref Ref, update func(StreamUpd
 	if err != nil {
 		return Stream{}, err
 	}
-	e, err := md.ensureStream(t, dm, u, sid, update)
+	md.mu.Lock()
+	_, joining := md.streams[t.key]
+	md.mu.Unlock()
+	release := func() {}
+	if !joining {
+		if release, err = md.admit.take(ctx, true); err != nil {
+			return Stream{}, err
+		}
+	}
+	e, err := md.ensureStream(t, dm, u, sid, update, release)
 	if err != nil {
 		return Stream{}, err
 	}
@@ -156,11 +165,18 @@ func streamAppInfo(kind string) whatsmeow.MediaType {
 }
 
 // ensureStream is the running stream of a message, started if there is
-// none: two players share one fetch.
-func (md *media) ensureStream(t target, dm downloadableMedia, u, sid string, update func(StreamUpdate)) (*streamEntry, error) {
+// none: two players share one fetch. release is the admission slot a new
+// fetch holds until it stops.
+func (md *media) ensureStream(t target, dm downloadableMedia, u, sid string, update func(StreamUpdate), release func()) (*streamEntry, error) {
 	c := md.c
 	md.mu.Lock()
 	defer md.mu.Unlock()
+	started := false
+	defer func() {
+		if !started {
+			release()
+		}
+	}()
 	if e, ok := md.streams[t.key]; ok {
 		if e.completed == "" {
 			e.asked[sid] = update
@@ -196,13 +212,17 @@ func (md *media) ensureStream(t target, dm downloadableMedia, u, sid string, upd
 		func(got, total int64) {
 			c.live.SetTransfer(live.Transfer{Chat: chat, ID: id, Done: uint64(got), Total: uint64(total)})
 		},
-		func(err error) { go md.finishStream(key, t, err) })
+		func(err error) {
+			release()
+			go md.finishStream(key, t, err)
+		})
 	if err != nil {
 		return nil, err
 	}
 	e := &streamEntry{chat: chat, id: id, stream: s, part: final + ".part", final: final, size: s.Size(),
 		mime: t.sm.MediaMimeType, asked: map[string]func(StreamUpdate){sid: update}}
 	md.streams[key] = e
+	started = true
 	c.live.SetTransfer(live.Transfer{Chat: chat, ID: id, Done: uint64(s.ReadyBytes()), Total: uint64(s.Size())})
 	return e, nil
 }
@@ -254,7 +274,7 @@ func (md *media) recover(ctx context.Context, key string, t target, e *streamEnt
 	asked := e.asked
 	e.asked = nil
 	md.mu.Unlock()
-	path, err := md.fetch(ctx, t)
+	path, err := md.fetch(ctx, t, true)
 	for sid, tell := range asked {
 		if tell != nil {
 			tell(StreamUpdate{StreamID: sid, Ref: Ref{Chat: t.m.Chat, ID: t.m.ID}, Path: path, Err: err})
