@@ -139,10 +139,12 @@ func (rs *Reads) apply(ctx context.Context, c core.Change) {
 	} else if ps := c.Keys["person"]; len(ps) > 0 {
 		rs.patchWorld(ctx, ps)
 	}
-	if c.All["chat"] || c.All["message"] || c.All["person"] || len(c.Keys["person"]) > 0 {
-		// a group preview names its sender
+	if c.All["chat"] || c.All["message"] || c.All["person"] {
 		rs.previews.dropAll()
 		return
+	}
+	if ps := c.Keys["person"]; len(ps) > 0 {
+		rs.previews.dropPeople(ps...)
 	}
 	addrs := slices.Concat(c.Keys["chat"], c.Keys["chatrow"])
 	for _, mk := range c.Keys["message"] {

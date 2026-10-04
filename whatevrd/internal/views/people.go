@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
+	"go.mau.fi/whatsmeow/types"
 
 	"whatevrd/internal/core"
 	"whatevrd/internal/model"
@@ -42,9 +43,48 @@ func (rs *Reads) begin(ctx context.Context) (*rc, error) {
 
 func (c *rc) decoder() *whatsapp.Decoder {
 	if c.dec == nil {
-		c.dec = whatsapp.NewDecoder(whatsapp.WorldNames(c.w), c.media)
+		c.dec = whatsapp.NewDecoder(sawNames{whatsapp.WorldNames(c.w), c}, c.media)
 	}
 	return c.dec
+}
+
+// sawNames is the world's names, noting in shown everyone the decoder names
+type sawNames struct {
+	whatsapp.Names
+	c *rc
+}
+
+func (n sawNames) Norm(j types.JID) types.JID {
+	n.c.saw(j.ToNonAD().String())
+	return n.Names.Norm(j)
+}
+
+func (n sawNames) Name(j types.JID) string {
+	n.c.saw(j.ToNonAD().String())
+	return n.Names.Name(j)
+}
+
+func (n sawNames) Own(j types.JID) bool {
+	n.c.saw(j.ToNonAD().String())
+	return n.Names.Own(j)
+}
+
+// saw puts addr in shown, with every address its name comes from as of now
+func (c *rc) saw(addr string) {
+	if addr == "" {
+		return
+	}
+	if c.shown == nil {
+		c.shown = map[string]bool{}
+	}
+	if addr == model.Me || c.w.IsSelf(addr) {
+		c.shown["self"] = true
+		return
+	}
+	c.shown[addr] = true
+	for _, a := range c.w.Addrs(c.w.Now(addr)) {
+		c.shown[a] = true
+	}
 }
 
 // wait has set called with key's id and avatar once the rows are built.
@@ -109,6 +149,7 @@ func (c *rc) person(key string) *v2.Person {
 	if key == model.Me || c.w.IsSelf(key) {
 		return c.self()
 	}
+	c.saw(key)
 	name, _ := c.w.Name(key)
 	p := v2.Person_builder{Name: name, Phone: phone(c.w.PN(key))}.Build()
 	c.wait(key, func(id, av string) { p.SetId(id); p.SetAvatarPath(av) })

@@ -65,6 +65,7 @@ func msg(id, chat, sender, alt string, fromMe bool, sec int, s string) core.Inpu
 type fixture struct {
 	t  *testing.T
 	db *core.DB
+	rs *Reads
 	nc net.Conn
 	r  *bufio.Reader
 	id uint64
@@ -96,6 +97,7 @@ func open(t *testing.T, ins ...core.Input) *fixture {
 		t.Fatal(err)
 	}
 	rs.Register(srv)
+	f.rs = rs
 	told.Store(rs)
 	go rs.Run(ctx)
 	srv.Serve(ctx)
@@ -226,6 +228,43 @@ func TestChatsListNewestFirstWithPreviews(t *testing.T) {
 	}
 	if string(up[0].GetSort()) >= string(rows[0].GetSort()) {
 		t.Fatal("asha did not move above the group")
+	}
+}
+
+func TestAPreviewGoesOnlyWithSomeoneItNames(t *testing.T) {
+	f := open(t, scenario()...)
+	sub, rows := f.subscribe(func(s *v2.Subscribe) { s.SetChats(&v2.ChatsView{}) })
+	if g := rows[0].GetChat().GetPreview().GetText(); g != "Bobby: group news" {
+		t.Fatalf("group preview %q", g)
+	}
+	cached := func(key string) bool { _, ok := f.rs.previews.get(key); return ok }
+	if !cached(grp) || !cached(ashaL) {
+		t.Fatalf("not cached: group %v, asha %v", cached(grp), cached(ashaL))
+	}
+	touch := func(p string) {
+		f.rs.apply(context.Background(), core.Change{Keys: map[string][]string{"person": {p}}})
+	}
+	touch(boPN)
+	if cached(grp) || !cached(ashaL) {
+		t.Fatalf("after bo's change: group %v, asha %v", cached(grp), cached(ashaL))
+	}
+	f.subscribe(func(s *v2.Subscribe) { s.SetChats(&v2.ChatsView{}) })
+	touch(ashaPN)
+	if !cached(grp) {
+		t.Fatal("asha's change dropped a preview that doesn't name her")
+	}
+	touch("self")
+	if cached(grp) {
+		t.Fatal("our change kept a preview")
+	}
+
+	f.feed(in(core.KindPushName, core.PushNameHead{JID: boL, JIDAlt: boPN, T: base.Unix() + 40, New: "Bo"}, nil, 40))
+	for {
+		for _, u := range f.upserts(sub) {
+			if u.GetId() == rows[0].GetId() && u.GetChat().GetPreview().GetText() == "Bo: group news" {
+				return
+			}
+		}
 	}
 }
 

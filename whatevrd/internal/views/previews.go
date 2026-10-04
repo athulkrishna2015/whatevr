@@ -1,6 +1,7 @@
 package views
 
 import (
+	"slices"
 	"sync"
 
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
@@ -8,7 +9,7 @@ import (
 
 // previews keeps each chat's preview, the costly part of a chat row. a fold
 // that touches a chat drops its preview, one that touches a person drops
-// them all (a group preview names its sender).
+// the previews that name them.
 type previews struct {
 	mu sync.Mutex
 	// gen moves on every drop. a preview built from reads that began before
@@ -16,15 +17,18 @@ type previews struct {
 	gen    uint64
 	byKey  map[string]previewEntry
 	byAddr map[string]string
+	// byPerson is the chats whose previews name an address, "self" for us
+	byPerson map[string]map[string]bool
 }
 
 type previewEntry struct {
 	addrs []string
+	named map[string]bool
 	p     *v2.ChatPreview
 }
 
 func newPreviews() *previews {
-	return &previews{byKey: map[string]previewEntry{}, byAddr: map[string]string{}}
+	return &previews{byKey: map[string]previewEntry{}, byAddr: map[string]string{}, byPerson: map[string]map[string]bool{}}
 }
 
 // begin is the generation a build starts from.
@@ -42,17 +46,24 @@ func (c *previews) get(key string) (*v2.ChatPreview, bool) {
 	return e.p, ok
 }
 
-// put keeps p for key unless something was dropped since gen.
-func (c *previews) put(gen uint64, key string, addrs []string, p *v2.ChatPreview) {
+// put keeps p for key, naming the people in named, unless something was
+// dropped since gen.
+func (c *previews) put(gen uint64, key string, addrs []string, named map[string]bool, p *v2.ChatPreview) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if gen != c.gen {
 		return
 	}
 	c.dropKeyLocked(key)
-	c.byKey[key] = previewEntry{addrs: addrs, p: p}
+	c.byKey[key] = previewEntry{addrs: addrs, named: named, p: p}
 	for _, a := range addrs {
 		c.byAddr[a] = key
+	}
+	for a := range named {
+		if c.byPerson[a] == nil {
+			c.byPerson[a] = map[string]bool{}
+		}
+		c.byPerson[a][key] = true
 	}
 }
 
@@ -70,12 +81,30 @@ func (c *previews) drop(addrs ...string) {
 	}
 }
 
+// dropPeople forgets the previews that name any of people. us changing
+// drops them all: who we are decides which row a preview shows.
+func (c *previews) dropPeople(people ...string) {
+	if slices.Contains(people, "self") {
+		c.dropAll()
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.gen++
+	for _, a := range people {
+		for k := range c.byPerson[a] {
+			c.dropKeyLocked(k)
+		}
+	}
+}
+
 func (c *previews) dropAll() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.gen++
 	clear(c.byKey)
 	clear(c.byAddr)
+	clear(c.byPerson)
 }
 
 func (c *previews) dropKeyLocked(key string) {
@@ -87,6 +116,12 @@ func (c *previews) dropKeyLocked(key string) {
 	for _, a := range e.addrs {
 		if c.byAddr[a] == key {
 			delete(c.byAddr, a)
+		}
+	}
+	for a := range e.named {
+		delete(c.byPerson[a], key)
+		if len(c.byPerson[a]) == 0 {
+			delete(c.byPerson, a)
 		}
 	}
 }

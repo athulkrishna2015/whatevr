@@ -465,10 +465,13 @@ func shared(out store.Message, l model.Live, now int64) store.Message {
 func (c *rc) system(row *v2.MessageRow, m model.Message) {
 	s := m.System
 	who := func(j string) store.SystemParticipant {
+		c.saw(model.Norm(j))
 		if c.w.IsSelf(j) {
 			return store.SystemParticipant{JID: j, Self: true}
 		}
-		name, _ := c.w.Name(c.w.Key(model.Norm(j), m.T))
+		key := c.w.Key(model.Norm(j), m.T)
+		c.saw(key)
+		name, _ := c.w.Name(key)
 		return store.SystemParticipant{JID: j, Name: strings.TrimPrefix(name, "~")}
 	}
 	p := store.SystemPayload{Type: s.Type, Value: s.Value, Detail: s.Detail, On: s.On, Seconds: s.Seconds}

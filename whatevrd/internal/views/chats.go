@@ -150,8 +150,9 @@ func (c *rc) chatRow(gen uint64, ch model.Chat) *v2.ChatRow {
 	c.wait(ch.Key, func(id, av string) { row.SetId(id); row.SetAvatarPath(av) })
 	p, ok := c.previews.get(ch.Key)
 	if !ok {
-		p = c.preview(ch)
-		c.previews.put(gen, ch.Key, ch.Addrs, p)
+		var named map[string]bool
+		p, named = c.preview(ch)
+		c.previews.put(gen, ch.Key, ch.Addrs, named, p)
 	}
 	row.SetPreview(p)
 	return row
@@ -170,18 +171,19 @@ func chatType(key string) v2.ChatType {
 	return v2.ChatType_CHAT_TYPE_DIRECT
 }
 
-// preview is the chat's newest row as the list says it, nil for none. the
-// row is built on a read of its own: nobody in it is shown, so nobody needs
-// an id.
-func (c *rc) preview(ch model.Chat) *v2.ChatPreview {
+// preview is the chat's newest row as the list says it, nil for none, and
+// everyone its text names. the row is built on a read of its own: nobody in
+// it needs an id.
+func (c *rc) preview(ch model.Chat) (*v2.ChatPreview, map[string]bool) {
 	last, ok, err := c.r.Preview(c.ctx, c.w, ch.Addrs)
 	if err != nil {
 		c.log.Warn().Err(err).Str("chat", ch.Key).Msg("views: preview")
 	}
 	if !ok {
-		return nil
+		return nil, nil
 	}
-	pc := &rc{Reads: c.Reads, ctx: c.ctx, w: c.w, dec: c.dec}
+	// its own decoder, so the names it uses land in its own shown
+	pc := &rc{Reads: c.Reads, ctx: c.ctx, w: c.w}
 	row, line := pc.build(chatOf(ch), last)
 	if ch.Group && last.System == nil && line != "" {
 		author := strings.TrimSpace(strings.TrimPrefix(row.GetSender().GetName(), "~"))
@@ -192,5 +194,5 @@ func (c *rc) preview(ch model.Chat) *v2.ChatPreview {
 			line = author + ": " + line
 		}
 	}
-	return v2.ChatPreview_builder{Text: line, FromMe: last.FromMe, Status: row.GetStatus()}.Build()
+	return v2.ChatPreview_builder{Text: line, FromMe: last.FromMe, Status: row.GetStatus()}.Build(), pc.shown
 }
