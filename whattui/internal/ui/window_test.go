@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -416,4 +417,39 @@ func TestNothingLeavesASubscriptionBehind(t *testing.T) {
 func (a *App) reactSelectedFirst() {
 	a.moveCursor(1)
 	a.reactSelected()
+}
+
+// a window being filled is never drawn half done: the one on screen stays
+// until the new one's ready, then the new one takes over in one frame
+func TestTheOldWindowStaysUntilTheNewOneIsReady(t *testing.T) {
+	a := stubApp(100, 26, 4, 6)
+	a.paint()
+	c := a.conv()
+	next := &window{msgs: view.NewCollection(view.Message), size: messagePageSize, anchor: "n2"}
+	next.msgs.SetReverse(true)
+	for i := 0; i < 4; i++ {
+		putMsg(next.msgs, fmt.Sprintf("%020d", i), v2.MessageRow_builder{
+			Id: fmt.Sprintf("n%d", i), TextBody: &v2.Text{}, Text: "from the other window",
+			TMs: (1759000000 + int64(i)*60) * 1000, Sender: person("910000000@s.whatsapp.net", "contact 0"),
+		}.Build())
+	}
+	old := c.window
+	c.next = next
+
+	a.paint()
+	if s := screenText(a); strings.Contains(s, "other window") || !strings.Contains(s, "source of truth") {
+		t.Fatal("a window that is not ready yet is on screen")
+	}
+	if c.window != old || c.next != next {
+		t.Fatal("the swap happened before ready")
+	}
+
+	ready(next.msgs, false)
+	a.paint()
+	if s := screenText(a); !strings.Contains(s, "other window") || strings.Contains(s, "source of truth") {
+		t.Fatal("the ready window did not take the whole screen in one frame")
+	}
+	if c.window != next || c.next != nil {
+		t.Error("the new window is not the one on screen")
+	}
 }
