@@ -138,15 +138,27 @@ func (rs *Reads) syncView(ctx context.Context, s *server.Session, req *v2.Subscr
 	return w, nil, nil
 }
 
-// syncRow is the sync type running now, or the one that ran last.
+// syncRow is the sync type running now, or the one the phone sent last.
 func syncRow(hs []model.HistoryState, now time.Time) *v2.SyncRow {
 	var cur *model.HistoryState
 	for i := range hs {
 		h := &hs[i]
-		if cur == nil || (h.State == model.Syncing) != (cur.State == model.Syncing) && h.State == model.Syncing ||
-			(h.State == model.Syncing) == (cur.State == model.Syncing) && h.Last > cur.Last {
-			cur = h
+		syncing := h.State == model.Syncing
+		switch {
+		case cur == nil:
+		case syncing != (cur.State == model.Syncing):
+			if !syncing {
+				continue
+			}
+		case syncing:
+			if h.Last <= cur.Last {
+				continue
+			}
+		// not by when its downloads finished, which two workers race
+		case h.Newest <= cur.Newest:
+			continue
 		}
+		cur = h
 	}
 	row := &v2.SyncRow{}
 	if cur == nil {

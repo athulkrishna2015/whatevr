@@ -130,6 +130,9 @@ type HistoryState struct {
 	// Last is when the newest notification or download of the type landed,
 	// unix ms
 	Last int64
+	// Newest is the seq of the type's newest notification: the phone's order,
+	// which a replay repeats, where Last is the downloads'
+	Newest int64
 }
 
 type Completeness struct {
@@ -177,7 +180,7 @@ func (r *Reader) Completeness(ctx context.Context) (Completeness, error) {
 	rows, err = r.db.QueryContext(ctx, `SELECT n.sync_type, MAX(n.progress), COUNT(*),
 		SUM(CASE WHEN b.notification IS NULL THEN 1 ELSE 0 END),
 		SUM(CASE WHEN b.error != '' THEN 1 ELSE 0 END),
-		MAX(MAX(n.at, COALESCE(b.at, 0)))
+		MAX(MAX(n.at, COALESCE(b.at, 0))), MAX(n.seq)
 		FROM hist_note n LEFT JOIN hist_blob b ON b.notification = n.notification
 		GROUP BY n.sync_type ORDER BY n.sync_type`)
 	if err != nil {
@@ -186,7 +189,7 @@ func (r *Reader) Completeness(ctx context.Context) (Completeness, error) {
 	defer rows.Close()
 	for rows.Next() {
 		var h HistoryState
-		if err := rows.Scan(&h.SyncType, &h.Progress, &h.Blobs, &h.Pending, &h.Failed, &h.Last); err != nil {
+		if err := rows.Scan(&h.SyncType, &h.Progress, &h.Blobs, &h.Pending, &h.Failed, &h.Last, &h.Newest); err != nil {
 			return c, err
 		}
 		switch {
