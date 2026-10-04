@@ -41,3 +41,7 @@ require (
 replace github.com/codelif/whatevr/proto => ../proto
 
 replace go.mau.fi/util => git.sr.ht/~codelif/go-util v0.10.2-0.20261003185047-cb7dec371f08
+
+require github.com/codelif/whatevr/platform v0.0.0
+
+replace github.com/codelif/whatevr/platform => ../platform

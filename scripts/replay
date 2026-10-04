@@ -102,7 +102,9 @@ class Daemon:
     def __init__(self, binary: Path, scratch: Path, args: list[str], keep: bool) -> None:
         self.binary = binary
         self.scratch = scratch
-        self.control = scratch.with_name(scratch.name + ".ctl")
+        resolved = json.loads(subprocess.check_output([str(binary), "paths", "--json", "--mock-dir", str(scratch)], text=True))
+        self.resolved_paths = resolved
+        self.control = Path(resolved["ControlPath"])
         cmd = [str(binary), *args, "--mock-dir", str(scratch), "--mock-control", str(self.control), "--mock-now", MOCK_NOW]
         if keep:
             cmd.append("--mock-keep")
@@ -112,7 +114,7 @@ class Daemon:
 
     @property
     def socket_path(self) -> Path:
-        return self.scratch / "run" / "whatevr" / "whatevrd.sock"
+        return Path(self.resolved_paths["SocketPath"])
 
     def settle(self, timeout_ms: int) -> dict[str, object]:
         ctl = Control(self.control)
@@ -375,8 +377,11 @@ def replay(binary: Path, capture: Path, work: Path, speed: float, scratch: Path 
 def resolve(arg: str) -> Path:
     if "/" in arg:
         return Path(arg).resolve()
-    state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state")
-    return state / "whatevr" / "captures" / arg
+    if os.environ.get("XDG_STATE_HOME"):
+        return Path(os.environ["XDG_STATE_HOME"]) / "whatevr" / "captures" / arg
+    if sys.platform == "darwin":
+        return Path.home() / "Library/Application Support/in.codelif.whatevr/captures" / arg
+    return Path.home() / ".local/state/whatevr/captures" / arg
 
 
 def send_text(daemon: Daemon, phone: str, text: str) -> None:

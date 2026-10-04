@@ -37,10 +37,12 @@ test target="all":
         *) printf 'unknown target: %s\n' "{{target}}" >&2; exit 1 ;; \
     esac
 
+[env("TMPDIR", "/tmp")]
 _test-daemon:
     @just _require-whatsmeow
+    @go -C platform test ./...
     @cd whatevrd && go test -tags sqlite_fts5 ./...
-    @cd whatevrd && go test -tags sqlite_fts5 -race ./internal/core/... ./internal/ingest/... ./internal/model/... ./internal/status/... ./internal/live/... ./internal/server/... ./internal/views/... ./internal/commands/... ./internal/whatsapp/...
+    @cd whatevrd && go test -tags sqlite_fts5 -race ./internal/core/... ./internal/ingest/... ./internal/model/... ./internal/status/... ./internal/live/... ./internal/server/... ./internal/views/... ./internal/commands/... ./internal/whatsapp/... ./internal/notify/... ./internal/conn/...
     @cd whatevrd && go test -tags "sqlite_fts5 whatevr_mock" ./internal/wamock/... ./internal/ingest/...
     @cd whatevrd && go test -tags "sqlite_fts5 whatevr_mock" -race ./internal/conn/...
     @cd whatevrd && go test -tags "sqlite_fts5 whatevr_mock whatevr_capture" ./cmd/whatevrd/
@@ -49,6 +51,7 @@ _test-daemon:
 
 # Race is not optional: the protocol client, the view models and the render
 # loop are three goroutines over one model.
+[env("TMPDIR", "/tmp")]
 _test-whattui:
     @just _require-vaxis
     @cd whattui && files="$(gofmt -l . | grep -v '^vaxis/' || true)"; \
@@ -83,7 +86,8 @@ uninstall prefix="/usr/local" destdir="":
     rm -f "$destdir$prefix/bin/whatevrd"; \
     rm -f "$destdir$prefix/bin/whattui"; \
     rm -f "$destdir$prefix/lib/systemd/user/whatevrd.service"; \
-    rm -f "$destdir$prefix/lib/systemd/user/whatevrd.socket"
+    rm -f "$destdir$prefix/lib/systemd/user/whatevrd.socket"; \
+    if [ "$(uname -s)" = Darwin ]; then rm -rf "$destdir$prefix/libexec/Whatevr Notifications.app"; fi
 
 clean:
     @rm -rf {{build_dir}}
@@ -92,6 +96,7 @@ _build profile dir=build_dir:
     @test "{{profile}}" = debug -o "{{profile}}" = release
     @just _build-daemon "{{profile}}" "{{dir}}"
     @just _build-whattui "{{profile}}" "{{dir}}"
+    @if [ "$(uname -s)" = Darwin ]; then scripts/build-macos "{{dir}}/{{profile}}"; fi
 
 # whattui builds against the vaxis fork in whattui/vaxis, which is a submodule.
 # The source tarball carries it; a clone without it skips whattui rather than
@@ -128,6 +133,7 @@ _build-whattui profile dir=build_dir:
         ldflags="-s -w"; \
     fi; \
     mkdir -p "$out_dir"; \
+    if [ "$(go env GOOS)" = darwin ]; then export CGO_ENABLED=1; fi; \
     go -C whattui build "${go_flags[@]}" -ldflags "$ldflags" \
         -o "$out_dir/whattui" ./cmd/whattui
 
@@ -155,48 +161,17 @@ _build-daemon profile dir=build_dir:
 
 _install profile prefix destdir:
     @just _build "{{profile}}"
-    @profile="{{profile}}"; \
-    prefix="{{prefix}}"; \
-    destdir="{{destdir}}"; \
-    build_root="{{build_dir}}/$profile"; \
-    bindir="$prefix/bin"; \
-    user_unit_dir="$prefix/lib/systemd/user"; \
-    install -Dm755 "$build_root/whatevrd" "$destdir$bindir/whatevrd"; \
-    if [ -f "$build_root/whattui" ]; then \
-        install -Dm755 "$build_root/whattui" "$destdir$bindir/whattui"; \
-    fi; \
-    sed "s|@BINDIR@|$bindir|g" packaging/systemd/whatevrd.service.in \
-        > "$build_root/whatevrd.service"; \
-    install -Dm644 "$build_root/whatevrd.service" \
-        "$destdir$user_unit_dir/whatevrd.service"; \
-    install -Dm644 packaging/systemd/whatevrd.socket \
-        "$destdir$user_unit_dir/whatevrd.socket"
+    @python3 scripts/install.py "{{profile}}" "{{prefix}}" "{{destdir}}"
 
 # git archive leaves submodules out, so both forks are appended by hand.
 _source-tarball:
     @just _require-vaxis
     @just _require-whatsmeow
-    @version="{{version}}"; \
-    mkdir -p {{build_dir}}; \
-    git archive --format=tar --prefix="whatevr-$version/" HEAD \
-        > "{{build_dir}}/whatevr-$version.tar"; \
-    git -C whattui/vaxis archive --format=tar \
-        --prefix="whatevr-$version/whattui/vaxis/" HEAD \
-        > "{{build_dir}}/vaxis.tar"; \
-    git -C whatevrd/whatsmeow archive --format=tar \
-        --prefix="whatevr-$version/whatevrd/whatsmeow/" HEAD \
-        > "{{build_dir}}/whatsmeow.tar"; \
-    tar -Af "{{build_dir}}/whatevr-$version.tar" "{{build_dir}}/vaxis.tar"; \
-    tar -Af "{{build_dir}}/whatevr-$version.tar" "{{build_dir}}/whatsmeow.tar"; \
-    rm -f "{{build_dir}}/vaxis.tar" "{{build_dir}}/whatsmeow.tar"; \
-    printf '%s\n' "$version" > {{build_dir}}/VERSION; \
-    tar --transform "s,^,whatevr-$version/," \
-        -rf "{{build_dir}}/whatevr-$version.tar" -C {{build_dir}} VERSION; \
-    gzip -f "{{build_dir}}/whatevr-$version.tar"; \
-    printf 'wrote {{build_dir}}/whatevr-%s.tar.gz\n' "$version"
+    @python3 scripts/artifacts.py source
 
 _binary-tarball arch:
-    @version="{{version}}"; \
+    @if [ "$(uname -s)" = Darwin ]; then just build-release; python3 scripts/artifacts.py darwin "{{arch}}"; exit 0; fi; \
+    version="{{version}}"; \
     name="whatevr-$version-linux-{{arch}}"; \
     root="$(pwd)/{{build_dir}}/release/dist-bin-root"; \
     dist_dir="$(pwd)/{{build_dir}}/$name"; \
@@ -213,5 +188,4 @@ _binary-tarball arch:
     printf 'wrote {{build_dir}}/%s.tar.zst\n' "$name"
 
 _checksums:
-    @cd {{build_dir}} && sha256sum whatevr-*.tar.gz whatevr-*.tar.zst > SHA256SUMS
-    @printf 'wrote {{build_dir}}/SHA256SUMS\n'
+    @python3 scripts/artifacts.py checksums

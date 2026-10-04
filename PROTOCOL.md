@@ -523,3 +523,12 @@ longer or harder to read, the change is wrong.
 
 - **Multi-account:** out of scope for protocol 2. Nothing here blocks an
   account on `hello` or a socket per account later.
+
+### Platform socket defaults
+
+Protocol version 2 is unchanged on macOS. When `WHATEVR_SOCKET` is absent, macOS
+uses `whatevr/whatevrd.sock` within the per-user directory returned by Darwin's
+`confstr(_CS_DARWIN_USER_TEMP_DIR)`. An explicit `XDG_RUNTIME_DIR` overrides that
+base on either platform. Linux continues to use its XDG runtime directory.
+`whatevrd paths --json` reports the resolved path. The notification app's separate
+private IPC socket is an implementation detail, not part of this protocol.

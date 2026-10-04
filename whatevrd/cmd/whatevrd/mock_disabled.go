@@ -51,3 +51,5 @@ func runMock(_ []string, _, stderr io.Writer) int {
 	fmt.Fprintln(stderr, "whatevrd mock: this whatevrd was built without mock support; rebuild with -tags whatevr_mock")
 	return 2
 }
+
+const mockPathsSupported = false

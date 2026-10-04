@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/codelif/whatevr/platform"
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow"
@@ -29,21 +30,21 @@ type captureFlagSet struct {
 
 func captureFlags(zerolog.Logger) *captureFlagSet {
 	return &captureFlagSet{
-		name:  flag.String("capture", "", "record this run into a capture: a name under $XDG_STATE_HOME/whatevr/captures, or a path"),
+		name:  flag.String("capture", "", "record this run into a capture: a name under the platform capture directory, or a path"),
 		guard: flag.Bool("send-guard", false, "refuse every outward send to anyone but this account and the allowlist"),
 	}
 }
 
 // guardAllow reads who a real-account run may write to besides the account
 // itself (the fork's guard adds its own pn and lid): one number with its
-// country code per line of $XDG_CONFIG_HOME/whatevr/send-guard, # for
+// country code per line of the platform config directory's send-guard, # for
 // comments. kept out of the repo, they are real people's numbers
 func guardAllow() ([]types.JID, error) {
-	dir, err := os.UserConfigDir()
+	dir, err := platform.ConfigDir()
 	if err != nil {
 		return nil, err
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, "whatevr", "send-guard"))
+	raw, err := os.ReadFile(filepath.Join(dir, "send-guard"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -115,9 +116,9 @@ func capturePrepare(log zerolog.Logger, f *captureFlagSet, mockScenario string) 
 // from a pairing and never touches the daily driver. the socket stays under
 // the real runtime dir: a unix socket path is capped at 108 bytes.
 func isolate(log zerolog.Logger, run *captureRun) {
-	runtimeBase := os.Getenv("XDG_RUNTIME_DIR")
-	if runtimeBase == "" {
-		log.Fatal().Msg("XDG_RUNTIME_DIR is unset")
+	runtimeBase, err := platform.RuntimeDir()
+	if err != nil {
+		log.Fatal().Err(err).Msg("resolve capture runtime directory")
 	}
 	// the capture's daemon has its own socket, never one set for the real one
 	if err := os.Unsetenv(app.SocketEnv); err != nil {
@@ -128,6 +129,7 @@ func isolate(log zerolog.Logger, run *captureRun) {
 		"XDG_DATA_HOME":   filepath.Join(home, "data"),
 		"XDG_CACHE_HOME":  filepath.Join(home, "cache"),
 		"XDG_STATE_HOME":  filepath.Join(home, "state"),
+		"XDG_CONFIG_HOME": filepath.Join(home, "config"),
 		"XDG_RUNTIME_DIR": filepath.Join(runtimeBase, "whatevr-capture", run.name),
 	} {
 		if err := os.MkdirAll(path, 0o700); err != nil {
@@ -136,6 +138,9 @@ func isolate(log zerolog.Logger, run *captureRun) {
 		if err := os.Setenv(env, path); err != nil {
 			log.Fatal().Err(err).Str("env", env).Msg("set capture env")
 		}
+	}
+	if err := setInstanceSocket(filepath.Join(runtimeBase, "whatevr-capture", run.name)); err != nil {
+		log.Fatal().Err(err).Msg("resolve capture socket")
 	}
 }
 
@@ -166,8 +171,8 @@ func captureStart(ctx context.Context, run *captureRun, runID string) (clientHoo
 		inst.transport = run.rec.Transport(nil)
 		log.Info().Str("dir", run.dir).Int("segment", w.Segment()).Msg("capturing")
 		if run.mock == "" {
-			log.Warn().Str("XDG_RUNTIME_DIR", os.Getenv("XDG_RUNTIME_DIR")).
-				Msg("this capture is its own linked device, run whattui with this XDG_RUNTIME_DIR")
+			paths, _ := app.ResolvePaths()
+			log.Warn().Str("WHATEVR_SOCKET", paths.SocketPath).Msg("this capture is its own linked device; pass this socket to whattui")
 		}
 		stop = func() {
 			if err := w.Close(); err != nil {

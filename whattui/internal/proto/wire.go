@@ -7,11 +7,9 @@ package proto
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 
+	"github.com/codelif/whatevr/platform"
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 )
 
@@ -54,14 +52,6 @@ var (
 // DefaultSocketPath is where whatevrd listens: WHATEVR_SOCKET, or the OS's
 // place for it.
 func DefaultSocketPath() string {
-	if p := os.Getenv("WHATEVR_SOCKET"); p != "" {
-		return p
-	}
-	var dir string
-	if runtime.GOOS == "darwin" {
-		dir = os.TempDir()
-	} else if dir = os.Getenv("XDG_RUNTIME_DIR"); dir == "" {
-		dir = filepath.Join("/run/user", fmt.Sprint(os.Getuid()))
-	}
-	return filepath.Join(dir, "whatevr", "whatevrd.sock")
+	path, _ := platform.ClientSocketPath()
+	return path
 }

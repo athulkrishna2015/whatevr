@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/codelif/whatevr/platform"
 	"go.rockorager.dev/vaxis"
 
 	"whattui/internal/proto"
@@ -21,7 +22,7 @@ import (
 
 func main() {
 	var (
-		socket   = flag.String("socket", "", "whatevrd socket (default: $WHATEVR_SOCKET, else whatevr/whatevrd.sock in $XDG_RUNTIME_DIR, or $TMPDIR on macOS)")
+		socket   = flag.String("socket", "", "whatevrd socket (default: WHATEVR_SOCKET or the platform runtime directory)")
 		showCaps = flag.Bool("caps", false, "print what was detected about this terminal and exit")
 	)
 	flag.Parse()
@@ -33,6 +34,15 @@ func main() {
 }
 
 func run(socket string, showCaps bool) (err error) {
+	if socket == "" {
+		socket, err = platform.ClientSocketPath()
+		if err != nil {
+			return err
+		}
+	}
+	if err := platform.ValidateSocket(socket); err != nil {
+		return err
+	}
 	vx, err := vaxis.New(vaxis.Options{
 		WithTTY:     "",
 		CSIuBitMask: vaxis.CSIuDisambiguate,
@@ -103,15 +113,10 @@ func dumpStacksOn(sig os.Signal) {
 
 // cacheDir is where the crash log and the stack dump go.
 func cacheDir() string {
-	dir := os.Getenv("XDG_CACHE_HOME")
-	if dir == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return os.TempDir()
-		}
-		dir = filepath.Join(home, ".cache")
+	dir, err := platform.TUILogDir()
+	if err != nil {
+		return os.TempDir()
 	}
-	dir = filepath.Join(dir, "whattui")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return os.TempDir()
 	}

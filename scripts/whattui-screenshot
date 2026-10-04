@@ -807,7 +807,8 @@ def start_daemon(
         stderr=subprocess.STDOUT,
         start_new_session=True,
     )
-    socket = root / "run" / "whatevr" / "whatevrd.sock"
+    resolved = json.loads(subprocess.check_output([str(binary), "paths", "--json", "--mock-dir", str(root)], text=True))
+    socket = Path(resolved["SocketPath"])
 
     def daemon_ready() -> bool:
         if proc.poll() is not None:

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/codelif/whatevr/platform"
 	"github.com/rs/zerolog"
 
 	"whatevrd/internal/app"
@@ -51,7 +52,7 @@ func mockFlags(zerolog.Logger) *mockFlagSet {
 	return &mockFlagSet{
 		scenario:   flag.String("mock", "", "run against a fake WhatsApp server using this scenario"),
 		list:       flag.Bool("mock-list", false, "list mock scenarios and exit"),
-		dir:        flag.String("mock-dir", "", "scratch directory for mock state (default: a per-scenario dir under XDG_RUNTIME_DIR)"),
+		dir:        flag.String("mock-dir", "", "scratch directory for mock state (default: platform runtime directory)"),
 		seed:       flag.Int64("mock-seed", 1, "seed for every key and identifier the mock generates"),
 		scanDelay:  flag.Duration("mock-scan-delay", 0, "how long a published QR sits unscanned before the mock phone pairs"),
 		phone:      flag.String("mock-phone", "", "phone number the mock account answers as"),
@@ -117,9 +118,9 @@ func mockPrepare(log zerolog.Logger, f *mockFlagSet) *mockRun {
 
 	root := *dir
 	if root == "" {
-		runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
-		if runtimeDir == "" {
-			log.Fatal().Msg("XDG_RUNTIME_DIR is unset; pass --mock-dir")
+		runtimeDir, err := platform.RuntimeDir()
+		if err != nil {
+			log.Fatal().Err(err).Msg("resolve mock runtime directory")
 		}
 		root = filepath.Join(runtimeDir, "whatevr-mock", *scenario)
 	}
@@ -144,6 +145,7 @@ func mockPrepare(log zerolog.Logger, f *mockFlagSet) *mockRun {
 		"XDG_DATA_HOME":   "data",
 		"XDG_CACHE_HOME":  "cache",
 		"XDG_STATE_HOME":  "state",
+		"XDG_CONFIG_HOME": "config",
 	} {
 		path := filepath.Join(root, sub)
 		if err := os.MkdirAll(path, 0o700); err != nil {
@@ -154,6 +156,9 @@ func mockPrepare(log zerolog.Logger, f *mockFlagSet) *mockRun {
 		}
 	}
 
+	if err := setInstanceSocket(root); err != nil {
+		log.Fatal().Err(err).Msg("resolve mock socket")
+	}
 	opts := wamock.Options{
 		Seed:         *seed,
 		Scenario:     found.Name,
@@ -245,3 +250,5 @@ func mockIDs(run *mockRun, ids *model.IDs) {
 		ids.Derive(run.opts.Seed)
 	}
 }
+
+const mockPathsSupported = true

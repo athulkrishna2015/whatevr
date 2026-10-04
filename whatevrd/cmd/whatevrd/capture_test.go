@@ -7,11 +7,14 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/codelif/whatevr/platform"
 	"github.com/rs/zerolog"
 )
 
 func TestRealAccountCaptureGetsItsOwnDevice(t *testing.T) {
 	state, runtime := t.TempDir(), t.TempDir()
+	t.Setenv(platform.SocketEnv, "/production/account.sock")
+	t.Setenv("XDG_CONFIG_HOME", "/production/config")
 	t.Setenv("XDG_STATE_HOME", state)
 	t.Setenv("XDG_RUNTIME_DIR", runtime)
 	t.Setenv("XDG_DATA_HOME", "/nowhere/data")
@@ -26,11 +29,19 @@ func TestRealAccountCaptureGetsItsOwnDevice(t *testing.T) {
 		"XDG_DATA_HOME":   filepath.Join(home, "data"),
 		"XDG_CACHE_HOME":  filepath.Join(home, "cache"),
 		"XDG_STATE_HOME":  filepath.Join(home, "state"),
+		"XDG_CONFIG_HOME": filepath.Join(home, "config"),
 		"XDG_RUNTIME_DIR": filepath.Join(runtime, "whatevr-capture", "probe"),
 	} {
 		if got := os.Getenv(env); got != want {
 			t.Errorf("%s=%s, want %s", env, got, want)
 		}
+	}
+	paths, err := platform.SocketPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if paths == "/production/account.sock" {
+		t.Fatal("capture reused the production socket")
 	}
 }
 

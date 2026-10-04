@@ -9,6 +9,7 @@ proto/python.
 """
 
 import itertools
+import ctypes
 import os
 import socket
 import sys
@@ -17,7 +18,25 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "proto" / "python"))
 from whatevr.v2 import chats_pb2, frame_pb2, messages_pb2  # noqa: E402
 
-path = os.environ.get("WHATEVR_SOCKET") or os.path.join(os.environ["XDG_RUNTIME_DIR"], "whatevr", "whatevrd.sock")
+def runtime_dir():
+    if os.environ.get("XDG_RUNTIME_DIR"):
+        return os.environ["XDG_RUNTIME_DIR"]
+    if sys.platform == "darwin":
+        # Darwin libc's per-user directory is identical under launchd and shells.
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        libc.confstr.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_size_t]
+        libc.confstr.restype = ctypes.c_size_t
+        size = libc.confstr(65537, None, 0)  # _CS_DARWIN_USER_TEMP_DIR
+        if not size:
+            raise RuntimeError("Cannot resolve macOS per-user temporary directory")
+        buffer = ctypes.create_string_buffer(size)
+        if not libc.confstr(65537, buffer, size):
+            raise RuntimeError("Cannot resolve macOS per-user temporary directory")
+        return os.fsdecode(buffer.value)
+    raise RuntimeError("XDG_RUNTIME_DIR is not set")
+
+
+path = os.environ.get("WHATEVR_SOCKET") or os.path.join(runtime_dir(), "whatevr", "whatevrd.sock")
 sock = socket.socket(socket.AF_UNIX)
 sock.connect(path)
 stream = sock.makefile("rb")

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/codelif/whatevr/platform"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -159,7 +160,7 @@ func ValidName(name string) bool { return nameRE.MatchString(name) }
 
 // Root is where named captures live.
 func Root(stateHome string) string {
-	return filepath.Join(stateHome, "whatevr", "captures")
+	return platform.CaptureRoot(stateHome)
 }
 
 // Resolve takes a name (under Root) or a path (anything with a slash).

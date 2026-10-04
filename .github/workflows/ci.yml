@@ -53,6 +53,11 @@ jobs:
               - 'VERSION'
               - '.gitmodules'
               - 'whatevrd/**'
+              - 'platform/**'
+              - 'native/macos/**'
+              - 'scripts/build-macos'
+              - 'scripts/install.py'
+              - 'scripts/artifacts.py'
               - 'scripts/check-mock-gate'
               - 'scripts/replay'
               - '.github/workflows/**'
@@ -63,6 +68,11 @@ jobs:
               # The golden frames are drawn against a real whatevrd in mock
               # mode, so a daemon change can move them.
               - 'whatevrd/**'
+              - 'platform/**'
+              - 'native/macos/**'
+              - 'scripts/build-macos'
+              - 'scripts/install.py'
+              - 'scripts/artifacts.py'
               - '.github/workflows/**'
             build:
               - 'justfile'
@@ -70,6 +80,11 @@ jobs:
               - 'PROTOCOL.md'
               - '.gitmodules'
               - 'whatevrd/**'
+              - 'platform/**'
+              - 'native/macos/**'
+              - 'scripts/build-macos'
+              - 'scripts/install.py'
+              - 'scripts/artifacts.py'
               - 'whattui/**'
               - 'packaging/systemd/**'
               - '.github/workflows/**'
@@ -112,6 +127,9 @@ jobs:
             printf '%s\n' "$files"
             exit 1
           fi
+
+      - name: Test platform paths
+        run: go -C platform test ./...
 
       - name: Vet
         working-directory: whatevrd
@@ -276,6 +294,57 @@ jobs:
 
       - name: Show resolved version
         run: just version
+
+  macos:
+    name: Native macOS (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    needs: changes
+    if: ${{ needs.changes.outputs.build == 'true' || needs.changes.outputs.whattui == 'true' }}
+    env:
+      TMPDIR: /tmp
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: whatevrd/go.mod
+          cache-dependency-path: |
+            whatevrd/go.sum
+            whattui/go.sum
+      - name: Install native build dependencies
+        run: brew install just jpeg-turbo pkgconf ffmpeg
+      - name: Build debug and release binaries and notification app
+        run: |
+          just build
+          just build-release
+          codesign --verify --strict "build/release/Whatevr Notifications.app"
+          plutil -lint "build/release/Whatevr Notifications.app/Contents/Info.plist"
+      - name: Test platform paths
+        run: go -C platform test ./...
+      - name: Test daemon and development build gates
+        run: just test daemon
+      - name: Test terminal frontend
+        env:
+          WHATTUI_WHATEVRD: ${{ github.workspace }}/build/debug/whatevrd
+        run: just test whattui
+      - name: Vet daemon
+        run: go -C whatevrd vet -tags sqlite_fts5 ./...
+      - name: Stage installation and removal
+        run: |
+          just install /usr/local "$RUNNER_TEMP/stage"
+          test -x "$RUNNER_TEMP/stage/usr/local/bin/whatevrd"
+          test -x "$RUNNER_TEMP/stage/usr/local/libexec/Whatevr Notifications.app/Contents/MacOS/WhatevrNotifications"
+          test ! -d "$RUNNER_TEMP/stage/usr/local/lib/systemd"
+          just uninstall /usr/local "$RUNNER_TEMP/stage"
+          test ! -e "$RUNNER_TEMP/stage/usr/local/bin/whatevrd"
+          test ! -e "$RUNNER_TEMP/stage/usr/local/libexec/Whatevr Notifications.app"
 
   aur:
     name: AUR metadata

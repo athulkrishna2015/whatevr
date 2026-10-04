@@ -36,6 +36,12 @@ func main() {
 	limitMemory()
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "paths":
+			os.Exit(runPaths(os.Args[2:], os.Stdout, os.Stderr))
+		case "service":
+			os.Exit(runService(os.Args[2:], os.Stdout, os.Stderr))
+		case "notifications":
+			os.Exit(runNotifications(os.Args[2:], os.Stdout, os.Stderr))
 		case "pair":
 			os.Exit(runPair(os.Args[2:], os.Stdout, os.Stderr))
 		case "logs":

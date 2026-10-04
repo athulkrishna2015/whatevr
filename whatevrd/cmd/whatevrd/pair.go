@@ -15,6 +15,7 @@ import (
 	"google.golang.org/protobuf/encoding/protodelim"
 	"rsc.io/qr"
 
+	"github.com/codelif/whatevr/platform"
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 
 	"whatevrd/internal/app"
@@ -28,7 +29,7 @@ const quietZone = 4
 func runPair(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("pair", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	socket := fs.String("socket", "", "whatevrd socket (default: $XDG_RUNTIME_DIR/whatevr/whatevrd.sock)")
+	socket := fs.String("socket", "", "whatevrd socket (default: WHATEVR_SOCKET or platform runtime directory)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -41,10 +42,14 @@ func runPair(args []string, stdout, stderr io.Writer) int {
 		*socket = paths.SocketPath
 	}
 
+	if err := platform.ValidateSocket(*socket); err != nil {
+		fmt.Fprintf(stderr, "whatevrd pair: %v\n", err)
+		return 1
+	}
 	conn, err := net.Dial("unix", *socket)
 	if err != nil {
 		if errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED) {
-			fmt.Fprintf(stderr, "whatevrd is not running on %s\nstart it: systemctl --user start whatevrd\n", *socket)
+			fmt.Fprintf(stderr, "whatevrd is not running on %s\nstart it: whatevrd (or enable your platform service)\n", *socket)
 		} else {
 			fmt.Fprintf(stderr, "whatevrd pair: %v\n", err)
 		}

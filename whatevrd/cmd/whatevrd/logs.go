@@ -13,7 +13,7 @@ import (
 	"github.com/mattn/go-isatty"
 	"github.com/rs/zerolog"
 
-	"whatevrd/internal/app"
+	"github.com/codelif/whatevr/platform"
 	"whatevrd/internal/logx"
 )
 
@@ -30,7 +30,7 @@ flags:
 func runLogs(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("whatevrd logs", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	dir := fs.String("dir", "", "log directory (default: $XDG_STATE_HOME/whatevr/logs)")
+	dir := fs.String("dir", "", "log directory (default: platform log directory)")
 	follow := fs.Bool("f", false, "keep printing new lines")
 	level := fs.String("level", "trace", "lowest level to print")
 	asJSON := fs.Bool("json", false, "print the stored json lines")
@@ -80,12 +80,12 @@ func runLogs(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if *dir == "" {
-		paths, err := app.ResolvePaths()
+		logDir, err := platform.LogDir()
 		if err != nil {
 			fmt.Fprintf(stderr, "whatevrd logs: %v\n", err)
 			return 1
 		}
-		*dir = paths.LogDir
+		*dir = logDir
 	}
 	runs, err := logx.ListRuns(*dir)
 	if err != nil {

@@ -63,7 +63,7 @@ mkdir -p "$tmp/home" "$tmp/run"
 release() {
     env HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/run" XDG_DATA_HOME="$tmp/home/data" \
         XDG_CACHE_HOME="$tmp/home/cache" XDG_STATE_HOME="$tmp/home/state" XDG_CONFIG_HOME="$tmp/home/config" \
-        timeout 10 "$tmp/whatevrd" "$@" 2>&1
+        python3 -c 'import subprocess,sys; p=subprocess.run(sys.argv[1:], timeout=10); sys.exit(p.returncode)' "$tmp/whatevrd" "$@" 2>&1
 }
 
 refuses() {

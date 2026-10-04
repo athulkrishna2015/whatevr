@@ -1,0 +1,250 @@
+import AppKit
+import Foundation
+import UserNotifications
+import Darwin
+
+let bundleID = "in.codelif.whatevr.notifications"
+let ipcQueue = DispatchQueue(label: "in.codelif.whatevr.notifications.ipc")
+let center = UNUserNotificationCenter.current()
+
+struct Notice: Codable {
+    let id: String
+    let chat: String
+    let title: String
+    let body: String
+    let sender: String
+    let avatar: String
+    let sound: Bool
+}
+struct Message: Codable {
+    var version = 1
+    var type: String
+    var namespace: String?
+    var id: String?
+    var chat: String?
+    var status: String?
+    var notice: Notice?
+}
+func statusName(_ status: UNAuthorizationStatus) -> String {
+    switch status {
+    case .notDetermined: return "not-determined: run whatevrd notifications setup"
+    case .denied: return "denied: enable Whatevr Notifications in System Settings > Notifications"
+    case .authorized: return "authorized"
+    case .provisional: return "provisional"
+    @unknown default: return "unknown"
+    }
+}
+func userTemp() throws -> String {
+    let size = confstr(_CS_DARWIN_USER_TEMP_DIR, nil, 0)
+    guard size > 0 else { throw NSError(domain: bundleID, code: 1) }
+    var bytes = [CChar](repeating: 0, count: size)
+    guard confstr(_CS_DARWIN_USER_TEMP_DIR, &bytes, size) > 0 else { throw NSError(domain: bundleID, code: 1) }
+    return String(cString: bytes)
+}
+func unixAddress(_ path: String) throws -> sockaddr_un {
+    var address = sockaddr_un()
+    address.sun_family = sa_family_t(AF_UNIX)
+    let bytes = Array(path.utf8) + [0]
+    guard bytes.count <= MemoryLayout.size(ofValue: address.sun_path) else { throw NSError(domain: bundleID, code: 2) }
+    address.sun_len = UInt8(MemoryLayout<sockaddr_un>.size)
+    withUnsafeMutableBytes(of: &address.sun_path) { raw in raw.copyBytes(from: bytes) }
+    return address
+}
+func privateDirectory(_ path: String) throws {
+    try FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    var info = stat()
+    guard lstat(path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
+          info.st_mode & 0o077 == 0, info.st_uid == geteuid() else {
+        throw NSError(domain: bundleID, code: 3, userInfo: [NSLocalizedDescriptionKey: "Notification socket directory is not private"])
+    }
+}
+
+final class Peer {
+    let fd: Int32
+    let server: Server
+    var namespace: String?
+    var data = Data()
+    var source: DispatchSourceRead?
+    var closed = false
+    init(fd: Int32, server: Server) { self.fd = fd; self.server = server }
+    func start() {
+        var noPipe: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noPipe, socklen_t(MemoryLayout<Int32>.size))
+        var timeout = timeval(tv_sec: 5, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: ipcQueue)
+        self.source = source
+        source.setEventHandler { [weak self] in self?.read() }
+        source.setCancelHandler { [fd] in Darwin.close(fd) }
+        source.resume()
+    }
+    func stop() {
+        if closed { return }
+        closed = true
+        source?.cancel()
+        server.peers.removeValue(forKey: fd)
+    }
+    func read() {
+        var bytes = [UInt8](repeating: 0, count: 8192)
+        let count = Darwin.read(fd, &bytes, bytes.count)
+        if count <= 0 { stop(); return }
+        data.append(contentsOf: bytes.prefix(count))
+        if data.count > 1 << 20 { stop(); return }
+        while let newline = data.firstIndex(of: 10) {
+            let line = data.prefix(upTo: newline)
+            data.removeSubrange(...newline)
+            guard let message = try? JSONDecoder().decode(Message.self, from: line), message.version == 1 else { stop(); return }
+            handle(message)
+        }
+    }
+    func send(_ message: Message) {
+        guard !closed, var bytes = try? JSONEncoder().encode(message) else { return }
+        bytes.append(10)
+        bytes.withUnsafeBytes { raw in
+            var offset = 0
+            while offset < raw.count {
+                let n = Darwin.write(fd, raw.baseAddress!.advanced(by: offset), raw.count - offset)
+                if n < 0 && errno == EINTR { continue }
+                if n <= 0 { stop(); break }
+                offset += n
+            }
+        }
+    }
+    func settings() {
+        center.getNotificationSettings { [weak self] settings in
+            let status = statusName(settings.authorizationStatus)
+            ipcQueue.async { self?.send(Message(type: "status", status: status)) }
+        }
+    }
+    func handle(_ message: Message) {
+        switch message.type {
+        case "hello":
+            guard let ns = message.namespace, ns.count == 32, ns.allSatisfy({ $0.isHexDigit }) else { stop(); return }
+            namespace = ns
+            for click in server.pendingClicks.removeValue(forKey: ns) ?? [] where Date().timeIntervalSince(click.0) < 30 {
+                send(Message(type: "click", namespace: ns, chat: click.1))
+            }
+            settings()
+        case "status": settings()
+        case "quit-if-idle":
+            if server.peers.values.contains(where: { $0.namespace != nil }) {
+                send(Message(type: "status", status: "busy"))
+            } else {
+                send(Message(type: "status", status: "stopping"))
+                DispatchQueue.main.async { NSApp.terminate(nil) }
+            }
+        case "authorize":
+            center.requestAuthorization(options: [.alert, .sound]) { [weak self] _, _ in self?.settings() }
+        case "show":
+            guard let ns = namespace, ns == message.namespace, let notice = message.notice else { stop(); return }
+            let identifier = ns + ":" + notice.id
+            let generation = UUID()
+            server.generations[identifier] = generation
+            center.getNotificationSettings { [weak self] settings in
+                guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return }
+                let content = UNMutableNotificationContent()
+                content.title = String(notice.title.prefix(200))
+                content.subtitle = String(notice.sender.prefix(200))
+                content.body = String(notice.body.prefix(200))
+                content.userInfo = ["namespace": ns, "chat": notice.chat]
+                content.threadIdentifier = ns + ":" + notice.chat
+                if notice.sound && settings.soundSetting == .enabled { content.sound = .default }
+                ipcQueue.async { [weak self] in
+                    guard let self, self.server.generations[identifier] == generation else { return }
+                    // Replacements keep one visible notification per daemon notification id.
+                    center.removeDeliveredNotifications(withIdentifiers: [identifier])
+                    center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil)) { error in
+                        if let error { NSLog("Whatevr notification delivery: %@", error.localizedDescription) }
+                    }
+                }
+            }
+        case "close":
+            guard let ns = namespace, ns == message.namespace, let id = message.id else { stop(); return }
+            let identifier = ns + ":" + id
+            server.generations.removeValue(forKey: identifier)
+            center.removePendingNotificationRequests(withIdentifiers: [identifier])
+            center.removeDeliveredNotifications(withIdentifiers: [identifier])
+        default: stop()
+        }
+    }
+}
+
+final class Server {
+    var peers: [Int32: Peer] = [:]
+    var generations: [String: UUID] = [:]
+    var pendingClicks: [String: [(Date, String)]] = [:]
+    var listener: Int32 = -1
+    var lock: Int32 = -1
+    var source: DispatchSourceRead?
+    func start() throws {
+        let dir = try (userTemp() as NSString).appendingPathComponent("whatevr")
+        try privateDirectory(dir)
+        lock = Darwin.open((dir as NSString).appendingPathComponent("notifications.lock"), O_CREAT | O_RDWR | O_NOFOLLOW, 0o600)
+        guard lock >= 0 else { throw NSError(domain: bundleID, code: 4) }
+        guard flock(lock, LOCK_EX | LOCK_NB) == 0 else { throw NSError(domain: bundleID, code: 5, userInfo: [NSLocalizedDescriptionKey: "Notification helper is already running"]) }
+        let path = (dir as NSString).appendingPathComponent("notifications.sock")
+        listener = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard listener >= 0 else { throw NSError(domain: bundleID, code: 6) }
+        _ = fcntl(listener, F_SETFL, O_NONBLOCK)
+        unlink(path)
+        var address = try unixAddress(path)
+        let bound = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(listener, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        guard bound == 0, chmod(path, 0o600) == 0, listen(listener, 16) == 0 else { throw NSError(domain: bundleID, code: 7) }
+        let source = DispatchSource.makeReadSource(fileDescriptor: listener, queue: ipcQueue)
+        self.source = source
+        source.setEventHandler { [weak self] in self?.acceptPeers() }
+        source.resume()
+    }
+    func acceptPeers() {
+        while true {
+            let fd = accept(listener, nil, nil)
+            if fd < 0 { return }
+            var uid: uid_t = 0
+            var gid: gid_t = 0
+            guard getpeereid(fd, &uid, &gid) == 0, uid == geteuid(), peers.count < 64 else { Darwin.close(fd); continue }
+            _ = fcntl(fd, F_SETFL, 0)
+            let peer = Peer(fd: fd, server: self)
+            peers[fd] = peer
+            peer.start()
+        }
+    }
+    func clicked(namespace: String, chat: String) {
+        ipcQueue.async {
+            let recipients = self.peers.values.filter { $0.namespace == namespace }
+            if recipients.isEmpty {
+                // A notification click may relaunch the helper before a daemon reconnects.
+                if self.pendingClicks.count >= 64 { self.pendingClicks.removeAll() }
+                var pending = self.pendingClicks[namespace] ?? []
+                pending.append((Date(), chat))
+                self.pendingClicks[namespace] = Array(pending.suffix(16))
+            }
+            for peer in recipients { peer.send(Message(type: "click", namespace: namespace, chat: chat)) }
+        }
+    }
+}
+final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+    let server = Server()
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        center.delegate = self
+        do { try server.start() }
+        catch { NSLog("Whatevr notifications: %@", error.localizedDescription); NSApp.terminate(nil) }
+    }
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completion: @escaping (UNNotificationPresentationOptions) -> Void) {
+        completion([.banner, .list, .sound])
+    }
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completion: @escaping () -> Void) {
+        let info = response.notification.request.content.userInfo
+        if response.actionIdentifier == UNNotificationDefaultActionIdentifier,
+           let namespace = info["namespace"] as? String, let chat = info["chat"] as? String {
+            server.clicked(namespace: namespace, chat: chat)
+        }
+        completion()
+    }
+}
+let app = NSApplication.shared
+let delegate = Delegate()
+app.delegate = delegate
+app.setActivationPolicy(.accessory)
+app.run()

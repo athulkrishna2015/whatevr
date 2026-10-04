@@ -84,7 +84,8 @@ class Line:
 class Run:
     def __init__(self, binary: Path, work: Path) -> None:
         self.dir = work / "mock"
-        self.control = work / "control.sock"
+        paths = json.loads(subprocess.check_output([str(binary), "paths", "--json", "--mock-dir", str(self.dir)], text=True))
+        self.control = Path(paths["ControlPath"])
         self.logf = open(work / "whatevrd.log", "w")
         self.proc = subprocess.Popen(
             [str(binary), "--mock", "busy", "--mock-dir", str(self.dir), "--mock-control", str(self.control)],
@@ -93,7 +94,7 @@ class Run:
         self.states: list[tuple[float, dict[str, object]]] = []
         self.ctl = Line(self.control)
         self.watch = subprocess.Popen(
-            [str(binary), "mock", "watch", "--socket", str(self.dir / "run" / "whatevr" / "whatevrd.sock"), "connection", "chats"],
+            [str(binary), "mock", "watch", "--socket", paths["SocketPath"], "connection", "chats"],
             stdout=subprocess.PIPE, stderr=self.logf, text=True)
         self.rows: queue.Queue[dict[str, object]] = queue.Queue()
         threading.Thread(target=self.read_rows, daemon=True).start()

@@ -5,7 +5,8 @@ package main
 #include <stdlib.h>
 #include <string.h>
 
-// glibc only; weak so another libc still links and skips them
+// glibc allocator tuning is unavailable on other libcs.
+#ifdef __GLIBC__
 extern int mallopt(int, int) __attribute__((weak));
 extern int malloc_info(int, FILE *) __attribute__((weak));
 
@@ -31,30 +32,16 @@ static int arenas(void) {
 	return c;
 }
 
+#else
+static int arenas(void) { return -1; }
+#endif
+
 static void churn(int n) {
 	for (int i = 0; i < n; i++) free(malloc(1000 + i % 5000));
 }
 */
 import "C"
 
-import (
-	"os"
-	"runtime/debug"
-)
-
-// mallocArenas is how many malloc arenas glibc has open, -1 off glibc.
+// mallocArenas reports -1 when the native allocator is not glibc.
 func mallocArenas() int { return int(C.arenas()) }
-
-// mallocChurn allocates and frees n blocks on the calling thread, for the test.
 func mallocChurn(n int) { C.churn(C.int(n)) }
-
-// goMemoryLimit is where the go heap starts collecting harder than every
-// doubling, so a burst of garbage (a history chunk decoded) does not sit in
-// memory until the next cycle. GOMEMLIMIT still overrides it.
-const goMemoryLimit = 64 << 20
-
-func limitMemory() {
-	if os.Getenv("GOMEMLIMIT") == "" {
-		debug.SetMemoryLimit(goMemoryLimit)
-	}
-}

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/codelif/whatevr/platform"
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
 
@@ -152,7 +153,14 @@ func mockDaemonFor(t testing.TB, scenario string) *mockDaemon {
 	if err := os.WriteFile(filepath.Join(dir, ".whatevr-mock"), []byte("whattui test\n"), 0o600); err != nil {
 		t.Fatalf("mock marker: %v", err)
 	}
-	control := filepath.Join(dir, "control.sock")
+	socket, err := platform.InstanceSocket(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	control := filepath.Join(filepath.Dir(socket), "control.sock")
+	if err := os.MkdirAll(filepath.Dir(control), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	logPath := filepath.Join(dir + ".log")
 	logFile, err := os.Create(logPath)
 	if err != nil {
@@ -172,7 +180,7 @@ func mockDaemonFor(t testing.TB, scenario string) *mockDaemon {
 	}
 
 	d := &mockDaemon{
-		socket: filepath.Join(dir, "run", "whatevr", "whatevrd.sock"),
+		socket: socket,
 		cmd:    cmd,
 		dir:    dir,
 	}

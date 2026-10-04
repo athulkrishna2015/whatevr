@@ -24,3 +24,7 @@ require (
 
 // the protocol 2 schema, generated, from this repository
 replace github.com/codelif/whatevr/proto => ../proto
+
+require github.com/codelif/whatevr/platform v0.0.0
+
+replace github.com/codelif/whatevr/platform => ../platform

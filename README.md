@@ -231,3 +231,94 @@ Whatevr stands on the shoulders of:
 
 ## License
 This program is licensed under the BSD-3-Clause License
+
+## macOS
+
+macOS 13 or later is supported. The daemon and terminal frontend use native
+macOS defaults; no XDG variables or shell configuration are needed to connect.
+Install Apple's Command Line Tools (`xcode-select --install`) and dependencies:
+
+```sh
+brew install go just jpeg-turbo pkgconf python ffmpeg
+```
+
+Go 1.26 or later is required. ffmpeg is optional. Both macOS executables use cgo
+for native path lookup; Swift builds the private notification app. The SQLite
+Go driver includes SQLite itself, so a separate Homebrew SQLite installation is
+not required. Clone submodules as described above, then:
+
+```sh
+just build-release
+./build/release/whatevrd
+# In another terminal:
+./build/release/whattui
+```
+
+To install without administrator privileges:
+
+```sh
+just install "$HOME/.local"
+# Add $HOME/.local/bin to PATH, or invoke these executables by absolute path.
+```
+
+The complete installation includes `libexec/Whatevr Notifications.app`; keep
+this private app alongside the binaries. Local builds are ad-hoc signed; they
+are intended for use on the build machine. Developer ID signing and notarization
+are required separately for public distribution.
+
+Login startup is optional and never enabled by installation:
+
+```sh
+whatevrd service enable       # starts now and at subsequent GUI logins
+whatevrd service status
+whatevrd service disable      # stops the service and removes its LaunchAgent
+```
+
+Stop a manually running daemon before enabling the service. Enable the service
+with XDG and `WHATEVR_SOCKET` overrides unset, so it uses the same native defaults
+as normal terminal clients. The agent uses an absolute executable path and a
+PATH containing the installation prefix, the detected Homebrew prefix, and
+system tools. Disable the service before uninstalling. Disable and re-enable it after moving
+the installation to a different prefix.
+
+Notification authorization is explicit:
+
+```sh
+whatevrd notifications setup
+whatevrd notifications status
+```
+
+Allow notifications in the macOS dialog. If previously denied, enable **Whatevr
+Notifications** in System Settings → Notifications. Notification clicks select
+the chat in a connected frontend. If no frontend is open, no terminal is launched.
+The helper follows system notification/sound settings; a missing helper or denied
+permission does not prevent messaging. Local rebuilds may require checking
+notification authorization again because they use ad-hoc signing.
+
+Run `whatevrd paths --json` to inspect all resolved locations:
+
+| Contents | Default location |
+| --- | --- |
+| Databases and WhatsApp session | `~/Library/Application Support/in.codelif.whatevr/daemon` |
+| Configuration and send guard | `~/Library/Application Support/in.codelif.whatevr/config` |
+| Development state and captures | `~/Library/Application Support/in.codelif.whatevr/{state,captures}` |
+| Media and frontend caches | `~/Library/Caches/in.codelif.whatevr/{daemon,tui}` |
+| Daemon and frontend diagnostics | `~/Library/Logs/in.codelif.whatevr/{daemon,tui}` |
+| Socket and lock | OS-provided per-user temporary directory, under `whatevr` |
+
+The socket uses Darwin's per-user temporary directory, rather than an inherited
+`TMPDIR`, so launchd and terminal sessions agree. Socket directories are private,
+sockets are mode 0600, and peers must be the same user. Existing Linux-style
+macOS data is left untouched; the native location starts as a fresh linked device.
+Explicit XDG overrides retain their existing layout, and `WHATEVR_SOCKET` selects
+an absolute socket path. Darwin socket paths must fit within 103 bytes.
+
+Debug mock and capture runs isolate their account state. Their Darwin sockets
+use short, deterministic instance directories under the native runtime directory.
+Query a mock instance with `build/debug/whatevrd paths --json --mock-dir DIR`, then
+pass its `SocketPath` to `whattui --socket`. The capture startup log prints its
+`WHATEVR_SOCKET`. Mock notifications remain disabled unless `--mock-notify` is set.
+
+`just test` uses `/tmp` for temporary test files to keep existing socket test paths
+short. Network and wake monitoring use Network.framework and IOKit independently
+of the notification app. Linux keeps its XDG, systemd, D-Bus, and netlink support.
