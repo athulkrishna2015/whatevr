@@ -7,9 +7,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
-
-	"whattui/internal/proto"
 )
 
 type commandID string
@@ -74,7 +73,7 @@ type commandState struct {
 	// row is carried rather than fetched: whether an action applies is asked
 	// under App.mu, and asking the collection under App.mu is a deadlock.
 	hasMessage bool
-	message    proto.MessageRow
+	message    *v2.MessageRow
 }
 
 func newCommandRegistry(commands []command) commandRegistry {
@@ -112,7 +111,7 @@ func (a *App) initCommands() {
 		if ok, why := hasMessage(state); !ok {
 			return false, why
 		}
-		if state.message.Revoked {
+		if state.message.GetRevoked() {
 			return false, "that message is already deleted"
 		}
 		return true, ""
@@ -151,13 +150,13 @@ func (a *App) initCommands() {
 			// that has closed is an answer in the corner rather than an edit
 			// that looks like it started and then bounces off the daemon.
 			switch {
-			case !state.message.Outgoing():
+			case !state.message.GetFromMe():
 				return false, "you can only edit your own messages"
-			case state.message.Revoked:
+			case state.message.GetRevoked():
 				return false, "that message is already deleted"
-			case state.message.EditUntil == 0:
+			case state.message.GetEditUntilMs() == 0:
 				return false, "this kind of message cannot be edited"
-			case !state.message.Editable(time.Now().Unix()):
+			case !editable(state.message, time.Now().UnixMilli()):
 				return false, "too late, the edit window has closed"
 			}
 			return true, ""
@@ -170,7 +169,7 @@ func (a *App) initCommands() {
 			if ok, why := hasMessage(state); !ok {
 				return false, why
 			}
-			if !state.message.Outgoing() {
+			if !state.message.GetFromMe() {
 				return false, "you can only delete your own messages for everyone"
 			}
 			return true, ""
@@ -379,7 +378,7 @@ func (a *App) messageChoicesLocked() []modalChoice {
 			}
 		}
 		label := c.Title
-		if c.ID == cmdStar && state.message.Starred {
+		if c.ID == cmdStar && state.message.GetStarred() {
 			label = "Unstar message"
 		}
 		out = append(out, modalChoice{Command: c.ID, Label: label, Detail: c.Direct})

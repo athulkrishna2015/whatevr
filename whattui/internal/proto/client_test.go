@@ -1,351 +1,558 @@
 package proto
 
 import (
-	"encoding/json"
+	"encoding/binary"
+	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
+	gproto "google.golang.org/protobuf/proto"
 )
 
-// recordSink records every sink call in order, so a test can assert on the
-// shape of a transaction and not just its contents.
-type recordSink struct {
-	mu    sync.Mutex
-	calls []string
-	items map[string]string
-	ready chan struct{}
+type stateEvent struct {
+	state State
+	err   error
 }
 
-func newRecordSink() *recordSink {
-	return &recordSink{items: map[string]string{}, ready: make(chan struct{}, 16)}
-}
-
-func (r *recordSink) Upsert(sort string, item json.RawMessage) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	var row struct {
-		ID string `json:"id"`
-	}
-	_ = json.Unmarshal(item, &row)
-	r.calls = append(r.calls, "upsert:"+row.ID)
-	r.items[row.ID] = sort
-}
-
-func (r *recordSink) Remove(id string) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.calls = append(r.calls, "remove:"+id)
-	delete(r.items, id)
-}
-
-func (r *recordSink) Ready(exhausted, has bool) {
-	r.mu.Lock()
-	r.calls = append(r.calls, "ready")
-	r.mu.Unlock()
-	select {
-	case r.ready <- struct{}{}:
-	default:
-	}
-}
-
-func (r *recordSink) Reset() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.calls = append(r.calls, "reset")
-	r.items = map[string]string{}
-}
-
-func (r *recordSink) BatchBegin() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.calls = append(r.calls, "begin")
-}
-
-func (r *recordSink) BatchEnd() {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.calls = append(r.calls, "end")
-}
-
-func (r *recordSink) trace() string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return strings.Join(r.calls, " ")
-}
-
-func (r *recordSink) waitReady(t *testing.T) {
+// start connects a client to d and waits for the handshake.
+func start(t *testing.T, d *fakeDaemon) (*Client, chan stateEvent) {
 	t.Helper()
-	select {
-	case <-r.ready:
-	case <-time.After(3 * time.Second):
-		t.Fatalf("timed out waiting for ready, trace so far: %q", r.trace())
-	}
+	c, states := dial(t, d)
+	until(t, states, Ready)
+	return c, states
 }
 
-// connectedClient brings a client up to Ready against a fake daemon and hands
-// back the state stream. OnState is wired before Start and never reassigned:
-// the client reads it from its own goroutine, so a test that swapped it later
-// would be racing.
-func connectedClient(t *testing.T) (*Client, *fakeDaemon, chan State) {
+// dial starts a client on d without waiting for anything.
+func dial(t *testing.T, d *fakeDaemon) (*Client, chan stateEvent) {
 	t.Helper()
-	d := newFakeDaemon(t)
-	c := New(d.path, "whattui-test")
-	states := make(chan State, 64)
-	c.OnState = func(s State, info *ServerInfo, err error) {
-		select {
-		case states <- s:
-		default:
-		}
-	}
+	c := New(d.path, "test")
+	states := make(chan stateEvent, 256)
+	c.OnState = func(s State, _ *v2.HelloResult, err error) { states <- stateEvent{s, err} }
 	c.Start()
 	t.Cleanup(c.Stop)
-
-	d.waitForConnection()
-	d.helloOK(d.expect("hello"))
-	waitState(t, states, Ready)
-	return c, d, states
+	return c, states
 }
 
-// waitState drains the state stream until want shows up.
-func waitState(t *testing.T, states chan State, want State) {
+// until is the first state change to s, skipping the ones on the way.
+func until(t *testing.T, states chan stateEvent, s State) stateEvent {
 	t.Helper()
-	deadline := time.After(5 * time.Second)
+	timeout := time.After(5 * time.Second)
 	for {
 		select {
-		case s := <-states:
-			if s == want {
-				return
+		case e := <-states:
+			if e.state == s {
+				return e
 			}
-		case <-deadline:
-			t.Fatalf("timed out waiting for state %v", want)
+		case <-timeout:
+			t.Fatalf("the client never got to %v", s)
 		}
 	}
 }
 
-func TestHelloIsTheFirstRequestAndCarriesTheProtocolVersion(t *testing.T) {
+// shortDeadlines gives every request but hello d, for the life of the test.
+// set before the client starts and put back after it stops, so no goroutine
+// of it ever sees the swap.
+func shortDeadlines(t *testing.T, d time.Duration) {
+	t.Helper()
+	deadlineFor = func(r *v2.Request) time.Duration {
+		if r.HasHello() {
+			return deadline(r)
+		}
+		return d
+	}
+	t.Cleanup(func() { deadlineFor = deadline })
+}
+
+func text(s string) *v2.Request {
+	req := &v2.Request{}
+	req.SetSendText(v2.SendText_builder{ChatId: "c", Text: s}.Build())
+	return req
+}
+
+func subscribe() *v2.Subscribe {
+	return v2.Subscribe_builder{Limit: 10, Messages: v2.MessagesView_builder{ChatId: "c", Latest: &v2.Latest{}}.Build()}.Build()
+}
+
+// answers collects what each callback heard and how often.
+type answers struct {
+	mu   sync.Mutex
+	got  map[string][]*Error
+	resp map[string][]*v2.Response
+	ch   chan string
+}
+
+func newAnswers() *answers {
+	return &answers{got: map[string][]*Error{}, resp: map[string][]*v2.Response{}, ch: make(chan string, 256)}
+}
+
+func (a *answers) cb(name string) ResponseFunc {
+	return func(r *v2.Response, err *Error) {
+		a.mu.Lock()
+		a.got[name] = append(a.got[name], err)
+		a.resp[name] = append(a.resp[name], r)
+		a.mu.Unlock()
+		a.ch <- name
+	}
+}
+
+func (a *answers) wait(t *testing.T, n int) {
+	t.Helper()
+	for i := 0; i < n; i++ {
+		select {
+		case <-a.ch:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%d of %d callbacks ran", i, n)
+		}
+	}
+}
+
+func (a *answers) of(name string) []*Error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return append([]*Error(nil), a.got[name]...)
+}
+
+type applied struct {
+	u     *v2.ViewUpdate
+	fresh bool
+}
+
+type sink struct {
+	mu  sync.Mutex
+	got []applied
+	ch  chan struct{}
+}
+
+func newSink() *sink { return &sink{ch: make(chan struct{}, 256)} }
+
+func (s *sink) Apply(u *v2.ViewUpdate, fresh bool) {
+	s.mu.Lock()
+	s.got = append(s.got, applied{u, fresh})
+	s.mu.Unlock()
+	s.ch <- struct{}{}
+}
+
+func (s *sink) wait(t *testing.T, n int) []applied {
+	t.Helper()
+	for {
+		s.mu.Lock()
+		got := append([]applied(nil), s.got...)
+		s.mu.Unlock()
+		if len(got) >= n {
+			return got
+		}
+		select {
+		case <-s.ch:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%d of %d updates applied", len(got), n)
+		}
+	}
+}
+
+func (s *sink) len() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.got)
+}
+
+func TestHelloGoesFirstAndSaysWhoIsAsking(t *testing.T) {
 	d := newFakeDaemon(t)
-	c := New(d.path, "whattui-test")
-	c.Start()
-	t.Cleanup(c.Stop)
+	d.hello = nil
+	c, states := dial(t, d)
 
-	d.waitForConnection()
-	req := d.nextRequest()
-	if req["method"] != "hello" {
-		t.Fatalf("first request was %v, want hello", req["method"])
+	req := d.next()
+	if !req.HasHello() {
+		t.Fatalf("the first request is %v, want hello", req.WhichMethod())
 	}
-	params := req["params"].(map[string]any)
-	if params["protocol"] != float64(ProtocolVersion) {
-		t.Errorf("protocol = %v, want %d", params["protocol"], ProtocolVersion)
+	if h := req.GetHello(); h.GetProtocol() != 2 || h.GetClient() != "test" {
+		t.Errorf("hello says %v, want protocol 2 from test", h)
 	}
-	if params["client"] != "whattui-test" {
-		t.Errorf("client = %v", params["client"])
+	if c.State() == Ready || c.Has("messages") {
+		t.Error("ready before hello was answered")
 	}
-}
-
-func TestSubscribeRoutesEventsToItsSink(t *testing.T) {
-	c, d, _ := connectedClient(t)
-	sink := newRecordSink()
-	c.Subscribe("chats", Params{"limit": 2}, sink)
-
-	req := d.expect("subscribe")
-	if p := req["params"].(map[string]any); p["view"] != "chats" || p["limit"] != float64(2) {
-		t.Fatalf("subscribe params = %v", p)
+	d.send(v2.Frame_builder{Response: helloOK(req)}.Build())
+	until(t, states, Ready)
+	if !c.Has("messages") || c.Has("contacts") {
+		t.Errorf("features read wrong: messages %v contacts %v", c.Has("messages"), c.Has("contacts"))
 	}
-	d.sendLines(map[string]any{"id": req["id"], "result": map[string]any{"sub": 7}})
-
-	d.sendLines(
-		map[string]any{"sub": 7, "event": "upsert", "sort": "a", "item": map[string]any{"id": "x"}},
-		map[string]any{"sub": 7, "event": "upsert", "sort": "b", "item": map[string]any{"id": "y"}},
-		map[string]any{"sub": 7, "event": "ready", "exhausted": true},
-	)
-	sink.waitReady(t)
-
-	if got, want := sink.trace(), "begin upsert:x upsert:y end ready"; got != want {
-		t.Errorf("trace = %q, want %q", got, want)
+	if c.ServerInfo().GetDaemon() != "fake" {
+		t.Errorf("server info %v", c.ServerInfo())
 	}
 }
 
-func TestOneWindowFillIsOneTransaction(t *testing.T) {
-	c, d, _ := connectedClient(t)
-	sink := newRecordSink()
-	c.Subscribe("chats", nil, sink)
-
-	req := d.expect("subscribe")
-	d.sendLines(map[string]any{"id": req["id"], "result": map[string]any{"sub": 1}})
-
-	// Eighty items in one write is the case the batching exists for.
-	var frames []any
-	for i := 0; i < 80; i++ {
-		frames = append(frames, map[string]any{
-			"sub": 1, "event": "upsert", "sort": string(rune('a' + i%26)),
-			"item": map[string]any{"id": string(rune('A' + i%26))},
-		})
+func TestAnotherProtocolIsADisconnect(t *testing.T) {
+	d := newFakeDaemon(t)
+	d.hello = func(req *v2.Request) *v2.Response {
+		r := helloOK(req)
+		r.GetHello().SetProtocol(1)
+		return r
 	}
-	frames = append(frames, map[string]any{"sub": 1, "event": "ready"})
-	d.sendLines(frames...)
-	sink.waitReady(t)
-
-	trace := sink.trace()
-	if n := strings.Count(trace, "begin"); n != 1 {
-		t.Errorf("got %d batches for one fill, want 1 (trace %q)", n, trace)
+	_, states := dial(t, d)
+	e := until(t, states, Disconnected)
+	for e.err == nil {
+		e = until(t, states, Disconnected)
 	}
-	if !strings.HasSuffix(trace, "end ready") {
-		t.Errorf("batch did not close before ready: %q", trace)
+	if !strings.Contains(e.err.Error(), "protocol 1") {
+		t.Errorf("disconnected with %v, want the protocol named", e.err)
 	}
 }
 
-func TestReadyAndResetAreNotBatched(t *testing.T) {
-	c, d, _ := connectedClient(t)
-	sink := newRecordSink()
-	c.Subscribe("chats", nil, sink)
-	req := d.expect("subscribe")
-	d.sendLines(map[string]any{"id": req["id"], "result": map[string]any{"sub": 1}})
+// updates route by sub, the first after a subscribe is fresh and no other
+// is, and ready is heard after the update carrying it is in the sink
+func TestUpdatesReachTheirSubscription(t *testing.T) {
+	d := newFakeDaemon(t)
+	c, _ := start(t, d)
+	s := newSink()
+	readyAt := make(chan int, 1)
+	sub := c.Subscribe(subscribe(), s, Hooks{OnReady: func(exhausted bool) {
+		if !exhausted {
+			t.Error("ready lost exhausted")
+		}
+		readyAt <- s.len()
+	}})
 
-	d.sendLines(
-		map[string]any{"sub": 1, "event": "upsert", "sort": "a", "item": map[string]any{"id": "x"}},
-		map[string]any{"sub": 1, "event": "reset"},
-		map[string]any{"sub": 1, "event": "upsert", "sort": "b", "item": map[string]any{"id": "y"}},
-		map[string]any{"sub": 1, "event": "ready"},
-	)
-	sink.waitReady(t)
-
-	if got, want := sink.trace(), "begin upsert:x end reset begin upsert:y end ready"; got != want {
-		t.Errorf("trace = %q, want %q", got, want)
+	req := d.next()
+	if !gproto.Equal(req.GetSubscribe(), subscribe()) {
+		t.Fatalf("subscribed with %v", req.GetSubscribe())
 	}
-}
+	d.subscribed(req, 7)
+	d.update(v2.ViewUpdate_builder{Sub: 99})
+	d.update(v2.ViewUpdate_builder{Sub: 7, Reset: true})
+	d.update(v2.ViewUpdate_builder{Sub: 7, Ready: v2.Ready_builder{Exhausted: true}.Build()})
 
-func TestExtendBeforeTheSubIdLandsIsQueuedNotDropped(t *testing.T) {
-	c, d, _ := connectedClient(t)
-	sink := newRecordSink()
-	sub := c.Subscribe("messages", Params{"chat_id": "c1"}, sink)
-
-	req := d.expect("subscribe")
-	// Extend while the subscribe is still in flight.
-	sub.Extend(50, Older)
-
-	d.sendLines(map[string]any{"id": req["id"], "result": map[string]any{"sub": 3}})
-
-	ext := d.expect("extend")
-	p := ext["params"].(map[string]any)
-	if p["sub"] != float64(3) || p["count"] != float64(50) || p["direction"] != Older {
-		t.Errorf("extend params = %v", p)
-	}
-}
-
-func TestReconnectReissuesEveryLiveSubscription(t *testing.T) {
-	c, d, _ := connectedClient(t)
-	sink := newRecordSink()
-	c.Subscribe("chats", Params{"filter": "all"}, sink)
-
-	first := d.expect("subscribe")
-	d.sendLines(map[string]any{"id": first["id"], "result": map[string]any{"sub": 1}})
-
-	d.dropConnection()
-	d.waitForConnection()
-	d.helloOK(d.expect("hello"))
-
-	again := d.expect("subscribe")
-	p := again["params"].(map[string]any)
-	if p["view"] != "chats" || p["filter"] != "all" {
-		t.Fatalf("re-issued subscribe lost its params: %v", p)
-	}
-}
-
-// A re-issued subscription starts from nothing. The daemon answers a subscribe
-// with the window as it stands and names only the rows in it, so a row that
-// left while the socket was down is never mentioned again: kept, it is a chat
-// nobody is ever going to correct.
-func TestAReissuedSubscriptionThrowsAwayTheWindowItHad(t *testing.T) {
-	c, d, _ := connectedClient(t)
-	sink := newRecordSink()
-	c.Subscribe("chats", nil, sink)
-
-	first := d.expect("subscribe")
-	d.sendLines(map[string]any{"id": first["id"], "result": map[string]any{"sub": 1}})
-	d.sendLines(
-		map[string]any{"sub": 1, "event": "upsert", "sort": "0-a", "item": map[string]any{"id": "gone@s.whatsapp.net"}},
-		map[string]any{"sub": 1, "event": "ready"},
-	)
-	sink.waitReady(t)
-
-	d.dropConnection()
-	d.waitForConnection()
-	d.helloOK(d.expect("hello"))
-
-	again := d.expect("subscribe")
-	d.sendLines(map[string]any{"id": again["id"], "result": map[string]any{"sub": 2}})
-	d.sendLines(
-		map[string]any{"sub": 2, "event": "upsert", "sort": "0-b", "item": map[string]any{"id": "still@s.whatsapp.net"}},
-		map[string]any{"sub": 2, "event": "ready"},
-	)
-	sink.waitReady(t)
-
-	sink.mu.Lock()
-	defer sink.mu.Unlock()
-	if _, held := sink.items["gone@s.whatsapp.net"]; held {
-		t.Errorf("the window still holds a row from the connection before it: %q", strings.Join(sink.calls, " "))
-	}
-	if _, held := sink.items["still@s.whatsapp.net"]; !held {
-		t.Errorf("the window lost the row the daemon just sent: %q", strings.Join(sink.calls, " "))
-	}
-}
-
-func TestEveryCallbackFiresExactlyOnceAcrossADisconnect(t *testing.T) {
-	c, d, _ := connectedClient(t)
-
-	var mu sync.Mutex
-	calls := 0
-	fired := make(chan struct{}, 4)
-	c.Do("send.text", Params{"chat_id": "c1", "text": "oi"}, func(_ json.RawMessage, err *Error) {
-		mu.Lock()
-		calls++
-		mu.Unlock()
-		fired <- struct{}{}
-	})
-	d.expect("send.text")
-
-	d.dropConnection()
 	select {
-	case <-fired:
-	case <-time.After(3 * time.Second):
-		t.Fatal("callback never fired after the connection dropped")
+	case n := <-readyAt:
+		if n != 2 {
+			t.Errorf("ready heard with %d updates applied, want 2", n)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("ready never heard")
 	}
+	got := s.wait(t, 2)
+	if len(got) != 2 || !got[0].fresh || got[1].fresh {
+		t.Errorf("applied %v, want two, the first fresh", got)
+	}
+	if !sub.Active() {
+		t.Error("an answered subscription is not active")
+	}
+}
 
-	// Ride out a reconnect and make sure nothing fires a second time.
-	d.waitForConnection()
-	d.helloOK(d.expect("hello"))
-	time.Sleep(200 * time.Millisecond)
+func TestAnExtendAskedEarlyGoesOnceTheSubIsKnown(t *testing.T) {
+	d := newFakeDaemon(t)
+	c, _ := start(t, d)
+	sub := c.Subscribe(subscribe(), newSink(), Hooks{})
+	sub.Extend(10, v2.Direction_DIRECTION_OLDER)
 
-	mu.Lock()
-	defer mu.Unlock()
-	if calls != 1 {
-		t.Errorf("callback fired %d times, want exactly 1", calls)
+	req := d.next()
+	d.quiet()
+	d.subscribed(req, 3)
+	ext := d.next().GetExtend()
+	if ext.GetSub() != 3 || ext.GetCount() != 10 || ext.GetDirection() != v2.Direction_DIRECTION_OLDER {
+		t.Errorf("extend %v, want 10 older on sub 3", ext)
+	}
+}
+
+func TestAReconnectIssuesEverySubscriptionAgain(t *testing.T) {
+	d := newFakeDaemon(t)
+	c, states := start(t, d)
+	s := newSink()
+	sub := c.Subscribe(subscribe(), s, Hooks{})
+	d.subscribed(d.next(), 1)
+	d.update(v2.ViewUpdate_builder{Sub: 1})
+	s.wait(t, 1)
+
+	d.drop()
+	until(t, states, Disconnected)
+	until(t, states, Ready)
+	if sub.Active() {
+		t.Error("a subscription kept the dead connection's sub")
+	}
+	req := d.next()
+	if !gproto.Equal(req.GetSubscribe(), subscribe()) {
+		t.Fatalf("after reconnect the client asked %v", req)
+	}
+	d.subscribed(req, 2)
+	d.update(v2.ViewUpdate_builder{Sub: 1})
+	d.update(v2.ViewUpdate_builder{Sub: 2})
+	got := s.wait(t, 2)
+	time.Sleep(20 * time.Millisecond)
+	if s.len() != 2 || !got[1].fresh {
+		t.Errorf("after reconnect applied %d, fresh %v; want the new sub's alone and fresh", s.len(), got[1].fresh)
+	}
+}
+
+// a lost connection answers everything owed once, and a deadline after it
+// does not answer again
+func TestEveryCallbackRunsOnceAcrossADisconnect(t *testing.T) {
+	shortDeadlines(t, 200*time.Millisecond)
+	d := newFakeDaemon(t)
+	c, _ := start(t, d)
+	a := newAnswers()
+	for _, n := range []string{"a", "b", "c"} {
+		c.Do(text(n), a.cb(n))
+		d.next()
+	}
+	d.drop()
+	a.wait(t, 3)
+	time.Sleep(300 * time.Millisecond)
+	for _, n := range []string{"a", "b", "c"} {
+		if got := a.of(n); len(got) != 1 || got[0] != errLost {
+			t.Errorf("%s heard %v, want lost once", n, got)
+		}
 	}
 }
 
 func TestAnOversizedFrameDropsTheConnection(t *testing.T) {
-	_, d, states := connectedClient(t)
-
-	// No newline, just a blob past the cap. The write races the client
-	// hanging up on us, so it runs off on its own goroutine.
-	go d.sendRaw([]byte(`{"pad":"` + strings.Repeat("x", maxLineBytes+16) + `"}`))
-
-	waitState(t, states, Disconnected)
+	d := newFakeDaemon(t)
+	_, states := start(t, d)
+	d.write(binary.AppendUvarint(nil, maxFrameBytes+1))
+	if e := until(t, states, Disconnected); !errors.Is(e.err, errFrameTooBig) {
+		t.Errorf("disconnected with %v, want the frame named too big", e.err)
+	}
 }
 
-func TestUnparseableFrameDoesNotKillTheConnection(t *testing.T) {
-	c, d, _ := connectedClient(t)
-	sink := newRecordSink()
-	c.Subscribe("chats", nil, sink)
-	req := d.expect("subscribe")
-	d.sendLines(map[string]any{"id": req["id"], "result": map[string]any{"sub": 1}})
+// a frame that does not decode is the daemon's bug, and the connection goes
+// on past it
+func TestAnUndecodableFrameIsSkipped(t *testing.T) {
+	d := newFakeDaemon(t)
+	c, states := start(t, d)
+	a := newAnswers()
+	c.Do(text("x"), a.cb("x"))
+	req := d.next()
+	d.write([]byte{3, 0xff, 0xff, 0xff})
+	d.answer(req, nil)
+	a.wait(t, 1)
+	if got := a.of("x"); got[0] != nil {
+		t.Errorf("the answer after junk came as %v", got[0])
+	}
+	select {
+	case e := <-states:
+		t.Errorf("junk changed the state to %v (%v)", e.state, e.err)
+	default:
+	}
+}
 
-	d.sendRaw([]byte("this is not json\n"))
-	d.sendLines(map[string]any{"sub": 1, "event": "ready"})
-	sink.waitReady(t)
+func TestAFrameInPiecesIsOneFrame(t *testing.T) {
+	d := newFakeDaemon(t)
+	c, _ := start(t, d)
+	a := newAnswers()
+	c.Do(text("x"), a.cb("x"))
+	req := d.next()
 
-	if c.State() != Ready {
-		t.Errorf("state = %v after a junk frame, want Ready", c.State())
+	// long enough that the length prefix is two bytes, and those split too
+	msg := strings.Repeat("m", 300)
+	r := v2.Response_builder{Id: req.GetId(), Error: v2.Error_builder{Message: msg}.Build()}.Build()
+	b, err := encode(v2.Frame_builder{Response: r}.Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range b {
+		d.write(b[i : i+1])
+		if i < 4 {
+			time.Sleep(time.Millisecond)
+		}
+	}
+	a.wait(t, 1)
+	if got := a.of("x"); got[0] == nil || got[0].Message != msg {
+		t.Errorf("heard %v, want the whole message", got[0])
+	}
+}
+
+func TestAnswersMayComeInAnyOrder(t *testing.T) {
+	d := newFakeDaemon(t)
+	c, _ := start(t, d)
+	a := newAnswers()
+	c.Do(text("a"), a.cb("a"))
+	ra := d.next()
+	c.Do(text("b"), a.cb("b"))
+	rb := d.next()
+	for _, r := range []*v2.Request{rb, ra} {
+		name := r.GetSendText().GetText()
+		d.answer(r, func(resp *v2.Response) { resp.SetError(v2.Error_builder{Message: name}.Build()) })
+	}
+	a.wait(t, 2)
+	for _, n := range []string{"a", "b"} {
+		if got := a.of(n); len(got) != 1 || got[0].Message != n {
+			t.Errorf("%s heard %v", n, got)
+		}
+	}
+}
+
+func TestADeadlineSaysNoAndTheLateAnswerGoesNowhere(t *testing.T) {
+	shortDeadlines(t, 50*time.Millisecond)
+	d := newFakeDaemon(t)
+	c, _ := start(t, d)
+	a := newAnswers()
+	c.Do(text("x"), a.cb("x"))
+	req := d.next()
+	a.wait(t, 1)
+	d.answer(req, nil)
+	// the answer is written after the timeout; another request answered
+	// behind it proves it was read
+	c.Do(text("y"), a.cb("y"))
+	d.answer(d.next(), nil)
+	a.wait(t, 1)
+	if got := a.of("x"); len(got) != 1 || got[0] != errTimeout {
+		t.Errorf("x heard %v, want one timeout", got)
+	}
+}
+
+// no more than 32 written and unanswered; the next goes out when one is
+// answered
+func TestTheWriterHoldsBackPastThirtyTwoOwed(t *testing.T) {
+	d := newFakeDaemon(t)
+	c, _ := start(t, d)
+	for i := 0; i < maxAwaiting+5; i++ {
+		c.Do(text("x"), nil)
+	}
+	var out []*v2.Request
+	for i := 0; i < maxAwaiting; i++ {
+		out = append(out, d.next())
+	}
+	d.quiet()
+	d.answer(out[0], nil)
+	d.next()
+	d.quiet()
+}
+
+func TestPastTheQueueARequestIsRefusedOnTheSpot(t *testing.T) {
+	d := newFakeDaemon(t)
+	c, _ := start(t, d)
+	for i := 0; i < maxAwaiting; i++ {
+		c.Do(text("x"), nil)
+		d.next()
+	}
+	for i := 0; i < maxQueued; i++ {
+		c.Do(text("x"), func(_ *v2.Response, err *Error) {
+			if err == errBusy {
+				t.Error("a request inside the queue was refused")
+			}
+		})
+	}
+	var heard *Error
+	c.Do(text("x"), func(_ *v2.Response, err *Error) { heard = err })
+	if heard != errBusy {
+		t.Errorf("one past the queue heard %v by the time Do returned, want busy", heard)
+	}
+	heard = nil
+	c.Subscribe(subscribe(), newSink(), Hooks{OnFailed: func(err *Error) { heard = err }})
+	if heard != errBusy {
+		t.Errorf("a subscribe past the queue heard %v by the time it returned, want busy", heard)
+	}
+}
+
+func TestPastTheQueuedBytesARequestIsRefused(t *testing.T) {
+	d := newFakeDaemon(t)
+	c, _ := start(t, d)
+	for i := 0; i < maxAwaiting; i++ {
+		c.Do(text("x"), nil)
+		d.next()
+	}
+	big := strings.Repeat("b", 9<<20)
+	var first, second *Error
+	c.Do(text(big), func(_ *v2.Response, err *Error) { first = err })
+	c.Do(text(big), func(_ *v2.Response, err *Error) { second = err })
+	if first == errBusy || second != errBusy {
+		t.Errorf("9 MiB then 9 MiB heard %v and %v, want the second refused", first, second)
+	}
+}
+
+// a daemon that stops reading wedges the writer; the write timeout turns that
+// into a lost connection instead of a frozen one
+func TestAWedgedDaemonIsALostConnection(t *testing.T) {
+	writeTimeout = 100 * time.Millisecond
+	t.Cleanup(func() { writeTimeout = 10 * time.Second })
+	d := newFakeDaemon(t)
+	d.stall = true
+	c, states := start(t, d)
+	a := newAnswers()
+	c.Do(text(strings.Repeat("w", 8<<20)), a.cb("w"))
+	until(t, states, Disconnected)
+	a.wait(t, 1)
+	if got := a.of("w"); got[0] != errLost {
+		t.Errorf("the stuck write heard %v, want lost", got[0])
+	}
+}
+
+func TestWithNoDaemonARequestIsRefusedOnTheSpot(t *testing.T) {
+	c := New(t.TempDir()+"/none.sock", "test")
+	var heard *Error
+	c.Do(text("x"), func(_ *v2.Response, err *Error) { heard = err })
+	if heard != errOffline {
+		t.Errorf("heard %v by the time Do returned, want offline", heard)
+	}
+
+	c.Start()
+	t.Cleanup(c.Stop)
+	heard = nil
+	c.Do(text("x"), func(_ *v2.Response, err *Error) { heard = err })
+	if heard != errOffline {
+		t.Errorf("while dialing heard %v, want offline", heard)
+	}
+}
+
+// a sub nobody will route is handed back rather than left running in the
+// daemon
+func TestASubscribeAnswerNobodyWantsIsUnsubscribed(t *testing.T) {
+	t.Run("late", func(t *testing.T) {
+		shortDeadlines(t, 50*time.Millisecond)
+		d := newFakeDaemon(t)
+		c, _ := start(t, d)
+		failed := make(chan *Error, 1)
+		c.Subscribe(subscribe(), newSink(), Hooks{OnFailed: func(err *Error) { failed <- err }})
+		req := d.next()
+		if err := <-failed; err != errTimeout {
+			t.Fatalf("failed with %v, want timeout", err)
+		}
+		d.subscribed(req, 9)
+		if u := d.next().GetUnsubscribe(); u.GetSub() != 9 {
+			t.Errorf("want unsubscribe 9, got %v", u)
+		}
+	})
+	t.Run("closed", func(t *testing.T) {
+		d := newFakeDaemon(t)
+		c, _ := start(t, d)
+		sub := c.Subscribe(subscribe(), newSink(), Hooks{})
+		req := d.next()
+		sub.Close()
+		d.quiet()
+		d.subscribed(req, 5)
+		if u := d.next().GetUnsubscribe(); u.GetSub() != 5 {
+			t.Errorf("want unsubscribe 5, got %v", u)
+		}
+	})
+}
+
+func TestNothingIsHeardAfterStop(t *testing.T) {
+	d := newFakeDaemon(t)
+	c, _ := start(t, d)
+	var stopped atomic.Bool
+	calls := 0
+	c.Do(text("x"), func(_ *v2.Response, err *Error) {
+		calls++
+		if stopped.Load() {
+			t.Error("a callback ran after Stop returned")
+		}
+	})
+	req := d.next()
+	s := newSink()
+	c.Subscribe(subscribe(), s, Hooks{})
+	d.subscribed(d.next(), 1)
+
+	c.Stop()
+	stopped.Store(true)
+	if calls != 1 {
+		t.Errorf("the owed callback ran %d times by Stop, want once", calls)
+	}
+	n := s.len()
+	d.answer(req, nil)
+	d.update(v2.ViewUpdate_builder{Sub: 1})
+	time.Sleep(50 * time.Millisecond)
+	if s.len() != n {
+		t.Error("an update was applied after Stop")
 	}
 }

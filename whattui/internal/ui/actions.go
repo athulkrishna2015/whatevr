@@ -1,9 +1,12 @@
 package ui
 
 import (
-	"encoding/json"
+	"crypto/rand"
+	"encoding/hex"
 	"strings"
 	"unicode/utf8"
+
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 
 	"whattui/internal/proto"
 )
@@ -30,12 +33,12 @@ func (a *App) replySelected() {
 	// carry in the transcript. It is what says who this is about before the
 	// name is read.
 	colour := a.theme.Accent
-	if !m.Outgoing() {
-		colour = a.theme.IdentityFor(m.Sender.ID)
+	if !m.GetFromMe() {
+		colour = a.theme.IdentityFor(m.GetSender().GetId())
 	}
 
 	a.mu.Lock()
-	a.composer.replyTo = m.ID
+	a.composer.replyTo = m.GetId()
 	a.composer.editing = ""
 	a.composer.targetName = replyName(m)
 	a.composer.targetText = oneLine(a.body(m))
@@ -54,11 +57,11 @@ func (a *App) editSelected() {
 	}
 	a.mu.Lock()
 	a.composer.replyTo = ""
-	a.composer.editing = m.ID
+	a.composer.editing = m.GetId()
 	a.composer.targetName = "editing"
-	a.composer.targetText = oneLine(m.Text)
+	a.composer.targetText = oneLine(m.GetText())
 	a.composer.targetColour = a.theme.Warning
-	a.composer.text = []rune(m.Text)
+	a.composer.text = []rune(m.GetText())
 	a.composer.cursor = len(a.composer.text)
 	a.mu.Unlock()
 	a.clearCursor()
@@ -72,7 +75,7 @@ func (a *App) copySelected() {
 	if !ok {
 		return
 	}
-	text := m.Body()
+	text := messageBody(m)
 	if strings.TrimSpace(text) == "" {
 		return
 	}
@@ -94,7 +97,9 @@ func (a *App) forward(messageID string, chatIDs []string) {
 	if messageID == "" || len(chatIDs) == 0 {
 		return
 	}
-	a.do("message.forward", proto.Params{"message_id": messageID, "chat_ids": chatIDs}, func() {
+	req := &v2.Request{}
+	req.SetMessageForward(v2.MessageForward_builder{MessageId: messageID, ChatIds: chatIDs, Key: sendKey()}.Build())
+	a.do(req, func() {
 		a.toast("forwarded to " + plural(len(chatIDs), "chat"))
 	})
 }
@@ -121,8 +126,10 @@ func (a *App) starSelected() {
 	if !ok {
 		return
 	}
-	starred := !m.Starred
-	a.do("message.star", proto.Params{"message_id": m.ID, "starred": starred}, func() {
+	starred := !m.GetStarred()
+	req := &v2.Request{}
+	req.SetMessageStar(v2.MessageStar_builder{MessageId: m.GetId(), Starred: starred}.Build())
+	a.do(req, func() {
 		if starred {
 			a.toast("starred")
 			return
@@ -140,7 +147,7 @@ func (a *App) deleteSelected() {
 		return
 	}
 	choices := make([]modalChoice, 0, 2)
-	if m.Outgoing() && !m.Revoked {
+	if m.GetFromMe() && !m.GetRevoked() {
 		choices = append(choices, modalChoice{
 			Command: cmdRevoke, Label: "Delete for everyone", Detail: "nobody in the chat keeps it",
 		})
@@ -160,7 +167,9 @@ func (a *App) deleteSelectedForMe() {
 	if !ok {
 		return
 	}
-	a.do("message.delete", proto.Params{"message_id": m.ID}, func() { a.toast("deleted here") })
+	req := &v2.Request{}
+	req.SetMessageDelete(v2.MessageDelete_builder{MessageId: m.GetId()}.Build())
+	a.do(req, func() { a.toast("deleted here") })
 }
 
 func (a *App) revokeSelected() {
@@ -168,17 +177,19 @@ func (a *App) revokeSelected() {
 	if !ok {
 		return
 	}
-	a.do("message.revoke", proto.Params{"message_id": m.ID}, func() { a.toast("deleted for everyone") })
+	req := &v2.Request{}
+	req.SetMessageRevoke(v2.MessageRevoke_builder{MessageId: m.GetId()}.Build())
+	a.do(req, func() { a.toast("deleted for everyone") })
 }
 
 // do sends a command and says what the daemon said if it refused. Nothing
 // waits for the answer: what the action actually did arrives as an upsert.
-func (a *App) do(method string, params proto.Params, done func()) {
+func (a *App) do(req *v2.Request, done func()) {
 	request := a.request
 	if request == nil {
 		return
 	}
-	request(method, params, func(_ json.RawMessage, err *proto.Error) {
+	request(req, func(_ *v2.Response, err *proto.Error) {
 		if err != nil {
 			a.refuse(err.Message)
 			return
@@ -192,14 +203,22 @@ func (a *App) do(method string, params proto.Params, done func()) {
 // replyName is who the strip says you are answering. Your own message says so
 // in the first person, the way it reads in the sentence somebody is about to
 // write.
-func replyName(m proto.MessageRow) string {
-	if m.Outgoing() {
+func replyName(m *v2.MessageRow) string {
+	if m.GetFromMe() {
 		return "you"
 	}
-	if m.Sender.Name != "" {
-		return m.Sender.Name
+	if n := m.GetSender().GetName(); n != "" {
+		return n
 	}
-	return m.Sender.ID
+	return m.GetSender().GetId()
+}
+
+// sendKey is a fresh key for one send, so a repeat after a lost answer sends
+// nothing twice
+func sendKey() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
 }
 
 // oneLine squeezes a message onto a single row, for the places that name a

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
 
 	"whattui/internal/proto"
@@ -261,8 +262,8 @@ func mockApp(t testing.TB, scenario, chatName string, cols, rows int) *App {
 		vx:      win.Vx,
 		caps:    term.Caps{Tier: term.TierColor, RGB: true},
 		theme:   theme.Derive(vaxis.RGBColor(0x12, 0x14, 0x18), vaxis.RGBColor(0xe4, 0xe4, 0xe6)),
-		chats:   view.NewCollection[proto.ChatRow](),
-		conn:    view.NewObject[proto.Connection](),
+		chats:   view.NewCollection(view.Chat),
+		conn:    view.NewObject(view.Connection),
 		focus:   FocusComposer,
 		focused: true,
 		hovered: -1,
@@ -280,7 +281,7 @@ func mockApp(t testing.TB, scenario, chatName string, cols, rows int) *App {
 	a.client.Start()
 	t.Cleanup(a.client.Stop)
 
-	a.connSub = a.client.Subscribe("connection", nil, a.conn)
+	a.connSub = a.client.Subscribe(v2.Subscribe_builder{Connection: &v2.ConnectionView{}}.Build(), a.conn, proto.Hooks{})
 	a.subscribeChats()
 	waitFor(t, "the socket", func() bool {
 		a.mu.Lock()
@@ -290,7 +291,7 @@ func mockApp(t testing.TB, scenario, chatName string, cols, rows int) *App {
 	waitFor(t, "the chat list", func() bool { return a.chats.IsReady() && a.chats.Len() > 0 })
 	waitFor(t, "the connection state", func() bool {
 		c, ok := a.conn.Value()
-		return ok && c.State == "online"
+		return ok && connState(c) == v2.ConnectionState_CONNECTION_STATE_ONLINE
 	})
 
 	chatID := chatNamed(t, a, chatName)
@@ -346,10 +347,10 @@ func versions(a *App) [2]uint64 {
 func chatNamed(t testing.TB, a *App, name string) string {
 	t.Helper()
 	found := ""
-	a.chats.Read(func(items []view.Item[proto.ChatRow], _ view.State) {
+	a.chats.Read(func(items []view.Item[*v2.ChatRow], _ view.State) {
 		for _, item := range items {
-			if item.Value.Name == name {
-				found = item.Value.ID
+			if item.Value.GetName() == name {
+				found = item.Value.GetId()
 				return
 			}
 		}

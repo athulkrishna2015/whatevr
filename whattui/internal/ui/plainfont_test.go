@@ -4,7 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"whattui/internal/proto"
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
+
 	"whattui/internal/term"
 	"whattui/internal/theme"
 )
@@ -25,8 +26,12 @@ func onTheConsole(a *App) *App {
 func TestDeliveryStatesAreToldApartWhereTheFontHasNoTicks(t *testing.T) {
 	a := onTheConsole(stubApp(90, 26, 4, 0))
 
-	seen := map[string]string{}
-	for _, status := range []string{"sent", "delivered", "read", "failed", "pending"} {
+	seen := map[string]v2.MessageStatus{}
+	for _, status := range []v2.MessageStatus{
+		v2.MessageStatus_MESSAGE_STATUS_SENT, v2.MessageStatus_MESSAGE_STATUS_DELIVERED,
+		v2.MessageStatus_MESSAGE_STATUS_READ, v2.MessageStatus_MESSAGE_STATUS_FAILED,
+		v2.MessageStatus_MESSAGE_STATUS_PENDING,
+	} {
 		glyph := a.statusGlyph(status)
 		if glyph == "" {
 			t.Fatalf("%s draws nothing", status)
@@ -45,10 +50,11 @@ func TestDeliveryStatesAreToldApartWhereTheFontHasNoTicks(t *testing.T) {
 	// And the fact is still in the glyph rather than only in the colour, on
 	// every terminal: two ticks and two heavy ticks are two different marks.
 	rich := stubApp(90, 26, 4, 0)
-	if rich.statusGlyph("delivered") == rich.statusGlyph("read") {
+	if rich.statusGlyph(v2.MessageStatus_MESSAGE_STATUS_DELIVERED) == rich.statusGlyph(v2.MessageStatus_MESSAGE_STATUS_READ) {
 		t.Error("delivered and read draw the same glyph, so colour is carrying it alone")
 	}
-	if rich.statusInk("read") != rich.theme.Accent || rich.statusInk("failed") != rich.theme.Error {
+	if rich.statusInk(v2.MessageStatus_MESSAGE_STATUS_READ) != rich.theme.Accent ||
+		rich.statusInk(v2.MessageStatus_MESSAGE_STATUS_FAILED) != rich.theme.Error {
 		t.Error("read and failed are not in their own ink")
 	}
 }
@@ -58,12 +64,12 @@ func TestDeliveryStatesAreToldApartWhereTheFontHasNoTicks(t *testing.T) {
 func TestTheDeliveryMarkIsDrawnApartFromTheTime(t *testing.T) {
 	a := stubApp(100, 26, 4, 0)
 	c := a.conversation
-	c.msgs.Reset()
-	c.msgs.Upsert("00000000000000000001", mustJSON(proto.MessageRow{
-		ID: "m", Kind: "text", Direction: "outgoing", Status: "read",
-		Text: "read by everybody", Timestamp: 1758000000,
-	}))
-	c.msgs.Ready(true, true)
+	reset(c.msgs)
+	putMsg(c.msgs, "00000000000000000001", (v2.MessageRow_builder{
+		Id: "m", TextBody: &v2.Text{}, FromMe: true, Status: v2.MessageStatus_MESSAGE_STATUS_READ,
+		Text: "read by everybody", TMs: (1758000000) * 1000,
+	}.Build()))
+	ready(c.msgs, true)
 	a.paint()
 
 	mark, time := a.styleOf(t, "✔"), a.styleOf(t, ":")
@@ -82,20 +88,19 @@ func TestAKindLineIsSpelledOutWhereThePictureIsAHole(t *testing.T) {
 	console := onTheConsole(stubApp(90, 26, 4, 0))
 	rich := stubApp(90, 26, 4, 0)
 
-	voice := proto.MessageRow{
-		ID: "m", Kind: "voice", Direction: "incoming",
-		Fallback: "🎤 Voice message (0:12)",
-	}
+	voice := v2.MessageRow_builder{
+		Id: "m", Voice: &v2.Voice{}, Fallback: "🎤 Voice message (0:12)",
+	}.Build()
 	if got := console.body(voice); got != "Voice message (0:12)" {
 		t.Errorf("on a console the line reads %q", got)
 	}
-	if got := rich.body(voice); got != voice.Fallback {
+	if got := rich.body(voice); got != voice.GetFallback() {
 		t.Errorf("in a terminal with pictures the line reads %q", got)
 	}
 
 	// What somebody wrote is theirs, picture and all.
-	wrote := proto.MessageRow{ID: "m", Kind: "text", Direction: "incoming", Text: "🔥 that was great"}
-	if got := console.body(wrote); got != wrote.Text {
+	wrote := v2.MessageRow_builder{Id: "m", TextBody: &v2.Text{}, Text: "🔥 that was great"}.Build()
+	if got := console.body(wrote); got != wrote.GetText() {
 		t.Errorf("a message somebody wrote came out as %q", got)
 	}
 	// And a line that is nothing but a picture keeps it: an empty row says
@@ -111,12 +116,12 @@ func TestAPreviewLosesThePictureItCannotDraw(t *testing.T) {
 	// Wide enough for the list to carry a preview line, which is where the
 	// picture is.
 	a := onTheConsole(stubApp(120, 30, 4, 0))
-	a.chats.Reset()
-	a.chats.Upsert("00000000000000000001", mustJSON(proto.ChatRow{
-		ID: "910000000@s.whatsapp.net", Name: "Asha",
-		Preview: "📷 Photo", LastMessageTime: 1758000000,
-	}))
-	a.chats.Ready(true, true)
+	reset(a.chats)
+	putChat(a.chats, "00000000000000000001", (v2.ChatRow_builder{
+		Id: "910000000@s.whatsapp.net", Name: "Asha",
+		Preview: preview("📷 Photo"), LastMs: (1758000000) * 1000,
+	}.Build()))
+	ready(a.chats, true)
 	a.paint()
 
 	frame := a.frameText()

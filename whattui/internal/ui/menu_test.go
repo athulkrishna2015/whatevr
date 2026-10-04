@@ -4,9 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
-
-	"whattui/internal/proto"
 )
 
 // only finds the one request made with this method, and complains if the
@@ -46,9 +45,9 @@ func TestReactingSendsTheEmojiThePickerWasLeftOn(t *testing.T) {
 	}
 
 	a.onKey(arrow(vaxis.KeyEnter))
-	call := only(t, *calls, "message.react")
-	if call.params["message_id"] != id || call.params["emoji"] != first.Emoji {
-		t.Fatalf("the reaction went out as %#v, want %q on %q", call.params, first.Emoji, id)
+	call := only(t, *calls, "message_react")
+	if r := call.req.GetMessageReact(); r.GetMessageId() != id || r.GetEmoji() != first.Emoji {
+		t.Fatalf("the reaction went out as %v, want %q on %q", r, first.Emoji, id)
 	}
 	if a.modal.kind != modalNone {
 		t.Error("the picker is still open after picking")
@@ -61,22 +60,22 @@ func TestPressingYourOwnReactionTakesItBack(t *testing.T) {
 	a := stubApp(100, 26, 4, 6)
 	calls := records(a)
 	c := a.conversation
-	c.msgs.Reset()
-	c.msgs.Upsert("00000000000000000001", mustJSON(proto.MessageRow{
-		ID: "m", Kind: "text", Direction: "incoming", Text: "already agreed with",
-		Sender:    proto.Sender{ID: "x", Name: "someone"},
-		Reactions: []proto.Reaction{{Emoji: "🔥", FromMe: true}},
-	}))
-	c.msgs.Ready(true, true)
+	reset(c.msgs)
+	putMsg(c.msgs, "00000000000000000001", (v2.MessageRow_builder{
+		Id: "m", TextBody: &v2.Text{}, Text: "already agreed with",
+		Sender:         person("x", "someone"),
+		ReactionCounts: counts([]rx{{"🔥", "", true}}),
+	}.Build()))
+	ready(c.msgs, true)
 	a.paint()
 	a.setCursor("m")
 
 	a.onKey(key('+'))
 	a.onKey(arrow(vaxis.KeyEnter))
 
-	call := only(t, *calls, "message.react")
-	if call.params["emoji"] != "" {
-		t.Fatalf("pressing your own reaction sent %q, want the empty one that removes it", call.params["emoji"])
+	call := only(t, *calls, "message_react")
+	if got := call.req.GetMessageReact().GetEmoji(); got != "" {
+		t.Fatalf("pressing your own reaction sent %q, want the empty one that removes it", got)
 	}
 }
 
@@ -105,11 +104,11 @@ func TestForwardingGoesToEveryChatThatWasMarked(t *testing.T) {
 	}
 
 	a.onKey(arrow(vaxis.KeyEnter))
-	call := only(t, *calls, "message.forward")
-	if call.params["message_id"] != id {
-		t.Fatalf("the forward is about %v, want %q", call.params["message_id"], id)
+	call := only(t, *calls, "message_forward")
+	if got := call.req.GetMessageForward().GetMessageId(); got != id {
+		t.Fatalf("the forward is about %v, want %q", got, id)
 	}
-	sent, _ := call.params["chat_ids"].([]string)
+	sent := call.req.GetMessageForward().GetChatIds()
 	if len(sent) != 2 || !has(sent, first) || !has(sent, second) {
 		t.Fatalf("forwarded to %v, want both marked chats", sent)
 	}
@@ -126,9 +125,9 @@ func TestForwardingWithNothingMarkedGoesToTheRowItIsOn(t *testing.T) {
 	want := a.modal.selector.Items()[0].ChatID
 	a.onKey(arrow(vaxis.KeyEnter))
 
-	call := only(t, *calls, "message.forward")
-	if sent, _ := call.params["chat_ids"].([]string); len(sent) != 1 || sent[0] != want {
-		t.Fatalf("forwarded to %v, want the highlighted chat %q", call.params["chat_ids"], want)
+	call := only(t, *calls, "message_forward")
+	if sent := call.req.GetMessageForward().GetChatIds(); len(sent) != 1 || sent[0] != want {
+		t.Fatalf("forwarded to %v, want the highlighted chat %q", sent, want)
 	}
 }
 
@@ -184,12 +183,12 @@ func TestADeletedMessageHasNoMenuAndIsNotWorthPointingAt(t *testing.T) {
 	a := stubApp(100, 26, 4, 6)
 	records(a)
 	c := a.conversation
-	c.msgs.Reset()
-	c.msgs.Upsert("00000000000000000001", mustJSON(proto.MessageRow{
-		ID: "gone", Kind: "text", Direction: "incoming", Revoked: true,
-		Sender: proto.Sender{ID: "x", Name: "someone"},
-	}))
-	c.msgs.Ready(true, true)
+	reset(c.msgs)
+	putMsg(c.msgs, "00000000000000000001", (v2.MessageRow_builder{
+		Id: "gone", TextBody: &v2.Text{}, Revoked: true,
+		Sender: person("x", "someone"),
+	}.Build()))
+	ready(c.msgs, true)
 	a.paint()
 	at := a.messages[0]
 	if at.id != "gone" {
@@ -288,7 +287,7 @@ func TestTheMenuOnlyOffersWhatTheMessageCanActuallyDo(t *testing.T) {
 	a := stubApp(100, 26, 4, 6)
 	records(a)
 	_, m := pointAt(a, t, false)
-	if m.Outgoing() {
+	if m.GetFromMe() {
 		t.Skip("no incoming message in the window")
 	}
 

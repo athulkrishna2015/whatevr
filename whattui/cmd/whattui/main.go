@@ -21,7 +21,7 @@ import (
 
 func main() {
 	var (
-		socket   = flag.String("socket", "", "whatevrd socket (default: $XDG_RUNTIME_DIR/whatevr/whatevrd.sock)")
+		socket   = flag.String("socket", "", "whatevrd socket (default: $WHATEVR_SOCKET, else whatevr/whatevrd.sock in $XDG_RUNTIME_DIR, or $TMPDIR on macOS)")
 		showCaps = flag.Bool("caps", false, "print what was detected about this terminal and exit")
 	)
 	flag.Parse()

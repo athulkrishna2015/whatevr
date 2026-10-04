@@ -4,9 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
-
-	"whattui/internal/proto"
 )
 
 func arrow(code rune) vaxis.Key { return vaxis.Key{Keycode: code} }
@@ -189,7 +188,7 @@ func TestACursorOnAMessageThatLeavesTheWindowLetsGo(t *testing.T) {
 		t.Fatal("nothing was pointed at")
 	}
 
-	a.conversation.msgs.Remove(id)
+	remove(a.conversation.msgs, id)
 	a.paint()
 
 	if got := a.cursor(); got != "" {
@@ -204,17 +203,17 @@ func TestACursorOnAMessageThatLeavesTheWindowLetsGo(t *testing.T) {
 func TestALongMessageIsWalkedThroughRatherThanSteppedOver(t *testing.T) {
 	a := stubApp(90, 20, 4, 3)
 	c := a.conversation
-	c.msgs.Reset()
+	reset(c.msgs)
 	long := strings.Repeat("a long message that goes on and on and has to be read in pieces. ", 30)
-	c.msgs.Upsert("00000000000000000001", mustJSON(proto.MessageRow{
-		ID: "old", Kind: "text", Direction: "incoming", Text: "the one before it",
-		Sender: proto.Sender{ID: "x", Name: "someone"}, Timestamp: 1758000000,
-	}))
-	c.msgs.Upsert("00000000000000000002", mustJSON(proto.MessageRow{
-		ID: "tall", Kind: "text", Direction: "incoming", Text: long,
-		Sender: proto.Sender{ID: "x", Name: "someone"}, Timestamp: 1758000060,
-	}))
-	c.msgs.Ready(true, true)
+	putMsg(c.msgs, "00000000000000000001", (v2.MessageRow_builder{
+		Id: "old", TextBody: &v2.Text{}, Text: "the one before it",
+		Sender: person("x", "someone"), TMs: (1758000000) * 1000,
+	}.Build()))
+	putMsg(c.msgs, "00000000000000000002", (v2.MessageRow_builder{
+		Id: "tall", TextBody: &v2.Text{}, Text: long,
+		Sender: person("x", "someone"), TMs: (1758000060) * 1000,
+	}.Build()))
+	ready(c.msgs, true)
 	a.paint()
 
 	page := a.transcriptPage()

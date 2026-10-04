@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
 
-	"whattui/internal/proto"
 	"whattui/internal/term"
 	"whattui/internal/textrun"
 )
@@ -18,16 +18,16 @@ import (
 func TestScrollingMovesOneRowAtATimeThroughATallMessage(t *testing.T) {
 	a := stubApp(80, 24, 4, 0)
 	c := a.conversation
-	c.msgs.Reset()
+	reset(c.msgs)
 	long := ""
 	for i := 0; i < 40; i++ {
 		long += fmt.Sprintf("line %d of a message that is taller than the pane it is in. ", i)
 	}
-	c.msgs.Upsert("00000000000000000000", mustJSON(proto.MessageRow{
-		ID: "tall", Kind: "text", Direction: "incoming", Text: long,
-		Sender: proto.Sender{ID: "x", Name: "someone"},
-	}))
-	c.msgs.Ready(true, true)
+	putMsg(c.msgs, "00000000000000000000", (v2.MessageRow_builder{
+		Id: "tall", TextBody: &v2.Text{}, Text: long,
+		Sender: person("x", "someone"),
+	}.Build()))
+	ready(c.msgs, true)
 
 	a.paint()
 	if c.contentRows < 30 {
@@ -72,20 +72,19 @@ func (a *App) transcriptRowsText() string {
 func TestAChangedMessageIsLaidOutAgain(t *testing.T) {
 	a := stubApp(80, 24, 4, 0)
 	c := a.conversation
-	c.msgs.Reset()
-	c.msgs.Upsert("00000000000000000001", mustJSON(proto.MessageRow{
-		ID: "m", Kind: "text", Direction: "incoming", Text: "one line",
-		Sender: proto.Sender{ID: "x", Name: "someone"},
-	}))
-	c.msgs.Ready(true, true)
+	reset(c.msgs)
+	putMsg(c.msgs, "00000000000000000001", (v2.MessageRow_builder{
+		Id: "m", TextBody: &v2.Text{}, Text: "one line",
+		Sender: person("x", "someone"),
+	}.Build()))
+	ready(c.msgs, true)
 	a.paint()
 	first := c.runs[0].height
 
-	c.msgs.Upsert("00000000000000000001", mustJSON(proto.MessageRow{
-		ID: "m", Kind: "text", Direction: "incoming",
-		Text:   "one line\ntwo lines\nthree lines\nfour lines",
-		Sender: proto.Sender{ID: "x", Name: "someone"},
-	}))
+	putMsg(c.msgs, "00000000000000000001", (v2.MessageRow_builder{
+		Id: "m", TextBody: &v2.Text{}, Text: "one line\ntwo lines\nthree lines\nfour lines",
+		Sender: person("x", "someone"),
+	}.Build()))
 	a.paint()
 	if got := c.runs[0].height; got <= first {
 		t.Fatalf("height after the edit = %d, was %d", got, first)
@@ -123,16 +122,16 @@ func TestNothingIsPlacedOutsideTheTranscript(t *testing.T) {
 	}
 
 	c := a.conversation
-	c.msgs.Reset()
+	reset(c.msgs)
 	body := ""
 	for i := 0; i < 60; i++ {
 		body += "नमस्ते सर, Khatabook के इंस्टेंट लोन के साथ अपने बिजनेस के सपनों को हकीकत बनाएँ। "
 	}
-	c.msgs.Upsert("00000000000000000000", mustJSON(proto.MessageRow{
-		ID: "tall", Kind: "text", Direction: "incoming", Text: body,
-		Sender: proto.Sender{ID: "x", Name: "Khatabook"},
-	}))
-	c.msgs.Ready(true, true)
+	putMsg(c.msgs, "00000000000000000000", (v2.MessageRow_builder{
+		Id: "tall", TextBody: &v2.Text{}, Text: body,
+		Sender: person("x", "Khatabook"),
+	}.Build()))
+	ready(c.msgs, true)
 
 	pane := a.layout().Transcript
 	a.paint()
@@ -175,16 +174,15 @@ func TestAModalTakesTheRunsUnderItWithIt(t *testing.T) {
 	}
 
 	c := a.conversation
-	c.msgs.Reset()
+	reset(c.msgs)
 	for i := 0; i < 30; i++ {
-		c.msgs.Upsert(fmt.Sprintf("%020d", i), mustJSON(proto.MessageRow{
-			ID: fmt.Sprintf("m%d", i), Kind: "text", Direction: "incoming",
-			Text: "नमस्ते सर, आपके बिजनेस के सपनों को हकीकत बनाएँ और आगे बढ़ें, " +
+		putMsg(c.msgs, fmt.Sprintf("%020d", i), v2.MessageRow_builder{
+			Id: fmt.Sprintf("m%d", i), TextBody: &v2.Text{}, Text: "नमस्ते सर, आपके बिजनेस के सपनों को हकीकत बनाएँ और आगे बढ़ें, " +
 				"कृपया अपनी पूरी जानकारी एक बार ध्यान से देख लें, धन्यवाद।",
-			Sender: proto.Sender{ID: "x", Name: "Khatabook"},
-		}))
+			Sender: person("x", "Khatabook"),
+		}.Build())
 	}
-	c.msgs.Ready(true, true)
+	ready(c.msgs, true)
 
 	a.paint()
 	if len(a.placements) == 0 {
@@ -218,15 +216,15 @@ func TestAModalTakesTheRunsUnderItWithIt(t *testing.T) {
 
 // oneMessage is a transcript holding exactly one row, for the tests about how
 // one message is drawn.
-func oneMessage(t *testing.T, a *App, m proto.MessageRow) entry {
+func oneMessage(t *testing.T, a *App, m *v2.MessageRow) entry {
 	t.Helper()
 	c := a.conversation
-	c.msgs.Reset()
-	m.Sender = proto.Sender{ID: "x", Name: "someone"}
-	c.msgs.Upsert("00000000000000000001", mustJSON(m))
-	c.msgs.Ready(true, true)
+	reset(c.msgs)
+	m.SetSender(person("x", "someone"))
+	putMsg(c.msgs, "00000000000000000001", m)
+	ready(c.msgs, true)
 	a.paint()
-	return c.cache[m.ID]
+	return c.cache[m.GetId()]
 }
 
 // cellSaying is the style of the first cell on a row holding a grapheme.
@@ -244,9 +242,9 @@ func (a *App) cellSaying(row int, grapheme string) (vaxis.Style, bool) {
 // to read that way rather than sitting there in full strength text.
 func TestADeletedMessageIsDrawnQuietly(t *testing.T) {
 	a := stubApp(100, 26, 4, 0)
-	e := oneMessage(t, a, proto.MessageRow{
-		ID: "m", Kind: "text", Direction: "incoming", Revoked: true, Edited: true, Starred: true,
-	})
+	e := oneMessage(t, a, v2.MessageRow_builder{
+		Id: "m", TextBody: &v2.Text{}, Revoked: true, Edited: true, Starred: true,
+	}.Build())
 
 	if !e.block.muted {
 		t.Error("a deleted message is drawn like any other")
@@ -273,12 +271,12 @@ func TestADeletedMessageIsDrawnQuietly(t *testing.T) {
 // not a cell of the rail, which is exactly as wide as a time and its ticks.
 func TestFlagsCostAMessageNothing(t *testing.T) {
 	a := stubApp(100, 26, 4, 0)
-	plain := oneMessage(t, a, proto.MessageRow{
-		ID: "m", Kind: "text", Direction: "incoming", Text: "short",
-	})
-	flagged := oneMessage(t, a, proto.MessageRow{
-		ID: "m", Kind: "text", Direction: "incoming", Text: "short", Edited: true, Starred: true,
-	})
+	plain := oneMessage(t, a, v2.MessageRow_builder{
+		Id: "m", TextBody: &v2.Text{}, Text: "short",
+	}.Build())
+	flagged := oneMessage(t, a, v2.MessageRow_builder{
+		Id: "m", TextBody: &v2.Text{}, Text: "short", Edited: true, Starred: true,
+	}.Build())
 
 	if !flagged.starred || !flagged.edited {
 		t.Fatal("the flags did not survive the layout")
@@ -301,9 +299,9 @@ func TestFlagsCostAMessageNothing(t *testing.T) {
 func TestTheStarMarksTheColumnBesideTheRule(t *testing.T) {
 	a := stubApp(100, 26, 4, 0)
 	room := a.runRoom(a.layout().Transcript.Width)
-	e := oneMessage(t, a, proto.MessageRow{
-		ID: "m", Kind: "text", Direction: "incoming", Text: strings.Repeat("a", room*2), Starred: true,
-	})
+	e := oneMessage(t, a, v2.MessageRow_builder{
+		Id: "m", TextBody: &v2.Text{}, Text: strings.Repeat("a", room*2), Starred: true,
+	}.Build())
 	if got := e.block.rows(); got < 2 {
 		t.Fatalf("this message is %d rows, want one worth a ribbon", got)
 	}
@@ -324,9 +322,9 @@ func TestTheStarMarksTheColumnBesideTheRule(t *testing.T) {
 		t.Errorf("the row under the star says %q, want the ribbon", tail)
 	}
 	// And the words are where they would be without it.
-	plain := oneMessage(t, a, proto.MessageRow{
-		ID: "m", Kind: "text", Direction: "incoming", Text: strings.Repeat("a", room*2),
-	})
+	plain := oneMessage(t, a, v2.MessageRow_builder{
+		Id: "m", TextBody: &v2.Text{}, Text: strings.Repeat("a", room*2),
+	}.Build())
 	if plain.block.width != e.block.width {
 		t.Error("the star took a column from the words")
 	}
@@ -336,9 +334,9 @@ func TestTheStarMarksTheColumnBesideTheRule(t *testing.T) {
 // time, so the mark goes on the time. Every terminal can underline.
 func TestAnEditMarksTheTime(t *testing.T) {
 	a := stubApp(100, 26, 4, 0)
-	e := oneMessage(t, a, proto.MessageRow{
-		ID: "m", Kind: "text", Direction: "incoming", Text: "short", Edited: true,
-	})
+	e := oneMessage(t, a, v2.MessageRow_builder{
+		Id: "m", TextBody: &v2.Text{}, Text: "short", Edited: true,
+	}.Build())
 
 	digit := string([]rune(e.block.stamp)[0])
 	style, ok := a.cellSaying(a.messages[0].at.Row, digit)
@@ -353,9 +351,9 @@ func TestAnEditMarksTheTime(t *testing.T) {
 	}
 
 	// And an unedited message's time carries no mark at all.
-	oneMessage(t, a, proto.MessageRow{
-		ID: "m", Kind: "text", Direction: "incoming", Text: "short",
-	})
+	oneMessage(t, a, v2.MessageRow_builder{
+		Id: "m", TextBody: &v2.Text{}, Text: "short",
+	}.Build())
 	if style, ok := a.cellSaying(a.messages[0].at.Row, digit); ok && style.UnderlineStyle != vaxis.UnderlineOff {
 		t.Errorf("an unedited time is underlined %v", style.UnderlineStyle)
 	}
@@ -415,16 +413,16 @@ func TestThePointerFindsTheMessageItIsOver(t *testing.T) {
 func TestAnOutgoingMessageHangsOffTheRuleItStandsOn(t *testing.T) {
 	a := stubApp(90, 26, 4, 0)
 	c := a.conversation
-	c.msgs.Reset()
-	c.msgs.Upsert("00000000000000000001", mustJSON(proto.MessageRow{
-		ID: "m", Kind: "text", Direction: "outgoing", Status: "read", Text: "Haath mai",
-		Sender: proto.Sender{ID: "me", Name: "me"},
-		ReplyTo: &proto.ReplyQuote{
-			MessageID: "q", Sender: proto.Sender{ID: "x", Name: "someone"},
+	reset(c.msgs)
+	putMsg(c.msgs, "00000000000000000001", (v2.MessageRow_builder{
+		Id: "m", TextBody: &v2.Text{}, FromMe: true, Status: v2.MessageStatus_MESSAGE_STATUS_READ, Text: "Haath mai",
+		Sender: person("me", "me"),
+		ReplyTo: v2.Quote_builder{
+			MessageId: "q", Sender: person("x", "someone"),
 			Text: "a quoted line long enough to set the width of the whole message",
-		},
-	}))
-	c.msgs.Ready(true, true)
+		}.Build(),
+	}.Build()))
+	ready(c.msgs, true)
 	a.paint()
 
 	words := ""

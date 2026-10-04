@@ -1,10 +1,10 @@
 package ui
 
 import (
-	"encoding/json"
 	"image/color"
 	"strings"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
 
 	"whattui/internal/layout"
@@ -94,7 +94,7 @@ func (a *App) openMessageModal(kind modalKind, at point) {
 	}
 	a.initCommands()
 	a.mu.Lock()
-	a.modal = modalState{kind: kind, message: m.ID, at: at, marked: map[string]bool{}}
+	a.modal = modalState{kind: kind, message: m.GetId(), at: at, marked: map[string]bool{}}
 	search, generation, issue := a.refreshModalLocked()
 	a.mu.Unlock()
 	if issue {
@@ -156,10 +156,10 @@ func (a *App) refreshModalLocked() (string, uint64, bool) {
 // asked anything.
 func (a *App) chatChoices() []modalChoice {
 	var out []modalChoice
-	a.chats.Read(func(items []view.Item[proto.ChatRow], _ view.State) {
+	a.chats.Read(func(items []view.Item[*v2.ChatRow], _ view.State) {
 		out = make([]modalChoice, 0, len(items))
 		for _, it := range items {
-			out = append(out, modalChoice{ChatID: it.ID, Label: it.Value.Name, Detail: a.spelled(it.Value.Preview)})
+			out = append(out, modalChoice{ChatID: it.ID, Label: it.Value.GetName(), Detail: a.spelled(it.Value.GetPreview().GetText())})
 		}
 	})
 	return out
@@ -177,20 +177,17 @@ func (a *App) searchChats(query string, generation uint64) {
 	if request == nil {
 		return
 	}
-	request("search.chats", proto.Params{"query": query, "limit": 50}, func(raw json.RawMessage, err *proto.Error) {
+	req := &v2.Request{}
+	req.SetSearchChats(v2.SearchChats_builder{Query: query, Limit: 50}.Build())
+	request(req, func(resp *v2.Response, err *proto.Error) {
 		if err != nil {
 			a.refuse(err.Message)
 			return
 		}
-		var result struct {
-			Chats []proto.ChatRow `json:"chats"`
-		}
-		if json.Unmarshal(raw, &result) != nil {
-			return
-		}
-		choices := make([]modalChoice, 0, len(result.Chats))
-		for _, chat := range result.Chats {
-			choices = append(choices, modalChoice{ChatID: chat.ID, Label: chat.Name, Detail: a.spelled(chat.Preview)})
+		chats := resp.GetSearchChats().GetChats()
+		choices := make([]modalChoice, 0, len(chats))
+		for _, chat := range chats {
+			choices = append(choices, modalChoice{ChatID: chat.GetId(), Label: chat.GetName(), Detail: a.spelled(chat.GetPreview().GetText())})
 		}
 		a.showChats(choices, generation)
 		a.vx.PostEvent(redraw{})

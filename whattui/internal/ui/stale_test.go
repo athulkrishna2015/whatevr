@@ -67,7 +67,7 @@ func TestAnUnpairedPhoneDrawsNoChatsAndNoChatName(t *testing.T) {
 		t.Fatal("the fixture never drew a chat list to begin with")
 	}
 
-	a.conn.Upsert("", mustJSON(proto.Connection{State: "need_login"}))
+	setConn(a.conn, needLogin())
 	a.paint()
 
 	list := a.layout().ChatList
@@ -89,7 +89,7 @@ func TestAnUnpairedPhoneDrawsNoChatsAndNoChatName(t *testing.T) {
 	}
 
 	// And pairing again is a redraw: the rows were never thrown away.
-	a.conn.Upsert("", mustJSON(proto.Connection{State: "online"}))
+	setConn(a.conn, online())
 	a.paint()
 	if !strings.Contains(rowText(a, 0, cols), "contact 0") {
 		t.Fatal("the list did not come back with the account")

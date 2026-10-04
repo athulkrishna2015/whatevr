@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
 
 	"whattui/internal/layout"
@@ -37,13 +38,13 @@ type App struct {
 	theme  theme.Theme
 	client *proto.Client
 
-	chats    *view.Collection[proto.ChatRow]
+	chats    *view.Collection[*v2.ChatRow]
 	chatsSub *proto.Subscription
 
-	conn    *view.Object[proto.Connection]
+	conn    *view.Object[*v2.ConnectionRow]
 	connSub *proto.Subscription
 
-	login    *view.Object[proto.Login]
+	login    *view.Object[*v2.LoginRow]
 	loginSub *proto.Subscription
 
 	// The rasteriser for the scripts a cell grid cannot hold, and the images
@@ -123,7 +124,7 @@ type App struct {
 	commands      commandRegistry
 	modal         modalState
 	leader        bool
-	request       func(string, proto.Params, proto.ResponseFunc)
+	request       func(*v2.Request, proto.ResponseFunc)
 	searchRequest uint64
 
 	conversation *conversation
@@ -136,9 +137,9 @@ func New(vx *vaxis.Vaxis, caps term.Caps, client *proto.Client) *App {
 		caps:    caps,
 		theme:   paletteFor(vx, caps),
 		client:  client,
-		chats:   view.NewCollection[proto.ChatRow](),
-		conn:    view.NewObject[proto.Connection](),
-		login:   view.NewObject[proto.Login](),
+		chats:   view.NewCollection(view.Chat),
+		conn:    view.NewObject(view.Connection),
+		login:   view.NewObject(view.Login),
 		focus:   FocusList,
 		focused: true,
 		hovered: -1,
@@ -155,8 +156,8 @@ func New(vx *vaxis.Vaxis, caps term.Caps, client *proto.Client) *App {
 
 	client.OnState = a.onTransport
 	client.OnDrain = func() { vx.PostEvent(redraw{}) }
-	client.OnOpenChat = func(ev proto.OpenChat) {
-		a.openChat(ev.ChatID)
+	client.OnOpenChat = func(ev *v2.OpenChat) {
+		a.openChat(ev.GetChatId())
 		vx.PostEvent(redraw{})
 	}
 	return a
@@ -292,7 +293,7 @@ func (a *App) recell() {
 // redraw wakes the event loop after the client applied a batch.
 type redraw struct{}
 
-func (a *App) onTransport(s proto.State, _ *proto.ServerInfo, err error) {
+func (a *App) onTransport(s proto.State, _ *v2.HelloResult, err error) {
 	a.mu.Lock()
 	a.transport = s
 	if err != nil {
@@ -320,10 +321,14 @@ func (a *App) Run() error {
 	a.client.Start()
 	defer a.client.Stop()
 
-	a.connSub = a.client.Subscribe("connection", nil, a.conn)
+	sub := &v2.Subscribe{}
+	sub.SetConnection(&v2.ConnectionView{})
+	a.connSub = a.client.Subscribe(sub, a.conn, proto.Hooks{})
 	// held for the whole run: a phone can unlink at any time, and the code
 	// has to be on screen the moment it does
-	a.loginSub = a.client.Subscribe("login", nil, a.login)
+	sub = &v2.Subscribe{}
+	sub.SetLogin(&v2.LoginView{})
+	a.loginSub = a.client.Subscribe(sub, a.login, proto.Hooks{})
 	a.subscribeChats()
 
 	a.draw()
@@ -412,13 +417,11 @@ func (a *App) done() bool {
 func (a *App) subscribeChats() {
 	if a.chatsSub != nil {
 		a.chatsSub.Close()
-		a.chats.Reset()
 	}
-	a.chatsSub = a.client.Subscribe("chats", proto.Params{
-		"filter":   "all",
-		"archived": false,
-		"limit":    chatPageSize,
-	}, a.chats)
+	a.chatsSub = a.client.Subscribe(v2.Subscribe_builder{
+		Limit: chatPageSize,
+		Chats: v2.ChatsView_builder{Filter: v2.ChatFilter_CHAT_FILTER_ALL}.Build(),
+	}.Build(), a.chats, proto.Hooks{})
 }
 
 const chatPageSize = 50
@@ -446,19 +449,23 @@ func (a *App) status() (string, vaxis.Color, bool) {
 	if !ok {
 		return "", 0, false
 	}
-	switch c.State {
-	case "online":
+	switch connState(c) {
+	case v2.ConnectionState_CONNECTION_STATE_ONLINE:
 		return "", 0, false
-	case "need_login":
+	case v2.ConnectionState_CONNECTION_STATE_NEED_LOGIN:
 		return "not linked to a phone: scan the code", a.theme.Warning, true
-	case "connecting", "starting":
+	case v2.ConnectionState_CONNECTION_STATE_CONNECTING, v2.ConnectionState_CONNECTION_STATE_STARTING:
 		return "connecting to whatsapp", a.theme.TextMuted, true
-	case "reconnecting":
+	case v2.ConnectionState_CONNECTION_STATE_WAITING:
 		return "reconnecting to whatsapp", a.theme.Warning, true
-	case "offline":
+	case v2.ConnectionState_CONNECTION_STATE_OFFLINE:
 		return "whatsapp is offline", a.theme.Error, true
 	default:
-		return c.State, a.theme.TextMuted, true
+		// a state this build does not know: the daemon's own sentence
+		if d := c.GetDetail(); d != "" {
+			return d, a.theme.TextMuted, true
+		}
+		return "", 0, false
 	}
 }
 
@@ -519,7 +526,7 @@ func (a *App) hover(chat int) bool {
 // holds, with no collection to read and no callback to run.
 func (a *App) linkedLocked() bool {
 	c, ok := a.conn.Value()
-	return !ok || c.State != "need_login"
+	return !ok || connState(c) != v2.ConnectionState_CONNECTION_STATE_NEED_LOGIN
 }
 
 // notice is the panel that replaces the transcript when there is nothing to
@@ -540,8 +547,8 @@ func (a *App) notice() (title string, colour vaxis.Color, body []string, ok bool
 		if !have {
 			return "", 0, nil, false
 		}
-		switch c.State {
-		case "offline":
+		switch connState(c) {
+		case v2.ConnectionState_CONNECTION_STATE_OFFLINE:
 			return "whatsapp is offline", a.theme.Error, []string{
 				"the daemon is running and is not connected.",
 				"it retries on its own.",

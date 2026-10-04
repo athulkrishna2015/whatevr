@@ -1,9 +1,9 @@
 package ui
 
 import (
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
 
-	"whattui/internal/proto"
 	"whattui/internal/term"
 	"whattui/internal/view"
 )
@@ -102,10 +102,10 @@ func (a *App) setCursor(id string) {
 // messageRow is one row of the open transcript by id, for the callers that
 // have a message in their hand rather than the cursor. Asked of the collection
 // outside App.mu, like everything else.
-func (a *App) messageRow(id string) (proto.MessageRow, bool) {
+func (a *App) messageRow(id string) (*v2.MessageRow, bool) {
 	c := a.conv()
 	if c == nil || id == "" {
-		return proto.MessageRow{}, false
+		return nil, false
 	}
 	it, ok := c.msgs.Get(id)
 	return it.Value, ok
@@ -119,7 +119,7 @@ func (a *App) clearCursor() bool {
 		return false
 	}
 	a.conversation.selected = ""
-	a.conversation.selectedRow = proto.MessageRow{}
+	a.conversation.selectedRow = nil
 	return true
 }
 
@@ -129,7 +129,7 @@ func (a *App) clearCursor() bool {
 //
 // Called from inside the window it was handed, which is the only place that
 // can answer both questions without asking the collection a second time.
-func (a *App) syncCursor(c *conversation, items []view.Item[proto.MessageRow]) {
+func (a *App) syncCursor(c *conversation, items []view.Item[*v2.MessageRow]) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if c.selected == "" {
@@ -142,20 +142,20 @@ func (a *App) syncCursor(c *conversation, items []view.Item[proto.MessageRow]) {
 		}
 	}
 	c.selected = ""
-	c.selectedRow = proto.MessageRow{}
+	c.selectedRow = nil
 }
 
 // selectedMessage is the row the cursor is on, as of the last time anything
 // changed about it.
-func (a *App) selectedMessage() (proto.MessageRow, bool) {
+func (a *App) selectedMessage() (*v2.MessageRow, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.selectedMessageLocked()
 }
 
-func (a *App) selectedMessageLocked() (proto.MessageRow, bool) {
+func (a *App) selectedMessageLocked() (*v2.MessageRow, bool) {
 	if a.conversation == nil || a.conversation.selected == "" {
-		return proto.MessageRow{}, false
+		return nil, false
 	}
 	return a.conversation.selectedRow, true
 }

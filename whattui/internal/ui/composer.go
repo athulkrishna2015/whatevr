@@ -1,10 +1,10 @@
 package ui
 
 import (
-	"encoding/json"
 	"strings"
 	"unicode"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
 
 	"whattui/internal/proto"
@@ -38,6 +38,11 @@ type composer struct {
 	// targetColour is the colour that message is known by: the sender's own,
 	// which is the same one their rule and their disc carry in the transcript.
 	targetColour vaxis.Color
+
+	// a draft that came back unsent keeps the key it went with, for as long
+	// as it would still be the same send, so sending it again cannot say it
+	// twice if the first one landed after all
+	key, keyFor string
 }
 
 // targeted reports whether the draft is aimed at an existing message.
@@ -324,6 +329,7 @@ func (a *App) send() {
 	a.mu.Lock()
 	a.composer.clear()
 	a.composer.clearTarget()
+	a.composer.key, a.composer.keyFor = "", ""
 	a.mu.Unlock()
 
 	request := a.request
@@ -332,17 +338,19 @@ func (a *App) send() {
 	}
 	// An edit replaces a message rather than saying another one, so it is a
 	// different request with the same gesture behind it.
+	req := &v2.Request{}
 	if draft.editing != "" {
-		request("message.edit", proto.Params{"message_id": draft.editing, "text": text},
-			func(_ json.RawMessage, err *proto.Error) { a.sent(draft, text, err) })
+		req.SetMessageEdit(v2.MessageEdit_builder{MessageId: draft.editing, Text: text}.Build())
+		request(req, func(_ *v2.Response, err *proto.Error) { a.sent(draft, text, err) })
 		return
 	}
 
-	params := proto.Params{"chat_id": chat, "text": text}
-	if draft.replyTo != "" {
-		params["reply_to"] = draft.replyTo
+	same := chat + "\x00" + draft.replyTo + "\x00" + text
+	if draft.key == "" || draft.keyFor != same {
+		draft.key, draft.keyFor = sendKey(), same
 	}
-	request("send.text", params, func(_ json.RawMessage, err *proto.Error) { a.sent(draft, text, err) })
+	req.SetSendText(v2.SendText_builder{ChatId: chat, Text: text, ReplyTo: draft.replyTo, Key: draft.key}.Build())
+	request(req, func(_ *v2.Response, err *proto.Error) { a.sent(draft, text, err) })
 }
 
 // sent puts the draft back when the daemon would not take it. Losing what
@@ -361,6 +369,7 @@ func (a *App) sent(draft composer, text string, err *proto.Error) {
 	if a.composer.empty() {
 		a.composer.text = []rune(text)
 		a.composer.cursor = len(a.composer.text)
+		a.composer.key, a.composer.keyFor = draft.key, draft.keyFor
 		if !a.composer.targeted() {
 			a.composer.replyTo, a.composer.editing = draft.replyTo, draft.editing
 			a.composer.targetName, a.composer.targetText = draft.targetName, draft.targetText

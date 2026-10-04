@@ -1,12 +1,13 @@
 package ui
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 	"time"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
+	gproto "google.golang.org/protobuf/proto"
 
 	"whattui/internal/proto"
 )
@@ -15,17 +16,17 @@ import (
 // gesture reached the daemon as the right command.
 type sentRequest struct {
 	method string
-	params proto.Params
+	req    *v2.Request
 }
 
 // records swaps the daemon for a notebook. Every request is written down and
 // answered yes, which is what the daemon does for all of these.
 func records(a *App) *[]sentRequest {
 	var out []sentRequest
-	a.request = func(method string, params proto.Params, cb proto.ResponseFunc) {
-		out = append(out, sentRequest{method: method, params: params})
+	a.request = func(req *v2.Request, cb proto.ResponseFunc) {
+		out = append(out, sentRequest{method: req.WhichMethod().String(), req: req})
 		if cb != nil {
-			cb(json.RawMessage(`{}`), nil)
+			cb(&v2.Response{}, nil)
 		}
 	}
 	return &out
@@ -33,18 +34,18 @@ func records(a *App) *[]sentRequest {
 
 // pointAt walks the cursor back until it is on a message we sent, or one
 // somebody else did, and answers which message that is.
-func pointAt(a *App, t *testing.T, ours bool) (string, proto.MessageRow) {
+func pointAt(a *App, t *testing.T, ours bool) (string, *v2.MessageRow) {
 	t.Helper()
 	a.paint()
 	for i := 0; i < 12; i++ {
 		a.onKey(arrow(vaxis.KeyUp))
 		m, ok := a.selectedMessage()
-		if ok && m.Outgoing() == ours {
+		if ok && m.GetFromMe() == ours {
 			return a.cursor(), m
 		}
 	}
 	t.Skip("no such message in the window")
-	return "", proto.MessageRow{}
+	return "", v2.MessageRow_builder{}.Build()
 }
 
 // Reply is the whole reason the cursor exists: point at a message, type, send,
@@ -75,14 +76,14 @@ func TestReplyingCarriesTheMessageThroughToTheSend(t *testing.T) {
 		t.Fatalf("send made %d requests, want one", len(*calls))
 	}
 	call := (*calls)[0]
-	if call.method != "send.text" {
+	if call.method != "send_text" {
 		t.Fatalf("send used %q", call.method)
 	}
-	if call.params["reply_to"] != id {
-		t.Fatalf("the send answers %v, want %q", call.params["reply_to"], id)
+	if got := call.req.GetSendText().GetReplyTo(); got != id {
+		t.Fatalf("the send answers %v, want %q", got, id)
 	}
-	if call.params["text"] != "hi" {
-		t.Fatalf("the send carries %v, want the draft", call.params["text"])
+	if got := call.req.GetSendText().GetText(); got != "hi" {
+		t.Fatalf("the send carries %v, want the draft", got)
 	}
 	// And the next message is a new message, not another answer.
 	if a.composer.targeted() {
@@ -126,7 +127,7 @@ func TestEditingAMessageSendsAnEdit(t *testing.T) {
 	if a.composer.editing != id {
 		t.Fatalf("the draft edits %q, want %q", a.composer.editing, id)
 	}
-	if a.composer.String() != m.Text {
+	if a.composer.String() != m.GetText() {
 		t.Fatalf("the draft holds %q, want the message being edited", a.composer.String())
 	}
 
@@ -135,13 +136,13 @@ func TestEditingAMessageSendsAnEdit(t *testing.T) {
 	if len(*calls) != 1 {
 		t.Fatalf("sending an edit made %d requests, want one", len(*calls))
 	}
-	if got := (*calls)[0].method; got != "message.edit" {
+	if got := (*calls)[0].method; got != "message_edit" {
 		t.Fatalf("sending an edit used %q", got)
 	}
-	if got := (*calls)[0].params["message_id"]; got != id {
+	if got := (*calls)[0].req.GetMessageEdit().GetMessageId(); got != id {
 		t.Fatalf("the edit names %v, want %q", got, id)
 	}
-	if got := (*calls)[0].params["text"]; got != m.Text+"!" {
+	if got := (*calls)[0].req.GetMessageEdit().GetText(); got != m.GetText()+"!" {
 		t.Fatalf("the edit carries %v, want the rewritten text", got)
 	}
 }
@@ -202,9 +203,9 @@ func closeEditWindow(a *App, id string) {
 	if !ok {
 		return
 	}
-	row := item.Value
-	row.EditUntil = time.Now().Add(-time.Minute).Unix()
-	a.conv().msgs.Upsert(item.Sort, mustJSON(row))
+	row := gproto.Clone(item.Value).(*v2.MessageRow)
+	row.SetEditUntilMs(time.Now().Add(-time.Minute).UnixMilli())
+	putMsg(a.conv().msgs, item.Sort, row)
 	a.paint()
 }
 
@@ -214,7 +215,7 @@ func closeEditWindow(a *App, id string) {
 func TestARefusedSendGivesTheWordsBackAndAnswersInTheCorner(t *testing.T) {
 	a := stubApp(100, 26, 4, 6)
 	var reply proto.ResponseFunc
-	a.request = func(_ string, _ proto.Params, done proto.ResponseFunc) { reply = done }
+	a.request = func(_ *v2.Request, done proto.ResponseFunc) { reply = done }
 
 	for _, r := range "the socket blinked" {
 		a.onKey(key(r))
@@ -260,13 +261,13 @@ func TestStarringSendsTheOppositeOfWhatTheMessageIs(t *testing.T) {
 	id, _ := pointAt(a, t, false)
 
 	a.onKey(key('s'))
-	if len(*calls) != 1 || (*calls)[0].method != "message.star" {
+	if len(*calls) != 1 || (*calls)[0].method != "message_star" {
 		t.Fatalf("star made %+v", *calls)
 	}
-	if got := (*calls)[0].params["message_id"]; got != id {
+	if got := (*calls)[0].req.GetMessageStar().GetMessageId(); got != id {
 		t.Fatalf("star names %v, want %q", got, id)
 	}
-	if got := (*calls)[0].params["starred"]; got != true {
+	if got := (*calls)[0].req.GetMessageStar().GetStarred(); got != true {
 		t.Fatalf("star sends starred=%v for a message with no star", got)
 	}
 }
@@ -306,10 +307,10 @@ func TestDeleteAsksBeforeItActs(t *testing.T) {
 	if len(*calls) != 2 {
 		t.Fatalf("the two answers made %d requests, want one each", len(*calls))
 	}
-	if (*calls)[0].method != "message.revoke" || (*calls)[0].params["message_id"] != id {
+	if (*calls)[0].method != "message_revoke" || (*calls)[0].req.GetMessageRevoke().GetMessageId() != id {
 		t.Errorf("delete for everyone sent %+v", (*calls)[0])
 	}
-	if (*calls)[1].method != "message.delete" || (*calls)[1].params["message_id"] != id {
+	if (*calls)[1].method != "message_delete" || (*calls)[1].req.GetMessageDelete().GetMessageId() != id {
 		t.Errorf("delete for me sent %+v", (*calls)[1])
 	}
 }

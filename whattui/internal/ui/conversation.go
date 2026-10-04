@@ -1,6 +1,8 @@
 package ui
 
 import (
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
+
 	"whattui/internal/proto"
 	"whattui/internal/view"
 )
@@ -18,7 +20,7 @@ import (
 type conversation struct {
 	chatID string
 	sub    *proto.Subscription
-	msgs   *view.Collection[proto.MessageRow]
+	msgs   *view.Collection[*v2.MessageRow]
 
 	// scroll counts rows up from the live edge. Zero is pinned to the bottom,
 	// which is where a chat opens and where it stays while messages arrive.
@@ -52,7 +54,7 @@ type conversation struct {
 	// changed. The copy is what lets an action ask whether it applies without
 	// asking the collection: see setCursor.
 	selected    string
-	selectedRow proto.MessageRow
+	selectedRow *v2.MessageRow
 
 	atLiveEdge   bool
 	canLoadOlder bool
@@ -80,30 +82,33 @@ func (a *App) openChat(chatID string) {
 
 	c := &conversation{
 		chatID:       chatID,
-		msgs:         view.NewCollection[proto.MessageRow](),
+		msgs:         view.NewCollection(view.Message),
 		canLoadOlder: true,
 	}
 	// The live edge is row 0, so the transcript reads bottom to top and a new
 	// message lands where the reader already is.
 	c.msgs.SetReverse(true)
 
-	c.sub = a.client.Subscribe("messages", proto.Params{
-		"chat_id": chatID,
-		"anchor":  "latest",
-		"limit":   messagePageSize,
-	}, c.msgs)
-
-	c.sub.OnExtendFailed = func(direction string, _ *proto.Error) {
-		a.mu.Lock()
-		if a.conversation == c {
-			c.extendPending = false
-			if direction == proto.Older {
-				c.olderFailed = true
+	c.sub = a.client.Subscribe(v2.Subscribe_builder{
+		Limit: messagePageSize,
+		Messages: v2.MessagesView_builder{
+			ChatId: chatID,
+			Latest: &v2.Latest{},
+		}.Build(),
+	}.Build(), c.msgs, proto.Hooks{
+		OnReady: func(bool) { a.noteReady(c) },
+		OnExtendFailed: func(direction v2.Direction, _ *proto.Error) {
+			a.mu.Lock()
+			if a.conversation == c {
+				c.extendPending = false
+				if direction == v2.Direction_DIRECTION_OLDER {
+					c.olderFailed = true
+				}
 			}
-		}
-		a.mu.Unlock()
-		a.vx.PostEvent(redraw{})
-	}
+			a.mu.Unlock()
+			a.vx.PostEvent(redraw{})
+		},
+	})
 
 	a.mu.Lock()
 	a.conversation = c
@@ -128,14 +133,14 @@ func (a *App) loadOlder() {
 	// Asked before this lock is taken, never under it. A collection has a
 	// lock of its own and the daemon's goroutine writes through it: taking
 	// them in two different orders is how two goroutines stop forever.
-	exhausted, has := c.msgs.Exhausted()
+	ready, exhausted := c.msgs.IsReady(), c.msgs.Exhausted()
 
 	a.mu.Lock()
 	if a.conversation != c || c.extendPending || c.olderFailed || !c.canLoadOlder {
 		a.mu.Unlock()
 		return
 	}
-	if has && exhausted {
+	if ready && exhausted {
 		c.canLoadOlder = false
 		a.mu.Unlock()
 		return
@@ -145,15 +150,15 @@ func (a *App) loadOlder() {
 	a.mu.Unlock()
 
 	if sub != nil {
-		sub.Extend(messagePageSize, proto.Older)
+		sub.Extend(messagePageSize, v2.Direction_DIRECTION_OLDER)
 	}
 }
 
 // noteReady clears the extend guard when a window finishes filling.
-func (a *App) noteReady() {
+func (a *App) noteReady(c *conversation) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.conversation != nil {
-		a.conversation.extendPending = false
+	if a.conversation == c {
+		c.extendPending = false
 	}
 }

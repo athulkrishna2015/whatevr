@@ -12,7 +12,7 @@ import (
 func sessions(calls []sentRequest) []sentRequest {
 	var out []sentRequest
 	for _, call := range calls {
-		if call.method == "session.update" {
+		if call.method == "session_update" {
 			out = append(out, call)
 		}
 	}
@@ -33,11 +33,11 @@ func TestLeavingTheTerminalTellsTheDaemonItIsNotInFrontAnyMore(t *testing.T) {
 	if len(said) != 1 {
 		t.Fatalf("leaving the terminal made %d session updates, want one", len(said))
 	}
-	if said[0].params["focused"] != false {
-		t.Errorf("the update says focused=%v, want false", said[0].params["focused"])
+	if got := said[0].req.GetSessionUpdate().GetFocused(); got != false {
+		t.Errorf("the update says focused=%v, want false", got)
 	}
-	if said[0].params["active_chat_id"] != a.activeChat {
-		t.Errorf("the update names chat %v, want the open one %q", said[0].params["active_chat_id"], a.activeChat)
+	if got := said[0].req.GetSessionUpdate().GetActiveChatId(); got != a.activeChat {
+		t.Errorf("the update names chat %v, want the open one %q", got, a.activeChat)
 	}
 
 	// A terminal reports focus per switch, not per change: the same answer
@@ -52,8 +52,8 @@ func TestLeavingTheTerminalTellsTheDaemonItIsNotInFrontAnyMore(t *testing.T) {
 	if len(said) != 2 {
 		t.Fatalf("coming back made %d updates in total, want two", len(said))
 	}
-	if said[1].params["focused"] != true {
-		t.Errorf("coming back says focused=%v, want true", said[1].params["focused"])
+	if got := said[1].req.GetSessionUpdate().GetFocused(); got != true {
+		t.Errorf("coming back says focused=%v, want true", got)
 	}
 }
 
@@ -68,7 +68,7 @@ func TestAReconnectedDaemonIsToldWhereThisWindowStands(t *testing.T) {
 	if len(said) != 1 {
 		t.Fatalf("a fresh connection made %d session updates, want one", len(said))
 	}
-	if said[0].params["focused"] != true || said[0].params["active_chat_id"] != a.activeChat {
-		t.Errorf("the update says %v, want this window's own state", said[0].params)
+	if s := said[0].req.GetSessionUpdate(); s.GetFocused() != true || s.GetActiveChatId() != a.activeChat {
+		t.Errorf("the update says %v, want this window's own state", s)
 	}
 }

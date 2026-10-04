@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
 
-	"whattui/internal/proto"
 	"whattui/internal/term"
 )
 
@@ -56,16 +56,14 @@ func TestReactionsDrawUnderTheMessageTheyAreAbout(t *testing.T) {
 func TestYourOwnReactionIsMarkedApartFromEverybodyElses(t *testing.T) {
 	a := stubApp(90, 26, 4, 0)
 	c := a.conversation
-	c.msgs.Reset()
-	c.msgs.Upsert("00000000000000000001", mustJSON(proto.MessageRow{
-		ID: "m", Kind: "text", Direction: "incoming", Text: "something worth agreeing with",
-		Sender: proto.Sender{ID: "x", Name: "someone"},
-		Reactions: []proto.Reaction{
-			{Emoji: "👍", SenderID: "x", SenderName: "someone"},
-			{Emoji: "🔥", FromMe: true},
-		},
-	}))
-	c.msgs.Ready(true, true)
+	reset(c.msgs)
+	putMsg(c.msgs, "00000000000000000001", (v2.MessageRow_builder{
+		Id: "m", TextBody: &v2.Text{}, Text: "something worth agreeing with",
+		Sender:         person("x", "someone"),
+		ReactionCounts: counts([]rx{{"👍", "someone", false}, {"🔥", "", true}}),
+		Reactions:      reactors([]rx{{"👍", "someone", false}, {"🔥", "", true}}),
+	}.Build()))
+	ready(c.msgs, true)
 	a.paint()
 
 	strip := under(t, a, "something worth agreeing with")
@@ -119,15 +117,13 @@ func (a *App) styleOf(t *testing.T, grapheme string) vaxis.Style {
 // column the message occupies and over whatever is beside them.
 func TestAMessageIsWideEnoughForItsReactions(t *testing.T) {
 	a := stubApp(90, 26, 4, 0)
-	row := proto.MessageRow{
-		ID: "m", Kind: "text", Direction: "incoming", Text: "short",
-		Sender: proto.Sender{ID: "x", Name: "someone"},
-	}
+	row := v2.MessageRow_builder{
+		Id: "m", TextBody: &v2.Text{}, Text: "short",
+		Sender: person("x", "someone"),
+	}.Build()
 	plain := a.layoutMessage(row, 60)
 
-	row.Reactions = []proto.Reaction{
-		{Emoji: "👍"}, {Emoji: "🎉"}, {Emoji: "😮"}, {Emoji: "❤️"},
-	}
+	row.SetReactionCounts(counts([]rx{{"👍", "", false}, {"🎉", "", false}, {"😮", "", false}, {"❤️", "", false}}))
 	reacted := a.layoutMessage(row, 60)
 
 	if reacted.rows() != plain.rows()+1 {
@@ -146,23 +142,18 @@ func TestAMessageIsWideEnoughForItsReactions(t *testing.T) {
 func TestEveryReactionIsTheSameChipWhateverIsInIt(t *testing.T) {
 	a := stubApp(90, 26, 4, 0)
 	c := a.conversation
-	c.msgs.Reset()
-	c.msgs.Upsert("00000000000000000001", mustJSON(proto.MessageRow{
-		ID: "m", Kind: "text", Direction: "incoming", Text: "chips",
-		Sender: proto.Sender{ID: "x", Name: "someone"},
-		Reactions: []proto.Reaction{
-			{Emoji: "👍", SenderName: "Asha"},
-			{Emoji: "👍", SenderName: "Ravi"},
-			{Emoji: "🔥", FromMe: true},
-		},
-	}))
-	c.msgs.Ready(true, true)
+	reset(c.msgs)
+	putMsg(c.msgs, "00000000000000000001", (v2.MessageRow_builder{
+		Id: "m", TextBody: &v2.Text{}, Text: "chips",
+		Sender:         person("x", "someone"),
+		ReactionCounts: counts([]rx{{"👍", "Asha", false}, {"👍", "Ravi", false}, {"🔥", "", true}}),
+		Reactions:      reactors([]rx{{"👍", "Asha", false}, {"👍", "Ravi", false}, {"🔥", "", true}}),
+	}.Build()))
+	ready(c.msgs, true)
 	a.paint()
 
 	row, col := a.stripAt(t, "chips")
-	pills, _ := a.pillsFor(groupReactions([]proto.Reaction{
-		{Emoji: "👍"}, {Emoji: "👍"}, {Emoji: "🔥", FromMe: true},
-	}), 40)
+	pills, _ := a.pillsFor(reactionGroups(counts([]rx{{"👍", "", false}, {"👍", "", false}, {"🔥", "", true}}), nil), 40)
 	if len(pills) != 2 {
 		t.Fatalf("three reactions of two kinds made %d pills", len(pills))
 	}
@@ -214,9 +205,7 @@ func (a *App) stripAt(t *testing.T, saying string) (row, col int) {
 // about who reacted, and how many are missing is the part worth the columns.
 func TestReactionsThatDoNotFitAreCountedRatherThanCut(t *testing.T) {
 	a := stubApp(90, 26, 4, 0)
-	groups := groupReactions([]proto.Reaction{
-		{Emoji: "👍"}, {Emoji: "🎉"}, {Emoji: "😮"}, {Emoji: "❤️"}, {Emoji: "🔥"},
-	})
+	groups := reactionGroups(counts([]rx{{"👍", "", false}, {"🎉", "", false}, {"😮", "", false}, {"❤️", "", false}, {"🔥", "", false}}), nil)
 
 	pills, width := a.pillsFor(groups, 12)
 	if width > 12 {
@@ -239,13 +228,10 @@ func TestReactionsThatDoNotFitAreCountedRatherThanCut(t *testing.T) {
 // it. The picker is where that lives, so it leads with what is already there.
 func TestTheReactionPickerLeadsWithWhatIsAlreadyOnTheMessage(t *testing.T) {
 	a := stubApp(90, 26, 4, 0)
-	choices := a.reactChoices(proto.MessageRow{
-		Reactions: []proto.Reaction{
-			{Emoji: "👍", SenderName: "Asha"},
-			{Emoji: "👍", SenderName: "Ravi"},
-			{Emoji: "🔥", FromMe: true},
-		},
-	}, "")
+	choices := a.reactChoices(v2.MessageRow_builder{
+		ReactionCounts: counts([]rx{{"👍", "Asha", false}, {"👍", "Ravi", false}, {"🔥", "", true}}),
+		Reactions:      reactors([]rx{{"👍", "Asha", false}, {"👍", "Ravi", false}, {"🔥", "", true}}),
+	}.Build(), "")
 
 	if len(choices) < 3 {
 		t.Fatalf("the picker offers %d rows", len(choices))

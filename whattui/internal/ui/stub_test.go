@@ -1,11 +1,11 @@
 package ui
 
 import (
-	"encoding/json"
 	"fmt"
 	"image"
 	"time"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
 
 	"whattui/internal/proto"
@@ -29,9 +29,9 @@ func stubApp(cols, rows, chats, msgs int) *App {
 		vx:      win.Vx,
 		caps:    term.Caps{Tier: term.TierColor, RGB: true},
 		theme:   theme.Derive(vaxis.RGBColor(0x12, 0x14, 0x18), vaxis.RGBColor(0xe4, 0xe4, 0xe6)),
-		chats:   view.NewCollection[proto.ChatRow](),
-		conn:    view.NewObject[proto.Connection](),
-		login:   view.NewObject[proto.Login](),
+		chats:   view.NewCollection(view.Chat),
+		conn:    view.NewObject(view.Connection),
+		login:   view.NewObject(view.Login),
 		focus:   FocusComposer,
 		focused: true,
 		hovered: -1,
@@ -43,42 +43,42 @@ func stubApp(cols, rows, chats, msgs int) *App {
 	// A client that has never dialled, which is what the frame asks about
 	// when it has to tell the reader the daemon is not there.
 	a.client = proto.New("/nonexistent/whattui-test.sock", "whattui-test")
-	a.request = func(string, proto.Params, proto.ResponseFunc) {}
+	a.request = func(*v2.Request, proto.ResponseFunc) {}
 	a.transport = proto.Ready
 
-	a.conn.Upsert("", mustJSON(proto.Connection{State: "online"}))
-	a.conn.Ready(false, false)
+	setConn(a.conn, online())
+	ready(a.conn, false)
 	for i := 0; i < chats; i++ {
 		id := fmt.Sprintf("%d@s.whatsapp.net", 910000000+i)
-		a.chats.Upsert(fmt.Sprintf("%020d", i), mustJSON(proto.ChatRow{
-			ID: id, Name: fmt.Sprintf("contact %d", i), Unread: int32(i % 4),
-			Preview:         "the daemon owns all state and the frontend owns none of it",
-			LastMessageTime: 1758000000 - int64(i)*900,
-		}))
+		putChat(a.chats, fmt.Sprintf("%020d", i), v2.ChatRow_builder{
+			Id: id, Name: fmt.Sprintf("contact %d", i), Unread: uint32(i % 4),
+			Preview: preview("the daemon owns all state and the frontend owns none of it"),
+			LastMs:  (1758000000 - int64(i)*900) * 1000,
+		}.Build())
 	}
-	a.chats.Ready(true, true)
+	ready(a.chats, true)
 
-	c := &conversation{chatID: "910000000@s.whatsapp.net", msgs: view.NewCollection[proto.MessageRow]()}
+	c := &conversation{chatID: "910000000@s.whatsapp.net", msgs: view.NewCollection(view.Message)}
 	c.msgs.SetReverse(true)
 	for i := 0; i < msgs; i++ {
-		dir := "incoming"
+		fromMe := false
 		// An edit window still open, which is what the daemon puts on a
 		// message you have just written. It is wall-clock rather than fixed
 		// because it is a deadline, and nothing draws it, so no frame moves.
 		editUntil := int64(0)
 		if i%2 == 0 {
-			dir = "outgoing"
-			editUntil = time.Now().Add(10 * time.Minute).Unix()
+			fromMe = true
+			editUntil = time.Now().Add(10 * time.Minute).UnixMilli()
 		}
-		c.msgs.Upsert(fmt.Sprintf("%020d", i), mustJSON(proto.MessageRow{
-			ID: fmt.Sprintf("m%d", i), Kind: "text", Direction: dir, Status: "read",
-			Timestamp: 1758000000 + int64(i)*60, EditUntil: editUntil,
-			Sender: proto.Sender{ID: "910000000@s.whatsapp.net", Name: "contact 0"},
+		putMsg(c.msgs, fmt.Sprintf("%020d", i), v2.MessageRow_builder{
+			Id: fmt.Sprintf("m%d", i), TextBody: &v2.Text{}, FromMe: fromMe, Status: v2.MessageStatus_MESSAGE_STATUS_READ,
+			TMs: (1758000000 + int64(i)*60) * 1000, EditUntilMs: editUntil,
+			Sender: person("910000000@s.whatsapp.net", "contact 0"),
 			Text: "PROTOCOL.md is the source of truth, the daemon implements the " +
 				"document and not the other way around, see https://example.com/spec",
-		}))
+		}.Build())
 	}
-	c.msgs.Ready(true, true)
+	ready(c.msgs, true)
 	a.conversation = c
 	a.activeChat = c.chatID
 	return a
@@ -94,14 +94,6 @@ func vaxisResize(cols, rows int) vaxis.Resize {
 // it is made of bigger cells.
 func fontResize(cols, rows, cellW, cellH int) vaxis.Resize {
 	return vaxis.Resize{Cols: cols, Rows: rows, XPixel: cols * cellW, YPixel: rows * cellH}
-}
-
-func mustJSON(v any) json.RawMessage {
-	b, err := json.Marshal(v)
-	if err != nil {
-		panic(err)
-	}
-	return b
 }
 
 // tierApp is stubApp dressed as a terminal of a given ability. It is for the

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
 
 	"whattui/internal/paint"
@@ -16,12 +17,12 @@ var pairingCode = "https://wa.me/settings/linked_devices#2@" + strings.Repeat("r
 	strings.Repeat("n", 44) + "," + strings.Repeat("i", 44) + "," + strings.Repeat("a", 44) + ",1"
 
 func unpaired(a *App, code string) {
-	a.conn.Upsert("", mustJSON(proto.Connection{State: "need_login"}))
-	login := proto.Login{State: "need_login"}
-	if code != "" {
-		login.QR = &proto.LoginQR{Code: code}
+	setConn(a.conn, needLogin())
+	login := v2.LoginRow_builder{State: v2.LoginState_LOGIN_STATE_QR, Qr: code}
+	if code == "" {
+		login.State = v2.LoginState_LOGIN_STATE_UNSPECIFIED
 	}
-	a.login.Upsert("", mustJSON(login))
+	setLogin(a.login, login.Build())
 }
 
 func screenText(a *App) string {
@@ -154,7 +155,7 @@ func TestNothingTypedWhilePairingLandsInAPane(t *testing.T) {
 	// a draft left from before the phone unlinked must not go anywhere
 	a.composer.insert("left over")
 	var sent []string
-	a.request = func(method string, _ proto.Params, _ proto.ResponseFunc) { sent = append(sent, method) }
+	a.request = func(req *v2.Request, _ proto.ResponseFunc) { sent = append(sent, req.WhichMethod().String()) }
 	a.onKey(vaxis.Key{Keycode: vaxis.KeyEnter})
 	if len(sent) != 0 || a.composer.String() != "left over" {
 		t.Errorf("enter sent %v from a hidden composer, draft now %q", sent, a.composer.String())
@@ -168,7 +169,7 @@ func TestLinkingPutsTheWindowBack(t *testing.T) {
 	a := tierApp(120, 40, term.TierColor)
 	unpaired(a, pairingCode)
 	a.paint()
-	a.conn.Upsert("", mustJSON(proto.Connection{State: "online"}))
+	setConn(a.conn, online())
 	a.paint()
 	s := screenText(a)
 	if strings.Contains(s, "link a phone") || !strings.Contains(s, "contact 0") {
