@@ -1041,27 +1041,105 @@ func waveform(ctx context.Context, path string) ([]byte, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, waveformTimeout)
 	defer cancel()
-	var pcm bytes.Buffer
 	cmd := exec.CommandContext(ctx, ffmpeg, "-v", "error", "-i", path, "-f", "s16le", "-ac", "1", "-ar", "8000", "-")
-	cmd.Stdout = &pcm
-	if err := cmd.Run(); err != nil {
+	out, err := cmd.StdoutPipe()
+	if err != nil {
 		return nil, err
 	}
-	return waveformFromPCM(pcm.Bytes()), nil
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	var env envelope
+	_, rerr := env.ReadFrom(out)
+	if err := cmd.Wait(); err != nil {
+		return nil, err
+	}
+	if rerr != nil {
+		return nil, rerr
+	}
+	return env.buckets(), nil
 }
 
-func waveformFromPCM(pcm []byte) []byte {
-	samples := len(pcm) / 2
-	if samples < waveformBuckets {
+// envelopeChunks is how many chunks an envelope holds before it halves them
+const envelopeChunks = 4096
+
+// envelope is the sum of squares of s16le samples in chunks, so a long note
+// never holds its pcm. chunks start one sample long and double when there
+// are too many: a bucket edge is off by at most 1/64 of a bucket.
+type envelope struct {
+	sums []float64
+	per  int
+	n    int
+	odd  []byte
+}
+
+func (e *envelope) ReadFrom(r io.Reader) (int64, error) {
+	buf := make([]byte, 32<<10)
+	var total int64
+	for {
+		k, err := r.Read(buf)
+		total += int64(k)
+		e.Write(buf[:k])
+		if err == io.EOF {
+			return total, nil
+		}
+		if err != nil {
+			return total, err
+		}
+	}
+}
+
+func (e *envelope) Write(b []byte) (int, error) {
+	n := len(b)
+	if len(e.odd) == 1 && len(b) > 0 {
+		e.add(e.odd[0], b[0])
+		e.odd, b = e.odd[:0], b[1:]
+	}
+	for len(b) >= 2 {
+		e.add(b[0], b[1])
+		b = b[2:]
+	}
+	e.odd = append(e.odd, b...)
+	return n, nil
+}
+
+func (e *envelope) add(lo, hi byte) {
+	if e.per == 0 {
+		e.per = 1
+	}
+	if e.n%e.per == 0 {
+		if len(e.sums) == envelopeChunks {
+			for i := range envelopeChunks / 2 {
+				e.sums[i] = e.sums[2*i] + e.sums[2*i+1]
+			}
+			e.sums = e.sums[:envelopeChunks/2]
+			e.per *= 2
+		}
+		e.sums = append(e.sums, 0)
+	}
+	v := float64(int16(uint16(lo) | uint16(hi)<<8))
+	e.sums[len(e.sums)-1] += v * v
+	e.n++
+}
+
+// buckets is the envelope in waveformBuckets, 0-100 to the loudest. nil is
+// too short or silent.
+func (e *envelope) buckets() []byte {
+	if e.n < waveformBuckets {
 		return nil
 	}
 	sums := make([]float64, waveformBuckets)
 	counts := make([]int, waveformBuckets)
-	for i := range samples {
-		b := i * waveformBuckets / samples
-		v := float64(int16(uint16(pcm[i*2]) | uint16(pcm[i*2+1])<<8))
-		sums[b] += v * v
-		counts[b]++
+	for j, s := range e.sums {
+		first, end := j*e.per, min((j+1)*e.per, e.n)
+		// a chunk across a bucket edge is shared out by its samples
+		for i := first; i < end; {
+			b := i * waveformBuckets / e.n
+			next := min(end, ((b+1)*e.n+waveformBuckets-1)/waveformBuckets)
+			sums[b] += s * float64(next-i) / float64(end-first)
+			counts[b] += next - i
+			i = next
+		}
 	}
 	peak := 0.0
 	rms := make([]float64, waveformBuckets)
