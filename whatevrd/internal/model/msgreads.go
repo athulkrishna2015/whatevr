@@ -224,9 +224,14 @@ func (r *Reader) Messages(ctx context.Context, addrs []string, from Cursor, limi
 		}
 	}
 	args := append(anys(addrs), from.T, from.Ord, from.ID)
-	// twice the page: a message under two addresses comes twice and folds
+	// twice the page over two addresses: a message under both comes twice
+	// and folds
+	n := limit
+	if len(addrs) > 1 {
+		n *= 2
+	}
 	rows, err := r.db.QueryContext(ctx, byChat(len(addrs), cmp+` AND `+albumHidden, order),
-		byChatArgs(addrs, []any{from.T, from.Ord, from.ID}, limit*2)...)
+		byChatArgs(addrs, []any{from.T, from.Ord, from.ID}, n)...)
 	if err != nil {
 		return nil, err
 	}
@@ -310,10 +315,10 @@ func (r *Reader) Preview(ctx context.Context, w *World, addrs []string) (Message
 func stub(m Message) bool { return m.Waiting || m.Queued }
 
 // dedupe keeps one row per message id: the better body, named by the
-// first copy.
+// first copy. it reuses ms.
 func dedupe(ms []Message) []Message {
-	best := map[string]int{}
-	var out []Message
+	best := make(map[string]int, len(ms))
+	out := ms[:0]
 	for _, m := range ms {
 		i, ok := best[m.ID]
 		if !ok {
