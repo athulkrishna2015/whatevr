@@ -976,11 +976,14 @@ const (
 	// past the fade from black most clips open on
 	posterSeek  = "1"
 	posterScale = "scale='min(1280,iw)':'min(1280,ih)':force_original_aspect_ratio=decrease"
+	// a send's thumbnail is thumbMax, so its frame needs little more
+	thumbScale = "scale='min(200,iw)':'min(200,ih)':force_original_aspect_ratio=decrease"
 )
 
 // extractPoster writes a representative frame of a video as a jpeg, at most
 // 1280 a side. ffmpeg's thumbnail filter picks the least typical frame past
-// the opening; a short clip falls back to the first frame.
+// the opening; a short clip falls back to the first frame. it keeps every
+// frame it weighs, so they are scaled first.
 func extractPoster(ctx context.Context, src, out string) error {
 	ffmpeg, err := exec.LookPath("ffmpeg")
 	if err != nil {
@@ -997,7 +1000,7 @@ func extractPoster(ctx context.Context, src, out string) error {
 	defer os.Remove(tmpPath)
 	tries := [][]string{
 		{"-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-ss", posterSeek, "-i", src,
-			"-vf", "thumbnail=100," + posterScale, "-frames:v", "1", "-q:v", "2", "-f", "image2", tmpPath},
+			"-vf", posterScale + ",thumbnail=100", "-frames:v", "1", "-q:v", "2", "-f", "image2", tmpPath},
 		{"-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-i", src,
 			"-vf", posterScale, "-frames:v", "1", "-q:v", "2", "-f", "image2", tmpPath},
 	}

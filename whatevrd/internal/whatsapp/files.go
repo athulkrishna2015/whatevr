@@ -66,7 +66,7 @@ func probe(ctx context.Context, path string) (probed, bool) {
 		if ffmpeg, err := exec.LookPath("ffmpeg"); err == nil {
 			var frame bytes.Buffer
 			cmd := exec.CommandContext(ctx, ffmpeg, "-nostdin", "-v", "error", "-i", path,
-				"-vf", "thumbnail=30,"+posterScale, "-frames:v", "1", "-f", "image2", "-c:v", "mjpeg", "-")
+				"-vf", thumbScale+",thumbnail=30", "-frames:v", "1", "-f", "image2", "-c:v", "mjpeg", "-")
 			cmd.Stdout = &frame
 			if cmd.Run() == nil && frame.Len() > 0 {
 				p.frame = frame.Bytes()
