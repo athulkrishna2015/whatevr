@@ -1310,7 +1310,7 @@ func foldHistoryConversation(tx *core.Tx, in core.Input) error {
 			return protowire.ParseError(m)
 		}
 		start := pos + (m - len(v))
-		if err := foldHistoryMsg(tx, in, chat, v, start, i, cv); err != nil {
+		if err := foldHistoryMsg(tx, in, chat, v, start, h.Offset+i, cv); err != nil {
 			return err
 		}
 		i++

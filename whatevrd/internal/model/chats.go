@@ -91,6 +91,9 @@ func conversationMeta(body []byte) (*waHistorySync.Conversation, []byte, error) 
 }
 
 func foldHistoryChat(tx *core.Tx, in core.Input) error {
+	if h, err := head[core.HistoryConversationHead](in); err != nil || h.Offset > 0 {
+		return err
+	}
 	c, meta, err := conversationMeta(in.Body)
 	if err != nil {
 		return err

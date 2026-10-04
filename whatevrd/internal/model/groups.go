@@ -221,6 +221,9 @@ func memberAdmin(tx *core.Tx, grp, jid string, t int64, admin, super bool) error
 // foldGroupConversation takes a group's name from history, older than any
 // fetch, as the name to show until one comes.
 func foldGroupConversation(tx *core.Tx, in core.Input) error {
+	if h, err := head[core.HistoryConversationHead](in); err != nil || h.Offset > 0 {
+		return err
+	}
 	c, _, err := conversationMeta(in.Body)
 	if err != nil {
 		return err

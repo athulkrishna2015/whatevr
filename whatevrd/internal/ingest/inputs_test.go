@@ -225,35 +225,47 @@ func must[T any](v T, err error) T {
 	return v
 }
 
-func TestHistoryInputsKeepTheWholeBlob(t *testing.T) {
-	hs := &waHistorySync.HistorySync{
-		SyncType:  waHistorySync.HistorySync_RECENT.Enum(),
-		Pushnames: []*waHistorySync.Pushname{{ID: proto.String("1@s.whatsapp.net"), Pushname: proto.String("Asha")}},
-		Conversations: []*waHistorySync.Conversation{
-			{ID: proto.String("1@s.whatsapp.net"), Name: proto.String("a")},
-			{ID: proto.String("2@s.whatsapp.net"), Name: proto.String("b")},
-		},
+func TestALongConversationComesInPieces(t *testing.T) {
+	c := &waHistorySync.Conversation{ID: proto.String("1@s.whatsapp.net"), Name: proto.String("a"), UnreadCount: proto.Uint32(3)}
+	for i := range 2*historyPiece + 1 {
+		c.Messages = append(c.Messages, &waHistorySync.HistorySyncMsg{MsgOrderID: proto.Uint64(uint64(i))})
 	}
-	want := proto.Clone(hs).(*waHistorySync.HistorySync)
-	ins, err := historyInputs(core.HistoryExtraHead{Notification: "n"}, hs)
+	want := proto.Clone(c).(*waHistorySync.Conversation)
+	at := time.UnixMilli(1790942402123)
+	ins, err := historyPieces(core.HistoryExtraHead{Notification: "n", SyncType: "FULL"}, c, at)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(ins) != 3 || ins[2].Kind != core.KindHistoryExtra {
-		t.Fatalf("got %d inputs", len(ins))
+	if len(ins) != 3 {
+		t.Fatalf("%d pieces", len(ins))
 	}
-	got := &waHistorySync.HistorySync{}
-	if err := proto.Unmarshal(ins[2].Body, got); err != nil {
-		t.Fatal(err)
-	}
-	for _, in := range ins[:2] {
-		c := &waHistorySync.Conversation{}
-		if err := proto.Unmarshal(in.Body, c); err != nil {
+	var got *waHistorySync.Conversation
+	for i, in := range ins {
+		var h core.HistoryConversationHead
+		if err := json.Unmarshal(in.Head, &h); err != nil {
 			t.Fatal(err)
 		}
-		got.Conversations = append(got.Conversations, c)
+		p := &waHistorySync.Conversation{}
+		if err := proto.Unmarshal(in.Body, p); err != nil {
+			t.Fatal(err)
+		}
+		if h.Offset != i*historyPiece || h.ID != "1@s.whatsapp.net" || h.Notification != "n" || !in.At.Equal(at) || in.Kind != core.KindHistoryConversation {
+			t.Fatalf("piece %d: %+v at %v", i, h, in.At)
+		}
+		if i > 0 && (p.Name != nil || p.UnreadCount != nil) {
+			t.Fatalf("piece %d has the chat: %v", i, p)
+		}
+		if i == 0 {
+			got = p
+			continue
+		}
+		got.Messages = append(got.Messages, p.Messages...)
 	}
 	if !proto.Equal(got, want) {
-		t.Fatalf("blob changed:\n%v\nwant\n%v", got, want)
+		t.Fatal("the pieces are not the conversation")
+	}
+	// an empty conversation is still one input
+	if ins, err := historyPieces(core.HistoryExtraHead{}, &waHistorySync.Conversation{ID: proto.String("2@s.whatsapp.net")}, at); err != nil || len(ins) != 1 {
+		t.Fatalf("%d pieces, %v", len(ins), err)
 	}
 }

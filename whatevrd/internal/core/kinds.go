@@ -213,6 +213,9 @@ type HistoryConversationHead struct {
 	SyncType     string `json:"sync_type"`
 	ChunkOrder   uint32 `json:"chunk_order,omitempty"`
 	ID           string `json:"id"`
+	// Offset is the index of the body's first message in the conversation. a
+	// long one comes in pieces; only the one at 0 has the rest of it.
+	Offset int `json:"offset,omitempty"`
 }
 
 // HistoryExtraHead closes a downloaded history blob: everything in it but the

@@ -40,6 +40,11 @@ const (
 	groupGap       = 200 * time.Millisecond
 	// jobPage is how much pending work is read from the store at once
 	jobPage = 64
+	// historyPiece is the most messages one history input holds, so no one
+	// fold reads a chat's whole history
+	historyPiece = 500
+	// historyBatch is about how many bytes of a blob go in one append
+	historyBatch = 4 << 20
 )
 
 // startJobs runs the jobs on cli, or moves running ones to it: a new
@@ -134,7 +139,47 @@ func (j *jobs) download(ctx context.Context, b model.Blob) error {
 	if cli == nil {
 		return errors.New("no client yet")
 	}
-	hs, err := cli.DownloadHistorySync(ctx, b.Notif, true)
+	// one time for the whole blob: its messages keep their order across pieces
+	at := time.Now()
+	var batch []core.Input
+	var first int64
+	size, convs, pieces := 0, 0, 0
+	var took time.Duration
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		start := time.Now()
+		seqs, err := j.g.log.AppendBatch(ctx, batch)
+		if err != nil {
+			return err
+		}
+		took += time.Since(start)
+		if first == 0 {
+			first = seqs[0]
+		}
+		batch, size = nil, 0
+		return nil
+	}
+	// a blob that dies halfway leaves its first conversations logged. it is
+	// downloaded again, and the fold takes them again as no-ops
+	hs, err := cli.DownloadHistorySyncStream(ctx, b.Notif, func(c *waHistorySync.Conversation) error {
+		ins, err := historyPieces(h, c, at)
+		if err != nil {
+			return err
+		}
+		convs++
+		pieces += len(ins)
+		for _, in := range ins {
+			batch = append(batch, in)
+			if size += len(in.Body); size >= historyBatch {
+				if err := flush(); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		if !gone(err) && !undecodable(err) {
 			return err
@@ -144,23 +189,32 @@ func (j *jobs) download(ctx context.Context, b model.Blob) error {
 		if ierr != nil {
 			return ierr
 		}
+		in.At = at
+		if err := flush(); err != nil {
+			return err
+		}
 		if _, err := j.g.log.AppendBatch(ctx, []core.Input{in}); err != nil {
 			return err
 		}
-		log.Error().Str("notification", b.ID).Str("error", h.Error).Msg("ingest: history blob lost for good")
+		log.Error().Str("notification", b.ID).Str("error", h.Error).Int("conversations", convs).Msg("ingest: history blob lost for good")
 		return nil
 	}
-	ins, err := historyInputs(h, hs)
+	body, err := marshal.Marshal(hs)
 	if err != nil {
 		return err
 	}
-	start := time.Now()
-	seqs, err := j.g.log.AppendBatch(ctx, ins)
+	h.Conversations = convs
+	in, err := input(core.KindHistoryExtra, h, body)
 	if err != nil {
 		return err
 	}
-	log.Info().Int64("input", seqs[0]).Str("notification", b.ID).Str("type", h.SyncType).Uint32("chunk", h.ChunkOrder).Uint32("progress", h.Progress).
-		Int("conversations", len(ins)-1).Dur("append", time.Since(start)).Msg("ingest: history blob logged")
+	in.At = at
+	batch = append(batch, in)
+	if err := flush(); err != nil {
+		return err
+	}
+	log.Info().Int64("input", first).Str("notification", b.ID).Str("type", h.SyncType).Uint32("chunk", h.ChunkOrder).Uint32("progress", h.Progress).
+		Int("conversations", convs).Int("pieces", pieces).Dur("append", took).Msg("ingest: history blob logged")
 	// a chunk names groups the account may have left
 	signal(j.groups)
 	if b.Notif.InitialHistBootstrapInlinePayload == nil && !j.g.KeepHistoryMedia {
@@ -182,37 +236,32 @@ func undecodable(err error) bool {
 	return false
 }
 
-// historyInputs is one input per conversation and the rest of the blob
-// after them, appended together. it takes hs apart as it goes, so a
-// conversation's decoded tree is garbage once its bytes are made.
-func historyInputs(h core.HistoryExtraHead, hs *waHistorySync.HistorySync) ([]core.Input, error) {
-	convs := hs.Conversations
-	hs.Conversations = nil
-	ins := make([]core.Input, 0, len(convs)+1)
-	for i, c := range convs {
-		body, err := marshal.Marshal(c)
+// historyPieces is c as inputs of at most historyPiece messages, each with
+// the offset of its first. the first piece has the rest of c, the others only
+// its id.
+func historyPieces(h core.HistoryExtraHead, c *waHistorySync.Conversation, at time.Time) ([]core.Input, error) {
+	msgs := c.Messages
+	ins := make([]core.Input, 0, max(1, (len(msgs)+historyPiece-1)/historyPiece))
+	for off := 0; off == 0 || off < len(msgs); off += historyPiece {
+		piece := c
+		if off > 0 {
+			piece = &waHistorySync.Conversation{ID: c.ID}
+		}
+		piece.Messages = msgs[off:min(off+historyPiece, len(msgs))]
+		body, err := marshal.Marshal(piece)
 		if err != nil {
 			return nil, err
 		}
 		in, err := input(core.KindHistoryConversation, core.HistoryConversationHead{
-			Notification: h.Notification, SyncType: h.SyncType, ChunkOrder: h.ChunkOrder, ID: c.GetID(),
+			Notification: h.Notification, SyncType: h.SyncType, ChunkOrder: h.ChunkOrder, ID: c.GetID(), Offset: off,
 		}, body)
 		if err != nil {
 			return nil, err
 		}
+		in.At = at
 		ins = append(ins, in)
-		convs[i] = nil
 	}
-	body, err := marshal.Marshal(hs)
-	if err != nil {
-		return nil, err
-	}
-	h.Conversations = len(convs)
-	in, err := input(core.KindHistoryExtra, h, body)
-	if err != nil {
-		return nil, err
-	}
-	return append(ins, in), nil
+	return ins, nil
 }
 
 func (j *jobs) groupLoop() {

@@ -298,6 +298,9 @@ func foldBusinessName(tx *core.Tx, in core.Input) error {
 }
 
 func foldIdentityConversation(tx *core.Tx, in core.Input) error {
+	if h, err := head[core.HistoryConversationHead](in); err != nil || h.Offset > 0 {
+		return err
+	}
 	c, _, err := conversationMeta(in.Body)
 	if err != nil {
 		return err
