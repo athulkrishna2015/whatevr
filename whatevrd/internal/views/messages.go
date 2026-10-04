@@ -28,6 +28,16 @@ var anchoredCap = MessageCap
 // id, as the model pages them.
 func msgSort(m model.Message) []byte { return append(asc(asc(nil, m.T), m.Ord), m.ID...) }
 
+// sortAt is the position a msgSort says.
+func sortAt(b []byte) (model.Cursor, bool) {
+	if len(b) <= 16 {
+		return model.Cursor{}, false
+	}
+	return model.Cursor{T: unasc(b[:8]), Ord: unasc(b[8:16]), ID: string(b[16:])}, true
+}
+
+func cursorOf(m model.Message) model.Cursor { return model.Cursor{T: m.T, Ord: m.Ord, ID: m.ID} }
+
 // messageItems is ms as items, ids and avatars landing at finish.
 func (c *rc) messageItems(ch chatCtx, ms []model.Message) []*v2.Upsert {
 	rows := c.messages(ch, ms)
@@ -94,7 +104,7 @@ func (rs *Reads) messagesView(ctx context.Context, s *server.Session, req *v2.Su
 			// nothing unread is the live edge, as if latest were asked
 			return rs.latest(req, id, ch), nil, nil
 		}
-		a := rs.anchored(req, id, ch, anchor)
+		a := rs.anchored(req, id, ch, cursorOf(anchor))
 		res := &v2.SubscribeResult{}
 		res.SetAnchorId(Token(anchor))
 		return a, res, nil
@@ -120,7 +130,13 @@ func (rs *Reads) messagesView(ctx context.Context, s *server.Session, req *v2.Su
 				m = parent
 			}
 		}
-		return rs.anchored(req, id, ch, m), nil, nil
+		return rs.anchored(req, id, ch, cursorOf(m)), nil, nil
+	case v2.MessagesView_Sort_case:
+		at, ok := sortAt(p.GetSort())
+		if !ok {
+			return nil, nil, invalid("malformed sort")
+		}
+		return rs.anchored(req, id, ch, at), nil, nil
 	}
 	return rs.latest(req, id, ch), nil, nil
 }
@@ -190,11 +206,12 @@ type anchoredWin struct {
 	rs     *Reads
 	params *v2.Subscribe
 	chatID string
-	// anchor is whatsapp's id, found under any of the chat's addresses
-	anchor string
 	watch
 
-	mu             sync.Mutex
+	mu sync.Mutex
+	// at is the anchor's position, its id found under any of the chat's
+	// addresses. a window whose anchor is gone stays at the position
+	at             model.Cursor
 	older, newer   int
 	lastDir        v2.Direction
 	olderExhausted bool
@@ -205,13 +222,13 @@ type anchoredWin struct {
 	live bool
 }
 
-func (rs *Reads) anchored(req *v2.Subscribe, id string, ch model.Chat, m model.Message) *anchoredWin {
+func (rs *Reads) anchored(req *v2.Subscribe, id string, ch model.Chat, at model.Cursor) *anchoredWin {
 	total := int(req.GetLimit())
 	if total <= 0 {
 		total = messagesLimit
 	}
 	half := (total - 1) / 2
-	a := &anchoredWin{rs: rs, params: req, chatID: id, anchor: m.ID, older: half, newer: total - 1 - half}
+	a := &anchoredWin{rs: rs, params: req, chatID: id, at: at, older: half, newer: total - 1 - half}
 	a.saw(ch, &rc{})
 	return a
 }
@@ -253,7 +270,7 @@ func (a *anchoredWin) Exhausted() bool {
 
 func (a *anchoredWin) Items(ctx context.Context, _ int) ([]*v2.Upsert, error) {
 	a.mu.Lock()
-	olderN, newerN, live := a.older, a.newer, a.live
+	olderN, newerN, live, at := a.older, a.newer, a.live, a.at
 	a.mu.Unlock()
 	c, err := a.rs.begin(ctx)
 	if err != nil {
@@ -263,15 +280,14 @@ func (a *anchoredWin) Items(ctx context.Context, _ int) ([]*v2.Upsert, error) {
 	if err != nil || !ok {
 		return nil, err
 	}
-	anchor, ok, err := a.rs.r.Message(ctx, ch.Addrs, a.anchor)
+	anchor, ok, err := a.rs.r.Message(ctx, ch.Addrs, at.ID)
 	if err != nil {
 		return nil, err
 	}
-	if !ok {
-		// deleted since: the window empties rather than failing
-		return nil, nil
+	var mid []model.Message
+	if ok {
+		at, mid = cursorOf(anchor), []model.Message{anchor}
 	}
-	at := model.Cursor{T: anchor.T, Ord: anchor.Ord, ID: anchor.ID}
 	older, err := a.rs.r.Messages(ctx, ch.Addrs, at, olderN+1, false)
 	if err != nil {
 		return nil, err
@@ -291,7 +307,7 @@ func (a *anchoredWin) Items(ctx context.Context, _ int) ([]*v2.Upsert, error) {
 		newer = newer[:min(len(newer), newerN)]
 	}
 	slices.Reverse(older)
-	window := slices.Concat(older, []model.Message{anchor}, newer)
+	window := slices.Concat(older, mid, newer)
 	// at the live edge new messages grow the window: past the cap the oldest
 	// go, and the anchor moves up to the oldest kept
 	moved := false
@@ -310,14 +326,15 @@ func (a *anchoredWin) Items(ctx context.Context, _ int) ([]*v2.Upsert, error) {
 	}
 	if moved {
 		older, olderExhausted = nil, false
-		anchor, newer = window[0], window[1:]
+		at, newer = cursorOf(window[0]), window[1:]
 	}
 
 	a.mu.Lock()
 	a.olderExhausted, a.newerExhausted = olderExhausted, newerExhausted
+	a.at = at
 	switch {
 	case moved:
-		a.anchor, a.older, a.newer = anchor.ID, 0, len(newer)
+		a.older, a.newer = 0, len(newer)
 		a.live = true
 	case newerExhausted:
 		a.live = true

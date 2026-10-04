@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/proto/waSyncAction"
 	"google.golang.org/protobuf/proto"
 
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
@@ -135,7 +136,7 @@ func (rs *Reads) anchoredAt(t *testing.T, chatID string, limit uint32, id string
 		t.Fatalf("anchor: %v %v", ok, err)
 	}
 	req := v2.Subscribe_builder{Limit: limit, Messages: v2.MessagesView_builder{ChatId: chatID, MessageId: proto.String(MessageToken(ashaPN, id))}.Build()}.Build()
-	return rs.anchored(req, chatID, ch, m)
+	return rs.anchored(req, chatID, ch, cursorOf(m))
 }
 
 func itemIDs(t *testing.T, w *anchoredWin) []string {
@@ -188,5 +189,78 @@ func TestAnAnchoredWindowAtTheLiveEdgeStaysUnderTheCap(t *testing.T) {
 	f.feed(burst...)
 	if got := strings.Join(itemIDs(t, w), ""); got != "LMNOP" || w.Size() != 5 {
 		t.Fatalf("after a burst %v, size %d", got, w.Size())
+	}
+}
+
+// deleteForMe is the phone deleting a message of asha's for us.
+func deleteForMe(id string, sec int) core.Input {
+	b, err := proto.Marshal(&waSyncAction.SyncActionValue{DeleteMessageForMeAction: &waSyncAction.DeleteMessageForMeAction{}})
+	if err != nil {
+		panic(err)
+	}
+	return in(core.KindAppState, core.AppStateHead{Collection: "regular_high", Version: uint64(sec), Op: "set",
+		Index: []string{"deleteMessageForMe", ashaPN, id, "0", "0"}}, b, sec)
+}
+
+func fiveMessages() []core.Input {
+	var ins []core.Input
+	for i, id := range strings.Split("ABCDE", "") {
+		ins = append(ins, msg(id, ashaPN, ashaPN, "", false, i+1, id))
+	}
+	return ins
+}
+
+func TestAWindowStaysWhereItsAnchorWasDeleted(t *testing.T) {
+	f, rs, chat := anchoredFixture(t, fiveMessages()...)
+	w := rs.anchoredAt(t, chat, 3, "C")
+	if got := strings.Join(itemIDs(t, w), ""); got != "BCD" {
+		t.Fatalf("first %v", got)
+	}
+	f.feed(deleteForMe("C", 10))
+	if got := strings.Join(itemIDs(t, w), ""); got != "BD" {
+		t.Fatalf("after the delete %v", got)
+	}
+	w.Extend(v2.Direction_DIRECTION_OLDER, 1)
+	if got := strings.Join(itemIDs(t, w), ""); got != "ABD" {
+		t.Fatalf("extended %v", got)
+	}
+}
+
+func TestASortAnchorOutlivesItsMessage(t *testing.T) {
+	f := open(t, fiveMessages()...)
+	ctx := context.Background()
+	sortOf := func(id string) []byte {
+		m, ok, err := f.rs.r.Message(ctx, []string{ashaPN}, id)
+		if err != nil || !ok {
+			t.Fatalf("%s: %v %v", id, ok, err)
+		}
+		return msgSort(m)
+	}
+	sortC, sortD := sortOf("C"), sortOf("D")
+	f.feed(deleteForMe("C", 10))
+	_, chats := f.subscribe(func(s *v2.Subscribe) { s.SetChats(&v2.ChatsView{}) })
+	chat := chats[0].GetId()
+	at := func(sort []byte) string {
+		_, rows := f.subscribe(func(s *v2.Subscribe) {
+			s.SetLimit(3)
+			s.SetMessages(v2.MessagesView_builder{ChatId: chat, Sort: sort}.Build())
+		})
+		var got string
+		for _, r := range rows {
+			got += r.GetMessage().GetText()
+		}
+		return got
+	}
+	if got := at(sortC); got != "BD" {
+		t.Fatalf("around gone C %q", got)
+	}
+	if got := at(sortD); got != "BDE" {
+		t.Fatalf("around a standing row %q", got)
+	}
+	f.send(func(r *v2.Request) {
+		r.SetSubscribe(v2.Subscribe_builder{Messages: v2.MessagesView_builder{ChatId: chat, Sort: []byte{1}}.Build()}.Build())
+	})
+	if f.read().GetResponse().GetError().GetCode() != v2.ErrorCode_ERROR_CODE_INVALID_PARAMS {
+		t.Fatal("a short sort was taken")
 	}
 }

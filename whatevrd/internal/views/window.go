@@ -102,6 +102,8 @@ func asc(b []byte, t int64) []byte {
 	return binary.BigEndian.AppendUint64(b, uint64(t)^(1<<63))
 }
 
+func unasc(b []byte) int64 { return int64(binary.BigEndian.Uint64(b) ^ (1 << 63)) }
+
 // desc is t in bytes that sort newest first.
 func desc(b []byte, t int64) []byte { return asc(b, math.MaxInt64-t) }
 
