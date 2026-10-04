@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"go.mau.fi/whatsmeow/proto/waCommon"
@@ -584,19 +585,19 @@ func putMsg(tx *core.Tx, r row) error {
 // for it. a message the phone sent again after it did not decrypt comes
 // stamped with the resend; the placeholder and the first copy carry when it
 // was sent.
-func firstTime(tx *core.Tx, cs, id string) error {
+func firstTime(tx *core.Tx, cs chats, id string) error {
 	var first, ord sql.NullInt64
-	if err := tx.QueryRow(`SELECT MIN(t), MIN(ord) FROM (SELECT t, ord FROM msg_src WHERE id = ? AND `+inChats("chat")+`
-		UNION ALL SELECT t, ord FROM msg_wait WHERE id = ? AND `+inChats("chat")+`)`,
-		id, cs, id, cs).Scan(&first, &ord); err != nil {
+	if err := tx.QueryRow(`SELECT MIN(t), MIN(ord) FROM (SELECT t, ord FROM msg_src WHERE id = ? AND `+cs.in("chat")+`
+		UNION ALL SELECT t, ord FROM msg_wait WHERE id = ? AND `+cs.in("chat")+`)`,
+		flat(id, cs, id, cs)...).Scan(&first, &ord); err != nil {
 		return err
 	}
 	if !first.Valid {
 		return nil
 	}
 	// every copy, as a copy under the chat's other address may have come first
-	_, err := tx.Exec(`UPDATE msg SET t = MIN(t, ?), ord = MIN(ord, ?) WHERE id = ? AND `+inChats("chat")+`
-		AND (t > ? OR ord > ?)`, first.Int64, ord.Int64, id, cs, first.Int64, ord.Int64)
+	_, err := tx.Exec(`UPDATE msg SET t = MIN(t, ?), ord = MIN(ord, ?) WHERE id = ? AND `+cs.in("chat")+`
+		AND (t > ? OR ord > ?)`, flat(first.Int64, ord.Int64, id, cs, first.Int64, ord.Int64)...)
 	return err
 }
 
@@ -610,7 +611,7 @@ func arrival(at time.Time, i int) int64 {
 	return at.UnixMilli()<<21 | int64(places-2-min(i, places-2))
 }
 
-// sameChats is every address chat goes by for message id, as a json list. a
+// sameChats is every address chat goes by for message id. a
 // person has a pn and a lid chat, and a copy of one message, or something
 // said about it, can sit under either before the two are known to be one
 // person. a row under another address counts when its author is someone
@@ -619,9 +620,9 @@ func arrival(at time.Time, i int) int64 {
 // id from a chat it can't see stays in its own chat. known is more addresses
 // known to be this chat, such as the sender of a copy being folded, or Me for
 // a copy of ours.
-func sameChats(tx *core.Tx, chat, id string, known ...string) (string, error) {
+func sameChats(tx *core.Tx, chat, id string, known ...string) (chats, error) {
 	if !isPN(chat) && !isLID(chat) {
-		return jsonList([]string{chat}), nil
+		return chats{chat}, nil
 	}
 	set := map[string]bool{chat: true}
 	ours := false
@@ -648,13 +649,13 @@ func sameChats(tx *core.Tx, chat, id string, known ...string) (string, error) {
 		UNION ALL SELECT chat, '`+Me+`', '', 0 FROM msg_gone WHERE id = ?1
 		UNION ALL SELECT chat, '`+Me+`', '', 0 FROM msg_local WHERE id = ?1`, id)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	for rows.Next() {
 		var r ref
 		if err := rows.Scan(&r.chat, &r.by, &r.alt, &r.copy); err != nil {
 			rows.Close()
-			return "", err
+			return nil, err
 		}
 		if isPN(r.chat) || isLID(r.chat) {
 			refs = append(refs, r)
@@ -663,17 +664,17 @@ func sameChats(tx *core.Tx, chat, id string, known ...string) (string, error) {
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return "", err
+		return nil, err
 	}
 	// nearly always every row is under chat, and nothing else matters
 	if !slices.ContainsFunc(refs, func(r ref) bool { return r.chat != chat }) {
-		return jsonList([]string{chat}), nil
+		return chats{chat}, nil
 	}
 	if ours {
 		for _, r := range refs {
 			set[r.chat] = true
 		}
-		return jsonList(slices.Sorted(maps.Keys(set))), nil
+		return chats(slices.Sorted(maps.Keys(set))), nil
 	}
 	mapped := map[string]bool{}
 	for {
@@ -703,7 +704,7 @@ func sameChats(tx *core.Tx, chat, id string, known ...string) (string, error) {
 			mapped[a] = true
 			other, err := idMapPartners(tx, a)
 			if err != nil {
-				return "", err
+				return nil, err
 			}
 			for _, o := range other {
 				if !set[o] {
@@ -715,7 +716,7 @@ func sameChats(tx *core.Tx, chat, id string, known ...string) (string, error) {
 			break
 		}
 	}
-	return jsonList(slices.Sorted(maps.Keys(set))), nil
+	return chats(slices.Sorted(maps.Keys(set))), nil
 }
 
 // idMapPartners is the pn of lid a, or the lids of pn a.
@@ -736,8 +737,29 @@ func idMapPartners(tx *core.Tx, a string) ([]string, error) {
 	return out, rows.Err()
 }
 
-// inChats is the sql for "column col is one of the json list in ?".
-func inChats(col string) string { return col + ` IN (SELECT value FROM json_each(?))` }
+// chats is every address one chat goes by, as sameChats has it
+type chats []string
+
+// in is the sql for "column col is one of cs", a ? for each: bind cs
+// through flat
+func (cs chats) in(col string) string {
+	return col + ` IN (` + strings.TrimSuffix(strings.Repeat(`?, `, len(cs)), `, `) + `)`
+}
+
+// flat is args with each chats in it spread out, one arg an address
+func flat(args ...any) []any {
+	out := make([]any, 0, len(args)+1)
+	for _, a := range args {
+		if cs, ok := a.(chats); ok {
+			for _, c := range cs {
+				out = append(out, c)
+			}
+			continue
+		}
+		out = append(out, a)
+	}
+	return out
+}
 
 func exists(tx *core.Tx, q string, args ...any) (bool, error) {
 	var one int
@@ -755,22 +777,22 @@ func targetGone(tx *core.Tx, chat, id string, known ...string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if gone, err := exists(tx, `SELECT 1 FROM msg_gone WHERE id = ? AND `+inChats("chat")+` LIMIT 1`, id, cs); err != nil || gone {
+	if gone, err := exists(tx, `SELECT 1 FROM msg_gone WHERE id = ? AND `+cs.in("chat")+` LIMIT 1`, flat(id, cs)...); err != nil || gone {
 		return gone, err
 	}
-	if gone, err := exists(tx, `SELECT 1 FROM f_revoke WHERE target = ? AND ok = 1 AND `+inChats("chat")+` LIMIT 1`, id, cs); err != nil || gone {
+	if gone, err := exists(tx, `SELECT 1 FROM f_revoke WHERE target = ? AND ok = 1 AND `+cs.in("chat")+` LIMIT 1`, flat(id, cs)...); err != nil || gone {
 		return gone, err
 	}
-	return exists(tx, `SELECT 1 FROM appstate WHERE kind = ? AND op = 'set' AND b = ? AND `+inChats("a")+` LIMIT 1`,
-		asDeleteForMe, id, cs)
+	return exists(tx, `SELECT 1 FROM appstate WHERE kind = ? AND op = 'set' AND b = ? AND `+cs.in("a")+` LIMIT 1`,
+		flat(asDeleteForMe, id, cs)...)
 }
 
 // isGone says a delete for me or a chat clear already took this message.
 // cs is what sameChats says for chat/id, clears is what clearChats read for
 // chat, nil to read it here.
-func isGone(tx *core.Tx, cs, chat, id string, t int64, clears *[]clear) (bool, error) {
-	if gone, err := exists(tx, `SELECT 1 FROM appstate WHERE kind = ? AND op = 'set' AND b = ? AND `+inChats("a")+` LIMIT 1`,
-		asDeleteForMe, id, cs); err != nil || gone {
+func isGone(tx *core.Tx, cs chats, chat, id string, t int64, clears *[]clear) (bool, error) {
+	if gone, err := exists(tx, `SELECT 1 FROM appstate WHERE kind = ? AND op = 'set' AND b = ? AND `+cs.in("a")+` LIMIT 1`,
+		flat(asDeleteForMe, id, cs)...); err != nil || gone {
 		return gone, err
 	}
 	if clears == nil {
@@ -830,10 +852,10 @@ func clearChats(tx *core.Tx, chat string) ([]clear, error) {
 	return out, nil
 }
 
-func isStarred(tx *core.Tx, cs, id string) (bool, error) {
+func isStarred(tx *core.Tx, cs chats, id string) (bool, error) {
 	var on bool
-	err := tx.QueryRow(`SELECT on_ FROM appstate WHERE kind = ? AND b = ? AND op = 'set' AND `+inChats("a")+` LIMIT 1`,
-		asStar, id, cs).Scan(&on)
+	err := tx.QueryRow(`SELECT on_ FROM appstate WHERE kind = ? AND b = ? AND op = 'set' AND `+cs.in("a")+` LIMIT 1`,
+		flat(asStar, id, cs)...).Scan(&on)
 	if isNoRows(err) {
 		return false, nil
 	}
@@ -873,7 +895,7 @@ func scrubMessage(tx *core.Tx, chat, id string) error {
 	if err != nil {
 		return err
 	}
-	rows, err := tx.Query(`SELECT chat, seq, off, len FROM msg_src WHERE id = ? AND `+inChats("chat"), id, cs)
+	rows, err := tx.Query(`SELECT chat, seq, off, len FROM msg_src WHERE id = ? AND `+cs.in("chat"), flat(id, cs)...)
 	if err != nil {
 		return err
 	}
@@ -902,7 +924,7 @@ func scrubMessage(tx *core.Tx, chat, id string) error {
 		}
 		drop[s.chat] = true
 	}
-	waits, err := tx.Query(`SELECT chat FROM msg_wait WHERE id = ? AND `+inChats("chat"), id, cs)
+	waits, err := tx.Query(`SELECT chat FROM msg_wait WHERE id = ? AND `+cs.in("chat"), flat(id, cs)...)
 	if err != nil {
 		return err
 	}
@@ -956,7 +978,7 @@ func dropMessage(tx *core.Tx, chat, id string) error {
 	if err := dropLocal(tx, chat, id); err != nil {
 		return err
 	}
-	if err := forgetLive(tx, jsonList([]string{chat}), id); err != nil {
+	if err := forgetLive(tx, chats{chat}, id); err != nil {
 		return err
 	}
 	tx.Touch("message", chat+":"+id)
@@ -1128,7 +1150,7 @@ func foldUndecryptable(tx *core.Tx, in core.Input) error {
 		return err
 	}
 	// the message itself may be here already, sent again by the phone
-	rows, err := tx.Query(`SELECT chat FROM msg WHERE id = ? AND `+inChats("chat"), h.ID, cs)
+	rows, err := tx.Query(`SELECT chat FROM msg WHERE id = ? AND `+cs.in("chat"), flat(h.ID, cs)...)
 	if err != nil {
 		return err
 	}

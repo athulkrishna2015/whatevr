@@ -134,10 +134,10 @@ type author struct{ chat, sender, alt string }
 
 // authors is who wrote chat/id, from every copy of it here: bodies, scrubbed
 // bodies and placeholders for one that did not decrypt.
-func authors(tx *core.Tx, cs, id string) ([]author, error) {
-	rows, err := tx.Query(`SELECT chat, sender, alt FROM msg_src WHERE id = ? AND sender != '' AND `+inChats("chat")+`
-		UNION SELECT chat, sender, '' FROM msg_wait WHERE id = ? AND `+inChats("chat"),
-		id, cs, id, cs)
+func authors(tx *core.Tx, cs chats, id string) ([]author, error) {
+	rows, err := tx.Query(`SELECT chat, sender, alt FROM msg_src WHERE id = ? AND sender != '' AND `+cs.in("chat")+`
+		UNION SELECT chat, sender, '' FROM msg_wait WHERE id = ? AND `+cs.in("chat"),
+		flat(id, cs, id, cs)...)
 	if err != nil {
 		return nil, err
 	}
@@ -204,8 +204,8 @@ func revokeValid(tx *core.Tx, r revoke, as []author) (bool, error) {
 
 // checkRevokes proves what revokes of chat/id it can and, once one holds,
 // scrubs the message to its tombstone. it says whether the message is one.
-func checkRevokes(tx *core.Tx, cs, id string) (bool, error) {
-	rows, err := tx.Query(`SELECT chat, by, by_alt, t, ok FROM f_revoke WHERE target = ? AND `+inChats("chat"), id, cs)
+func checkRevokes(tx *core.Tx, cs chats, id string) (bool, error) {
+	rows, err := tx.Query(`SELECT chat, by, by_alt, t, ok FROM f_revoke WHERE target = ? AND `+cs.in("chat"), flat(id, cs)...)
 	if err != nil {
 		return false, err
 	}
@@ -256,9 +256,9 @@ func checkRevokes(tx *core.Tx, cs, id string) (bool, error) {
 // tombstone scrubs a message deleted for everyone: every body it came in and
 // every edit of it is blanked in the log, what was said about it goes, and a
 // row stays with who sent it and when.
-func tombstone(tx *core.Tx, cs, id string) error {
-	rows, err := tx.Query(`SELECT chat, sender, alt, t, seq, off, len, ord FROM msg_src WHERE id = ? AND `+inChats("chat")+`
-		ORDER BY chat, seq, off`, id, cs)
+func tombstone(tx *core.Tx, cs chats, id string) error {
+	rows, err := tx.Query(`SELECT chat, sender, alt, t, seq, off, len, ord FROM msg_src WHERE id = ? AND `+cs.in("chat")+`
+		ORDER BY chat, seq, off`, flat(id, cs)...)
 	if err != nil {
 		return err
 	}
@@ -301,7 +301,7 @@ func tombstone(tx *core.Tx, cs, id string) error {
 			}
 		}
 	}
-	waits, err := tx.Query(`SELECT chat, sender, t, ord FROM msg_wait WHERE id = ? AND `+inChats("chat"), id, cs)
+	waits, err := tx.Query(`SELECT chat, sender, t, ord FROM msg_wait WHERE id = ? AND `+cs.in("chat"), flat(id, cs)...)
 	if err != nil {
 		return err
 	}
@@ -319,16 +319,16 @@ func tombstone(tx *core.Tx, cs, id string) error {
 		}
 	}
 	waits.Close()
-	if _, err := tx.Exec(`DELETE FROM msg_wait WHERE id = ? AND `+inChats("chat"), id, cs); err != nil {
+	if _, err := tx.Exec(`DELETE FROM msg_wait WHERE id = ? AND `+cs.in("chat"), flat(id, cs)...); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(`DELETE FROM msg_local WHERE id = ? AND `+inChats("chat"), id, cs); err != nil {
+	if _, err := tx.Exec(`DELETE FROM msg_local WHERE id = ? AND `+cs.in("chat"), flat(id, cs)...); err != nil {
 		return err
 	}
 	if err := forgetLive(tx, cs, id); err != nil {
 		return err
 	}
-	edits, err := tx.Query(`SELECT seq FROM f_edit WHERE target = ? AND `+inChats("chat"), id, cs)
+	edits, err := tx.Query(`SELECT seq FROM f_edit WHERE target = ? AND `+cs.in("chat"), flat(id, cs)...)
 	if err != nil {
 		return err
 	}
@@ -346,7 +346,7 @@ func tombstone(tx *core.Tx, cs, id string) error {
 		}
 	}
 	for _, t := range []string{"f_reaction", "f_edit", "f_enc", "f_pin", "f_keep"} {
-		if _, err := tx.Exec(`DELETE FROM `+t+` WHERE target = ? AND `+inChats("chat"), id, cs); err != nil {
+		if _, err := tx.Exec(`DELETE FROM `+t+` WHERE target = ? AND `+cs.in("chat"), flat(id, cs)...); err != nil {
 			return err
 		}
 	}

@@ -142,9 +142,9 @@ func liveMarker(m *waE2E.Message) *waE2E.Message {
 
 // forgetLive drops where a deleted message said its sender was. its row stays,
 // so the updates after it stay hidden.
-func forgetLive(tx *core.Tx, cs, id string) error {
+func forgetLive(tx *core.Tx, cs chats, id string) error {
 	_, err := tx.Exec(`UPDATE live SET lat = NULL, lng = NULL, acc = 0, speed = 0, heading = 0
-		WHERE id = ? AND `+inChats("chat"), id, cs)
+		WHERE id = ? AND `+cs.in("chat"), flat(id, cs)...)
 	return err
 }
 
