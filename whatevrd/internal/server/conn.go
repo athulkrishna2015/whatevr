@@ -133,7 +133,8 @@ func (c *conn) dispatch(req *v2.Request) {
 		return
 	}
 	log.Info().Msg("command")
-	call := func() {
+	// done hands the request's in-flight token to its answer
+	call := func(done func()) {
 		resp, err := m.fn(ctx, c.sess, req)
 		if err != nil {
 			e := asError(err)
@@ -142,26 +143,23 @@ func (c *conn) dispatch(req *v2.Request) {
 				ev = log.Warn()
 			}
 			ev.Stringer("code", e.code).Str("error", e.msg).Msg("command failed")
-			c.respond(errorResponse(req.GetId(), e.code, e.msg), false)
+			c.respondThen(errorResponse(req.GetId(), e.code, e.msg), false, done)
 			return
 		}
 		if resp == nil {
 			resp = doneResponse(req.GetId())
 		}
 		resp.SetId(req.GetId())
-		c.respond(resp, false)
+		c.respondThen(resp, false, done)
 	}
 	if m.inline {
-		call()
+		call(nil)
 		return
 	}
 	if !c.acquire() {
 		return
 	}
-	go func() {
-		defer c.release()
-		call()
-	}()
+	go call(c.releaser())
 }
 
 // acquire takes an in-flight token, waiting while the connection is at
@@ -176,6 +174,13 @@ func (c *conn) acquire() bool {
 }
 
 func (c *conn) release() { <-c.inflight }
+
+// releaser is release for a token held until an answer is written, which
+// may never be: it runs at most once.
+func (c *conn) releaser() func() {
+	var once sync.Once
+	return func() { once.Do(c.release) }
+}
 
 func (c *conn) handleHello(req *v2.Request) {
 	h := req.GetHello()
@@ -243,8 +248,8 @@ func (c *conn) subscribe(ctx context.Context, req *v2.Request) {
 		opened()
 		return
 	}
+	release := c.releaser()
 	go func() {
-		defer c.release()
 		start := time.Now()
 		sub := &subscription{id: id, conn: c, log: log, limit: int(sr.GetLimit()), params: sr, itemBytes: v.itemBytes, cap: v.cap}
 		win, res, err := v.Open(log.WithContext(c.ctx), c.sess, sr)
@@ -252,7 +257,7 @@ func (c *conn) subscribe(ctx context.Context, req *v2.Request) {
 			opened()
 			e := asError(err)
 			log.Info().Stringer("code", e.code).Str("error", e.msg).Msg("subscribe failed")
-			c.respond(errorResponse(req.GetId(), e.code, e.msg), false)
+			c.respondThen(errorResponse(req.GetId(), e.code, e.msg), false, release)
 			return
 		}
 		sub.win = win
@@ -271,6 +276,7 @@ func (c *conn) subscribe(ctx context.Context, req *v2.Request) {
 		if c.closed {
 			c.subMu.Unlock()
 			win.Close()
+			release()
 			return
 		}
 		c.subs[id] = sub
@@ -283,7 +289,7 @@ func (c *conn) subscribe(ctx context.Context, req *v2.Request) {
 		resp := &v2.Response{}
 		resp.SetId(req.GetId())
 		resp.SetSubscribe(res)
-		c.respond(resp, false)
+		c.respondThen(resp, false, release)
 		log.Info().Dur("open", time.Since(start)).Msg("subscribed")
 		sub.start()
 		c.srv.sessionChanged()
@@ -352,7 +358,10 @@ func (c *conn) windows() []*subscription {
 	return out
 }
 
-func (c *conn) respond(r *v2.Response, closeAfter bool) {
+func (c *conn) respond(r *v2.Response, closeAfter bool) { c.respondThen(r, closeAfter, nil) }
+
+// respondThen is respond, running done once the answer is written.
+func (c *conn) respondThen(r *v2.Response, closeAfter bool, done func()) {
 	f := responseFrame(r)
 	b, err := marshalFrame(f)
 	if err == nil && len(b) > maxFrameBytes {
@@ -364,7 +373,7 @@ func (c *conn) respond(r *v2.Response, closeAfter bool) {
 		b, _ = marshalFrame(f)
 	}
 	c.tap("out", nil, f)
-	c.q.push(b, closeAfter, overloaded)
+	c.q.push(b, closeAfter, overloaded, done)
 }
 
 // event sends a connection event, open_chat or media_stream_update.
@@ -379,7 +388,7 @@ func (c *conn) event(e *v2.Event) {
 		return
 	}
 	c.tap("out", nil, f)
-	c.q.push(b, false, overloaded)
+	c.q.push(b, false, overloaded, nil)
 }
 
 func overloaded() []byte {
@@ -432,6 +441,9 @@ func (c *conn) writeLoop() {
 		if !write(e.frame) {
 			c.close()
 			return
+		}
+		if e.done != nil {
+			e.done()
 		}
 		if e.closeAfter {
 			_ = w.Flush()

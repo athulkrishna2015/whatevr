@@ -293,7 +293,7 @@ func TestQueueMergesUntilAResponse(t *testing.T) {
 	second := up("b", "c")
 	second.changes["b"] = []byte("b2")
 	q.pushUpdate(second)
-	q.push([]byte("resp"), false, nil)
+	q.push([]byte("resp"), false, nil, nil)
 	q.pushUpdate(up("d"))
 	e, _ := q.pop()
 	if !slices.Equal(e.upd.order, []string{"a", "b", "c"}) || string(e.upd.changes["b"]) != "b2" {
@@ -352,6 +352,28 @@ func TestAMergeOverAFrameAsksForAReset(t *testing.T) {
 	}
 	if _, ok := q.pop(); ok {
 		t.Fatal("kept a dropped update")
+	}
+}
+
+func TestAQueuePastItsBytesCloses(t *testing.T) {
+	defer func(n int) { maxQueuedBytes = n }(maxQueuedBytes)
+	maxQueuedBytes = 10
+	q := newQueue()
+	q.addSub(1)
+	released := 0
+	done := func() { released++ }
+	q.push([]byte("12345"), false, overloaded, done)
+	q.pushUpdate(&update{sub: 1, order: []string{"a"}, changes: map[string][]byte{"a": []byte("123456789")}})
+	q.push([]byte("late"), false, overloaded, done)
+	if released != 1 {
+		t.Fatalf("%d released, want the one never to be written", released)
+	}
+	var last *entry
+	for e, ok := q.pop(); ok; e, ok = q.pop() {
+		last = e
+	}
+	if last == nil || !last.closeAfter || q.bytes != 0 {
+		t.Fatalf("last %+v, %d bytes left", last, q.bytes)
 	}
 }
 

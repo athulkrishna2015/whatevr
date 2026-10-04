@@ -128,3 +128,38 @@ func TestCapsRefuseWithInvalidParams(t *testing.T) {
 	})
 	invalid("one subscription too many")
 }
+
+// an answer holds its request's token until it is written, so a peer that
+// asks for megabytes and does not read stops being read instead of
+// stacking them up, and gets them all once it reads
+func TestUnwrittenAnswersHoldReads(t *testing.T) {
+	s, c := start(t, &fakeList{})
+	var calls atomic.Int32
+	chunk := make([]byte, 1<<20)
+	s.Handle(protoreflect.FieldNumber(v2.Request_MediaRead_case), func(context.Context, *Session, *v2.Request) (*v2.Response, error) {
+		calls.Add(1)
+		resp := &v2.Response{}
+		resp.SetMediaRead(v2.MediaReadResult_builder{Data: chunk}.Build())
+		return resp, nil
+	})
+	c.hello()
+	const asked = 3 * maxInFlight
+	go func() {
+		for range asked {
+			c.send(func(r *v2.Request) { r.SetMediaRead(&v2.MediaRead{}) })
+		}
+	}()
+	time.Sleep(200 * time.Millisecond)
+	// a frame or two sit in the socket's buffers
+	if n := calls.Load(); n > maxInFlight+2 {
+		t.Fatalf("%d answered with nobody reading", n)
+	}
+	got := 0
+	for got < asked {
+		if f := c.read(); f.GetResponse().HasMediaRead() {
+			got++
+		} else {
+			t.Fatalf("got %v", f)
+		}
+	}
+}
