@@ -595,6 +595,15 @@ func (x *MessagesView) GetMessageId() string {
 	return ""
 }
 
+func (x *MessagesView) GetSort() []byte {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Anchor.(*messagesView_Sort); ok {
+			return x.Sort
+		}
+	}
+	return nil
+}
+
 func (x *MessagesView) SetChatId(v string) {
 	x.xxx_hidden_ChatId = v
 }
@@ -617,6 +626,13 @@ func (x *MessagesView) SetUnread(v *Unread) {
 
 func (x *MessagesView) SetMessageId(v string) {
 	x.xxx_hidden_Anchor = &messagesView_MessageId{v}
+}
+
+func (x *MessagesView) SetSort(v []byte) {
+	if v == nil {
+		v = []byte{}
+	}
+	x.xxx_hidden_Anchor = &messagesView_Sort{v}
 }
 
 func (x *MessagesView) HasAnchor() bool {
@@ -650,6 +666,14 @@ func (x *MessagesView) HasMessageId() bool {
 	return ok
 }
 
+func (x *MessagesView) HasSort() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Anchor.(*messagesView_Sort)
+	return ok
+}
+
 func (x *MessagesView) ClearAnchor() {
 	x.xxx_hidden_Anchor = nil
 }
@@ -672,10 +696,17 @@ func (x *MessagesView) ClearMessageId() {
 	}
 }
 
+func (x *MessagesView) ClearSort() {
+	if _, ok := x.xxx_hidden_Anchor.(*messagesView_Sort); ok {
+		x.xxx_hidden_Anchor = nil
+	}
+}
+
 const MessagesView_Anchor_not_set_case case_MessagesView_Anchor = 0
 const MessagesView_Latest_case case_MessagesView_Anchor = 2
 const MessagesView_Unread_case case_MessagesView_Anchor = 3
 const MessagesView_MessageId_case case_MessagesView_Anchor = 4
+const MessagesView_Sort_case case_MessagesView_Anchor = 5
 
 func (x *MessagesView) WhichAnchor() case_MessagesView_Anchor {
 	if x == nil {
@@ -688,6 +719,8 @@ func (x *MessagesView) WhichAnchor() case_MessagesView_Anchor {
 		return MessagesView_Unread_case
 	case *messagesView_MessageId:
 		return MessagesView_MessageId_case
+	case *messagesView_Sort:
+		return MessagesView_Sort_case
 	default:
 		return MessagesView_Anchor_not_set_case
 	}
@@ -704,6 +737,9 @@ type MessagesView_builder struct {
 	Unread *Unread
 	// around one message
 	MessageId *string
+	// around a position: a row's sort as it came, which still works when
+	// that message is gone
+	Sort []byte
 	// -- end of xxx_hidden_Anchor
 }
 
@@ -720,6 +756,9 @@ func (b0 MessagesView_builder) Build() *MessagesView {
 	}
 	if b.MessageId != nil {
 		x.xxx_hidden_Anchor = &messagesView_MessageId{*b.MessageId}
+	}
+	if b.Sort != nil {
+		x.xxx_hidden_Anchor = &messagesView_Sort{b.Sort}
 	}
 	return m0
 }
@@ -753,11 +792,19 @@ type messagesView_MessageId struct {
 	MessageId string `protobuf:"bytes,4,opt,name=message_id,json=messageId,oneof"`
 }
 
+type messagesView_Sort struct {
+	// around a position: a row's sort as it came, which still works when
+	// that message is gone
+	Sort []byte `protobuf:"bytes,5,opt,name=sort,oneof"`
+}
+
 func (*messagesView_Latest) isMessagesView_Anchor() {}
 
 func (*messagesView_Unread) isMessagesView_Anchor() {}
 
 func (*messagesView_MessageId) isMessagesView_Anchor() {}
+
+func (*messagesView_Sort) isMessagesView_Anchor() {}
 
 type Latest struct {
 	state         protoimpl.MessageState `protogen:"opaque.v1"`
@@ -8181,6 +8228,7 @@ type SendText struct {
 	xxx_hidden_Text     string                 `protobuf:"bytes,2,opt,name=text"`
 	xxx_hidden_ReplyTo  string                 `protobuf:"bytes,3,opt,name=reply_to,json=replyTo"`
 	xxx_hidden_Mentions *[]*Address            `protobuf:"bytes,4,rep,name=mentions"`
+	xxx_hidden_Key      string                 `protobuf:"bytes,5,opt,name=key"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -8240,6 +8288,13 @@ func (x *SendText) GetMentions() []*Address {
 	return nil
 }
 
+func (x *SendText) GetKey() string {
+	if x != nil {
+		return x.xxx_hidden_Key
+	}
+	return ""
+}
+
 func (x *SendText) SetChatId(v string) {
 	x.xxx_hidden_ChatId = v
 }
@@ -8256,6 +8311,10 @@ func (x *SendText) SetMentions(v []*Address) {
 	x.xxx_hidden_Mentions = &v
 }
 
+func (x *SendText) SetKey(v string) {
+	x.xxx_hidden_Key = v
+}
+
 type SendText_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -8263,6 +8322,10 @@ type SendText_builder struct {
 	Text     string
 	ReplyTo  string
 	Mentions []*Address
+	// picked by the frontend, unique per send. a repeat sends nothing and
+	// answers the first one's result; the same key with other params is
+	// INVALID_PARAMS. empty is no key
+	Key string
 }
 
 func (b0 SendText_builder) Build() *SendText {
@@ -8273,6 +8336,7 @@ func (b0 SendText_builder) Build() *SendText {
 	x.xxx_hidden_Text = b.Text
 	x.xxx_hidden_ReplyTo = b.ReplyTo
 	x.xxx_hidden_Mentions = &b.Mentions
+	x.xxx_hidden_Key = b.Key
 	return m0
 }
 
@@ -8286,6 +8350,7 @@ type SendMedia struct {
 	xxx_hidden_Mentions   *[]*Address            `protobuf:"bytes,5,rep,name=mentions"`
 	xxx_hidden_AsDocument bool                   `protobuf:"varint,6,opt,name=as_document,json=asDocument"`
 	xxx_hidden_ViewOnce   bool                   `protobuf:"varint,7,opt,name=view_once,json=viewOnce"`
+	xxx_hidden_Key        string                 `protobuf:"bytes,8,opt,name=key"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -8366,6 +8431,13 @@ func (x *SendMedia) GetViewOnce() bool {
 	return false
 }
 
+func (x *SendMedia) GetKey() string {
+	if x != nil {
+		return x.xxx_hidden_Key
+	}
+	return ""
+}
+
 func (x *SendMedia) SetChatId(v string) {
 	x.xxx_hidden_ChatId = v
 }
@@ -8394,6 +8466,10 @@ func (x *SendMedia) SetViewOnce(v bool) {
 	x.xxx_hidden_ViewOnce = v
 }
 
+func (x *SendMedia) SetKey(v string) {
+	x.xxx_hidden_Key = v
+}
+
 type SendMedia_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -8405,6 +8481,10 @@ type SendMedia_builder struct {
 	// send a picture or video as a document
 	AsDocument bool
 	ViewOnce   bool
+	// picked by the frontend, unique per send. a repeat sends nothing and
+	// answers the first one's result; the same key with other params is
+	// INVALID_PARAMS. empty is no key
+	Key string
 }
 
 func (b0 SendMedia_builder) Build() *SendMedia {
@@ -8418,6 +8498,7 @@ func (b0 SendMedia_builder) Build() *SendMedia {
 	x.xxx_hidden_Mentions = &b.Mentions
 	x.xxx_hidden_AsDocument = b.AsDocument
 	x.xxx_hidden_ViewOnce = b.ViewOnce
+	x.xxx_hidden_Key = b.Key
 	return m0
 }
 
@@ -8426,6 +8507,7 @@ type SendSticker struct {
 	xxx_hidden_ChatId    string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId"`
 	xxx_hidden_StickerId string                 `protobuf:"bytes,2,opt,name=sticker_id,json=stickerId"`
 	xxx_hidden_ReplyTo   string                 `protobuf:"bytes,3,opt,name=reply_to,json=replyTo"`
+	xxx_hidden_Key       string                 `protobuf:"bytes,4,opt,name=key"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -8476,6 +8558,13 @@ func (x *SendSticker) GetReplyTo() string {
 	return ""
 }
 
+func (x *SendSticker) GetKey() string {
+	if x != nil {
+		return x.xxx_hidden_Key
+	}
+	return ""
+}
+
 func (x *SendSticker) SetChatId(v string) {
 	x.xxx_hidden_ChatId = v
 }
@@ -8488,12 +8577,20 @@ func (x *SendSticker) SetReplyTo(v string) {
 	x.xxx_hidden_ReplyTo = v
 }
 
+func (x *SendSticker) SetKey(v string) {
+	x.xxx_hidden_Key = v
+}
+
 type SendSticker_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	ChatId    string
 	StickerId string
 	ReplyTo   string
+	// picked by the frontend, unique per send. a repeat sends nothing and
+	// answers the first one's result; the same key with other params is
+	// INVALID_PARAMS. empty is no key
+	Key string
 }
 
 func (b0 SendSticker_builder) Build() *SendSticker {
@@ -8503,6 +8600,7 @@ func (b0 SendSticker_builder) Build() *SendSticker {
 	x.xxx_hidden_ChatId = b.ChatId
 	x.xxx_hidden_StickerId = b.StickerId
 	x.xxx_hidden_ReplyTo = b.ReplyTo
+	x.xxx_hidden_Key = b.Key
 	return m0
 }
 
@@ -8981,6 +9079,7 @@ type MessageForward struct {
 	state                protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_MessageId string                 `protobuf:"bytes,1,opt,name=message_id,json=messageId"`
 	xxx_hidden_ChatIds   []string               `protobuf:"bytes,2,rep,name=chat_ids,json=chatIds"`
+	xxx_hidden_Key       string                 `protobuf:"bytes,3,opt,name=key"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -9024,6 +9123,13 @@ func (x *MessageForward) GetChatIds() []string {
 	return nil
 }
 
+func (x *MessageForward) GetKey() string {
+	if x != nil {
+		return x.xxx_hidden_Key
+	}
+	return ""
+}
+
 func (x *MessageForward) SetMessageId(v string) {
 	x.xxx_hidden_MessageId = v
 }
@@ -9032,11 +9138,19 @@ func (x *MessageForward) SetChatIds(v []string) {
 	x.xxx_hidden_ChatIds = v
 }
 
+func (x *MessageForward) SetKey(v string) {
+	x.xxx_hidden_Key = v
+}
+
 type MessageForward_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	MessageId string
 	ChatIds   []string
+	// picked by the frontend, unique per send. a repeat sends nothing and
+	// answers the first one's result; the same key with other params is
+	// INVALID_PARAMS. empty is no key
+	Key string
 }
 
 func (b0 MessageForward_builder) Build() *MessageForward {
@@ -9045,6 +9159,7 @@ func (b0 MessageForward_builder) Build() *MessageForward {
 	_, _ = b, x
 	x.xxx_hidden_MessageId = b.MessageId
 	x.xxx_hidden_ChatIds = b.ChatIds
+	x.xxx_hidden_Key = b.Key
 	return m0
 }
 
@@ -9629,13 +9744,14 @@ var File_whatevr_v2_messages_proto protoreflect.FileDescriptor
 const file_whatevr_v2_messages_proto_rawDesc = "" +
 	"\n" +
 	"\x19whatevr/v2/messages.proto\x12\n" +
-	"whatevr.v2\x1a\x17whatevr/v2/people.proto\"\xae\x01\n" +
+	"whatevr.v2\x1a\x17whatevr/v2/people.proto\"\xc4\x01\n" +
 	"\fMessagesView\x12\x17\n" +
 	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12,\n" +
 	"\x06latest\x18\x02 \x01(\v2\x12.whatevr.v2.LatestH\x00R\x06latest\x12,\n" +
 	"\x06unread\x18\x03 \x01(\v2\x12.whatevr.v2.UnreadH\x00R\x06unread\x12\x1f\n" +
 	"\n" +
-	"message_id\x18\x04 \x01(\tH\x00R\tmessageIdB\b\n" +
+	"message_id\x18\x04 \x01(\tH\x00R\tmessageId\x12\x14\n" +
+	"\x04sort\x18\x05 \x01(\fH\x00R\x04sortB\b\n" +
 	"\x06anchor\"\b\n" +
 	"\x06Latest\"\b\n" +
 	"\x06Unread\"&\n" +
@@ -10013,12 +10129,13 @@ const file_whatevr_v2_messages_proto_rawDesc = "" +
 	"\vasked_phone\x18\x04 \x01(\bR\n" +
 	"askedPhone\x12\x14\n" +
 	"\x05never\x18\x05 \x01(\tR\x05never\"\r\n" +
-	"\vUnsupported\"\x83\x01\n" +
+	"\vUnsupported\"\x95\x01\n" +
 	"\bSendText\x12\x17\n" +
 	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x12\n" +
 	"\x04text\x18\x02 \x01(\tR\x04text\x12\x19\n" +
 	"\breply_to\x18\x03 \x01(\tR\areplyTo\x12/\n" +
-	"\bmentions\x18\x04 \x03(\v2\x13.whatevr.v2.AddressR\bmentions\"\xdc\x01\n" +
+	"\bmentions\x18\x04 \x03(\v2\x13.whatevr.v2.AddressR\bmentions\x12\x10\n" +
+	"\x03key\x18\x05 \x01(\tR\x03key\"\xee\x01\n" +
 	"\tSendMedia\x12\x17\n" +
 	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\x12\x18\n" +
@@ -10027,12 +10144,14 @@ const file_whatevr_v2_messages_proto_rawDesc = "" +
 	"\bmentions\x18\x05 \x03(\v2\x13.whatevr.v2.AddressR\bmentions\x12\x1f\n" +
 	"\vas_document\x18\x06 \x01(\bR\n" +
 	"asDocument\x12\x1b\n" +
-	"\tview_once\x18\a \x01(\bR\bviewOnce\"`\n" +
+	"\tview_once\x18\a \x01(\bR\bviewOnce\x12\x10\n" +
+	"\x03key\x18\b \x01(\tR\x03key\"r\n" +
 	"\vSendSticker\x12\x17\n" +
 	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x1d\n" +
 	"\n" +
 	"sticker_id\x18\x02 \x01(\tR\tstickerId\x12\x19\n" +
-	"\breply_to\x18\x03 \x01(\tR\areplyTo\"+\n" +
+	"\breply_to\x18\x03 \x01(\tR\areplyTo\x12\x10\n" +
+	"\x03key\x18\x04 \x01(\tR\x03key\"+\n" +
 	"\n" +
 	"SendResult\x12\x1d\n" +
 	"\n" +
@@ -10061,11 +10180,12 @@ const file_whatevr_v2_messages_proto_rawDesc = "" +
 	"message_id\x18\x01 \x01(\tR\tmessageId\x12\x16\n" +
 	"\x06pinned\x18\x02 \x01(\bR\x06pinned\x12\x1f\n" +
 	"\vduration_ms\x18\x03 \x01(\x03R\n" +
-	"durationMs\"J\n" +
+	"durationMs\"\\\n" +
 	"\x0eMessageForward\x12\x1d\n" +
 	"\n" +
 	"message_id\x18\x01 \x01(\tR\tmessageId\x12\x19\n" +
-	"\bchat_ids\x18\x02 \x03(\tR\achatIds\"7\n" +
+	"\bchat_ids\x18\x02 \x03(\tR\achatIds\x12\x10\n" +
+	"\x03key\x18\x03 \x01(\tR\x03key\"7\n" +
 	"\x14MessageForwardResult\x12\x1f\n" +
 	"\vmessage_ids\x18\x01 \x03(\tR\n" +
 	"messageIds\"2\n" +
@@ -10374,6 +10494,7 @@ func file_whatevr_v2_messages_proto_init() {
 		(*messagesView_Latest)(nil),
 		(*messagesView_Unread)(nil),
 		(*messagesView_MessageId)(nil),
+		(*messagesView_Sort)(nil),
 	}
 	file_whatevr_v2_messages_proto_msgTypes[14].OneofWrappers = []any{
 		(*messageRow_TextBody)(nil),

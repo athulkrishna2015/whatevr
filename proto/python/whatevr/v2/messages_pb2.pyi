@@ -162,16 +162,18 @@ SYSTEM_TYPE_EPHEMERAL: SystemType
 SYSTEM_TYPE_IDENTITY_CHANGE: SystemType
 
 class MessagesView(_message.Message):
-    __slots__ = ("chat_id", "latest", "unread", "message_id")
+    __slots__ = ("chat_id", "latest", "unread", "message_id", "sort")
     CHAT_ID_FIELD_NUMBER: _ClassVar[int]
     LATEST_FIELD_NUMBER: _ClassVar[int]
     UNREAD_FIELD_NUMBER: _ClassVar[int]
     MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]
+    SORT_FIELD_NUMBER: _ClassVar[int]
     chat_id: str
     latest: Latest
     unread: Unread
     message_id: str
-    def __init__(self, chat_id: _Optional[str] = ..., latest: _Optional[_Union[Latest, _Mapping]] = ..., unread: _Optional[_Union[Unread, _Mapping]] = ..., message_id: _Optional[str] = ...) -> None: ...
+    sort: bytes
+    def __init__(self, chat_id: _Optional[str] = ..., latest: _Optional[_Union[Latest, _Mapping]] = ..., unread: _Optional[_Union[Unread, _Mapping]] = ..., message_id: _Optional[str] = ..., sort: _Optional[bytes] = ...) -> None: ...
 
 class Latest(_message.Message):
     __slots__ = ()
@@ -936,19 +938,21 @@ class Unsupported(_message.Message):
     def __init__(self) -> None: ...
 
 class SendText(_message.Message):
-    __slots__ = ("chat_id", "text", "reply_to", "mentions")
+    __slots__ = ("chat_id", "text", "reply_to", "mentions", "key")
     CHAT_ID_FIELD_NUMBER: _ClassVar[int]
     TEXT_FIELD_NUMBER: _ClassVar[int]
     REPLY_TO_FIELD_NUMBER: _ClassVar[int]
     MENTIONS_FIELD_NUMBER: _ClassVar[int]
+    KEY_FIELD_NUMBER: _ClassVar[int]
     chat_id: str
     text: str
     reply_to: str
     mentions: _containers.RepeatedCompositeFieldContainer[_people_pb2.Address]
-    def __init__(self, chat_id: _Optional[str] = ..., text: _Optional[str] = ..., reply_to: _Optional[str] = ..., mentions: _Optional[_Iterable[_Union[_people_pb2.Address, _Mapping]]] = ...) -> None: ...
+    key: str
+    def __init__(self, chat_id: _Optional[str] = ..., text: _Optional[str] = ..., reply_to: _Optional[str] = ..., mentions: _Optional[_Iterable[_Union[_people_pb2.Address, _Mapping]]] = ..., key: _Optional[str] = ...) -> None: ...
 
 class SendMedia(_message.Message):
-    __slots__ = ("chat_id", "path", "caption", "reply_to", "mentions", "as_document", "view_once")
+    __slots__ = ("chat_id", "path", "caption", "reply_to", "mentions", "as_document", "view_once", "key")
     CHAT_ID_FIELD_NUMBER: _ClassVar[int]
     PATH_FIELD_NUMBER: _ClassVar[int]
     CAPTION_FIELD_NUMBER: _ClassVar[int]
@@ -956,6 +960,7 @@ class SendMedia(_message.Message):
     MENTIONS_FIELD_NUMBER: _ClassVar[int]
     AS_DOCUMENT_FIELD_NUMBER: _ClassVar[int]
     VIEW_ONCE_FIELD_NUMBER: _ClassVar[int]
+    KEY_FIELD_NUMBER: _ClassVar[int]
     chat_id: str
     path: str
     caption: str
@@ -963,17 +968,20 @@ class SendMedia(_message.Message):
     mentions: _containers.RepeatedCompositeFieldContainer[_people_pb2.Address]
     as_document: bool
     view_once: bool
-    def __init__(self, chat_id: _Optional[str] = ..., path: _Optional[str] = ..., caption: _Optional[str] = ..., reply_to: _Optional[str] = ..., mentions: _Optional[_Iterable[_Union[_people_pb2.Address, _Mapping]]] = ..., as_document: _Optional[bool] = ..., view_once: _Optional[bool] = ...) -> None: ...
+    key: str
+    def __init__(self, chat_id: _Optional[str] = ..., path: _Optional[str] = ..., caption: _Optional[str] = ..., reply_to: _Optional[str] = ..., mentions: _Optional[_Iterable[_Union[_people_pb2.Address, _Mapping]]] = ..., as_document: _Optional[bool] = ..., view_once: _Optional[bool] = ..., key: _Optional[str] = ...) -> None: ...
 
 class SendSticker(_message.Message):
-    __slots__ = ("chat_id", "sticker_id", "reply_to")
+    __slots__ = ("chat_id", "sticker_id", "reply_to", "key")
     CHAT_ID_FIELD_NUMBER: _ClassVar[int]
     STICKER_ID_FIELD_NUMBER: _ClassVar[int]
     REPLY_TO_FIELD_NUMBER: _ClassVar[int]
+    KEY_FIELD_NUMBER: _ClassVar[int]
     chat_id: str
     sticker_id: str
     reply_to: str
-    def __init__(self, chat_id: _Optional[str] = ..., sticker_id: _Optional[str] = ..., reply_to: _Optional[str] = ...) -> None: ...
+    key: str
+    def __init__(self, chat_id: _Optional[str] = ..., sticker_id: _Optional[str] = ..., reply_to: _Optional[str] = ..., key: _Optional[str] = ...) -> None: ...
 
 class SendResult(_message.Message):
     __slots__ = ("message_id",)
@@ -1028,12 +1036,14 @@ class MessagePin(_message.Message):
     def __init__(self, message_id: _Optional[str] = ..., pinned: _Optional[bool] = ..., duration_ms: _Optional[int] = ...) -> None: ...
 
 class MessageForward(_message.Message):
-    __slots__ = ("message_id", "chat_ids")
+    __slots__ = ("message_id", "chat_ids", "key")
     MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]
     CHAT_IDS_FIELD_NUMBER: _ClassVar[int]
+    KEY_FIELD_NUMBER: _ClassVar[int]
     message_id: str
     chat_ids: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, message_id: _Optional[str] = ..., chat_ids: _Optional[_Iterable[str]] = ...) -> None: ...
+    key: str
+    def __init__(self, message_id: _Optional[str] = ..., chat_ids: _Optional[_Iterable[str]] = ..., key: _Optional[str] = ...) -> None: ...
 
 class MessageForwardResult(_message.Message):
     __slots__ = ("message_ids",)

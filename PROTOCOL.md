@@ -233,6 +233,11 @@ A bounded window that reached the present keeps growing as messages arrive;
 past its cap the oldest messages leave it, and the older frontier moves up
 with them.
 
+An anchor can also be a `sort`: a row's sort bytes as the frontend got them.
+The window sits where that row is or was, whether or not the message still
+exists. A window whose anchor message goes away while subscribed stays where
+it was the same way.
+
 ### Caps
 
 Every view has an item size, and its cap is how many such items fit 15 MiB,
@@ -259,7 +264,9 @@ finer view, see *Messages*.
 
 Asking the phone for older history is a separate command,
 `chat_request_older`, because it costs network; its results land as upserts
-like anything else.
+like anything else. While a request is out, the chat row says
+`loading_older`. It clears when the phone answers, when the request fails, or
+after 90 seconds without an answer.
 
 Several subscriptions to one view with different params are normal: the chat
 list and the archived list are two `chats` subscriptions.
@@ -287,7 +294,7 @@ Object views send one item with an empty id.
 | `login` | none | object | subscribing starts the qr pairing when logged out, or joins it; `state`, the `qr` code and when it expires |
 | `sync` | none | object | history sync type, phase (`STALLED` included), percent and counts |
 | `problems` | none | one per live problem | `kind`, `since_ms`, `next_retry_ms` (0 for never), a finished `text`; most severe first. A healthy daemon has none |
-| `chats` | `filter`, `archived` | chat rows | name, type, avatar, preview, unread and marked unread, pin, archive, mute, `history_exhausted`, timer, `read_only` |
+| `chats` | `filter`, `archived` | chat rows | name, type, avatar, preview, unread and marked unread, pin, archive, mute, `history_exhausted`, `loading_older`, timer, `read_only` |
 | `chat` | `chat_id` | object | the same row `chats` sends, outside any filter or window |
 | `messages` | `chat_id`, `anchor` | message rows | see *Messages*; delete for me removes; a revoke is an upsert with `revoked` |
 | `typing` | none | one per chat with anyone composing | id is the chat id; who, and whether they are recording; removed when the last one stops |
@@ -346,6 +353,13 @@ arrives through views, `PENDING` until it leaves.
 | `send_text` | `chat_id`, `text`, `reply_to`, `mentions` |
 | `send_media` | `chat_id`, `path`, `caption`, `reply_to`, `mentions`, `as_document`, `view_once`. The daemon copies the file before answering; the caller may delete its copy |
 | `send_sticker` | `chat_id`, `sticker_id`, `reply_to` |
+
+Every send takes a `key`: a string the frontend picks, unique per send (128
+random bits is plenty). A send whose key the daemon has seen sends nothing and
+answers the first one's result, so a frontend that lost the answer repeats the
+request safely, across a reconnect or a daemon restart. The same key with
+different params is `INVALID_PARAMS`. `message_forward` takes one key for the
+whole forward. An empty key turns this off.
 
 Sends can fail `GUARDED` on a daemon started with a send guard (a debug build
 pointed at a real account), for an address outside it.

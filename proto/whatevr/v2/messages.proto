@@ -17,6 +17,9 @@ message MessagesView {
     Unread unread = 3;
     // around one message
     string message_id = 4;
+    // around a position: a row's sort as it came, which still works when
+    // that message is gone
+    bytes sort = 5;
   }
 }
 
@@ -617,6 +620,10 @@ message SendText {
   string text = 2;
   string reply_to = 3;
   repeated Address mentions = 4;
+  // picked by the frontend, unique per send. a repeat sends nothing and
+  // answers the first one's result; the same key with other params is
+  // INVALID_PARAMS. empty is no key
+  string key = 5;
 }
 
 // the daemon copies the file before answering; the caller may delete it
@@ -629,12 +636,20 @@ message SendMedia {
   // send a picture or video as a document
   bool as_document = 6;
   bool view_once = 7;
+  // picked by the frontend, unique per send. a repeat sends nothing and
+  // answers the first one's result; the same key with other params is
+  // INVALID_PARAMS. empty is no key
+  string key = 8;
 }
 
 message SendSticker {
   string chat_id = 1;
   string sticker_id = 2;
   string reply_to = 3;
+  // picked by the frontend, unique per send. a repeat sends nothing and
+  // answers the first one's result; the same key with other params is
+  // INVALID_PARAMS. empty is no key
+  string key = 4;
 }
 
 message SendResult {
@@ -675,6 +690,10 @@ message MessagePin {
 message MessageForward {
   string message_id = 1;
   repeated string chat_ids = 2;
+  // picked by the frontend, unique per send. a repeat sends nothing and
+  // answers the first one's result; the same key with other params is
+  // INVALID_PARAMS. empty is no key
+  string key = 3;
 }
 
 message MessageForwardResult {

@@ -266,6 +266,7 @@ type ChatRow struct {
 	xxx_hidden_HistoryExhausted bool                   `protobuf:"varint,13,opt,name=history_exhausted,json=historyExhausted"`
 	xxx_hidden_EphemeralSecs    uint32                 `protobuf:"varint,14,opt,name=ephemeral_secs,json=ephemeralSecs"`
 	xxx_hidden_ReadOnly         bool                   `protobuf:"varint,15,opt,name=read_only,json=readOnly"`
+	xxx_hidden_LoadingOlder     bool                   `protobuf:"varint,16,opt,name=loading_older,json=loadingOlder"`
 	unknownFields               protoimpl.UnknownFields
 	sizeCache                   protoimpl.SizeCache
 }
@@ -400,6 +401,13 @@ func (x *ChatRow) GetReadOnly() bool {
 	return false
 }
 
+func (x *ChatRow) GetLoadingOlder() bool {
+	if x != nil {
+		return x.xxx_hidden_LoadingOlder
+	}
+	return false
+}
+
 func (x *ChatRow) SetId(v string) {
 	x.xxx_hidden_Id = v
 }
@@ -460,6 +468,10 @@ func (x *ChatRow) SetReadOnly(v bool) {
 	x.xxx_hidden_ReadOnly = v
 }
 
+func (x *ChatRow) SetLoadingOlder(v bool) {
+	x.xxx_hidden_LoadingOlder = v
+}
+
 func (x *ChatRow) HasPreview() bool {
 	if x == nil {
 		return false
@@ -495,6 +507,8 @@ type ChatRow_builder struct {
 	EphemeralSecs uint32
 	// we can't send here (an announcement group, a left group)
 	ReadOnly bool
+	// a chat_request_older is out
+	LoadingOlder bool
 }
 
 func (b0 ChatRow_builder) Build() *ChatRow {
@@ -516,6 +530,7 @@ func (b0 ChatRow_builder) Build() *ChatRow {
 	x.xxx_hidden_HistoryExhausted = b.HistoryExhausted
 	x.xxx_hidden_EphemeralSecs = b.EphemeralSecs
 	x.xxx_hidden_ReadOnly = b.ReadOnly
+	x.xxx_hidden_LoadingOlder = b.LoadingOlder
 	return m0
 }
 
@@ -1242,7 +1257,7 @@ const file_whatevr_v2_chats_proto_rawDesc = "" +
 	"\x06filter\x18\x01 \x01(\x0e2\x16.whatevr.v2.ChatFilterR\x06filter\x12\x1a\n" +
 	"\barchived\x18\x02 \x01(\bR\barchived\"#\n" +
 	"\bChatView\x12\x17\n" +
-	"\achat_id\x18\x01 \x01(\tR\x06chatId\"\xdc\x03\n" +
+	"\achat_id\x18\x01 \x01(\tR\x06chatId\"\x81\x04\n" +
 	"\aChatRow\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12(\n" +
@@ -1260,7 +1275,8 @@ const file_whatevr_v2_chats_proto_rawDesc = "" +
 	"\vmute_end_ms\x18\f \x01(\x03R\tmuteEndMs\x12+\n" +
 	"\x11history_exhausted\x18\r \x01(\bR\x10historyExhausted\x12%\n" +
 	"\x0eephemeral_secs\x18\x0e \x01(\rR\rephemeralSecs\x12\x1b\n" +
-	"\tread_only\x18\x0f \x01(\bR\breadOnly\"m\n" +
+	"\tread_only\x18\x0f \x01(\bR\breadOnly\x12#\n" +
+	"\rloading_older\x18\x10 \x01(\bR\floadingOlder\"m\n" +
 	"\vChatPreview\x12\x12\n" +
 	"\x04text\x18\x01 \x01(\tR\x04text\x12\x17\n" +
 	"\afrom_me\x18\x02 \x01(\bR\x06fromMe\x121\n" +

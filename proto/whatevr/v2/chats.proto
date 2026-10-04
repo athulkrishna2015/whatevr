@@ -46,6 +46,8 @@ message ChatRow {
   uint32 ephemeral_secs = 14;
   // we can't send here (an announcement group, a left group)
   bool read_only = 15;
+  // a chat_request_older is out
+  bool loading_older = 16;
 }
 
 enum ChatType {

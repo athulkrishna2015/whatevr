@@ -49,7 +49,7 @@ class ChatView(_message.Message):
     def __init__(self, chat_id: _Optional[str] = ...) -> None: ...
 
 class ChatRow(_message.Message):
-    __slots__ = ("id", "name", "type", "avatar_path", "preview", "last_ms", "unread", "marked_unread", "pinned", "archived", "muted", "mute_end_ms", "history_exhausted", "ephemeral_secs", "read_only")
+    __slots__ = ("id", "name", "type", "avatar_path", "preview", "last_ms", "unread", "marked_unread", "pinned", "archived", "muted", "mute_end_ms", "history_exhausted", "ephemeral_secs", "read_only", "loading_older")
     ID_FIELD_NUMBER: _ClassVar[int]
     NAME_FIELD_NUMBER: _ClassVar[int]
     TYPE_FIELD_NUMBER: _ClassVar[int]
@@ -65,6 +65,7 @@ class ChatRow(_message.Message):
     HISTORY_EXHAUSTED_FIELD_NUMBER: _ClassVar[int]
     EPHEMERAL_SECS_FIELD_NUMBER: _ClassVar[int]
     READ_ONLY_FIELD_NUMBER: _ClassVar[int]
+    LOADING_OLDER_FIELD_NUMBER: _ClassVar[int]
     id: str
     name: str
     type: ChatType
@@ -80,7 +81,8 @@ class ChatRow(_message.Message):
     history_exhausted: bool
     ephemeral_secs: int
     read_only: bool
-    def __init__(self, id: _Optional[str] = ..., name: _Optional[str] = ..., type: _Optional[_Union[ChatType, str]] = ..., avatar_path: _Optional[str] = ..., preview: _Optional[_Union[ChatPreview, _Mapping]] = ..., last_ms: _Optional[int] = ..., unread: _Optional[int] = ..., marked_unread: _Optional[bool] = ..., pinned: _Optional[bool] = ..., archived: _Optional[bool] = ..., muted: _Optional[bool] = ..., mute_end_ms: _Optional[int] = ..., history_exhausted: _Optional[bool] = ..., ephemeral_secs: _Optional[int] = ..., read_only: _Optional[bool] = ...) -> None: ...
+    loading_older: bool
+    def __init__(self, id: _Optional[str] = ..., name: _Optional[str] = ..., type: _Optional[_Union[ChatType, str]] = ..., avatar_path: _Optional[str] = ..., preview: _Optional[_Union[ChatPreview, _Mapping]] = ..., last_ms: _Optional[int] = ..., unread: _Optional[int] = ..., marked_unread: _Optional[bool] = ..., pinned: _Optional[bool] = ..., archived: _Optional[bool] = ..., muted: _Optional[bool] = ..., mute_end_ms: _Optional[int] = ..., history_exhausted: _Optional[bool] = ..., ephemeral_secs: _Optional[int] = ..., read_only: _Optional[bool] = ..., loading_older: _Optional[bool] = ...) -> None: ...
 
 class ChatPreview(_message.Message):
     __slots__ = ("text", "from_me", "status")
