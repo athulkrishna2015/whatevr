@@ -168,17 +168,24 @@ var marshal = proto.MarshalOptions{Deterministic: true}
 // overflowed and the whole window must go again under a reset.
 func (s *subscription) pass(limit int, ready, reset bool) bool {
 	start := time.Now()
-	ctx := s.log.WithContext(s.conn.ctx)
+	if s.conn.ctx.Err() != nil {
+		// the connection is gone
+		return true
+	}
+	// not cancellable: on a cancellable ctx database/sql starts a goroutine
+	// per query, and a pass runs hundreds. on one cpu those starve the
+	// socket reader. the read is capped, so a dead connection's finishes
+	// and is dropped
+	ctx := s.log.WithContext(context.WithoutCancel(s.conn.ctx))
 	fetch := 0
 	if s.bnd == nil && limit > 0 {
 		fetch = limit + 1
 	}
 	items, err := s.win.Items(ctx, fetch)
+	if s.conn.ctx.Err() != nil {
+		return true
+	}
 	if err != nil {
-		if ctx.Err() != nil {
-			// the connection is gone
-			return true
-		}
 		s.log.Warn().Err(err).Int("kept", len(s.sent)).Msg("keeping what was sent after a failed read")
 		if ready {
 			// still answer the subscribe or extend, with what the client has

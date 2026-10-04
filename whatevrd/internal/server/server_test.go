@@ -26,6 +26,8 @@ type fakeList struct {
 	items []string
 	gen   int
 	fail  bool
+	// a read got a ctx that can be cancelled
+	cancellable bool
 }
 
 func (l *fakeList) set(items ...string) {
@@ -41,9 +43,10 @@ func (l *fakeList) Open(context.Context, *Session, *v2.Subscribe) (Window, *v2.S
 	return listWin{l}, nil, nil
 }
 
-func (w listWin) Items(_ context.Context, max int) ([]*v2.Upsert, error) {
+func (w listWin) Items(ctx context.Context, max int) ([]*v2.Upsert, error) {
 	w.l.mu.Lock()
 	defer w.l.mu.Unlock()
+	w.l.cancellable = w.l.cancellable || ctx.Done() != nil
 	if w.l.fail {
 		return nil, fmt.Errorf("no")
 	}
@@ -275,6 +278,23 @@ func TestAFailedReadKeepsWhatWasSent(t *testing.T) {
 	u := c.update()
 	if up, rm := ids(u); !slices.Equal(up, []string{"a"}) || len(rm) > 0 {
 		t.Fatalf("after a failed read %v %v", up, rm)
+	}
+}
+
+func TestAPassReadsWithoutACancel(t *testing.T) {
+	l := &fakeList{}
+	l.set("a")
+	s, c := start(t, l)
+	c.hello()
+	subscribe(c, 0)
+	c.update()
+	l.set("b")
+	s.Changed(core.Change{Keys: map[string][]string{"chat": {"x"}}})
+	c.update()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.cancellable {
+		t.Fatal("a pass read with a cancellable ctx")
 	}
 }
 
