@@ -121,11 +121,13 @@ type App struct {
 	// first focus event corrects it if they did something else since.
 	focused bool
 
-	composer      composer
-	commands      commandRegistry
-	modal         modalState
-	leader        bool
-	request       func(*v2.Request, proto.ResponseFunc)
+	composer composer
+	commands commandRegistry
+	modal    modalState
+	leader   bool
+	request  func(*v2.Request, proto.ResponseFunc)
+	// offers is whether the daemon serves a feature, nil means everything
+	offers        func(feature string) bool
 	searchRequest uint64
 
 	conversation *conversation
@@ -166,6 +168,7 @@ func New(vx *vaxis.Vaxis, caps term.Caps, client *proto.Client) *App {
 	}
 	a.shaper = shaperFor(vx, caps)
 	a.request = client.Do
+	a.offers = client.Offers
 	a.followFolds()
 	a.initCommands()
 	a.setCell()

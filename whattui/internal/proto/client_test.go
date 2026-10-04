@@ -171,13 +171,13 @@ func TestHelloGoesFirstAndSaysWhoIsAsking(t *testing.T) {
 	if h := req.GetHello(); h.GetProtocol() != 2 || h.GetClient() != "test" {
 		t.Errorf("hello says %v, want protocol 2 from test", h)
 	}
-	if c.State() == Ready || c.Has("messages") {
+	if c.State() == Ready {
 		t.Error("ready before hello was answered")
 	}
 	d.send(v2.Frame_builder{Response: helloOK(req)}.Build())
 	until(t, states, Ready)
-	if !c.Has("messages") || c.Has("contacts") {
-		t.Errorf("features read wrong: messages %v contacts %v", c.Has("messages"), c.Has("contacts"))
+	if !c.Offers("messages") || c.Offers("contacts") {
+		t.Errorf("features read wrong: messages %v contacts %v", c.Offers("messages"), c.Offers("contacts"))
 	}
 	if c.ServerInfo().GetDaemon() != "fake" {
 		t.Errorf("server info %v", c.ServerInfo())
@@ -582,5 +582,28 @@ func TestNothingIsHeardAfterStop(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	if s.len() != n {
 		t.Error("an update was applied after Stop")
+	}
+}
+
+// what the daemon offers is the last hello's word, kept through a drop, and
+// everything before there was one
+func TestOffersIsTheLastHello(t *testing.T) {
+	d := newFakeDaemon(t)
+	c := New(d.path, "test")
+	if !c.Offers("message_react") {
+		t.Fatal("before any hello a feature is held back")
+	}
+	states := make(chan stateEvent, 256)
+	c.OnState = func(s State, _ *v2.HelloResult, err error) { states <- stateEvent{s, err} }
+	c.Start()
+	t.Cleanup(c.Stop)
+	until(t, states, Ready)
+	if !c.Offers("send_text") || c.Offers("message_react") {
+		t.Fatal("after hello the offer is not what it said")
+	}
+	d.drop()
+	until(t, states, Disconnected)
+	if !c.Offers("send_text") || c.Offers("message_react") {
+		t.Fatal("a drop changed what is offered")
 	}
 }

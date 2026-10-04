@@ -95,6 +95,9 @@ type Client struct {
 	conn  net.Conn
 	state State
 	info  *v2.HelloResult
+	// offers is the last hello's features, kept across a drop. nil before
+	// the first one
+	offers []string
 	// calls is every request not answered yet, queue the ones not written
 	calls       map[uint64]*call
 	queue       []*call
@@ -187,12 +190,13 @@ func (c *Client) ServerInfo() *v2.HelloResult {
 	return c.info
 }
 
-// Has reports whether the daemon serves a view or method, by its oneof arm
-// name. false until the handshake completes.
-func (c *Client) Has(feature string) bool {
+// Offers reports whether the daemon serves a view or method, by its oneof arm
+// name, as the last hello said. Everything is offered before the first one,
+// so a frontend that never reached the daemon refuses as offline instead.
+func (c *Client) Offers(feature string) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.info != nil && slices.Contains(c.info.GetFeatures(), feature)
+	return c.offers == nil || slices.Contains(c.offers, feature)
 }
 
 // SocketPath is where this client dials, resolved.

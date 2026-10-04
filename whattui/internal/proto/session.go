@@ -114,6 +114,7 @@ func (c *Client) sendHello() error {
 
 		c.mu.Lock()
 		c.info = info
+		c.offers = append([]string{}, info.GetFeatures()...)
 		c.state = Ready
 		conn := c.conn
 		subs := append([]*Subscription(nil), c.subs...)

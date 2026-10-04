@@ -277,6 +277,7 @@ func mockApp(t testing.TB, scenario, chatName string, cols, rows int) *App {
 	}
 	a.client = proto.New(d.socket, "whattui-test")
 	a.request = a.client.Do
+	a.offers = a.client.Offers
 	a.followFolds()
 	a.initCommands()
 	// The same wiring Run uses: the frame says "connecting to whatevrd" until

@@ -173,6 +173,10 @@ func (a *App) searchChats(query string, generation uint64) {
 		a.showChats(a.chatChoices(), generation)
 		return
 	}
+	if a.offers != nil && !a.offers(v2.Request_SearchChats_case.String()) {
+		a.refuse("this whatevrd cannot search chats")
+		return
+	}
 	request := a.request
 	if request == nil {
 		return

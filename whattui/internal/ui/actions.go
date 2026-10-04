@@ -147,14 +147,20 @@ func (a *App) deleteSelected() {
 		return
 	}
 	choices := make([]modalChoice, 0, 2)
-	if m.GetFromMe() && !m.GetRevoked() {
+	if m.GetFromMe() && !m.GetRevoked() && a.offered(a.commands.byID[cmdRevoke]) {
 		choices = append(choices, modalChoice{
 			Command: cmdRevoke, Label: "Delete for everyone", Detail: "nobody in the chat keeps it",
 		})
 	}
-	choices = append(choices, modalChoice{
-		Command: cmdDeleteForMe, Label: "Delete for me", Detail: "this device only",
-	})
+	if a.offered(a.commands.byID[cmdDeleteForMe]) {
+		choices = append(choices, modalChoice{
+			Command: cmdDeleteForMe, Label: "Delete for me", Detail: "this device only",
+		})
+	}
+	if len(choices) == 0 {
+		a.refuse("this whatevrd cannot delete that message")
+		return
+	}
 
 	a.mu.Lock()
 	a.modal = modalState{kind: modalConfirm, prompt: a.clip(oneLine(a.body(m)), 60)}
