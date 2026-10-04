@@ -41,9 +41,9 @@ type quiescence struct {
 	mu sync.Mutex
 	// last is when anything last moved, in either direction.
 	last time.Time
-	// work is queued or executing outbox functions, http requests being served
-	// and timeline actions not yet run, all counted together because a caller
-	// only ever asks the one question.
+	// work is queued or executing outbox functions and send hooks still
+	// running; http requests being served and timeline actions not yet run
+	// count beside it, because a caller only ever asks the one question.
 	work     int
 	timeline int
 	http     int

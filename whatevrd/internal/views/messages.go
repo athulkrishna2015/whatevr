@@ -19,9 +19,11 @@ import (
 // messagesLimit is a messages window's size when the subscribe gave none
 const messagesLimit = 50
 
-// anchoredCap is the most an anchored window holds, the cap the server puts
-// on messages
-var anchoredCap = server.WindowCap(messageBytes)
+// MessageCap is the most messages one window holds
+var MessageCap = server.WindowCap(messageBytes)
+
+// anchoredCap is MessageCap, apart from in tests
+var anchoredCap = MessageCap
 
 // msgSort is where a message sits: by time, then arrival, then whatsapp's
 // id, as the model pages them.

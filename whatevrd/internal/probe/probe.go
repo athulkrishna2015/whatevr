@@ -25,6 +25,8 @@ type View struct {
 	Sub   uint64
 	Items map[string]Item
 	Ready bool
+	// the last ready said nothing further is there to extend into
+	Exhausted bool
 	// how many windows were filled, one per subscribe and extend
 	Readies int
 }
@@ -159,6 +161,7 @@ func (c *Client) Read(wait time.Duration) (*v2.Response, error) {
 	}
 	if u.HasReady() {
 		v.Ready = true
+		v.Exhausted = u.GetReady().GetExhausted()
 		v.Readies++
 	}
 	return nil, nil

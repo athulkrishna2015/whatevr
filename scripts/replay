@@ -9,8 +9,9 @@ A segment is one daemon run of the capture. Each one runs a fresh mock daemon
 (--mock-capture, --mock-segment, the same scratch dir kept between segments),
 waits for the replay to finish, snapshots every view, stops the daemon and
 checks the databases. The self-test never touches the real account: it records
-runs of synthetic scenarios and expects their replay to hand the daemon the
-same whatsmeow events, with nothing missed, held back or undecryptable.
+runs of synthetic scenarios and expects their replay to log the same inputs,
+with nothing missed, held back or undecryptable, and to show the same views
+once each install's minted ids are named alike.
 
 Captures hold real messages. So does what this prints and writes.
 """
@@ -21,8 +22,10 @@ import argparse
 import collections
 import difflib
 import gzip
+import hashlib
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -149,14 +152,123 @@ def normalize(value: object, scratch: str) -> object:
     return value
 
 
+# a chat or person id the daemon minted, model/ids.go: every install has its own
+MINTED = re.compile(r"(?<![a-z2-7])[a-z2-7]{16}(?![a-z2-7])")
+
+
+def minted(views: dict[str, dict[str, object]]) -> set[str]:
+    """Every minted id in views: item keys, a per-chat view's chat, and id fields."""
+    found: set[str] = set()
+
+    def walk(v: object) -> None:
+        if isinstance(v, dict):
+            for k, x in v.items():
+                if (k == "id" or k.endswith("_id")) and isinstance(x, str) and MINTED.fullmatch(x):
+                    found.add(x)
+                walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x)
+
+    for name, items in views.items():
+        found.update(w for w in name.split(" ")[1:] if MINTED.fullmatch(w))
+        found.update(k for k in items if MINTED.fullmatch(k))
+        walk(items)
+    return found
+
+
+def leaves(v: object, path: str = "") -> list[str]:
+    if isinstance(v, dict):
+        return [leaf for k, x in v.items() for leaf in leaves(x, path + "." + k)]
+    if isinstance(v, list):
+        return [leaf for x in v for leaf in leaves(x, path + "[]")]
+    return ["%s=%s" % (path, v)]
+
+
+def seen_with(views: dict[str, dict[str, object]]) -> dict[str, set[str]]:
+    """What each minted id shows up with: every leaf of every item it is in,
+    and every object that names it, a sender or a member, whole; itself
+    written @ and other minted ids #."""
+    ids = minted(views)
+    out: dict[str, set[str]] = {x: set() for x in ids}
+
+    def named(v: object, into: set[str]) -> None:
+        if isinstance(v, dict):
+            if "@" in v.values():
+                into.add(json.dumps(v, sort_keys=True))
+            for x in v.values():
+                named(x, into)
+        elif isinstance(v, list):
+            for x in v:
+                named(x, into)
+
+    for name, items in views.items():
+        for key, item in items.items():
+            text = json.dumps([name, key, item], sort_keys=True)
+            for x in set(MINTED.findall(text)) & ids:
+                marked = json.loads(MINTED.sub(lambda m: m[0] if m[0] not in ids else "@" if m[0] == x else "#", text))
+                out[x].update(leaves(marked))
+                named(marked, out[x])
+    return out
+
+
+def align(want: dict[str, dict[str, object]], got: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
+    """got with each minted id renamed to the one it stands for in want. an id
+    pairs with the one that shares the most of what only it shows up with on
+    either side, a phone, an avatar, a message's address; what pairs with
+    nothing keeps its name and shows in the diff."""
+    a, b = seen_with(want), seen_with(got)
+
+    def owners(seen: dict[str, set[str]]) -> dict[str, list[str]]:
+        out: dict[str, list[str]] = collections.defaultdict(list)
+        for x, leaves in seen.items():
+            for leaf in leaves:
+                out[leaf].append(x)
+        return out
+
+    oa, ob = owners(a), owners(b)
+    votes: collections.Counter[tuple[str, str]] = collections.Counter()
+    for leaf, xs in oa.items():
+        ys = ob.get(leaf, [])
+        if len(xs) == 1 and len(ys) == 1:
+            votes[(xs[0], ys[0])] += 1
+    rename: dict[str, str] = {}
+    paired: set[str] = set()
+    for (x, y), _ in sorted(votes.items(), key=lambda kv: (-kv[1], kv[0])):
+        if x not in paired and y not in rename:
+            rename[y] = x
+            paired.add(x)
+    return json.loads(MINTED.sub(lambda m: rename.get(m[0], m[0]), json.dumps(got, sort_keys=True)))
+
+
 def snapshot(daemon: Daemon) -> dict[str, object]:
     out = subprocess.run([str(daemon.binary), "mock", "snapshot", "--socket", str(daemon.socket_path)],
                          capture_output=True, text=True)
     if out.returncode != 0:
         raise Failure("snapshot: %s" % out.stderr.strip())
     snap = json.loads(out.stdout)
-    views = {name: normalize(items, str(daemon.scratch)) for name, items in sorted(snap["views"].items())}
+    views = {name: ranked(normalize(items, str(daemon.scratch))) for name, items in sorted(snap["views"].items())}
     return {"views": views, "errors": snap["errors"]}
+
+
+def ranked(items: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
+    """items with each sort as its place in the view. a sort carries the
+    arrival order, which a replay need not repeat byte for byte."""
+    order = sorted(items, key=lambda k: (bytes.fromhex(str(items[k]["sort"])), k))
+    return {k: {**items[k], "sort": i} for i, k in enumerate(order)}
+
+
+def settled_snapshot(daemon: Daemon, wait_ms: int) -> dict[str, object]:
+    """A snapshot once looking stops changing anything: a view looked at asks
+    for avatars, which land after."""
+    snap = snapshot(daemon)
+    for _ in range(5):
+        daemon.settle(wait_ms)
+        again = snapshot(daemon)
+        if again == snap:
+            return snap
+        snap = again
+    raise Failure("views still changing after 5 snapshots")
 
 
 def check_db(scratch: Path) -> list[str]:
@@ -191,13 +303,14 @@ def diff(expected: dict[str, object], got: dict[str, object], label: str) -> lis
     return lines
 
 
-# what whatsmeow handed the daemon, one line per event in the run log. it
-# depends only on what came over the wire, so the original run and a faithful
-# replay have the same multiset whatever order the daemon processed it in.
-EVENT_SKIP = {"time", "level", "run", "message"}
+# what the daemon logged off the wire, one "ingest: logged" line per event.
+# it depends only on what came over the wire, so the original run and a
+# faithful replay have the same multiset whatever order the daemon processed
+# it in. the input's seq is that order, so it goes.
+EVENT_SKIP = {"time", "level", "run", "message", "input"}
 # whatsmeow makes these on a goroutine from what its store already holds,
 # which depends on how far the daemon got, not on the wire
-STORE_EVENTS = {"PushName", "BusinessName"}
+STORE_KINDS = {"push_name", "business_name"}
 
 
 def run_events(logdir: Path) -> collections.Counter[str]:
@@ -213,7 +326,7 @@ def run_events(logdir: Path) -> collections.Counter[str]:
         with opener(part, "rt") as f:
             for line in f:
                 rec = json.loads(line)
-                if rec.get("message") == "event" and rec.get("event") not in STORE_EVENTS:
+                if rec.get("message") == "ingest: logged" and rec.get("kind") not in STORE_KINDS:
                     out[json.dumps({k: v for k, v in rec.items() if k not in EVENT_SKIP}, sort_keys=True)] += 1
     return out
 
@@ -245,7 +358,7 @@ def replay(binary: Path, capture: Path, work: Path, speed: float, scratch: Path 
         daemon = Daemon(binary, scratch, args, keep=i > 0)
         try:
             stats = daemon.settle(SEGMENT_WAIT_MS)
-            snap = snapshot(daemon)
+            snap = settled_snapshot(daemon, SEGMENT_WAIT_MS)
         finally:
             daemon.stop()
         problems = check_db(scratch)
@@ -285,7 +398,7 @@ SELF_TESTS: dict[str, list[list[tuple[str, str]]]] = {
 }
 
 
-def self_test(binary: Path, work: Path, scenario: str, verbose: bool) -> bool:
+def self_test(binary: Path, work: Path, scenario: str, save: Path | None) -> bool:
     scratch = work / ("o-" + scenario)
     runs = SELF_TESTS.get(scenario, [[]])
     originals = []
@@ -297,7 +410,7 @@ def self_test(binary: Path, work: Path, scenario: str, verbose: bool) -> bool:
             for phone, text in sends:
                 send_text(daemon, phone, text)
                 daemon.settle(120_000)
-            originals.append(snapshot(daemon))
+            originals.append(settled_snapshot(daemon, 120_000))
         finally:
             daemon.stop()
         originals[-1]["events"] = run_events(scratch / "state" / "whatevr" / "logs")
@@ -322,22 +435,31 @@ def self_test(binary: Path, work: Path, scenario: str, verbose: bool) -> bool:
             for old, new in ids.items():
                 ev = ev.replace(old, new)
             mapped[ev] += n
+        if not mapped:
+            failed = True
+            log("segment %d: the original logged nothing off the wire, so nothing was compared" % seg)
         events = event_diff(mapped, result["events"])
         if events:
             failed = True
             log("segment %d: whatsmeow events differ:" % seg)
             print("\n".join(events))
-        # every install mints its own chat and person ids, and sync rows
-        # land in whatever order the chunks did: shown, not judged
+        for which, snap in (("original", original), ("replay", got)):
+            if snap["errors"]:
+                failed = True
+                log("segment %d: the %s's snapshot failed views: %s" % (seg, which, snap["errors"]))
         views = json.dumps(original["views"])
         for old, new in ids.items():
             views = views.replace(old, new)
-        lines = diff(json.loads(views), got["views"], "segment %d" % seg)
+        want = json.loads(views)
+        got["views"] = align(want, got["views"])
+        if save:
+            for which, snap in (("original", {**original, "views": want, "events": None}), ("replay", {**got, "events": None})):
+                (save / ("%s-%s-%04d.json" % (scenario, which, seg))).write_text(json.dumps(snap, indent=1, sort_keys=True) + "\n")
+        lines = diff(want, got["views"], "segment %d" % seg)
         if lines:
-            log("segment %d: views differ in %d diff lines, minted ids and sync order%s" % (
-                seg, len(lines), "" if verbose else " (--verbose shows them)"))
-            if verbose:
-                print("\n".join(lines))
+            failed = True
+            log("segment %d: views differ in %d diff lines" % (seg, len(lines)))
+            print("\n".join(lines))
     log("self-test %s: %s" % (scenario, "FAIL" if failed else "pass"))
     return not failed
 
@@ -351,8 +473,7 @@ def main() -> int:
     parser.add_argument("--speed", type=float, default=0, help="replay pace, 1 is the recorded clock, 0 as fast as possible")
     parser.add_argument("--bin", help="use this whatevrd instead of building one (needs the mock and capture tags)")
     parser.add_argument("--keep", action="store_true", help="leave the scratch dir behind")
-    parser.add_argument("--save", help="also write each segment's snapshot into this dir")
-    parser.add_argument("--verbose", action="store_true", help="--self-test: print the view differences it does not judge")
+    parser.add_argument("--save", help="also write each segment's snapshot into this dir, the original's too for --self-test")
     args = parser.parse_args()
     if args.self_test == bool(args.capture):
         parser.error("give a capture or --self-test")
@@ -361,14 +482,15 @@ def main() -> int:
     work = Path(tempfile.mkdtemp(prefix="whatevr-replay-"))
     try:
         binary = Path(args.bin).resolve() if args.bin else build(work)
+        save = Path(args.save) if args.save else None
+        if save:
+            save.mkdir(parents=True, exist_ok=True)
         if args.self_test:
-            ok = [self_test(binary, work, sc, args.verbose) for sc in (args.scenario or list(SELF_TESTS))]
+            ok = [self_test(binary, work, sc, save) for sc in (args.scenario or list(SELF_TESTS))]
             return 0 if all(ok) else 1
         capture = resolve(args.capture)
         results = replay(binary, capture, work, args.speed)
-        if args.save:
-            save = Path(args.save)
-            save.mkdir(parents=True, exist_ok=True)
+        if save:
             for r in results:
                 (save / ("segment-%04d.json" % r["segment"])).write_text(json.dumps(r["snapshot"], indent=1, sort_keys=True) + "\n")
         expected_dir = capture / "expected"
@@ -381,12 +503,14 @@ def main() -> int:
             return 0
         failed = False
         for r in results:
-            failed = failed or bool(r["snapshot"]["problems"])
+            failed = failed or bool(r["snapshot"]["problems"]) or bool(r["snapshot"]["errors"])
             path = expected_dir / ("segment-%04d.json" % r["segment"])
             if not path.exists():
                 log("segment %d has no expected snapshot yet, review it and run with --accept" % r["segment"])
                 continue
-            lines = diff(json.loads(path.read_text()), r["snapshot"], "segment %d" % r["segment"])
+            want = json.loads(path.read_text())
+            r["snapshot"]["views"] = align(want["views"], r["snapshot"]["views"])
+            lines = diff(want, r["snapshot"], "segment %d" % r["segment"])
             if lines:
                 failed = True
                 print("\n".join(lines))

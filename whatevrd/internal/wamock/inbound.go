@@ -246,7 +246,13 @@ func (s *Server) noteClientMessage(id string, to types.JID, message *waE2E.Messa
 		s.checkUploadedMedia(message)
 	}
 	world.remember(msg)
-	go s.runSendHooks(msg)
+	// counted, or sync calls it quiet while a delayed receipt or a reply is
+	// still to come
+	s.quiet.addWork(1)
+	go func() {
+		defer s.quiet.addWork(-1)
+		s.runSendHooks(msg)
+	}()
 }
 
 // runSendHooks paces the receipts the account's own message gets, then lets the
