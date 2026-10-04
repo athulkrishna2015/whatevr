@@ -274,7 +274,7 @@ def settled_snapshot(daemon: Daemon, wait_ms: int) -> dict[str, object]:
 def check_db(scratch: Path) -> list[str]:
     problems = []
     data = scratch / "data" / "whatevrd"
-    for db in [data / "core.db", data / "session" / "whatsmeow.db"]:
+    for db in [data / "whatevr.db", data / "session" / "whatsmeow.db"]:
         if not db.exists():
             problems.append("%s missing" % db.name)
             continue
@@ -286,10 +286,10 @@ def check_db(scratch: Path) -> list[str]:
             fk = con.execute("PRAGMA foreign_key_check").fetchall()
             if fk:
                 problems.append("%s foreign keys: %s" % (db.name, fk[:5]))
-            if db.name == "core.db":
+            if db.name == "whatevr.db":
                 failed = con.execute("SELECT seq, kind, error FROM fold_failures ORDER BY seq").fetchall()
                 if failed:
-                    problems.append("core.db: %d inputs did not fold, first %s" % (len(failed), failed[:5]))
+                    problems.append("whatevr.db: %d inputs did not fold, first %s" % (len(failed), failed[:5]))
             con.close()
         except sqlite3.Error as err:
             problems.append("%s: %s" % (db.name, err))

@@ -32,7 +32,7 @@ flags:
 func runRederive(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("whatevrd rederive", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	data := fs.String("data", "", "directory holding core.db (default: the daemon's data directory)")
+	data := fs.String("data", "", "directory holding whatevr.db (default: the daemon's data directory)")
 	fs.Usage = func() {
 		fmt.Fprint(stderr, rederiveUsage)
 		fs.PrintDefaults()
@@ -56,7 +56,7 @@ func runRederive(args []string, stdout, stderr io.Writer) int {
 		}
 		dir = paths.DataDir
 	}
-	path := filepath.Join(dir, "core.db")
+	path := filepath.Join(dir, "whatevr.db")
 	if _, err := os.Stat(path); err != nil {
 		fmt.Fprintf(stderr, "whatevrd rederive: %v\n", err)
 		return 1

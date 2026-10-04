@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mattn/go-sqlite3"
@@ -56,6 +57,11 @@ type Options struct {
 	// Media hears how each download from the network ended, nil for one
 	// that worked
 	Media func(err error)
+	// Relink is set when data from the daemon before this core is still
+	// here. that link never asked for inline contacts, so it is logged out
+	// on its first connect and pairing again brings them. Relink runs once
+	// nothing is linked, to clear the old data
+	Relink func() error
 }
 
 // Client is the account on whatsapp: one whatsmeow client at a time, the
@@ -69,6 +75,8 @@ type Client struct {
 	live   *live.Hub
 	ingest *ingest.Ingest
 	conn   *conn.Machine
+	// relink is old data waiting on a logout, see Options.Relink
+	relink atomic.Bool
 	log    zerolog.Logger
 	http   *http.Client
 	ctx    context.Context
@@ -105,6 +113,7 @@ func New(ctx context.Context, o Options) (*Client, error) {
 	}
 	c := &Client{o: o, core: o.Core, r: model.NewReader(o.Core.Read()), live: o.Live, log: o.Log, ctx: ctx,
 		http: &http.Client{Transport: o.Transport}, sends: make(chan struct{}, 1)}
+	c.relink.Store(o.Relink != nil)
 	c.ingest = ingest.New(ctx, o.Core)
 	c.ingest.OnDemand = c.olderAnswered
 	c.conn = conn.New(conn.Options{
@@ -251,6 +260,9 @@ func (c *Client) newClient(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	if device.ID == nil {
+		c.relinked()
+	}
 	if device.EventBuffer != nil {
 		device.EventBuffer = &retryBuffer{EventBuffer: device.EventBuffer, c: c}
 	}
@@ -303,6 +315,11 @@ func (c *Client) event(cli *whatsmeow.Client, raw any) {
 	}
 	switch evt := raw.(type) {
 	case *events.Connected:
+		if c.relink.Load() {
+			// not on whatsmeow's goroutine: the logout waits on the client
+			go c.relinkOld()
+			return
+		}
 		c.live.SetLogin(live.Login{State: live.LoggedIn})
 		c.syncPresence(true)
 		c.signalSender()
@@ -456,6 +473,26 @@ func (c *Client) Logout(ctx context.Context) error {
 	return c.wipe(ctx, cli, true)
 }
 
+// relinkOld logs out the account the daemon before this core linked
+func (c *Client) relinkOld() {
+	c.log.Info().Msg("whatsapp: logging out the old daemon's account so pairing again brings the contacts")
+	if err := c.Logout(context.WithoutCancel(c.ctx)); err != nil {
+		c.log.Error().Err(err).Msg("whatsapp: relink")
+	}
+}
+
+// relinked clears the old daemon's data once nothing is linked, once
+func (c *Client) relinked() {
+	if !c.relink.CompareAndSwap(true, false) {
+		return
+	}
+	if err := c.o.Relink(); err != nil {
+		c.log.Error().Err(err).Msg("whatsapp: clear the old daemon's data")
+		return
+	}
+	c.log.Info().Msg("whatsapp: cleared the old daemon's data")
+}
+
 // wipe forgets the account: the log, the media, the session. the
 // preferences are the machine's, they stay. a remote logout comes once per
 // client, a stale one finds a newer client and does nothing.
@@ -476,11 +513,11 @@ func (c *Client) wipe(ctx context.Context, from *whatsmeow.Client, asked bool) e
 			}
 		}
 	}
-	backup := filepath.Join(c.o.Paths.DataDir, fmt.Sprintf("core-before-logout-%d.db", time.Now().Unix()))
+	backup := filepath.Join(c.o.Paths.DataDir, fmt.Sprintf("whatevr-before-logout-%d.db", time.Now().Unix()))
 	if err := c.core.Reset(ctx, backup); err != nil {
 		return err
 	}
-	keepNewest(filepath.Join(c.o.Paths.DataDir, "core-before-logout-*.db"), backup)
+	keepNewest(filepath.Join(c.o.Paths.DataDir, "whatevr-before-logout-*.db"), backup)
 	if c.o.IDs != nil {
 		c.o.IDs.Forget()
 	}

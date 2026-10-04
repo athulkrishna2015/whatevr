@@ -17,7 +17,7 @@ Background facts (whatsmeow pinned at `v0.0.0-20260622185415`):
   message in the daemon's own log (`internal/whatsapp/retry.go`), quietly.
 - Retry receipts never reach daemon code; whatsmeow handles them internally.
   The recipient stops asking after 5 retries; we drop requests after 10.
-- Paths (default XDG): the core `~/.local/share/whatevrd/core.db`, session DB
+- Paths (default XDG): the core `~/.local/share/whatevrd/whatevr.db`, session DB
   `~/.local/share/whatevrd/session/whatsmeow.db`.
 
 ## 1. Run the daemon with debug logging
@@ -39,7 +39,7 @@ A send that fails logs a warn `whatsapp: send` line with `chat`, `id`,
 the core:
 
 ```sh
-sqlite3 "file:$HOME/.local/share/whatevrd/core.db?mode=ro" \
+sqlite3 "file:$HOME/.local/share/whatevrd/whatevr.db?mode=ro" \
   "SELECT o.id, o.queued_t, t.t, t.error, t.final FROM outbox o
    LEFT JOIN outbox_try t ON t.chat = o.chat AND t.id = o.id
    WHERE o.chat = '<jid>' ORDER BY o.queued_t DESC, t.t LIMIT 20;"

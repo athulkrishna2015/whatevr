@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
+	"io/fs"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -119,7 +121,7 @@ func main() {
 			rs.Tell(c)
 		}
 	}
-	corePath := filepath.Join(paths.DataDir, "core.db")
+	corePath := filepath.Join(paths.DataDir, "whatevr.db")
 	db, err := core.Open(ctx, corePath, core.Options{
 		Clock:      clock,
 		Domains:    model.Domains(),
@@ -226,6 +228,7 @@ func main() {
 		Mocked:   mock != nil,
 		Notifier: notifier,
 		Media:    media.result,
+		Relink:   oldDaemon(paths.DataDir),
 	})
 	if err != nil {
 		log.Fatal().Err(err).Msg("start the whatsapp client")
@@ -300,4 +303,27 @@ func (q *qrWatch) QRCodes() (<-chan string, func()) {
 		}
 	}()
 	return out, func() { close(done) }
+}
+
+// oldDaemon clears what the daemon before this core kept, nil when it left
+// nothing behind
+func oldDaemon(dir string) func() error {
+	if _, err := os.Stat(filepath.Join(dir, "whatevrd.db")); err != nil {
+		return nil
+	}
+	return func() error {
+		files, err := filepath.Glob(filepath.Join(dir, "whatevrd-before-logout-*.db*"))
+		if err != nil {
+			return err
+		}
+		for _, f := range []string{"whatevrd.db", "whatevrd.db-wal", "whatevrd.db-shm", "whatevrd.db-journal"} {
+			files = append(files, filepath.Join(dir, f))
+		}
+		for _, f := range files {
+			if err := os.Remove(f); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+		}
+		return nil
+	}
 }

@@ -125,8 +125,8 @@ daemon restart between segments.
 Per segment it runs a mock daemon on the capture in a scratch dir kept between
 segments, waits for the replay to finish, takes `whatevrd mock snapshot` (every
 view, every chat with its messages, pins, media, group and members, as their
-final items), stops the daemon and checks `core.db` and the whatsmeow session
-with `integrity_check` and `foreign_key_check`, and `core.db` for inputs that
+final items), stops the daemon and checks `whatevr.db` and the whatsmeow session
+with `integrity_check` and `foreign_key_check`, and `whatevr.db` for inputs that
 did not fold.
 
 A capture becomes a regression test when its snapshot has been read and

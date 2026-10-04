@@ -39,7 +39,7 @@ run can never open a real account:
 
     /run/user/$UID/whatevr-mock/<scenario>/
       run/whatevr/whatevrd.sock
-      data/whatevrd/core.db
+      data/whatevrd/whatevr.db
       data/whatevrd/session/whatsmeow.db
       cache/whatevrd/
 
