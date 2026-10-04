@@ -747,6 +747,11 @@ class Harness:
         )
 
     def send(self, state: dict[str, Any], key: str) -> None:
+        # sleep:SECONDS waits instead, for keys that need the daemon to answer
+        # the one before
+        if key.startswith("sleep:"):
+            time.sleep(float(key.removeprefix("sleep:")))
+            return
         self.remote(state["socket"], ["send-key", "--match", f"id:{state['window_id']}", key])
 
     def tab_active(self, state: dict[str, Any]) -> bool:
@@ -917,7 +922,8 @@ def main() -> int:
         action="append",
         default=[],
         metavar="K1,K2",
-        help="kitty key names to send before the shot, such as ctrl+p or /,a,n",
+        help="kitty key names to send before the shot, such as ctrl+p or /,a,n; "
+        "sleep:SECONDS waits between two of them",
     )
     parser.add_argument(
         "--wait",
