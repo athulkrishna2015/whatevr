@@ -371,3 +371,49 @@ func TestAnAnnouncementGroupHasNoComposer(t *testing.T) {
 		t.Fatalf("the composer row says %q", got)
 	}
 }
+
+// moving windows, switching chats and opening the picker leave as many
+// subscriptions open as there were, far under the daemon's 64
+func TestNothingLeavesASubscriptionBehind(t *testing.T) {
+	a := mockApp(t, floodScenario, floodDeepChat, 80, 24)
+	a.paint()
+	base := a.client.Subscriptions()
+	if base >= 64 {
+		t.Fatalf("%d subscriptions open from the start", base)
+	}
+	first := a.conv().chatID
+	page := a.transcriptPage()
+	scrollBy(t, a, page/2, func(moves int) bool { return moves >= 3 })
+
+	var ids []string
+	a.chats.Read(func(items []view.Item[*v2.ChatRow], _ view.State) {
+		for _, it := range items[:min(len(items), 6)] {
+			ids = append(ids, it.ID)
+		}
+	})
+	for _, id := range append(ids, first) {
+		a.openChat(id)
+		a.paint()
+		waitFor(t, "the transcript", func() bool { return a.conv().msgs.IsReady() })
+		a.paint()
+		if a.conv().msgs.Len() > 0 {
+			a.reactSelectedFirst()
+			a.paint()
+			if a.reactionsSub == nil {
+				t.Fatal("the picker did not subscribe")
+			}
+			a.closeModal()
+			a.paint()
+		}
+		if n := a.client.Subscriptions(); n >= 64 {
+			t.Fatalf("%d subscriptions open after opening %s", n, id)
+		}
+	}
+	waitFor(t, "the subscriptions to settle", func() bool { return a.client.Subscriptions() == base })
+}
+
+// reactSelectedFirst opens the picker on the newest message
+func (a *App) reactSelectedFirst() {
+	a.moveCursor(1)
+	a.reactSelected()
+}

@@ -295,3 +295,20 @@ func TestThePickerNamesEveryReactorWhileOpen(t *testing.T) {
 		t.Error("the closed picker is still subscribed")
 	}
 }
+
+// the row names at most sixteen; the strip counts everyone
+func TestTheStripCountsPastTheNamedSample(t *testing.T) {
+	a := stubApp(120, 30, 4, 6)
+	var all []rx
+	for i := 0; i < 40; i++ {
+		all = append(all, rx{"👍", fmt.Sprintf("member %d", i), false})
+	}
+	row := v2.MessageRow_builder{ReactionCounts: counts(all), Reactions: reactors(all[:16])}.Build()
+	pills, _ := a.pillsFor(reactionGroups(row.GetReactionCounts(), row.GetReactions()), 40)
+	if len(pills) != 1 || pills[0].text != "👍 40" {
+		t.Errorf("the strip is %#v, want one pill counting all forty", pills)
+	}
+	if first := a.reactChoices(row, "")[0].Label; !strings.HasSuffix(first, "member 15, +24") {
+		t.Errorf("the picker before the daemon answers says %q", first)
+	}
+}

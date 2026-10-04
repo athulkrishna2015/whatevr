@@ -114,6 +114,14 @@ func (c *Client) unsubscribe(id uint64) {
 	c.Do(req, nil)
 }
 
+// Subscriptions is how many subscriptions are open, each one a daemon
+// subscription while connected
+func (c *Client) Subscriptions() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.subs)
+}
+
 func (c *Client) forget(sub *Subscription) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
