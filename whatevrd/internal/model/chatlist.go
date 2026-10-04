@@ -195,7 +195,7 @@ func putRow(tx *core.Tx, c Chat) error {
 // keyWorld is the part of World that says which chat an address is in, for
 // keys and every address that can join them.
 func keyWorld(ctx context.Context, q querier, keys []string) (*World, error) {
-	w := &World{owners: map[string][]span{}, pns: map[string][]string{}, self: map[string]bool{}}
+	w := &World{self: map[string]bool{}}
 	self, err := strs(ctx, q, `SELECT jid FROM id_self`)
 	if err != nil {
 		return nil, err
@@ -217,8 +217,8 @@ func keyWorld(ctx context.Context, q querier, keys []string) (*World, error) {
 			rows.Close()
 			return nil, err
 		}
-		if len(w.pns[lid]) == 0 || w.pns[lid][len(w.pns[lid])-1] != pn {
-			w.pns[lid] = append(w.pns[lid], pn)
+		if got := w.pns.get(lid); len(got) == 0 || got[len(got)-1] != pn {
+			w.pns.set(lid, append(got, pn))
 		}
 		pns[pn] = true
 	}
@@ -243,7 +243,7 @@ func keyWorld(ctx context.Context, q querier, keys []string) (*World, error) {
 		if err := rows.Scan(&pn, &s.from, &s.to, &s.lid); err != nil {
 			return nil, err
 		}
-		w.owners[pn] = append(w.owners[pn], s)
+		w.owners.set(pn, append(w.owners.get(pn), s))
 	}
 	return w, rows.Err()
 }

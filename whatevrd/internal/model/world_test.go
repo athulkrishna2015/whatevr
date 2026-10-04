@@ -47,25 +47,48 @@ func (tr *tracker) checkPatch(t *testing.T, db *core.DB) {
 	tr.mu.Lock()
 	defer tr.mu.Unlock()
 	if tr.world != nil && !tr.all {
+		was := norm(tr.world)
 		patched, err := r.Patch(ctx, tr.world, tr.persons)
 		if err != nil {
 			t.Fatal(err)
 		}
+		// readers still hold the old one
+		if !reflect.DeepEqual(norm(tr.world), was) {
+			t.Fatalf("patching after %v changed the world it patched", tr.persons)
+		}
 		if !reflect.DeepEqual(norm(patched), norm(fresh)) {
-			t.Fatalf("patched world differs after %v:\n  patched %+v\n  fresh   %+v", tr.persons, *patched, *fresh)
+			t.Fatalf("patched world differs after %v:\n  patched %+v\n  fresh   %+v", tr.persons, norm(patched), norm(fresh))
 		}
 	}
 	tr.world, tr.persons, tr.all = fresh, nil, false
 }
 
+// flatWorld is a World as plain maps, to compare
+type flatWorld struct {
+	owners   map[string][]span
+	one      map[string]string
+	pns      map[string][]string
+	self     map[string]bool
+	names    map[string]map[string]string
+	contacts map[string]string
+	selfName string
+}
+
+func flatten[V any](s *shards[V]) map[string]V {
+	out := map[string]V{}
+	for k, v := range s.all() {
+		out[k] = v
+	}
+	return out
+}
+
 // norm drops empty maps a patch can leave where a fresh world has none.
-func norm(w *World) World {
-	n := *w
-	for _, m := range []*map[string]map[string]string{&n.names} {
-		for k, v := range *m {
-			if len(v) == 0 {
-				delete(*m, k)
-			}
+func norm(w *World) flatWorld {
+	n := flatWorld{owners: flatten(&w.owners), one: flatten(&w.one), pns: flatten(&w.pns), self: w.self,
+		names: flatten(&w.names), contacts: flatten(&w.contacts), selfName: w.selfName}
+	for k, v := range n.names {
+		if len(v) == 0 {
+			delete(n.names, k)
 		}
 	}
 	return n

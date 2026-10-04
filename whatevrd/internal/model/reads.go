@@ -32,15 +32,15 @@ func NewReader(db *sql.DB) *Reader { return &Reader{db: db, now: time.Now} }
 // World is identity as of one read: who is whom, and what each is called.
 type World struct {
 	// owners of each pn that more than one lid had, in time, oldest first
-	owners map[string][]span
+	owners shards[[]span]
 	// one is the lid of each pn only one lid ever had: id_owner says the
 	// same in a row of its own, which is half of all identity to read
-	one map[string]string
+	one shards[string]
 	// pns of each lid, newest first
-	pns      map[string][]string
+	pns      shards[[]string]
 	self     map[string]bool
-	names    map[string]map[string]string
-	contacts map[string]string
+	names    shards[map[string]string]
+	contacts shards[string]
 	selfName string
 }
 
@@ -52,8 +52,7 @@ type span struct {
 // World reads identity whole: a few thousand rows, cheaper than asking per
 // row.
 func (r *Reader) World(ctx context.Context) (*World, error) {
-	w := &World{owners: map[string][]span{}, one: map[string]string{}, pns: map[string][]string{}, self: map[string]bool{},
-		names: map[string]map[string]string{}, contacts: map[string]string{}}
+	w := &World{self: map[string]bool{}}
 	rows, err := r.db.QueryContext(ctx, `SELECT lid, pn FROM id_map ORDER BY lid, since DESC, pn`)
 	if err != nil {
 		return nil, err
@@ -65,15 +64,15 @@ func (r *Reader) World(ctx context.Context) (*World, error) {
 			rows.Close()
 			return nil, err
 		}
-		w.pns[lid] = append(w.pns[lid], pn)
-		if _, ok := w.one[pn]; ok {
+		w.pns.set(lid, append(w.pns.get(lid), pn))
+		if _, ok := w.one.lookup(pn); ok {
 			many = append(many, pn)
 		}
-		w.one[pn] = lid
+		w.one.set(pn, lid)
 	}
 	rows.Close()
 	for _, pn := range many {
-		delete(w.one, pn)
+		w.one.del(pn)
 	}
 	if len(many) > 0 {
 		rows, err = r.db.QueryContext(ctx, `SELECT pn, from_t, to_t, lid FROM id_owner
@@ -88,7 +87,7 @@ func (r *Reader) World(ctx context.Context) (*World, error) {
 				rows.Close()
 				return nil, err
 			}
-			w.owners[pn] = append(w.owners[pn], s)
+			w.owners.set(pn, append(w.owners.get(pn), s))
 		}
 		rows.Close()
 	}
@@ -113,10 +112,12 @@ func (r *Reader) World(ctx context.Context) (*World, error) {
 			rows.Close()
 			return nil, err
 		}
-		if w.names[j] == nil {
-			w.names[j] = map[string]string{}
+		ns := w.names.get(j)
+		if ns == nil {
+			ns = map[string]string{}
+			w.names.set(j, ns)
 		}
-		w.names[j][src] = name
+		ns[src] = name
 	}
 	rows.Close()
 	// contact names are app state: the newest per index, removed ones gone
@@ -134,19 +135,21 @@ func (r *Reader) World(ctx context.Context) (*World, error) {
 		case kind == asPushName:
 			w.selfName = s
 		case op == "set":
-			w.contacts[a] = s
+			w.contacts.set(a, s)
 			if s2 != "" {
-				if w.names[a] == nil {
-					w.names[a] = map[string]string{}
+				ns := w.names.get(a)
+				if ns == nil {
+					ns = map[string]string{}
+					w.names.set(a, ns)
 				}
-				if w.names[a][NameUsername] == "" {
-					w.names[a][NameUsername] = s2
+				if ns[NameUsername] == "" {
+					ns[NameUsername] = s2
 				}
 			}
 		default:
 			// a removed contact still counts as "no name", not as missing
-			if _, ok := w.contacts[a]; !ok {
-				w.contacts[a] = ""
+			if _, ok := w.contacts.lookup(a); !ok {
+				w.contacts.set(a, "")
 			}
 		}
 	}
@@ -157,8 +160,8 @@ func (r *Reader) World(ctx context.Context) (*World, error) {
 // Patch is w with persons read again, the ids a fold touched: equal to a new
 // World, for a fraction of one when few people changed. w is not changed.
 func (r *Reader) Patch(ctx context.Context, w *World, persons []string) (*World, error) {
-	n := &World{owners: maps.Clone(w.owners), one: maps.Clone(w.one), pns: maps.Clone(w.pns), self: w.self,
-		names: maps.Clone(w.names), contacts: maps.Clone(w.contacts), selfName: w.selfName}
+	n := &World{owners: w.owners.copy(), one: w.one.copy(), pns: w.pns.copy(), self: w.self,
+		names: w.names.copy(), contacts: w.contacts.copy(), selfName: w.selfName}
 	lids, pns := map[string]bool{}, map[string]bool{}
 	for _, p := range persons {
 		if p == "self" {
@@ -199,9 +202,9 @@ func (r *Reader) Patch(ctx context.Context, w *World, persons []string) (*World,
 			return nil, err
 		}
 		if len(got) == 0 {
-			delete(n.pns, l)
+			n.pns.del(l)
 		} else {
-			n.pns[l] = got
+			n.pns.set(l, got)
 		}
 		for _, pn := range got {
 			pns[pn] = true
@@ -212,12 +215,12 @@ func (r *Reader) Patch(ctx context.Context, w *World, persons []string) (*World,
 		if err != nil {
 			return nil, err
 		}
-		delete(n.one, pn)
-		delete(n.owners, pn)
+		n.one.del(pn)
+		n.owners.del(pn)
 		switch len(owners) {
 		case 0:
 		case 1:
-			n.one[pn] = owners[0]
+			n.one.set(pn, owners[0])
 		default:
 			rows, err := r.db.QueryContext(ctx, `SELECT from_t, to_t, lid FROM id_owner WHERE pn = ? ORDER BY from_t`, pn)
 			if err != nil {
@@ -229,7 +232,7 @@ func (r *Reader) Patch(ctx context.Context, w *World, persons []string) (*World,
 					rows.Close()
 					return nil, err
 				}
-				n.owners[pn] = append(n.owners[pn], s)
+				n.owners.set(pn, append(n.owners.get(pn), s))
 			}
 			rows.Close()
 		}
@@ -239,8 +242,8 @@ func (r *Reader) Patch(ctx context.Context, w *World, persons []string) (*World,
 
 // patchNames reads again every name of one address, as World does.
 func (r *Reader) patchNames(ctx context.Context, w *World, j string) error {
-	delete(w.names, j)
-	delete(w.contacts, j)
+	w.names.del(j)
+	w.contacts.del(j)
 	rows, err := r.db.QueryContext(ctx, `SELECT source, name FROM id_name WHERE jid = ?`, j)
 	if err != nil {
 		return err
@@ -251,10 +254,12 @@ func (r *Reader) patchNames(ctx context.Context, w *World, j string) error {
 			rows.Close()
 			return err
 		}
-		if w.names[j] == nil {
-			w.names[j] = map[string]string{}
+		ns := w.names.get(j)
+		if ns == nil {
+			ns = map[string]string{}
+			w.names.set(j, ns)
 		}
-		w.names[j][src] = name
+		ns[src] = name
 	}
 	rows.Close()
 	rows, err = r.db.QueryContext(ctx, `SELECT s, s2, op FROM appstate WHERE kind IN (?, ?) AND a = ? ORDER BY rowid`, asContact, asLIDContact, j)
@@ -268,22 +273,22 @@ func (r *Reader) patchNames(ctx context.Context, w *World, j string) error {
 			return err
 		}
 		if op != "set" {
-			if _, ok := w.contacts[j]; !ok {
-				w.contacts[j] = ""
+			if _, ok := w.contacts.lookup(j); !ok {
+				w.contacts.set(j, "")
 			}
 			continue
 		}
-		w.contacts[j] = s
+		w.contacts.set(j, s)
 		if s2 != "" {
 			// a copy: the old world still holds the map it had
-			names := maps.Clone(w.names[j])
+			names := maps.Clone(w.names.get(j))
 			if names == nil {
 				names = map[string]string{}
 			}
 			if names[NameUsername] == "" {
 				names[NameUsername] = s2
 			}
-			w.names[j] = names
+			w.names.set(j, names)
 		}
 	}
 	return rows.Err()
@@ -296,15 +301,16 @@ func (w *World) Key(addr string, t int64) string {
 	if !isPN(addr) {
 		return addr
 	}
-	if lid, ok := w.one[addr]; ok {
+	if lid, ok := w.one.lookup(addr); ok {
 		return lid
 	}
-	for _, s := range w.owners[addr] {
+	spans := w.owners.get(addr)
+	for _, s := range spans {
 		if t >= s.from && t < s.to {
 			return s.lid
 		}
 	}
-	if spans := w.owners[addr]; len(spans) > 0 {
+	if len(spans) > 0 {
 		return spans[len(spans)-1].lid
 	}
 	return addr
@@ -318,7 +324,7 @@ func (w *World) PN(key string) string {
 	if isPN(key) {
 		return key
 	}
-	if pns := w.pns[key]; len(pns) > 0 {
+	if pns := w.pns.get(key); len(pns) > 0 {
 		return pns[0]
 	}
 	return ""
@@ -341,7 +347,7 @@ func (w *World) LID(key string) string {
 func (w *World) Addrs(key string) []string {
 	out := []string{key}
 	if isLID(key) {
-		out = append(out, w.pns[key]...)
+		out = append(out, w.pns.get(key)...)
 	}
 	return out
 }
@@ -372,19 +378,22 @@ func (w *World) SelfPN() string {
 // whatsapp gives a name the person chose for themselves.
 func (w *World) Name(key string) (name, source string) {
 	addrs := w.Addrs(key)
+	var buf [4]map[string]string
+	names := buf[:0]
 	for _, a := range addrs {
-		if n := strings.TrimSpace(w.contacts[a]); n != "" {
+		if n := strings.TrimSpace(w.contacts.get(a)); n != "" {
 			return n, NameContact
 		}
+		names = append(names, w.names.get(a))
 	}
-	for _, a := range addrs {
-		if n := strings.TrimSpace(w.names[a][NameInline]); n != "" {
+	for _, ns := range names {
+		if n := strings.TrimSpace(ns[NameInline]); n != "" {
 			return n, NameContact
 		}
 	}
 	for _, src := range []string{NameBusiness, NamePush, NameUsername} {
-		for _, a := range addrs {
-			if n := strings.TrimSpace(w.names[a][src]); n != "" {
+		for _, ns := range names {
+			if n := strings.TrimSpace(ns[src]); n != "" {
 				// whatsmeow drops the verified level, so a business name is
 				// only what the account calls itself, same as a push name
 				if src == NamePush || src == NameBusiness {
@@ -404,17 +413,18 @@ func (w *World) Name(key string) (name, source string) {
 // the push name and the business name, untouched.
 func (w *World) Names(key string) (saved, push, business string) {
 	for _, a := range w.Addrs(key) {
+		ns := w.names.get(a)
 		if saved == "" {
-			saved = strings.TrimSpace(w.contacts[a])
+			saved = strings.TrimSpace(w.contacts.get(a))
 		}
 		if saved == "" {
-			saved = strings.TrimSpace(w.names[a][NameInline])
+			saved = strings.TrimSpace(ns[NameInline])
 		}
 		if push == "" {
-			push = strings.TrimSpace(w.names[a][NamePush])
+			push = strings.TrimSpace(ns[NamePush])
 		}
 		if business == "" {
-			business = strings.TrimSpace(w.names[a][NameBusiness])
+			business = strings.TrimSpace(ns[NameBusiness])
 		}
 	}
 	return saved, push, business
@@ -426,7 +436,7 @@ func (w *World) Username(u string) string {
 	if u == "" {
 		return ""
 	}
-	for a, ns := range w.names {
+	for a, ns := range w.names.all() {
 		if strings.EqualFold(ns[NameUsername], u) {
 			return w.Now(a)
 		}
