@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
 	"encoding/base32"
 	"encoding/json"
@@ -25,7 +26,7 @@ const IDIndex = `CREATE INDEX IF NOT EXISTS inputs_person_id ON inputs (seq) WHE
 // person picks between their ids, it never makes a new one.
 type IDs struct {
 	db    *core.DB
-	newID func() string
+	newID func(addr string) string
 
 	mu     sync.RWMutex
 	byAddr map[string]assigned
@@ -88,12 +89,28 @@ func (ids *IDs) Forget() {
 	ids.byAddr, ids.byID = map[string]assigned{}, map[string]given{}
 }
 
-func randomID() string {
+func randomID(string) string {
 	var b [10]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		panic(fmt.Sprintf("model: no randomness for an id: %v", err))
 	}
-	return strings.ToLower(base32.StdEncoding.EncodeToString(b[:]))
+	return encodeID(b[:])
+}
+
+func encodeID(b []byte) string { return strings.ToLower(base32.StdEncoding.EncodeToString(b)) }
+
+// Derive makes every new id a hash of seed and the address it is for, so a
+// mock run gives the same ids whatever order the views ask in.
+func (ids *IDs) Derive(seed int64) {
+	ids.mu.Lock()
+	defer ids.mu.Unlock()
+	given := map[string]int{}
+	ids.newID = func(addr string) string {
+		h := sha256.New()
+		fmt.Fprintf(h, "%d\x00%s\x00%d", seed, addr, given[addr])
+		given[addr]++
+		return encodeID(h.Sum(nil)[:10])
+	}
 }
 
 // Ensure gives every key that has no id one, in one append. a reader calls
@@ -123,7 +140,7 @@ func (ids *IDs) Ensure(ctx context.Context, w *World, keys ...string) error {
 			continue
 		}
 		seen[a] = true
-		head, _ := json.Marshal(core.PersonIDHead{Addr: a, ID: ids.newID()})
+		head, _ := json.Marshal(core.PersonIDHead{Addr: a, ID: ids.newID(a)})
 		ins = append(ins, core.Input{Kind: core.KindPersonID, V: 1, Head: head})
 		fresh = append(fresh, a)
 	}

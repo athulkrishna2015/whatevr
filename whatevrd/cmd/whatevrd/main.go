@@ -135,6 +135,7 @@ func main() {
 	if err != nil {
 		log.Fatal().Err(err).Msg("read ids")
 	}
+	mockIDs(mock, ids)
 
 	hub := live.New()
 	qr := newQRWatch(hub)

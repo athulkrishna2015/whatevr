@@ -8,6 +8,8 @@ import (
 	"io"
 
 	"github.com/rs/zerolog"
+
+	"whatevrd/internal/model"
 )
 
 // mockRun never exists in a release binary. The mock server mutates
@@ -37,6 +39,8 @@ func mockStart(context.Context, *mockRun, qrSource, string) (func(), error) {
 // mockSilencesNotifications is never true in a release build: there is no mock
 // run to silence them for.
 func mockSilencesNotifications(*mockRun) bool { return false }
+
+func mockIDs(*mockRun, *model.IDs) {}
 
 // mockTime is nil: the real clocks.
 func mockTime(*mockRun) *mockClocks { return nil }

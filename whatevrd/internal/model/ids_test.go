@@ -151,3 +151,34 @@ func TestIDsStayWithANumbersOldOwner(t *testing.T) {
 		t.Fatalf("the number's old id names %q", k)
 	}
 }
+
+func TestDerivedIDsDoNotDependOnOrder(t *testing.T) {
+	ctx := context.Background()
+	given := func(seed int64, addrs ...string) map[string]string {
+		db, ids := openIDs(t, filepath.Join(t.TempDir(), "core.db"))
+		defer db.Close()
+		ids.Derive(seed)
+		w, _ := NewReader(db.Read()).World(ctx)
+		for _, a := range addrs {
+			if err := ids.Ensure(ctx, w, a); err != nil {
+				t.Fatal(err)
+			}
+		}
+		out := map[string]string{}
+		for _, a := range addrs {
+			out[a] = ids.Of(w, a)
+		}
+		return out
+	}
+	one := given(1, "1@s.whatsapp.net", "2@g.us")
+	two := given(1, "2@g.us", "1@s.whatsapp.net")
+	if one["1@s.whatsapp.net"] != two["1@s.whatsapp.net"] || one["2@g.us"] != two["2@g.us"] {
+		t.Fatalf("one seed gave %v then %v", one, two)
+	}
+	if one["1@s.whatsapp.net"] == one["2@g.us"] {
+		t.Fatal("two addresses share an id")
+	}
+	if other := given(2, "1@s.whatsapp.net"); other["1@s.whatsapp.net"] == one["1@s.whatsapp.net"] {
+		t.Fatal("another seed gave the same id")
+	}
+}

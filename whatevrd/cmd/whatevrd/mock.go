@@ -14,6 +14,7 @@ import (
 
 	"whatevrd/internal/app"
 	"whatevrd/internal/capture"
+	"whatevrd/internal/model"
 	"whatevrd/internal/wamock"
 )
 
@@ -233,4 +234,12 @@ func mockTime(run *mockRun) *mockClocks {
 		return nil
 	}
 	return &mockClocks{wall: wamock.Wall, stamp: wamock.Stamp}
+}
+
+// mockIDs pins the ids a mock run hands out to --mock-seed, so a frontend
+// that colours by id draws the same frame every run.
+func mockIDs(run *mockRun, ids *model.IDs) {
+	if run != nil {
+		ids.Derive(run.opts.Seed)
+	}
 }
