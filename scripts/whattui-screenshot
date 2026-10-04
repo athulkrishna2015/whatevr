@@ -42,6 +42,7 @@ ACCOUNTS = {
     "visual": ("Visual Test Group", "READY-HARNESS"),
     "frames": ("Reference", "READY-HARNESS"),
     "busy": ("Team standup", "standing up"),
+    "history": ("Announcements", "line 260"),
     "media": ("Media test group", "and that is everything else"),
     "torture": ("Text torture", "--- zalgo ---"),
     "flood": ("Group 00", "group 00 message"),
@@ -605,10 +606,26 @@ class Harness:
     # Three identical frames before the shutter: a frame caught mid-draw is a
     # picture of a bug that is not there.
     def capture(
-        self, state: dict[str, Any], name: str, expected: tuple[int, int]
+        self,
+        state: dict[str, Any],
+        name: str,
+        expected: tuple[int, int],
+        pause: bool = False,
     ) -> Path:
         if self.pty_size(state) != expected:
             raise Failure(f"{name}: PTY is {self.pty_size(state)}, expected {expected}")
+        if not pause:
+            return self.settle(state, name)
+        # a frame that moves on its own, like a spinner, never settles: stop
+        # whattui and the last frame it drew holds still for the camera
+        pid = int(Path(state["ready"]).read_text(encoding="ascii").split("=")[1])
+        os.kill(pid, signal.SIGSTOP)
+        try:
+            return self.settle(state, name)
+        finally:
+            os.kill(pid, signal.SIGCONT)
+
+    def settle(self, state: dict[str, Any], name: str) -> Path:
         previous: tuple[str, str] | None = None
         stable = 0
         attempts = 0
@@ -952,6 +969,12 @@ def main() -> int:
         action="store_true",
         help="resize behind a covering tab before the shot, which is the reflow no one watches",
     )
+    parser.add_argument(
+        "--pause",
+        action="store_true",
+        help="stop whattui before the shot and continue it after, for a frame "
+        "that never settles on its own, such as a spinner",
+    )
     parser.add_argument("--list", action="store_true", help="list the scenarios")
     parser.add_argument(
         "--dry-run",
@@ -1049,7 +1072,7 @@ def main() -> int:
                 cols, rows = harness.pty_size(state)
             if shot["keys"]:
                 harness.open_surface(state, shot["keys"], shot["marker"])
-            harness.capture(state, name, (cols, rows))
+            harness.capture(state, name, (cols, rows), pause=args.pause)
             harness.close(state)
             taken.append(out / f"{name}.png")
     except SignalExit as exc:
