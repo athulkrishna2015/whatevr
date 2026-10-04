@@ -164,13 +164,21 @@ func (c *Client) teardown() {
 	subs := append([]*Subscription(nil), c.subs...)
 	c.mu.Unlock()
 
+	var lost []*Subscription
 	for _, sub := range subs {
-		sub.orphan()
+		if sub.lose() {
+			lost = append(lost, sub)
+		} else {
+			sub.orphan()
+		}
 	}
 	c.serial.Lock()
 	defer c.serial.Unlock()
 	for _, cb := range owed {
 		cb(nil, errLost)
+	}
+	for _, sub := range lost {
+		sub.hooks.OnLost()
 	}
 }
 

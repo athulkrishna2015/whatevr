@@ -48,6 +48,9 @@ const (
 	floodDeepChat   = "Person 0000"
 	tortureScenario = "torture"
 	tortureChat     = "Text torture"
+	// history is the account for what sits above the oldest message
+	historyScenario = "history"
+	historyLongChat = "Ira"
 )
 
 type mockDaemon struct {
@@ -274,6 +277,7 @@ func mockApp(t testing.TB, scenario, chatName string, cols, rows int) *App {
 	}
 	a.client = proto.New(d.socket, "whattui-test")
 	a.request = a.client.Do
+	a.followFolds()
 	a.initCommands()
 	// The same wiring Run uses: the frame says "connecting to whatevrd" until
 	// the transport reports otherwise.

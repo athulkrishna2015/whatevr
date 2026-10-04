@@ -42,6 +42,7 @@ func (a *App) paint() {
 	// write to every cell that every one of them is about to write again.
 	win := a.vx.Window()
 	l := a.layout()
+	a.followChat(max(l.Transcript.Height, 1))
 
 	if a.pairing() {
 		a.drawPairing(win)
@@ -558,8 +559,8 @@ func (a *App) drawHeader(win vaxis.Window, r layout.Rect) {
 	// of you, and it says it long after it stopped being true.
 	title := "whattui"
 	if active != "" && live {
-		if it, ok := a.chats.Get(active); ok {
-			title = it.Value.GetName()
+		if row, ok := a.chatRow(active); ok {
+			title = row.GetName()
 		}
 	}
 	a.noteBlock(pane, 1, 0, maxInt(a.width(title), 1), 1)
@@ -624,6 +625,7 @@ func (a *App) drawTranscript(win vaxis.Window, r layout.Rect) {
 		return
 	}
 
+	above := a.topOf(c)
 	c.msgs.Read(func(items []view.Item[*v2.MessageRow], state view.State) {
 		if len(items) == 0 {
 			msg := "loading messages"
@@ -635,7 +637,8 @@ func (a *App) drawTranscript(win vaxis.Window, r layout.Rect) {
 			}, msg)
 			return
 		}
-		a.refreshTranscript(c, items, state, w, h)
+		a.refreshTranscript(c, items, state, above, w, h)
+		c.keepHeld(h)
 		if c.scroll > c.maxScroll(h) {
 			c.scroll = c.maxScroll(h)
 		}
@@ -777,6 +780,7 @@ func (a *App) drawComposer(win vaxis.Window, r layout.Rect) {
 
 	a.mu.Lock()
 	active, focus := a.activeChat, a.focus
+	readOnly := a.conversation != nil && a.conversation.readOnly
 	text, cursor := a.composer.String(), a.composer.cursor
 	editing, targetName, targetText := a.composer.editing != "", a.composer.targetName, a.composer.targetText
 	targetColour, targeted := a.composer.targetColour, a.composer.targeted()
@@ -791,6 +795,14 @@ func (a *App) drawComposer(win vaxis.Window, r layout.Rect) {
 	}
 	fill(pane, ground)
 	if active == "" {
+		return
+	}
+	if readOnly {
+		// the field goes and the line takes its place, where the marker and
+		// the draft would start, so the eye finds it where it looks to type
+		a.print(pane, composerText, 0, vaxis.Style{
+			Foreground: a.theme.TextMuted, Background: ground, Attribute: vaxis.AttrItalic,
+		}, a.clip(readOnlyNote, w-composerGutter))
 		return
 	}
 	a.drawField(pane, 1, 0, w-2, h, focus == FocusComposer)
@@ -933,6 +945,7 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 	leader := a.leader
 	modal := a.modal.kind
 	message, pointing := a.selectedMessageLocked()
+	readOnly := a.conversation != nil && a.conversation.readOnly
 	a.mu.Unlock()
 
 	newline := "s-\u23ce"
@@ -996,6 +1009,8 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 		hints = []hint{{cmdOpenChat, "open"}, {"", "\u2191\u2193 move"}, {cmdFocusNext, "chat"}, {cmdQuit, "quit"}}
 	case focus == FocusTranscript:
 		hints = []hint{{"", "\u2191\u2193 scroll"}, {"", "esc composer"}, {cmdFocusNext, "chats"}}
+	case readOnly:
+		hints = []hint{{"", "\u2191 scroll back"}, {"", "esc chats"}, {cmdFocusNext, "list"}}
 	default:
 		hints = []hint{{cmdSend, "send"}, {"", newline + " newline"}, {"", "esc chats"}, {cmdFocusNext, "list"}}
 		if !typed {

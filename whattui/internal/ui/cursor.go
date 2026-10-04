@@ -61,6 +61,67 @@ func (c *conversation) messageAbove(id string) (above, height int, ok bool) {
 	return 0, 0, false
 }
 
+// place is messageAbove for any message in the window, a system line
+// included.
+func (c *conversation) place(id string) (above, height int, ok bool) {
+	c.each(func(mid string, a, h int) bool {
+		if mid == id {
+			above, height, ok = a, h, true
+			return false
+		}
+		return true
+	})
+	return above, height, ok
+}
+
+// middle is the message on the middle row of the screen, or the one nearest
+// it, and the row its top is on.
+func (c *conversation) middle(viewport int) (id string, row int) {
+	mid, best := viewport/2, -1
+	c.each(func(mid2 string, above, h int) bool {
+		top := viewport + c.scroll - above
+		d := 0
+		switch {
+		case mid < top:
+			d = top - mid
+		case mid >= top+h:
+			d = mid - (top + h - 1)
+		}
+		if best < 0 || d < best {
+			id, row, best = mid2, top, d
+		}
+		return d > 0
+	})
+	return id, row
+}
+
+// each walks every message in the laid-out window, newest first, with how far
+// its top sits above the live edge and how tall it is, until fn says stop.
+func (c *conversation) each(fn func(id string, above, height int) bool) {
+	rows := 0
+	for i, r := range c.runs {
+		rows += r.height
+		if r.divider {
+			continue
+		}
+		off := 0
+		if r.name != "" {
+			off++
+		}
+		for _, id := range r.ids {
+			e := c.cache[id]
+			h := e.block.rows()
+			if e.centred {
+				h = len(e.lines)
+			}
+			if !fn(id, rows+i-off, h) {
+				return
+			}
+			off += h
+		}
+	}
+}
+
 func (a *App) conv() *conversation {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -247,6 +308,9 @@ func (a *App) clampScroll(c *conversation, viewport int) {
 	}
 	if c.scroll+viewport > c.contentRows-viewport {
 		a.loadOlder()
+	}
+	if c.scroll < viewport {
+		a.loadNewer()
 	}
 }
 

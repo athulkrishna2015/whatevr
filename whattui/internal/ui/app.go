@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
@@ -128,6 +129,20 @@ type App struct {
 	searchRequest uint64
 
 	conversation *conversation
+	// spinning is a redraw already waiting on the next spinner frame
+	spinning atomic.Bool
+}
+
+// followFolds moves the open chat along when the chat list says it folded
+// into another.
+func (a *App) followFolds() {
+	a.chats.OnReplaced = func(old, by string) {
+		a.mu.Lock()
+		if c := a.conversation; c != nil && c.chatID == old {
+			c.replacedBy = by
+		}
+		a.mu.Unlock()
+	}
 }
 
 // New wires an app to a terminal and a daemon. It does not connect.
@@ -151,6 +166,7 @@ func New(vx *vaxis.Vaxis, caps term.Caps, client *proto.Client) *App {
 	}
 	a.shaper = shaperFor(vx, caps)
 	a.request = client.Do
+	a.followFolds()
 	a.initCommands()
 	a.setCell()
 

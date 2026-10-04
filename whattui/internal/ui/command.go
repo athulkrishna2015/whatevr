@@ -66,7 +66,9 @@ type commandRegistry struct {
 }
 
 type commandState struct {
-	hasChat   bool
+	hasChat bool
+	// readOnly is a chat we cannot send to
+	readOnly  bool
 	hasDraft  bool
 	chatCount int
 	// The message the selection cursor is on, and whether there is one. The
@@ -91,9 +93,12 @@ func (a *App) initCommands() {
 	if a.commands.byID != nil {
 		return
 	}
-	hasChat := func(state commandState) (bool, string) {
+	canSend := func(state commandState) (bool, string) {
 		if !state.hasChat {
 			return false, "open a chat first"
+		}
+		if state.readOnly {
+			return false, readOnlyNote
 		}
 		return true, ""
 	}
@@ -120,7 +125,7 @@ func (a *App) initCommands() {
 		{ID: cmdPalette, Title: "Command palette", Description: "Find an action or /chat", Direct: "^p", Leader: "p", Slash: "palette", Run: func() { a.openModal(modalPalette) }},
 		{ID: cmdHelp, Title: "Keyboard help", Description: "Show every command and binding", Direct: "?", Leader: "?", Slash: "help", Run: func() { a.openModal(modalHelp) }},
 		{ID: cmdSend, Title: "Send message", Description: "Send the current draft", Direct: "enter", Enabled: func(state commandState) (bool, string) {
-			if ok, why := hasChat(state); !ok {
+			if ok, why := canSend(state); !ok {
 				return false, why
 			}
 			if !state.hasDraft {
@@ -138,12 +143,20 @@ func (a *App) initCommands() {
 		{ID: cmdFocusPrevious, Title: "Focus previous pane", Description: "Move focus anticlockwise", Direct: "s-tab", Slash: "focus-previous", Run: func() { a.cycleFocus(-1) }},
 		{ID: cmdBoxes, Title: "Toggle message boxes", Description: "Draw a panel per message instead of a rule per run", Leader: "b", Slash: "boxes", Run: a.toggleBoxes},
 		{ID: cmdRedraw, Title: "Redraw the screen", Description: "Throw away what the terminal is showing and draw it again", Direct: "^l", Slash: "redraw", Run: a.redraw},
-		{ID: cmdReply, Title: "Reply to message", Description: "Answer the message the cursor is on", Direct: "r", Scope: scopeMessage, Slash: "reply", Enabled: hasLiveMessage, Run: a.replySelected},
+		{ID: cmdReply, Title: "Reply to message", Description: "Answer the message the cursor is on", Direct: "r", Scope: scopeMessage, Slash: "reply", Enabled: func(state commandState) (bool, string) {
+			if ok, why := canSend(state); !ok {
+				return false, why
+			}
+			return hasLiveMessage(state)
+		}, Run: a.replySelected},
 		{ID: cmdReact, Title: "React to message", Description: "Put an emoji on the message, or take yours off", Direct: "+", Scope: scopeMessage, Slash: "react", Enabled: hasLiveMessage, Run: a.reactSelected},
 		{ID: cmdForward, Title: "Forward message", Description: "Send the message on to other chats", Direct: "f", Scope: scopeMessage, Slash: "forward", Enabled: hasLiveMessage, Run: a.forwardSelected},
 		{ID: cmdMenu, Title: "Actions on this message", Description: "Open the menu of everything the message can do", Direct: "m", Scope: scopeMessage, Slash: "menu", Enabled: hasLiveMessage, Run: a.menuSelected},
 		{ID: cmdEditMessage, Title: "Edit message", Description: "Rewrite a message you sent", Direct: "e", Scope: scopeMessage, Slash: "edit", Enabled: func(state commandState) (bool, string) {
 			if ok, why := hasMessage(state); !ok {
+				return false, why
+			}
+			if ok, why := canSend(state); !ok {
 				return false, why
 			}
 			// Asked before the composer ever loads the message, so a window
@@ -396,6 +409,7 @@ func (a *App) commandStateLocked() commandState {
 	message, hasMessage := a.selectedMessageLocked()
 	return commandState{
 		hasChat:    a.activeChat != "",
+		readOnly:   a.conversation != nil && a.conversation.readOnly,
 		hasDraft:   strings.TrimSpace(a.composer.String()) != "",
 		chatCount:  a.chats.Len(),
 		hasMessage: hasMessage,

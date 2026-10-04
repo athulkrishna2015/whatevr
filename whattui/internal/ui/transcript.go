@@ -50,6 +50,9 @@ type run struct {
 	// divider is a day rather than a person: the line that says the messages
 	// under it happened on another day. It has a name and no messages.
 	divider bool
+	// loading is the divider over the oldest message while the phone sends
+	// older ones: a spinner and no rules
+	loading bool
 	name    string
 	colour  vaxis.Color
 	width   int
@@ -74,7 +77,7 @@ func speaker(m *v2.MessageRow, id string) string {
 // Keyed on the row's revision rather than on the id alone: the daemon upserts a whole
 // item for a status tick or an edit, and a version bump that threw the window
 // away would re-wrap four hundred messages because one of them was read.
-func (a *App) refreshTranscript(c *conversation, items []view.Item[*v2.MessageRow], state view.State, w, rows int) {
+func (a *App) refreshTranscript(c *conversation, items []view.Item[*v2.MessageRow], state view.State, above topMark, w, rows int) {
 	// The version arrives with the window rather than being asked for. A
 	// second read lock on the collection we are already inside is a deadlock
 	// the moment a writer is waiting, and a writer is the daemon delivering a
@@ -84,12 +87,19 @@ func (a *App) refreshTranscript(c *conversation, items []view.Item[*v2.MessageRo
 	// person, both names are on the screen already and every one of them
 	// costs a row.
 	group := false
-	if it, ok := a.chats.Get(c.chatID); ok {
-		group = isGroup(it.Value)
+	if row, ok := a.chatRow(c.chatID); ok {
+		group = isGroup(row)
 	}
 	if c.cache != nil && c.cacheWidth == w && c.cacheRows == rows &&
-		c.cacheVer == ver && c.cacheGroup == group && c.cacheBoxed == a.boxed {
+		c.cacheVer == ver && c.cacheGroup == group && c.cacheBoxed == a.boxed && c.cacheTop == above {
 		return
+	}
+	// rows count up from the live edge, so anything landing below the reader
+	// would push them up the screen: hold the middle message where it is
+	if c.hold == nil && c.scroll > 0 && c.cacheWidth == w && c.cacheRows == rows {
+		if id, row := c.middle(rows); id != "" {
+			c.hold = &hold{id: id, top: row}
+		}
 	}
 	// A version bump is the daemon changing a row, which may well be the row
 	// the cursor is on, or the row the cursor was on leaving the window.
@@ -98,7 +108,7 @@ func (a *App) refreshTranscript(c *conversation, items []view.Item[*v2.MessageRo
 		c.cache = make(map[string]entry, len(items))
 	}
 	c.cacheWidth, c.cacheRows, c.cacheVer = w, rows, ver
-	c.cacheGroup, c.cacheBoxed = group, a.boxed
+	c.cacheGroup, c.cacheBoxed, c.cacheTop = group, a.boxed, above
 
 	for _, it := range items {
 		if e, ok := c.cache[it.ID]; !ok || e.rev != it.Rev {
@@ -107,6 +117,15 @@ func (a *App) refreshTranscript(c *conversation, items []view.Item[*v2.MessageRo
 	}
 
 	c.runs = a.runsOf(c, items, w, group)
+	switch above {
+	case topLoading:
+		c.runs = append(c.runs, run{divider: true, loading: true, height: 1, name: "loading older messages"})
+	case topStart:
+		// nothing older can share the first day, so it gets its line too
+		c.runs = append(c.runs,
+			run{divider: true, height: 1, name: dayLabel(items[len(items)-1].Value.GetTMs())},
+			run{divider: true, height: 1, name: "start of chat"})
+	}
 	total := 0
 	for _, r := range c.runs {
 		total += r.height + 1
@@ -260,6 +279,10 @@ func (a *App) layoutEntry(it view.Item[*v2.MessageRow], w int) entry {
 // the pane: a run taller than the screen has to be readable a row at a time,
 // so the parts that do not fit are clipped rather than skipped.
 func (a *App) drawRun(pane vaxis.Window, c *conversation, r run, row, w int) {
+	if r.loading {
+		a.drawLoading(pane, r.name, row, w)
+		return
+	}
 	if r.divider {
 		a.drawDay(pane, r.name, row, w)
 		return
@@ -386,6 +409,46 @@ func (a *App) drawDay(pane vaxis.Window, label string, row, w int) {
 	bx := boxFor(a.caps)
 	a.rule(pane, left, row, at-left, bx.horizontal, style)
 	a.rule(pane, at+a.width(text), row, right-at-a.width(text), bx.horizontal, style)
+}
+
+// drawLoading is the row over the oldest message while older ones are on
+// their way from the phone.
+func (a *App) drawLoading(pane vaxis.Window, label string, row, w int) {
+	frames := spinnerFrames
+	if a.caps.Tier <= term.TierPlain {
+		frames = spinnerPlain
+	}
+	frame := frames[int(time.Now().UnixMilli()/spinnerTick.Milliseconds())%len(frames)]
+	text := frame + " " + label
+	a.print(pane, maxInt((w-a.width(text))/2, 0), row, vaxis.Style{
+		Foreground: a.theme.TextMuted, Background: a.theme.Background,
+	}, text)
+	a.spin()
+}
+
+var (
+	spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+	// a bare font has no braille
+	spinnerPlain = []string{"-", "\\", "|", "/"}
+)
+
+// topOf is what goes over the oldest message in the window: the phone
+// sending older history, or the start of the chat, once the window holds the
+// oldest message the daemon has.
+func (a *App) topOf(c *conversation) topMark {
+	a.mu.Lock()
+	done := c.window.olderDone
+	a.mu.Unlock()
+	row, ok := a.chatRow(c.chatID)
+	switch {
+	case !done || !ok:
+		return topNone
+	case row.GetHistoryExhausted():
+		return topStart
+	case row.GetLoadingOlder():
+		return topLoading
+	}
+	return topNone
 }
 
 // drawStamp puts the time in the gutter, on the first row of the message and

@@ -44,6 +44,10 @@ type Hooks struct {
 	OnExtendFailed func(v2.Direction, *Error)
 	// OnReady hears every ready, after the update carrying it is applied
 	OnReady func(exhausted bool)
+	// OnLost, when set, ends the subscription with its connection instead
+	// of issuing it again on the next one, and hears that it did. For a
+	// caller that wants to say where the new one starts.
+	OnLost func()
 }
 
 type extend struct {
@@ -206,6 +210,19 @@ func (s *Subscription) takeFresh() bool {
 	f := s.fresh
 	s.fresh = false
 	return f
+}
+
+// lose ends a subscription that does not outlive its connection, and
+// reports whether it was one.
+func (s *Subscription) lose() bool {
+	if s.hooks.OnLost == nil {
+		return false
+	}
+	s.mu.Lock()
+	s.closed, s.id, s.have = true, 0, false
+	s.mu.Unlock()
+	s.client.forget(s)
+	return true
 }
 
 // orphan drops the sub id, which a lost connection does.

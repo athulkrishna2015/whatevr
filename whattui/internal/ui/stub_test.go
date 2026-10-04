@@ -58,7 +58,7 @@ func stubApp(cols, rows, chats, msgs int) *App {
 	}
 	ready(a.chats, true)
 
-	c := &conversation{chatID: "910000000@s.whatsapp.net", msgs: view.NewCollection(view.Message)}
+	c := &conversation{chatID: "910000000@s.whatsapp.net", window: &window{msgs: view.NewCollection(view.Message), size: messagePageSize, live: true, newerDone: true}}
 	c.msgs.SetReverse(true)
 	for i := 0; i < msgs; i++ {
 		fromMe := false

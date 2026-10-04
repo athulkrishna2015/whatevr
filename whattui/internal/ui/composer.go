@@ -165,7 +165,16 @@ func (c *composer) multiline() bool {
 func (a *App) onComposerKey(k vaxis.Key) {
 	a.mu.Lock()
 	c := &a.composer
+	readOnly := a.conversation != nil && a.conversation.readOnly
 	a.mu.Unlock()
+	// there is no field to type into, only the line saying so. the arrows
+	// still reach the messages, which can be reacted to and passed on
+	if readOnly && !k.Matches(vaxis.KeyEsc) && !k.Matches(vaxis.KeyUp) && !k.Matches(vaxis.KeyDown) {
+		if k.Text != "" || k.Matches(vaxis.KeyEnter) {
+			a.refuse(readOnlyNote)
+		}
+		return
+	}
 
 	switch {
 	// Enter sends, shift+enter and ctrl+j break the line. Telling the two
@@ -410,3 +419,8 @@ const composerGutter = 6
 // marker. Same at every tier, because the field is drawn where a terminal can
 // draw and simply absent where it cannot.
 const composerText = 4
+
+// readOnlyNote stands in for the composer in a chat we cannot send to. The row
+// says only that, not why: an announcement group and a group we left look the
+// same from here.
+const readOnlyNote = "you can't send messages to this chat"

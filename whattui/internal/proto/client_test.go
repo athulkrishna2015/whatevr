@@ -285,6 +285,34 @@ func TestAReconnectIssuesEverySubscriptionAgain(t *testing.T) {
 	}
 }
 
+func TestALostHookEndsTheSubscriptionWithItsConnection(t *testing.T) {
+	d := newFakeDaemon(t)
+	c, states := start(t, d)
+	lost := make(chan struct{}, 4)
+	sub := c.Subscribe(subscribe(), newSink(), Hooks{OnLost: func() { lost <- struct{}{} }})
+	kept := c.Subscribe(v2.Subscribe_builder{Connection: &v2.ConnectionView{}}.Build(), newSink(), Hooks{})
+	d.subscribed(d.next(), 1)
+	d.subscribed(d.next(), 2)
+
+	d.drop()
+	select {
+	case <-lost:
+	case <-time.After(5 * time.Second):
+		t.Fatal("never told the subscription was lost")
+	}
+	until(t, states, Ready)
+	if req := d.next(); !req.GetSubscribe().HasConnection() {
+		t.Errorf("after reconnect the client asked %v, want the kept one alone", req)
+	}
+	d.quiet()
+	sub.Extend(10, v2.Direction_DIRECTION_OLDER)
+	d.quiet()
+	if sub.Active() || len(lost) != 0 {
+		t.Errorf("active %v, told %d more times", sub.Active(), len(lost))
+	}
+	kept.Close()
+}
+
 // a lost connection answers everything owed once, and a deadline after it
 // does not answer again
 func TestEveryCallbackRunsOnceAcrossADisconnect(t *testing.T) {
