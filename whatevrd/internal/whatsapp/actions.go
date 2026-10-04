@@ -732,6 +732,7 @@ func (c *Client) RequestOlder(ctx context.Context, chat string) (bool, error) {
 	key := ch.Key
 	c.older.out[key] = time.AfterFunc(olderTimeout, func() { c.olderDone(key) })
 	c.older.mu.Unlock()
+	c.live.SetLoadingOlder(key, true)
 	jid, err := types.ParseJID(first.Chat)
 	if err != nil {
 		c.olderDone(key)
@@ -750,11 +751,24 @@ func (c *Client) RequestOlder(ctx context.Context, chat string) (bool, error) {
 
 func (c *Client) olderDone(chat string) {
 	c.older.mu.Lock()
-	if t := c.older.out[chat]; t != nil {
+	t := c.older.out[chat]
+	if t != nil {
 		t.Stop()
 		delete(c.older.out, chat)
 	}
 	c.older.mu.Unlock()
+	if t != nil {
+		c.live.SetLoadingOlder(chat, false)
+	}
+}
+
+// olderAnswered clears the requests a logged on-demand blob answers.
+func (c *Client) olderAnswered(jids []string) {
+	for _, s := range jids {
+		if j, err := types.ParseJID(s); err == nil {
+			c.olderDone(c.chatKey(j))
+		}
+	}
 }
 
 // PhoneCheck is what whatsapp says of a phone number.

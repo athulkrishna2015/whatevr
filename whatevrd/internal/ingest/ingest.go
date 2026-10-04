@@ -36,6 +36,9 @@ type Ingest struct {
 	// KeepHistoryMedia leaves downloaded history blobs on the server, for
 	// another reader of the same blobs
 	KeepHistoryMedia bool
+	// OnDemand hears the chats of each on-demand history blob once it is
+	// logged: the phone answered them
+	OnDemand func(chats []string)
 }
 
 // New hands inputs to log for as long as ctx lives. once it ends every

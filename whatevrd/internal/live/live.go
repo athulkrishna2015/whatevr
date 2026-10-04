@@ -24,6 +24,7 @@ const (
 	TouchNotification = "notification"
 	TouchAbout        = "about"
 	TouchProblems     = "problems"
+	TouchOlder        = "older"
 )
 
 type LoginState int
@@ -99,12 +100,13 @@ type Hub struct {
 	transfers map[string]Transfer
 	notes     []Notification
 	about     map[string]About
+	older     map[string]bool
 	now       func() time.Time
 }
 
 func New() *Hub {
 	return &Hub{typing: map[string]map[string]Typist{}, presence: map[string]Presence{}, transfers: map[string]Transfer{},
-		about: map[string]About{}, now: time.Now}
+		about: map[string]About{}, older: map[string]bool{}, now: time.Now}
 }
 
 func (h *Hub) tell(kind string, keys ...string) {
@@ -293,6 +295,28 @@ func (h *Hub) About(who string) (About, bool) {
 	defer h.mu.Unlock()
 	a, ok := h.about[who]
 	return a, ok
+}
+
+// SetLoadingOlder is whether a request for a chat's older history is out.
+func (h *Hub) SetLoadingOlder(chat string, out bool) {
+	h.mu.Lock()
+	if h.older[chat] == out {
+		h.mu.Unlock()
+		return
+	}
+	if out {
+		h.older[chat] = true
+	} else {
+		delete(h.older, chat)
+	}
+	h.mu.Unlock()
+	h.tell(TouchOlder, chat)
+}
+
+func (h *Hub) LoadingOlder(chat string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.older[chat]
 }
 
 // Reset forgets everything an account had, on logout.

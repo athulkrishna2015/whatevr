@@ -9,12 +9,13 @@ import (
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 
 	"whatevrd/internal/core"
+	"whatevrd/internal/live"
 	"whatevrd/internal/model"
 	"whatevrd/internal/server"
 )
 
 // what a chat row is read from
-var chatKinds = []string{"chat", "chatrow", "message", "person", "group", TouchClock, TouchSends}
+var chatKinds = []string{"chat", "chatrow", "message", "person", "group", TouchClock, TouchSends, live.TouchOlder}
 
 func (rs *Reads) chatsView(ctx context.Context, s *server.Session, req *v2.Subscribe) (server.Window, *v2.SubscribeResult, error) {
 	p := req.GetChats()
@@ -146,6 +147,7 @@ func (c *rc) chatRow(gen uint64, ch model.Chat) *v2.ChatRow {
 		HistoryExhausted: ch.Exhausted,
 		EphemeralSecs:    uint32(max(ch.Ephemeral, 0)),
 		ReadOnly:         ch.ReadOnly,
+		LoadingOlder:     c.live.LoadingOlder(ch.Key),
 	}.Build()
 	c.wait(ch.Key, func(id, av string) { row.SetId(id); row.SetAvatarPath(av) })
 	p, ok := c.previews.get(ch.Key)

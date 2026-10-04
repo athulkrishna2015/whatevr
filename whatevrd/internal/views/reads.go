@@ -96,7 +96,7 @@ var everything = core.Change{All: map[string]bool{
 	"sticker": true, "sync": true, "prefs": true, "privacy": true, "blocklist": true, "call": true, "appstate": true,
 	live.TouchConn: true, live.TouchLogin: true, live.TouchTyping: true, live.TouchPresence: true,
 	live.TouchTransfer: true, live.TouchNotification: true, live.TouchAbout: true, live.TouchProblems: true,
-	TouchClock: true, TouchSends: true,
+	live.TouchOlder: true, TouchClock: true, TouchSends: true,
 }}
 
 // Run brings the caches up to date with each change, then wakes the windows

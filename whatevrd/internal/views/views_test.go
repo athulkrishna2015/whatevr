@@ -318,3 +318,26 @@ func TestReceiptsLaterStepImpliesEarlier(t *testing.T) {
 		t.Fatal("first")
 	}
 }
+
+func TestAChatRowSaysWhileOlderHistoryIsAsked(t *testing.T) {
+	f := open(t, scenario()...)
+	sub, rows := f.subscribe(func(s *v2.Subscribe) { s.SetChats(&v2.ChatsView{}) })
+	if rows[1].GetChat().GetLoadingOlder() {
+		t.Fatal("loading before any request")
+	}
+	w, err := f.rs.World(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := w.Now(model.Norm(ashaPN))
+	f.rs.live.OnChange = f.rs.Tell
+	f.rs.live.SetLoadingOlder(key, true)
+	up := f.upserts(sub)
+	if len(up) != 1 || up[0].GetId() != rows[1].GetId() || !up[0].GetChat().GetLoadingOlder() {
+		t.Fatalf("on %v", up)
+	}
+	f.rs.live.SetLoadingOlder(key, false)
+	if up := f.upserts(sub); len(up) != 1 || up[0].GetChat().GetLoadingOlder() {
+		t.Fatalf("off %v", up)
+	}
+}

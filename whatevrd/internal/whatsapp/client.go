@@ -105,6 +105,7 @@ func New(ctx context.Context, o Options) (*Client, error) {
 	c := &Client{o: o, core: o.Core, r: model.NewReader(o.Core.Read()), live: o.Live, log: o.Log, ctx: ctx,
 		http: &http.Client{Transport: o.Transport}, sends: make(chan struct{}, 1)}
 	c.ingest = ingest.New(ctx, o.Core)
+	c.ingest.OnDemand = c.olderAnswered
 	c.conn = conn.New(conn.Options{
 		Network: o.Network,
 		Log:     o.Log.With().Str("module", "conn").Logger(),

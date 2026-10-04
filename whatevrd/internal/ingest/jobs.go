@@ -10,6 +10,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/types"
 
@@ -145,6 +146,7 @@ func (j *jobs) download(ctx context.Context, b model.Blob) error {
 	var first int64
 	size, convs, pieces := 0, 0, 0
 	var took time.Duration
+	var chats []string
 	flush := func() error {
 		if len(batch) == 0 {
 			return nil
@@ -170,6 +172,9 @@ func (j *jobs) download(ctx context.Context, b model.Blob) error {
 		}
 		convs++
 		pieces += len(ins)
+		if b.Notif.GetSyncType() == waE2E.HistorySyncType_ON_DEMAND {
+			chats = append(chats, c.GetID())
+		}
 		for _, in := range ins {
 			batch = append(batch, in)
 			if size += len(in.Body); size >= historyBatch {
@@ -217,6 +222,9 @@ func (j *jobs) download(ctx context.Context, b model.Blob) error {
 		Int("conversations", convs).Int("pieces", pieces).Dur("append", took).Msg("ingest: history blob logged")
 	// a chunk names groups the account may have left
 	signal(j.groups)
+	if len(chats) > 0 && j.g.OnDemand != nil {
+		j.g.OnDemand(chats)
+	}
 	if b.Notif.InitialHistBootstrapInlinePayload == nil && !j.g.KeepHistoryMedia {
 		if err := cli.DeleteMedia(ctx, whatsmeow.MediaHistory, b.Notif.GetDirectPath(), b.Notif.GetFileEncSHA256(), b.Notif.GetEncHandle()); err != nil {
 			log.Debug().Err(err).Str("notification", b.ID).Msg("ingest: history blob not deleted from the server")
