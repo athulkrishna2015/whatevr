@@ -26,7 +26,7 @@ func TestResolvePathsSocketAndLockLocations(t *testing.T) {
 	if want := filepath.Join(runtimeDir, "whatevr", "whatevrd.sock"); paths.SocketPath != want {
 		t.Errorf("SocketPath = %q, want %q", paths.SocketPath, want)
 	}
-	if want := filepath.Join(runtimeDir, "whatevrd", "whatevrd.lock"); paths.LockPath != want {
+	if want := filepath.Join(runtimeDir, "whatevr", "whatevrd.lock"); paths.LockPath != want {
 		t.Errorf("LockPath = %q, want %q", paths.LockPath, want)
 	}
 
@@ -37,7 +37,7 @@ func TestResolvePathsSocketAndLockLocations(t *testing.T) {
 	if err := paths.Ensure(); err != nil {
 		t.Fatalf("ensure directories: %v", err)
 	}
-	for _, dir := range []string{paths.SocketDir, paths.LockDir, paths.LogDir} {
+	for _, dir := range []string{paths.SocketDir, paths.LogDir} {
 		info, err := os.Stat(dir)
 		if err != nil {
 			t.Fatalf("stat %s: %v", dir, err)

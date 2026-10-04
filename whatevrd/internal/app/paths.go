@@ -15,12 +15,7 @@ type Paths struct {
 	// daemon's only socket. WHATEVR_SOCKET moves it
 	SocketDir  string
 	SocketPath string
-	// LockDir/LockPath deliberately keep the pre-teardown location rather than
-	// moving into SocketDir: a pre-teardown daemon (which still binds the gRPC
-	// socket and locks here) and this one must continue to exclude each other,
-	// or an upgrade could leave two daemons on one SQLite database. Safe to
-	// fold into SocketDir once no such build can still be running.
-	LockDir       string
+	// LockPath is one daemon per socket; the core locks its own db
 	LockPath      string
 	DataDir       string
 	CacheDir      string
@@ -65,7 +60,6 @@ func ResolvePaths() (Paths, error) {
 		}
 		socketDir, socket = filepath.Dir(s), s
 	}
-	lockDir := filepath.Join(runtimeBase, "whatevrd")
 	dataDir := filepath.Join(dataBase, "whatevrd")
 	cacheDir := filepath.Join(cacheBase, "whatevrd")
 
@@ -73,8 +67,7 @@ func ResolvePaths() (Paths, error) {
 		RuntimeDir:    runtimeBase,
 		SocketDir:     socketDir,
 		SocketPath:    socket,
-		LockDir:       lockDir,
-		LockPath:      filepath.Join(lockDir, "whatevrd.lock"),
+		LockPath:      filepath.Join(socketDir, "whatevrd.lock"),
 		DataDir:       dataDir,
 		CacheDir:      cacheDir,
 		SessionDir:    filepath.Join(dataDir, "session"),
@@ -85,7 +78,7 @@ func ResolvePaths() (Paths, error) {
 }
 
 func (p Paths) Ensure() error {
-	for _, dir := range []string{p.SocketDir, p.LockDir, p.DataDir, p.SessionDir, p.CacheDir, p.MediaCacheDir, p.LogDir} {
+	for _, dir := range []string{p.SocketDir, p.DataDir, p.SessionDir, p.CacheDir, p.MediaCacheDir, p.LogDir} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return err
 		}
