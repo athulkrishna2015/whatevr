@@ -26,11 +26,13 @@ type pool[T any] struct {
 	known   map[string]bool
 	running int
 	wake    chan struct{}
+	// drained says a job finished, to the one waiting in below
+	drained chan struct{}
 }
 
 func newPool[T any](name string, size int, gap time.Duration, key func(T) string, run func(context.Context, T) error) *pool[T] {
 	return &pool[T]{name: name, size: size, gap: gap, key: key, run: run,
-		known: map[string]bool{}, wake: make(chan struct{}, size)}
+		known: map[string]bool{}, wake: make(chan struct{}, size), drained: make(chan struct{}, 1)}
 }
 
 func (p *pool[T]) start(ctx context.Context) {
@@ -82,6 +84,23 @@ func (p *pool[T]) done(t T) {
 	p.running--
 	delete(p.known, p.key(t))
 	p.mu.Unlock()
+	select {
+	case p.drained <- struct{}{}:
+	default:
+	}
+}
+
+// below waits until fewer than n jobs are queued or running, so whoever
+// feeds the pool from the store holds a page at a time. false is ctx ending.
+func (p *pool[T]) below(ctx context.Context, n int) bool {
+	for p.pending() >= n {
+		select {
+		case <-p.drained:
+		case <-ctx.Done():
+			return false
+		}
+	}
+	return true
 }
 
 const (

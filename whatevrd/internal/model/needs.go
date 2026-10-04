@@ -14,39 +14,45 @@ type Blob struct {
 	Notif *waE2E.HistorySyncNotification
 }
 
-// PendingHistory is every history notification whose blob was neither
-// downloaded nor given up on, oldest first: what a restart has to fetch.
-func PendingHistory(ctx context.Context, db *sql.DB) ([]Blob, error) {
-	rows, err := db.QueryContext(ctx, `SELECT n.notification, i.body FROM hist_note n JOIN inputs i ON i.seq = n.seq
-		WHERE NOT EXISTS (SELECT 1 FROM hist_blob b WHERE b.notification = n.notification)
-		ORDER BY n.seq`)
+// PendingHistory is up to limit history notifications past the log's seq
+// after whose blob was neither downloaded nor given up on, oldest first:
+// what a restart has to fetch. next is where the following page starts, 0
+// when this was the last.
+func PendingHistory(ctx context.Context, db *sql.DB, after int64, limit int) (out []Blob, next int64, err error) {
+	rows, err := db.QueryContext(ctx, `SELECT n.seq, n.notification, i.body FROM hist_note n JOIN inputs i ON i.seq = n.seq
+		WHERE n.seq > ? AND NOT EXISTS (SELECT 1 FROM hist_blob b WHERE b.notification = n.notification)
+		ORDER BY n.seq LIMIT ?`, after, limit)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
-	var out []Blob
+	n := 0
 	for rows.Next() {
 		var id string
 		var body []byte
-		if err := rows.Scan(&id, &body); err != nil {
-			return nil, err
+		if err := rows.Scan(&next, &id, &body); err != nil {
+			return nil, 0, err
 		}
-		var n waE2E.HistorySyncNotification
-		if proto.Unmarshal(body, &n) == nil {
-			out = append(out, Blob{ID: id, Notif: &n})
+		n++
+		var notif waE2E.HistorySyncNotification
+		if proto.Unmarshal(body, &notif) == nil {
+			out = append(out, Blob{ID: id, Notif: &notif})
 		}
 	}
-	return out, rows.Err()
+	if n < limit {
+		next = 0
+	}
+	return out, next, rows.Err()
 }
 
-// UnfetchedGroups is every group a chat or message names that no fetch,
-// join or refusal has described yet.
-func UnfetchedGroups(ctx context.Context, db *sql.DB) ([]string, error) {
+// UnfetchedGroups is up to limit groups after after, by address, that a
+// chat or message names and no fetch, join or refusal has described yet.
+func UnfetchedGroups(ctx context.Context, db *sql.DB, after string, limit int) ([]string, error) {
 	rows, err := db.QueryContext(ctx, `SELECT chat FROM (
 			SELECT DISTINCT chat FROM msg WHERE chat LIKE '%@g.us'
 			UNION SELECT chat FROM hist_chat WHERE chat LIKE '%@g.us'
-		) WHERE chat NOT IN (SELECT grp FROM grp_floor) AND chat NOT IN (SELECT grp FROM grp_error)
-		ORDER BY chat`)
+		) WHERE chat > ? AND chat NOT IN (SELECT grp FROM grp_floor) AND chat NOT IN (SELECT grp FROM grp_error)
+		ORDER BY chat LIMIT ?`, after, limit)
 	if err != nil {
 		return nil, err
 	}

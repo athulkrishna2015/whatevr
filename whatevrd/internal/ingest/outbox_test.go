@@ -106,7 +106,7 @@ func TestOnlyWhatThisDaemonQueuedMayGoOut(t *testing.T) {
 	if err := db.WaitFolded(wctx, last); err != nil {
 		t.Fatal(err)
 	}
-	unsent, err := model.NewReader(db.Read()).Unsent(ctx)
+	unsent, err := model.NewReader(db.Read()).Unsent(ctx, nil, 1000)
 	if err != nil || len(unsent) != 4 {
 		t.Fatalf("unsent %+v %v", unsent, err)
 	}

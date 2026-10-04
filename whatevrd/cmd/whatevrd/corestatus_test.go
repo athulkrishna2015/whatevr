@@ -177,7 +177,7 @@ func TestRederiveFoldsTheLogAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	unsent, err := model.NewReader(db.Read()).Unsent(ctx)
+	unsent, err := model.NewReader(db.Read()).Unsent(ctx, nil, 1000)
 	if err != nil || len(unsent) != 1 || unsent[0].ID != "Q1" {
 		t.Fatalf("after rederive %+v %v", unsent, err)
 	}

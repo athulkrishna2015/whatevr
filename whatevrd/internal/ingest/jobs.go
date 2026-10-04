@@ -38,6 +38,8 @@ const (
 	historyWorkers = 2
 	groupWorkers   = 1
 	groupGap       = 200 * time.Millisecond
+	// jobPage is how much pending work is read from the store at once
+	jobPage = 64
 )
 
 // startJobs runs the jobs on cli, or moves running ones to it: a new
@@ -85,16 +87,25 @@ func (j *jobs) requeueHistory(ctx context.Context) {
 		}
 		return
 	}
-	pending, err := model.PendingHistory(ctx, j.read)
-	if err != nil {
-		log.Error().Err(err).Msg("ingest: pending history not read")
-		return
+	queued := 0
+	for after := int64(0); ; {
+		pending, next, err := model.PendingHistory(ctx, j.read, after, jobPage)
+		if err != nil {
+			log.Error().Err(err).Msg("ingest: pending history not read")
+			return
+		}
+		for _, b := range pending {
+			if j.history.add(b) {
+				queued++
+			}
+		}
+		if next == 0 || !j.history.below(ctx, historyWorkers) {
+			break
+		}
+		after = next
 	}
-	for _, b := range pending {
-		j.history.add(b)
-	}
-	if len(pending) > 0 {
-		log.Info().Int("blobs", len(pending)).Msg("ingest: history left from the last run queued")
+	if queued > 0 {
+		log.Info().Int("blobs", queued).Msg("ingest: history left from the last run queued")
 	}
 }
 
@@ -253,13 +264,19 @@ func (j *jobs) fetchGroups(ctx context.Context) {
 			_ = j.g.db.WaitFolded(ctx, appended)
 		}
 	}
-	missing, err := model.UnfetchedGroups(ctx, j.read)
-	if err != nil {
-		log.Error().Err(err).Msg("ingest: unfetched groups not read")
-		return
-	}
-	for _, g := range missing {
-		j.group.add(g)
+	for after := ""; ; {
+		missing, err := model.UnfetchedGroups(ctx, j.read, after, jobPage)
+		if err != nil {
+			log.Error().Err(err).Msg("ingest: unfetched groups not read")
+			return
+		}
+		for _, g := range missing {
+			j.group.add(g)
+		}
+		if len(missing) < jobPage || !j.group.below(ctx, groupWorkers) {
+			return
+		}
+		after = missing[len(missing)-1]
 	}
 }
 

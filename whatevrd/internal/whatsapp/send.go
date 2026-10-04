@@ -480,40 +480,59 @@ func (c *Client) sendDue(ctx context.Context, tries map[Ref]time.Time) time.Dura
 	if err := c.ingest.Folded(ctx); err != nil {
 		return 5 * time.Second
 	}
-	out, err := c.r.Unsent(ctx)
-	if err != nil {
-		c.log.Warn().Err(err).Msg("whatsapp: read the outbox")
-		return 5 * time.Second
-	}
 	next := time.Hour
-	for _, o := range out {
-		if ctx.Err() != nil {
-			return next
+	var after *model.Outgoing
+	for {
+		page, err := c.r.Unsent(ctx, after, sendPage)
+		if err != nil {
+			c.log.Warn().Err(err).Msg("whatsapp: read the outbox")
+			return 5 * time.Second
 		}
-		ref := Ref{Chat: o.Chat, ID: o.ID}
-		if at, ok := tries[ref]; ok && time.Now().Before(at) {
-			next = min(next, time.Until(at))
-			continue
-		}
-		if !cli.IsConnected() {
-			c.conn.Kick("send")
-			return time.Hour
-		}
-		err := c.sendOne(ctx, cli, o)
-		if err == nil {
-			delete(tries, ref)
-			continue
-		}
-		final := errors.Is(err, errFinal)
-		c.ingest.Attempted(ctx, o.Chat, o.ID, err, final)
-		c.log.Warn().Err(err).Str("chat", o.Chat).Str("id", o.ID).Int("attempt", o.Attempts+1).Bool("final", final).Msg("whatsapp: send")
-		if !final {
-			d := sendBackoff(o.Attempts + 1)
-			tries[ref] = time.Now().Add(d)
+		for _, o := range page {
+			if ctx.Err() != nil {
+				return next
+			}
+			d, gone := c.sendIfDue(ctx, cli, tries, o)
+			if gone {
+				return d
+			}
 			next = min(next, d)
 		}
+		if len(page) < sendPage {
+			return next
+		}
+		after = &page[len(page)-1]
 	}
-	return next
+}
+
+// sendPage is how much of the outbox is read at once
+const sendPage = 32
+
+// sendIfDue sends o unless it waits out a backoff, and says how long until
+// it is due again. gone is the socket down: stop and wait that long.
+func (c *Client) sendIfDue(ctx context.Context, cli *whatsmeow.Client, tries map[Ref]time.Time, o model.Outgoing) (time.Duration, bool) {
+	ref := Ref{Chat: o.Chat, ID: o.ID}
+	if at, ok := tries[ref]; ok && time.Now().Before(at) {
+		return time.Until(at), false
+	}
+	if !cli.IsConnected() {
+		c.conn.Kick("send")
+		return time.Hour, true
+	}
+	err := c.sendOne(ctx, cli, o)
+	if err == nil {
+		delete(tries, ref)
+		return time.Hour, false
+	}
+	final := errors.Is(err, errFinal)
+	c.ingest.Attempted(ctx, o.Chat, o.ID, err, final)
+	c.log.Warn().Err(err).Str("chat", o.Chat).Str("id", o.ID).Int("attempt", o.Attempts+1).Bool("final", final).Msg("whatsapp: send")
+	if final {
+		return time.Hour, false
+	}
+	d := sendBackoff(o.Attempts + 1)
+	tries[ref] = time.Now().Add(d)
+	return d, false
 }
 
 var errFinal = errors.New("will not go")

@@ -79,8 +79,10 @@ func foldOutbox(tx *core.Tx, in core.Input) error {
 
 // Outgoing is one send this daemon queued, as far as it got.
 type Outgoing struct {
-	Chat, ID  string
-	T, Ord    int64
+	Chat, ID string
+	T, Ord   int64
+	// Seq is where the log queued it, after T in the queue's order
+	Seq       int64
 	Cancelled bool
 	Failed    bool
 	Attempts  int
@@ -92,7 +94,7 @@ type Outgoing struct {
 	File string
 }
 
-const outgoingCols = `o.chat, o.id, o.queued_t, o.ord, o.cancelled,
+const outgoingCols = `o.chat, o.id, o.queued_t, o.ord, o.seq, o.cancelled,
 	EXISTS (SELECT 1 FROM outbox_try x WHERE x.chat = o.chat AND x.id = o.id AND x.final = 1),
 	(SELECT COUNT(*) FROM outbox_try x WHERE x.chat = o.chat AND x.id = o.id),
 	COALESCE((SELECT x.error FROM outbox_try x WHERE x.chat = o.chat AND x.id = o.id ORDER BY x.t DESC, x.error DESC LIMIT 1), ''),
@@ -106,7 +108,7 @@ const sentCopy = `s.id = o.id AND s.sender = '` + Me + `' AND (s.chat = o.chat
 
 func scanOutgoing(row interface{ Scan(...any) error }) (Outgoing, error) {
 	var o Outgoing
-	err := row.Scan(&o.Chat, &o.ID, &o.T, &o.Ord, &o.Cancelled, &o.Failed, &o.Attempts, &o.Error, &o.Sent, &o.Body, &o.File)
+	err := row.Scan(&o.Chat, &o.ID, &o.T, &o.Ord, &o.Seq, &o.Cancelled, &o.Failed, &o.Attempts, &o.Error, &o.Sent, &o.Body, &o.File)
 	return o, err
 }
 
@@ -121,13 +123,21 @@ func (r *Reader) Outgoing(ctx context.Context, chat, id string) (Outgoing, bool,
 	return o, err == nil, err
 }
 
-// Unsent is every queued send still owed, oldest first.
-func (r *Reader) Unsent(ctx context.Context) ([]Outgoing, error) {
+// owed is the sql for "queued send o is still owed"
+const owed = `o.queued_t > 0 AND o.cancelled = 0
+	AND NOT EXISTS (SELECT 1 FROM outbox_try x WHERE x.chat = o.chat AND x.id = o.id AND x.final = 1)
+	AND NOT EXISTS (SELECT 1 FROM msg_src s WHERE ` + sentCopy + `)`
+
+// Unsent is up to limit queued sends still owed, oldest first, after the
+// one at after or from the start when it is nil.
+func (r *Reader) Unsent(ctx context.Context, after *Outgoing, limit int) ([]Outgoing, error) {
+	var at Outgoing
+	if after != nil {
+		at = *after
+	}
 	rows, err := r.db.QueryContext(ctx, `SELECT `+outgoingCols+` FROM outbox o
-		WHERE o.queued_t > 0 AND o.cancelled = 0
-		AND NOT EXISTS (SELECT 1 FROM outbox_try x WHERE x.chat = o.chat AND x.id = o.id AND x.final = 1)
-		AND NOT EXISTS (SELECT 1 FROM msg_src s WHERE `+sentCopy+`)
-		ORDER BY o.queued_t, o.seq, o.id`)
+		WHERE `+owed+` AND (o.queued_t, o.seq, o.id) > (?, ?, ?)
+		ORDER BY o.queued_t, o.seq, o.id LIMIT ?`, at.T, at.Seq, at.ID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -141,6 +151,13 @@ func (r *Reader) Unsent(ctx context.Context) ([]Outgoing, error) {
 		out = append(out, o)
 	}
 	return out, rows.Err()
+}
+
+// UnsentCount is how many queued sends are still owed.
+func (r *Reader) UnsentCount(ctx context.Context) (int, error) {
+	var n int
+	err := r.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM outbox o WHERE `+owed).Scan(&n)
+	return n, err
 }
 
 // queuedRows is the outbox as transcript rows: sends the log has no message

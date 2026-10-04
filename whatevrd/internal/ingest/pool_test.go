@@ -95,3 +95,37 @@ func TestPoolRetriesAFailingJobWhileOthersGoOn(t *testing.T) {
 		}
 	}
 }
+
+func TestBelowWaitsForThePoolToDrain(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	release := make(chan struct{})
+	p := newPool("test", 1, 0, func(s string) string { return s }, func(ctx context.Context, s string) error {
+		<-release
+		return nil
+	})
+	p.start(ctx)
+	p.add("a")
+	p.add("b")
+	waited := make(chan bool)
+	go func() { waited <- p.below(ctx, 1) }()
+	select {
+	case <-waited:
+		t.Fatal("below returned with two jobs pending")
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case ok := <-waited:
+		if !ok || p.pending() != 0 {
+			t.Fatalf("below %v with %d pending", ok, p.pending())
+		}
+	case <-time.After(time.Second):
+		t.Fatal("below never returned")
+	}
+	cancel()
+	p.add("c")
+	if p.below(ctx, 1) {
+		t.Fatal("below past a cancelled context")
+	}
+}

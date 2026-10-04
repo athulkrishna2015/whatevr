@@ -81,7 +81,7 @@ func TestOutboxStandsInUntilTheSendIsLogged(t *testing.T) {
 	if _, ok, _ := r.Outgoing(ctx, ashaPN, "H9"); ok {
 		t.Error("a pending history message counts as queued here")
 	}
-	unsent, err := r.Unsent(ctx)
+	unsent, err := r.Unsent(ctx, nil, 1000)
 	if err != nil || len(unsent) != 1 || unsent[0].ID != "Q3" || unsent[0].Attempts != 1 {
 		t.Fatalf("unsent %+v %v", unsent, err)
 	}
@@ -143,4 +143,37 @@ func w(t *testing.T, r *Reader) *World {
 		t.Fatal(err)
 	}
 	return w
+}
+
+func TestTheOutboxIsReadAPageAtATime(t *testing.T) {
+	ctx := context.Background()
+	db := openModel(t)
+	// one second, so the log's order breaks the tie
+	scen := []core.Input{in(core.KindLIDMapping, core.LIDMappingHead{LID: meLID, PN: mePN, Self: true}, nil, at(0))}
+	for _, id := range []string{"A", "B", "C", "D", "E"} {
+		scen = append(scen, queueIn(ashaPN, id, "", text(id), 10))
+	}
+	feed(t, db, scen)
+	r := NewReader(db.Read())
+	var got []string
+	var after *Outgoing
+	for {
+		page, err := r.Unsent(ctx, after, 2)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, o := range page {
+			got = append(got, o.ID)
+		}
+		if len(page) < 2 {
+			break
+		}
+		after = &page[len(page)-1]
+	}
+	if want := []string{"A", "B", "C", "D", "E"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("paged %v, want %v", got, want)
+	}
+	if n, err := r.UnsentCount(ctx); err != nil || n != 5 {
+		t.Fatalf("count %d %v", n, err)
+	}
 }

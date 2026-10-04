@@ -34,11 +34,11 @@ func (rs *Reads) connectionView(ctx context.Context, s *server.Session, req *v2.
 			NextRetryMs:  ms(st.Next),
 			CanReconnect: st.Manual,
 		}.Build()
-		out, err := rs.r.Unsent(ctx)
+		n, err := rs.r.UnsentCount(ctx)
 		if err != nil {
 			return nil, err
 		}
-		row.SetPendingOutgoing(uint32(len(out)))
+		row.SetPendingOutgoing(uint32(n))
 		it := &v2.Upsert{}
 		it.SetConnection(row)
 		return one(it), nil

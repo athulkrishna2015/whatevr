@@ -156,22 +156,34 @@ func syncProblems(db *core.DB) status.Provider {
 
 func outboxProblems(db *core.DB) status.Provider {
 	return func(ctx context.Context) ([]status.Problem, error) {
-		out, err := model.NewReader(db.Read()).Unsent(ctx)
-		if err != nil {
-			return nil, err
-		}
-		var failing []model.Outgoing
-		for _, o := range out {
-			if o.Attempts > 0 {
-				failing = append(failing, o)
+		r := model.NewReader(db.Read())
+		var since int64
+		var lastErr string
+		failing := 0
+		for after := (*model.Outgoing)(nil); ; {
+			page, err := r.Unsent(ctx, after, 64)
+			if err != nil {
+				return nil, err
 			}
+			for i := range page {
+				if o := page[i]; o.Attempts > 0 {
+					if failing == 0 {
+						since = o.T
+					}
+					lastErr = o.Error
+					failing++
+				}
+			}
+			if len(page) < 64 {
+				break
+			}
+			after = &page[len(page)-1]
 		}
-		if len(failing) == 0 {
+		if failing == 0 {
 			return nil, nil
 		}
-		last := failing[len(failing)-1]
-		return []status.Problem{{Kind: status.OutboxFailing, Since: time.UnixMilli(failing[0].T),
-			Detail: fmt.Sprintf("%d sends failing, last: %s", len(failing), last.Error)}}, nil
+		return []status.Problem{{Kind: status.OutboxFailing, Since: time.UnixMilli(since),
+			Detail: fmt.Sprintf("%d sends failing, last: %s", failing, lastErr)}}, nil
 	}
 }
 
