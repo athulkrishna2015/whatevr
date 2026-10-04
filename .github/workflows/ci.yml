@@ -93,6 +93,11 @@ jobs:
           submodules: recursive
           persist-credentials: false
 
+      - name: Install libjpeg-turbo
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libturbojpeg0-dev
+
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
@@ -173,6 +178,11 @@ jobs:
           go-version-file: whattui/go.mod
           cache-dependency-path: whattui/go.sum
 
+      - name: Install libjpeg-turbo
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libturbojpeg0-dev
+
       # The golden frames and the paint benchmarks run against a real daemon
       # speaking to a fake WhatsApp server. Mock mode mutates process-global
       # certificate state, so it exists only behind this tag, and it needs cgo
@@ -236,7 +246,7 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
-          pacman -Syu --noconfirm --needed git base-devel go just zstd python
+          pacman -Syu --noconfirm --needed git base-devel go just zstd python libjpeg-turbo
 
       - name: Checkout
         uses: actions/checkout@v6

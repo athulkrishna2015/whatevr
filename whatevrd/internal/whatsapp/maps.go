@@ -55,6 +55,8 @@ const (
 	// mapTileMaxBytes rejects a tile server handing back something that is not
 	// a tile. A 256px PNG tile is a few tens of KB.
 	mapTileMaxBytes = 2 << 20
+	// tiles are 256 or 512 square
+	mapTileMaxPixels = 1024 * 1024
 )
 
 // ErrMapsDisabled is returned when the user turned map fetching off. The
@@ -363,6 +365,18 @@ func decodeImageFile(path string) (image.Image, error) {
 		return nil, err
 	}
 	defer file.Close()
+	// a few kilobytes of png can say it is gigapixels, and image.Decode
+	// believes it
+	cfg, _, err := image.DecodeConfig(file)
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Width*cfg.Height > mapTileMaxPixels {
+		return nil, fmt.Errorf("%s is %dx%d", path, cfg.Width, cfg.Height)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return nil, err
+	}
 	img, _, err := image.Decode(file)
 	return img, err
 }

@@ -30,7 +30,7 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
-          pacman -Syu --noconfirm --needed git openssh sudo base-devel go just zstd python
+          pacman -Syu --noconfirm --needed git openssh sudo base-devel go just zstd python libjpeg-turbo
           useradd -m -G wheel builduser
           printf 'builduser ALL=(ALL) NOPASSWD: ALL\n' >> /etc/sudoers
 

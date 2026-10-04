@@ -13,6 +13,7 @@ pkgbase = whatevr-git
 	makedepends = just
 	makedepends = python
 	depends = glibc
+	depends = libjpeg-turbo
 	optdepends = ffmpeg: video posters and voice note waveforms
 	provides = whatevr
 	provides = whatevrd

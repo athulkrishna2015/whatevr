@@ -1,6 +1,7 @@
 package whatsapp
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/hex"
@@ -28,6 +29,7 @@ import (
 	"whatevrd/internal/core"
 	"whatevrd/internal/ingest"
 	"whatevrd/internal/model"
+	"whatevrd/internal/turbojpeg"
 )
 
 // Ref names a message the way the model does: the address it came under and
@@ -316,19 +318,19 @@ func (c *Client) mediaBody(ctx context.Context, kind sendAs, path, mimeType, nam
 	switch kind {
 	case sendImage:
 		img := &waE2E.ImageMessage{Mimetype: proto.String(mimeType), Caption: capt, FileLength: proto.Uint64(size), ContextInfo: ci, ViewOnce: vo}
-		if data, err := os.ReadFile(path); err == nil {
-			if cfg, _, err := image.DecodeConfig(bytes.NewReader(data)); err == nil {
-				img.Width, img.Height = proto.Uint32(uint32(cfg.Width)), proto.Uint32(uint32(cfg.Height))
+		if src, w, h, err := readImage(path); w > 0 {
+			img.Width, img.Height = proto.Uint32(uint32(w)), proto.Uint32(uint32(h))
+			if err == nil {
+				img.JPEGThumbnail = thumbnail(src)
 			}
-			img.JPEGThumbnail = thumbnail(data)
 		}
 		return &waE2E.Message{ImageMessage: img}
 	case sendVideo:
 		v := &waE2E.VideoMessage{Mimetype: proto.String(mimeType), Caption: capt, FileLength: proto.Uint64(size), ContextInfo: ci, ViewOnce: vo}
 		if f, ok := probe(ctx, path); ok {
 			v.Width, v.Height, v.Seconds = proto.Uint32(f.w), proto.Uint32(f.h), proto.Uint32(f.seconds)
-			if f.frame != nil {
-				v.JPEGThumbnail = thumbnail(f.frame)
+			if src, err := turbojpeg.Decode(f.frame, thumbMax); err == nil {
+				v.JPEGThumbnail = thumbnail(src)
 			}
 		}
 		return &waE2E.Message{VideoMessage: v}
@@ -629,13 +631,41 @@ func (c *Client) Cancel(ctx context.Context, ref Ref) error {
 
 const thumbMax = 100
 
-// thumbnail is the small jpeg whatsapp shows while the full file loads, nil
-// when the image won't decode. a box average is plenty at this size.
-func thumbnail(data []byte) []byte {
-	src, _, err := image.Decode(bytes.NewReader(data))
+// imageCap is the most pixels a png is decoded at for its thumbnail: go's
+// decoder holds all of them, 64 MiB of rgba at the cap. a jpeg shrinks while
+// it decodes, so it goes much further, see turbojpeg.
+const imageCap = 16 << 20
+
+// readImage is the image at path, at least thumbMax on its longer side and
+// small enough to hold, and its size. the size comes off the header, so it is
+// there even when the image is too big to decode.
+func readImage(path string) (image.Image, int, int, error) {
+	f, err := os.Open(path)
 	if err != nil {
-		return nil
+		return nil, 0, 0, err
 	}
+	defer f.Close()
+	cfg, format, err := image.DecodeConfig(bufio.NewReader(f))
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	if format == "jpeg" {
+		src, err := turbojpeg.DecodeFile(path, thumbMax)
+		return src, cfg.Width, cfg.Height, err
+	}
+	if cfg.Width*cfg.Height > imageCap {
+		return nil, cfg.Width, cfg.Height, fmt.Errorf("%dx%d is past %d pixels", cfg.Width, cfg.Height, imageCap)
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return nil, 0, 0, err
+	}
+	src, _, err := image.Decode(bufio.NewReader(f))
+	return src, cfg.Width, cfg.Height, err
+}
+
+// thumbnail is the small jpeg whatsapp shows while the full file loads. a
+// box average is plenty at this size.
+func thumbnail(src image.Image) []byte {
 	b := src.Bounds()
 	sw, sh := b.Dx(), b.Dy()
 	if sw <= 0 || sh <= 0 {

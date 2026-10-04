@@ -35,19 +35,19 @@ vaxis, both carried as git submodules, so clone with `git clone --recursive`, or
 
 #### 1. Install dependencies
 
-**Daemon:** Go 1.26+, just, a C compiler, SQLite dev files, pkg-config.
+**Daemon:** Go 1.26+, just, a C compiler, SQLite and libjpeg-turbo dev files, pkg-config.
 **Terminal frontend:** the same Go toolchain, nothing else.
 **Optional at runtime:** ffmpeg, for video posters and voice note waveforms.
 
 ```sh
 # Arch
-sudo pacman -S --needed base-devel go just sqlite pkgconf
+sudo pacman -S --needed base-devel go just sqlite libjpeg-turbo pkgconf
 
 # Fedora
-sudo dnf install go just gcc sqlite-devel pkgconf-pkg-config
+sudo dnf install go just gcc sqlite-devel turbojpeg-devel pkgconf-pkg-config
 
 # Debian 13 "trixie" (needs Go >= 1.26, see Platform support)
-sudo apt install golang just gcc libsqlite3-dev pkg-config
+sudo apt install golang just gcc libsqlite3-dev libturbojpeg0-dev pkg-config
 ```
 
 #### 2. Build and install
