@@ -28,6 +28,16 @@ type frontends struct {
 	gen     uint64
 	// watched is when each person's presence was last asked for
 	watched map[string]time.Time
+	swept   time.Time
+}
+
+// expire drops the times in m older than ttl: one that old counts as never
+func expire(m map[string]time.Time, now time.Time, ttl time.Duration) {
+	for k, t := range m {
+		if now.Sub(t) > ttl {
+			delete(m, k)
+		}
+	}
 }
 
 // presenceOffline is how long the account stays available after the last
@@ -49,6 +59,10 @@ func (c *Client) SetFrontends(fs []Frontend) {
 	var watch []string
 	if f.watched == nil {
 		f.watched = map[string]time.Time{}
+	}
+	if t := time.Now(); t.Sub(f.swept) > presenceAgain {
+		expire(f.watched, t, presenceAgain)
+		f.swept = t
 	}
 	for _, fe := range fs {
 		for _, p := range fe.Watching {

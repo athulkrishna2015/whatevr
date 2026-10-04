@@ -54,6 +54,7 @@ type avatars struct {
 	low     []avatarJob
 	queued  map[string]bool
 	checked map[string]time.Time
+	swept   time.Time
 	tokens  float64
 	filled  time.Time
 	wake    chan struct{}
@@ -77,6 +78,10 @@ func (c *Client) WantAvatars(keys []string) {
 	now := time.Now()
 	var fresh []string
 	a.mu.Lock()
+	if now.Sub(a.swept) > wantAgain {
+		expire(a.checked, now, wantAgain)
+		a.swept = now
+	}
 	for _, k := range keys {
 		if t, ok := a.checked[k]; ok && now.Sub(t) < wantAgain {
 			continue
