@@ -180,4 +180,13 @@ func TestAnAnchoredWindowAtTheLiveEdgeStaysUnderTheCap(t *testing.T) {
 	if got := strings.Join(itemIDs(t, w), ""); got != "EFGHI" || w.Size() != 5 {
 		t.Fatalf("after a new one %v, size %d", got, w.Size())
 	}
+	// more than a window at once is read as the newest window, not walked
+	var burst []core.Input
+	for i, id := range strings.Split("JKLMNOP", "") {
+		burst = append(burst, msg(id, ashaPN, ashaPN, "", false, 30+i, id))
+	}
+	f.feed(burst...)
+	if got := strings.Join(itemIDs(t, w), ""); got != "LMNOP" || w.Size() != 5 {
+		t.Fatalf("after a burst %v, size %d", got, w.Size())
+	}
 }

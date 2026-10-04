@@ -2,7 +2,6 @@ package views
 
 import (
 	"context"
-	"math"
 	"slices"
 	"strings"
 	"sync"
@@ -281,7 +280,7 @@ func (a *anchoredWin) Items(ctx context.Context, _ int) ([]*v2.Upsert, error) {
 	older = older[:min(len(older), olderN)]
 	newerLimit := newerN + 1
 	if live {
-		newerLimit = math.MaxInt32
+		newerLimit = anchoredCap
 	}
 	newer, err := a.rs.r.Messages(ctx, ch.Addrs, at, newerLimit, true)
 	if err != nil {
@@ -295,9 +294,21 @@ func (a *anchoredWin) Items(ctx context.Context, _ int) ([]*v2.Upsert, error) {
 	window := slices.Concat(older, []model.Message{anchor}, newer)
 	// at the live edge new messages grow the window: past the cap the oldest
 	// go, and the anchor moves up to the oldest kept
-	drop := len(window) - anchoredCap
-	if drop > 0 {
-		window = window[drop:]
+	moved := false
+	if live && len(newer) >= anchoredCap {
+		// a window's worth came at once: the window is the newest of them
+		latest, err := a.rs.r.Messages(ctx, ch.Addrs, model.Cursor{}, anchoredCap, false)
+		if err != nil {
+			return nil, err
+		}
+		if len(latest) > 0 {
+			slices.Reverse(latest)
+			window, moved = latest, true
+		}
+	} else if drop := len(window) - anchoredCap; drop > 0 {
+		window, moved = window[drop:], true
+	}
+	if moved {
 		older, olderExhausted = nil, false
 		anchor, newer = window[0], window[1:]
 	}
@@ -305,7 +316,7 @@ func (a *anchoredWin) Items(ctx context.Context, _ int) ([]*v2.Upsert, error) {
 	a.mu.Lock()
 	a.olderExhausted, a.newerExhausted = olderExhausted, newerExhausted
 	switch {
-	case drop > 0:
+	case moved:
 		a.anchor, a.older, a.newer = anchor.ID, 0, len(newer)
 		a.live = true
 	case newerExhausted:
