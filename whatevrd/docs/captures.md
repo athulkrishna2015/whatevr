@@ -135,17 +135,11 @@ ever runs the self-test.
 
 The self-test takes the `busy` scenario (one run) and `echo` (two runs with a
 send each) with `--capture`, replays them, and requires the replay to make the
-same whatsmeow events (by the run log's `event` lines) with no misses, gate
-timeouts or junk. It is part of `just test` and CI.
+same whatsmeow events (by the run log's `event` lines) and the same views, with
+no misses, gate timeouts or junk. It is part of `just test` and CI.
 
 ## What it cannot do yet
 
-- **The old core is not deterministic.** It folds history chunks on its own
-  goroutine and stamps sent messages and system rows with its own clock, so two
-  replays of one capture can differ in unread counts, previews and the times of
-  sent messages. The self-test prints those view differences without failing
-  on them. The new core has to take every time from an input or an injected
-  clock and be order independent, then snapshots compare exactly.
 - `msmsg` (bot) payloads are not replayed, they need the message secret.
 - A body over the cap, or an http exchange that failed at capture time, is a
   404 in the replay.

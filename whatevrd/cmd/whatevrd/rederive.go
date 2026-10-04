@@ -20,7 +20,7 @@ import (
 
 const rederiveUsage = `usage: whatevrd rederive [flags]
 
-drops every table the new core derives and folds its whole log again, as a
+drops every table the core derives and folds its whole log again, as a
 fold version change does at startup. the log itself is not touched. refuses
 while a daemon or anything else has the store open. exits 1 when any input
 failed to fold.

@@ -34,7 +34,7 @@ const (
 	WaitingOnPhone    Kind = "waiting_on_phone_resend"
 	// owner outbox
 	OutboxFailing Kind = "outbox_failing"
-	// owner media, still the old core's under --core new
+	// owner media
 	MediaFailing Kind = "media_failing"
 	// owner core
 	StoreFailing Kind = "database_error"
