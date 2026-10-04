@@ -79,14 +79,15 @@ func nastyTexts() []nastyText {
 	}
 }
 
-// hugeMessage is the single message nobody budgeted for. Forty thousand
-// characters is past every buffer a transcript is likely to have and still
-// small enough that a scenario builds instantly.
+// hugeMessage is the single message nobody budgeted for. Eighty thousand
+// characters is past every buffer a transcript is likely to have, past the
+// daemon's 60 KiB row so it comes cut, and still small enough that a scenario
+// builds instantly.
 func hugeMessage() string {
 	var b strings.Builder
-	b.Grow(41000)
+	b.Grow(81000)
 	b.WriteString("a very long message follows, and it has to wrap, scroll and select correctly the whole way down: ")
-	for i := 0; b.Len() < 40000; i++ {
+	for i := 0; b.Len() < 80000; i++ {
 		b.WriteString("paragraph ")
 		b.WriteString(strings.Repeat("filler ", 20))
 		if i%7 == 0 {
