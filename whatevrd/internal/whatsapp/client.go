@@ -58,9 +58,9 @@ type Options struct {
 	// that worked
 	Media func(err error)
 	// Relink is set when data from the daemon before this core is still
-	// here. that link never asked for inline contacts, so it is logged out
-	// on its first connect and pairing again brings them. Relink runs once
-	// nothing is linked, to clear the old data
+	// here. that link never asked for the whole history or inline contacts,
+	// so it is logged out on its first connect and pairing again brings
+	// them. Relink runs once nothing is linked, to clear the old data
 	Relink func() error
 }
 
@@ -475,7 +475,7 @@ func (c *Client) Logout(ctx context.Context) error {
 
 // relinkOld logs out the account the daemon before this core linked
 func (c *Client) relinkOld() {
-	c.log.Info().Msg("whatsapp: logging out the old daemon's account so pairing again brings the contacts")
+	c.log.Info().Msg("whatsapp: logging out the old daemon's account so pairing again brings the whole history")
 	if err := c.Logout(context.WithoutCancel(c.ctx)); err != nil {
 		c.log.Error().Err(err).Msg("whatsapp: relink")
 	}

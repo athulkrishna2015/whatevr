@@ -73,7 +73,9 @@ func (g *Ingest) Attach(cli *whatsmeow.Client) {
 			g.loggedIn(cli)
 		}
 	})
-	// asked for at pairing, so it has to be set before one
+	// asked for at pairing, so it has to be set before one: the phone's whole
+	// history, not its recent window, with the contacts inline
+	store.DeviceProps.RequireFullSync = proto.Bool(true)
 	store.DeviceProps.HistorySyncConfig.SupportInlineContacts = proto.Bool(true)
 	if g.db != nil {
 		g.startJobs(cli, g.db.Read())

@@ -11,7 +11,6 @@ import (
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
 
@@ -68,10 +67,6 @@ func capturePrepare(log zerolog.Logger, f *captureFlagSet, mockScenario string) 
 	run := &captureRun{dir: dir, name: filepath.Base(dir), mock: mockScenario, guard: mockScenario == ""}
 	if run.mock == "" {
 		isolate(log, run)
-		// only read at pairing: the phone sends all its history, inline
-		// contacts included, as the new core will ask for
-		store.DeviceProps.RequireFullSync = proto.Bool(true)
-		store.DeviceProps.HistorySyncConfig.SupportInlineContacts = proto.Bool(true)
 	}
 	return run
 }
