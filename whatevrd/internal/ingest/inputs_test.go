@@ -123,8 +123,13 @@ func TestEveryOtherKindKeepsItsFacts(t *testing.T) {
 			h := head[core.BusinessNameHead](t, in)
 			return h.New == "Shop" && h.T == 0
 		}},
-		// whatsmeow's clock is no time of the server's
+		// found decrypting: the message's server time
 		{&events.IdentityChange{JID: asha, Timestamp: at, Implicit: true}, core.KindIdentityChange, func(in core.Input) bool {
+			h := head[core.IdentityChangeHead](t, in)
+			return h.Implicit && h.T == at.Unix()
+		}},
+		// found sending: no time, the stamp stands in
+		{&events.IdentityChange{JID: asha, Implicit: true}, core.KindIdentityChange, func(in core.Input) bool {
 			h := head[core.IdentityChangeHead](t, in)
 			return h.Implicit && h.T == 0
 		}},

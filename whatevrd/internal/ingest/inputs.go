@@ -61,13 +61,9 @@ func inputsFor(evt any) ([]core.Input, error) {
 		}
 		return one(core.KindBusinessName, h, nil)
 	case *events.IdentityChange:
-		h := core.IdentityChangeHead{JID: jid(evt.JID), Implicit: evt.Implicit}
-		// an implicit one is whatsmeow's own clock, not the server's: the
-		// stamp stands in, which replay can repeat
-		if !evt.Implicit {
-			h.T = unix(evt.Timestamp)
-		}
-		return one(core.KindIdentityChange, h, nil)
+		// no time on one found while sending: the stamp stands in, which
+		// replay can repeat
+		return one(core.KindIdentityChange, core.IdentityChangeHead{JID: jid(evt.JID), Implicit: evt.Implicit, T: unix(evt.Timestamp)}, nil)
 	case *events.Picture:
 		return one(core.KindPicture, core.PictureHead{
 			JID: jid(evt.JID), Author: jid(evt.Author), T: unix(evt.Timestamp), Remove: evt.Remove, PictureID: evt.PictureID,
