@@ -40,6 +40,9 @@ func (a *App) paint() {
 
 	// No clear: the panes tile the screen between them, so clearing first is a
 	// write to every cell that every one of them is about to write again.
+	// the cursor stays where the last frame put it unless hidden, and only
+	// a field that takes typing shows it again
+	a.vx.HideCursor()
 	win := a.vx.Window()
 	l := a.layout()
 	a.followChat(max(l.Transcript.Height, 1))
