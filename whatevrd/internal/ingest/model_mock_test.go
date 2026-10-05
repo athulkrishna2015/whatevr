@@ -180,15 +180,19 @@ func TestBrokenAppStateRecoversThroughTheLog(t *testing.T) {
 	eventually(t, "the unpin", func() bool {
 		return len(rowsOf(t, db, `SELECT a FROM appstate WHERE kind = 'pin_v1' AND on_ = 0`)) > 0
 	})
-	c, err := model.NewReader(db.Read()).Completeness(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, d := range c.AppState {
-		if d.Domain == "regular_low" && (d.State != model.Known || d.Recovery != "") {
-			t.Fatalf("regular_low %+v after recovering", d)
+	// the sync complete that clears the error is dispatched after step 0 is saved
+	eventually(t, "regular_low known again", func() bool {
+		c, err := model.NewReader(db.Read()).Completeness(ctx)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
+		for _, d := range c.AppState {
+			if d.Domain == "regular_low" {
+				return d.State == model.Known && d.Recovery == ""
+			}
+		}
+		return false
+	})
 }
 
 // pairing saves the device, and saving hands it the container's lid map; the
