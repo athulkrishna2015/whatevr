@@ -142,6 +142,10 @@ class Daemon:
                 self.proc.kill()
                 self.proc.wait()
         self.errlog.close()
+        # on darwin the sockets sit in a short dir under the user temp dir, not in scratch
+        run = self.socket_path.parent
+        if run.name.startswith("i-"):
+            shutil.rmtree(run, ignore_errors=True)
 
 
 def normalize(value: object, scratch: str) -> object:
