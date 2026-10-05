@@ -39,6 +39,18 @@ yay -S whatevr-bin
 ```
 Note: You can install the `whatevr` or `whatevr-git` packages also if you want to build yourself
 
+On macOS, from the Homebrew tap, prebuilt:
+```sh
+brew install --cask codelif/tap/whatevr
+```
+or built from source (`--HEAD` for main):
+```sh
+brew install codelif/tap/whatevr
+```
+The cask is ad-hoc signed, not notarized, and clears the quarantine flag on
+install. `brew uninstall --cask --zap whatevr` also removes the login service
+and all data.
+
 For other systems, for now you can follow the build instructions below:
 
 ## Building
