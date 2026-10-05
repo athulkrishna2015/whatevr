@@ -369,7 +369,11 @@ jobs:
       - name: Leave no test sockets behind
         run: |
           left="$(find "$(getconf DARWIN_USER_TEMP_DIR)whatevr" -maxdepth 1 -name 'i-*' 2>/dev/null; find /tmp -maxdepth 1 -name 'whattui-mock-*' 2>/dev/null)"
-          if [ -n "$left" ]; then printf 'left behind by the tests:\n%s\n' "$left"; exit 1; fi
+          if [ -n "$left" ]; then
+            printf 'left behind by the tests:\n'
+            printf '%s\n' "$left" | while read -r dir; do ls -la "$dir"; done
+            exit 1
+          fi
       - name: Render Homebrew packages into a local tap
         env:
           HOMEBREW_NO_AUTO_UPDATE: '1'
