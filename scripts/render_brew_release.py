@@ -9,6 +9,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+RELEASES = "https://github.com/codelif/whatevr/releases/download"
 SHA = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -32,21 +33,31 @@ def main() -> None:
     parser.add_argument("--arm64-sha", required=True, type=sha, help="darwin arm64 tarball sha256")
     parser.add_argument("--amd64-sha", required=True, type=sha, help="darwin amd64 tarball sha256")
     parser.add_argument("--tap", required=True, type=Path, help="tap checkout to write into")
+    parser.add_argument("--url-base", default=RELEASES + "/v{version}", help="where the tarballs live, ci points it at file://")
     args = parser.parse_args()
-    if not re.match(r"^[0-9]+\.[0-9]+\.[0-9]+$", args.version):
+    # ci renders untagged builds, 0.8.0-3-gabc1234
+    if not re.match(r"^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$", args.version):
         raise SystemExit(f"not a release version: {args.version!r}")
+    base = args.url_base.format(version=args.version).rstrip("/")
 
     formula = (ROOT / "packaging/homebrew/whatevr.rb").read_text(encoding="utf-8")
     formula = replace_once(
         formula,
         r'^  url "https://github\.com/codelif/whatevr/releases/download/v[^/]+/whatevr-[^"]+\.tar\.gz"$',
-        f'  url "https://github.com/codelif/whatevr/releases/download/v{args.version}/whatevr-{args.version}.tar.gz"',
+        f'  url "{base}/whatevr-{args.version}.tar.gz"',
         "formula",
     )
     formula = replace_once(formula, r'^  sha256 "[0-9a-f]{64}"$', f'  sha256 "{args.source_sha}"', "formula")
 
     cask = (ROOT / "packaging/homebrew/whatevr-cask.rb").read_text(encoding="utf-8")
     cask = replace_once(cask, r'^  version "[^"]+"$', f'  version "{args.version}"', "cask")
+    if base != f"{RELEASES}/v{args.version}":
+        cask = replace_once(
+            cask,
+            r'^  url "https://github\.com/codelif/whatevr/releases/download/v#\{version\}/',
+            f'  url "{base}/',
+            "cask",
+        )
     cask = replace_once(cask, r'^  sha256 arm:   "[0-9a-f]{64}",$', f'  sha256 arm:   "{args.arm64_sha}",', "cask")
     cask = replace_once(cask, r'^         intel: "[0-9a-f]{64}"$', f'         intel: "{args.amd64_sha}"', "cask")
 
