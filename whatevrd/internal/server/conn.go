@@ -211,6 +211,7 @@ func (c *conn) handleHello(req *v2.Request) {
 	}.Build())
 	c.respond(resp, false)
 	c.srv.sessionChanged()
+	c.srv.hand(c)
 }
 
 func (c *conn) subscribe(ctx context.Context, req *v2.Request) {

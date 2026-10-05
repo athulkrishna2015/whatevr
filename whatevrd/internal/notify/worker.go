@@ -29,8 +29,7 @@ type Worker struct {
 	obj  dbus.BusObject
 	caps Capabilities
 	log  zerolog.Logger
-	// open hands a clicked chat to a frontend, false with none to take it
-	open func(chat string) bool
+	open Handlers
 
 	mu sync.Mutex
 	// ids is ours to the server's, chats the server's to the chat it opens
@@ -44,7 +43,7 @@ type op struct {
 	close string
 }
 
-func NewWorker(ctx context.Context, log zerolog.Logger, open func(chat string) bool) (*Worker, error) {
+func NewWorker(ctx context.Context, log zerolog.Logger, open Handlers) (*Worker, error) {
 	conn, err := dbus.SessionBus()
 	if err != nil {
 		return nil, err
@@ -176,10 +175,8 @@ func (w *Worker) handleSignal(ctx context.Context, signal *dbus.Signal) {
 		w.mu.Lock()
 		chat, ok := w.chats[id]
 		w.mu.Unlock()
-		// a terminal frontend can't be started from a notification, so with
-		// none connected the click goes nowhere
-		if ok && (w.open == nil || !w.open(chat)) {
-			w.log.Info().Str("chat", chat).Msg("notify: clicked with no frontend connected")
+		if ok && (w.open.Chat == nil || !w.open.Chat(chat)) {
+			w.log.Info().Str("chat", chat).Msg("notify: click went nowhere")
 		}
 	case interfaceName + ".NotificationClosed":
 		if len(signal.Body) < 1 {

@@ -42,6 +42,7 @@ message Request {
     DaemonReconnect daemon_reconnect = 21;
     AccountLogout account_logout = 22;
     FrontendSetDefault frontend_set_default = 23;
+    LinkOpen link_open = 24;
 
     // 30-49: chats
     ChatMarkRead chat_mark_read = 30;
@@ -189,6 +190,7 @@ message Event {
     ViewUpdate update = 1;
     OpenChat open_chat = 2;
     MediaStreamUpdate media_stream_update = 3;
+    Activate activate = 4;
   }
 }
 

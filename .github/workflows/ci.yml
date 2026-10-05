@@ -266,7 +266,7 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
-          pacman -Syu --noconfirm --needed git base-devel go just zstd python libjpeg-turbo
+          pacman -Syu --noconfirm --needed git base-devel go just zstd python libjpeg-turbo desktop-file-utils
 
       - name: Checkout
         uses: actions/checkout@v6
@@ -295,6 +295,8 @@ jobs:
         run: |
           just install-dev /usr "$RUNNER_TEMP/pkgroot"
           test -f "$RUNNER_TEMP/pkgroot/usr/share/whatevr/frontends/whattui.json"
+          test -f "$RUNNER_TEMP/pkgroot/usr/share/icons/hicolor/scalable/apps/whatevr.svg"
+          desktop-file-validate "$RUNNER_TEMP/pkgroot/usr/share/applications/whatevr.desktop"
 
       - name: Show resolved version
         run: just version

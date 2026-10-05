@@ -363,6 +363,111 @@ func (b0 FrontendSetDefault_builder) Build() *FrontendSetDefault {
 	return m0
 }
 
+// opens a whatevr:// link: a chat by id or address, or no chat at all, which
+// brings a frontend forward. it only ever navigates, never sends.
+type LinkOpen struct {
+	state          protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Url string                 `protobuf:"bytes,1,opt,name=url"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *LinkOpen) Reset() {
+	*x = LinkOpen{}
+	mi := &file_whatevr_v2_frontends_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LinkOpen) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LinkOpen) ProtoMessage() {}
+
+func (x *LinkOpen) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_frontends_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *LinkOpen) GetUrl() string {
+	if x != nil {
+		return x.xxx_hidden_Url
+	}
+	return ""
+}
+
+func (x *LinkOpen) SetUrl(v string) {
+	x.xxx_hidden_Url = v
+}
+
+type LinkOpen_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Url string
+}
+
+func (b0 LinkOpen_builder) Build() *LinkOpen {
+	m0 := &LinkOpen{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Url = b.Url
+	return m0
+}
+
+// someone opened whatevr itself, the app or the launcher entry, with no chat
+// in mind. a frontend that can raise its window does; one that can't
+// ignores it
+type Activate struct {
+	state         protoimpl.MessageState `protogen:"opaque.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Activate) Reset() {
+	*x = Activate{}
+	mi := &file_whatevr_v2_frontends_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Activate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Activate) ProtoMessage() {}
+
+func (x *Activate) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_frontends_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+type Activate_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+}
+
+func (b0 Activate_builder) Build() *Activate {
+	m0 := &Activate{}
+	b, x := &b0, m0
+	_, _ = b, x
+	return m0
+}
+
 var File_whatevr_v2_frontends_proto protoreflect.FileDescriptor
 
 const file_whatevr_v2_frontends_proto_rawDesc = "" +
@@ -381,7 +486,11 @@ const file_whatevr_v2_frontends_proto_rawDesc = "" +
 	"\x12FrontendListResult\x122\n" +
 	"\tfrontends\x18\x01 \x03(\v2\x14.whatevr.v2.FrontendR\tfrontends\"$\n" +
 	"\x12FrontendSetDefault\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id*\x83\x01\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"\x1c\n" +
+	"\bLinkOpen\x12\x10\n" +
+	"\x03url\x18\x01 \x01(\tR\x03url\"\n" +
+	"\n" +
+	"\bActivate*\x83\x01\n" +
 	"\x0eFrontendSource\x12\x1f\n" +
 	"\x1bFRONTEND_SOURCE_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16FRONTEND_SOURCE_SYSTEM\x10\x01\x12\x1a\n" +
@@ -392,13 +501,15 @@ const file_whatevr_v2_frontends_proto_rawDesc = "" +
 	"Whatevr\\V2\xe2\x02\x16Whatevr\\V2\\GPBMetadata\xea\x02\vWhatevr::V2\x92\x03\x02\b\x02b\beditionsp\xe9\a"
 
 var file_whatevr_v2_frontends_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_whatevr_v2_frontends_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_whatevr_v2_frontends_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_whatevr_v2_frontends_proto_goTypes = []any{
 	(FrontendSource)(0),        // 0: whatevr.v2.FrontendSource
 	(*Frontend)(nil),           // 1: whatevr.v2.Frontend
 	(*FrontendList)(nil),       // 2: whatevr.v2.FrontendList
 	(*FrontendListResult)(nil), // 3: whatevr.v2.FrontendListResult
 	(*FrontendSetDefault)(nil), // 4: whatevr.v2.FrontendSetDefault
+	(*LinkOpen)(nil),           // 5: whatevr.v2.LinkOpen
+	(*Activate)(nil),           // 6: whatevr.v2.Activate
 }
 var file_whatevr_v2_frontends_proto_depIdxs = []int32{
 	0, // 0: whatevr.v2.Frontend.source:type_name -> whatevr.v2.FrontendSource
@@ -421,7 +532,7 @@ func file_whatevr_v2_frontends_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_whatevr_v2_frontends_proto_rawDesc), len(file_whatevr_v2_frontends_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   4,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

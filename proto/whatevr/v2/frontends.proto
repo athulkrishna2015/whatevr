@@ -39,3 +39,14 @@ message FrontendListResult {
 message FrontendSetDefault {
   string id = 1;
 }
+
+// opens a whatevr:// link: a chat by id or address, or no chat at all, which
+// brings a frontend forward. it only ever navigates, never sends.
+message LinkOpen {
+  string url = 1;
+}
+
+// someone opened whatevr itself, the app or the launcher entry, with no chat
+// in mind. a frontend that can raise its window does; one that can't
+// ignores it
+message Activate {}

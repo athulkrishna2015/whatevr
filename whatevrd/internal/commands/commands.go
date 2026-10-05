@@ -33,20 +33,28 @@ type Options struct {
 	Log    zerolog.Logger
 	// Frontends is where frontend manifests are read from
 	Frontends frontends.Dirs
+	// Launch lets a click or link start the default frontend
+	Launch bool
+	// Hint tells the user why nothing opened, nil to only log it
+	Hint func(title, body string)
 }
 
 type commands struct {
-	srv  *server.Server
-	c    *whatsapp.Client
-	rs   *views.Reads
-	log  zerolog.Logger
-	dirs frontends.Dirs
+	srv    *server.Server
+	c      *whatsapp.Client
+	rs     *views.Reads
+	log    zerolog.Logger
+	dirs   frontends.Dirs
+	launch bool
+	hint   func(title, body string)
+	opener *Opener
 }
 
 // Register serves every command on o.Server and has it tell the client
-// what the frontends show.
-func Register(o Options) {
-	x := &commands{srv: o.Server, c: o.Client, rs: o.Reads, log: o.Log, dirs: o.Frontends}
+// what the frontends show. the opener is for clicks from outside the socket.
+func Register(o Options) *Opener {
+	x := &commands{srv: o.Server, c: o.Client, rs: o.Reads, log: o.Log, dirs: o.Frontends, launch: o.Launch, hint: o.Hint}
+	x.opener = &Opener{x: x}
 	type arm = protoreflect.FieldNumber
 	off := map[arm]server.Method{
 		arm(v2.Request_DaemonReconnect_case):          x.reconnect,
@@ -85,6 +93,7 @@ func Register(o Options) {
 		arm(v2.Request_ContactCheckPhone_case):        x.checkPhone,
 		arm(v2.Request_FrontendList_case):             x.frontendList,
 		arm(v2.Request_FrontendSetDefault_case):       x.frontendSetDefault,
+		arm(v2.Request_LinkOpen_case):                 x.linkOpen,
 	}
 	for n, fn := range off {
 		o.Server.Handle(n, fn)
@@ -102,6 +111,7 @@ func Register(o Options) {
 		o.Server.HandleInline(n, fn)
 	}
 	o.Server.OnSessions = x.sessions
+	return x.opener
 }
 
 // wire is err as a request's failure.

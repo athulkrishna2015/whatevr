@@ -89,6 +89,8 @@ uninstall prefix="/usr/local" destdir="":
     rmdir "$destdir$prefix/share/whatevr/frontends" "$destdir$prefix/share/whatevr" 2>/dev/null || true; \
     rm -f "$destdir$prefix/lib/systemd/user/whatevrd.service"; \
     rm -f "$destdir$prefix/lib/systemd/user/whatevrd.socket"; \
+    rm -f "$destdir$prefix/share/applications/whatevr.desktop"; \
+    rm -f "$destdir$prefix/share/icons/hicolor/scalable/apps/whatevr.svg"; \
     if [ "$(uname -s)" = Darwin ]; then rm -rf "$destdir$prefix/Whatevr.app"; fi
 
 clean:

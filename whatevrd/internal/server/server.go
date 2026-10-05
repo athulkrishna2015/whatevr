@@ -61,8 +61,13 @@ type Server struct {
 
 	mu    sync.Mutex
 	conns map[*conn]struct{}
-	wg    sync.WaitGroup
-	last  atomic.Uint64
+
+	// pending is a chat a click or link opened with no frontend to show it
+	pendingMu sync.Mutex
+	pending   string
+	pendingAt time.Time
+	wg        sync.WaitGroup
+	last      atomic.Uint64
 
 	// OnSessions hears that a frontend came, went, focused, or changed what
 	// it shows. set before Serve
@@ -333,9 +338,13 @@ func (s *Server) Sessions() []SessionState {
 	return out
 }
 
-// OpenChat sends open_chat to the frontend most recently focused, or the
-// most recently active one if none is focused. false when there is none.
-func (s *Server) OpenChat(chatID string) bool {
+// pendingFor is how long a chat nobody could open waits for a frontend.
+const pendingFor = 60 * time.Second
+
+// target is the frontend most recently focused, or the most recently active
+// one if none is focused. only connections that said which frontend they are
+// count: a tool on the socket can't show a chat.
+func (s *Server) target() *conn {
 	var best *conn
 	var bestAt time.Time
 	focused := false
@@ -344,6 +353,9 @@ func (s *Server) OpenChat(chatID string) bool {
 			continue
 		}
 		st := c.sess.state()
+		if st.Frontend == "" {
+			continue
+		}
 		at := st.Touched
 		if st.Focused {
 			at = st.FocusedAt
@@ -355,13 +367,53 @@ func (s *Server) OpenChat(chatID string) bool {
 			best, bestAt = c, at
 		}
 	}
+	return best
+}
+
+func openChatEvent(chatID string) *v2.Event {
+	e := &v2.Event{}
+	e.SetOpenChat(v2.OpenChat_builder{ChatId: chatID}.Build())
+	return e
+}
+
+// OpenChat sends open_chat for chatID to the target frontend. with none it
+// holds the chat for the next frontend to say hello, newest wins, and says
+// false.
+func (s *Server) OpenChat(chatID string) bool {
+	if best := s.target(); best != nil {
+		best.event(openChatEvent(chatID))
+		return true
+	}
+	s.pendingMu.Lock()
+	s.pending, s.pendingAt = chatID, time.Now()
+	s.pendingMu.Unlock()
+	return false
+}
+
+// Activate sends activate to the target frontend, false when there is none.
+func (s *Server) Activate() bool {
+	best := s.target()
 	if best == nil {
 		return false
 	}
 	e := &v2.Event{}
-	e.SetOpenChat(v2.OpenChat_builder{ChatId: chatID}.Build())
+	e.SetActivate(&v2.Activate{})
 	best.event(e)
 	return true
+}
+
+// hand gives a frontend that just said hello the chat held for it.
+func (s *Server) hand(c *conn) {
+	if c.sess.state().Frontend == "" {
+		return
+	}
+	s.pendingMu.Lock()
+	chat, at := s.pending, s.pendingAt
+	s.pending = ""
+	s.pendingMu.Unlock()
+	if chat != "" && time.Since(at) < pendingFor {
+		c.event(openChatEvent(chat))
+	}
 }
 
 // Send hands an event to the connection behind s, if it is still open.

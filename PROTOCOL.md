@@ -336,6 +336,7 @@ ids for correlation.
 | `daemon_reconnect` | none | `done` |
 | `account_logout` | none | `done`: logs out and wipes this account's data |
 | `frontend_set_default` | `id` | `done`: the frontend a click or link starts; `NOT_FOUND` for one the daemon can't start |
+| `link_open` | `url` | `done`: see Links; `INVALID_PARAMS` for a link it can't read, `NOT_FOUND` for a chat or person it doesn't know |
 
 **Chats**
 
@@ -514,7 +515,8 @@ Events without a subscription, sent to one connection:
 
 | event | data | meaning |
 | --- | --- | --- |
-| `open_chat` | `chat_id` | a notification was clicked; sent to the most recently focused frontend, or the most recently active one if none is focused |
+| `open_chat` | `chat_id` | a notification was clicked or a link opened; sent to the most recently focused frontend, or the most recently active one if none is focused |
+| `activate` | none | whatevr itself was opened with no chat in mind; same target. a frontend that can raise its window does |
 | `media_stream_update` | `stream_id`, `message_id`, `state`, `path` or `error` | see *Files*; at most once per stream, after its response |
 
 ## Frontends
@@ -537,6 +539,24 @@ without a shell, and `terminal` runs it in a terminal. That terminal is the
 `terminal` preference with the argv appended, or the platform's when it's
 empty (`xdg-terminal-exec`, then `$TERMINAL -e`; Terminal.app on macOS). The
 `default_frontend` preference picks which one starts; empty is `whattui`.
+
+`open_chat` and `activate` only go to connections that gave a `frontend_id`; a
+tool on the socket can't show a chat. When a click or link finds no frontend,
+the daemon starts the default one and holds the chat for 60 seconds: the first
+frontend to say hello in that time gets it as `open_chat` right after its hello
+answer. A newer chat replaces a held one.
+
+### Links
+
+`whatevr://` links only navigate; nothing in one sends. A dev build's app uses
+`whatevr-dev://`, the same format. `link_open` takes one, and `whatevrd open`
+is the command line for it, what the desktop's link handler runs.
+
+| link | opens |
+| --- | --- |
+| `whatevr://` | no chat: `activate`, or the default frontend started |
+| `whatevr://chat/<chat_id>` | that chat, by the id rows use |
+| `whatevr://chat?phone=<number>` | the direct chat with that number, made if there is none; also `lid=` or `username=`, exactly one |
 
 ## Example
 

@@ -11,4 +11,8 @@
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>LSUIElement</key><true/>
 <key>CFBundleIconFile</key><string>Whatevr</string>
+<key>CFBundleURLTypes</key><array><dict>
+<key>CFBundleURLName</key><string>in.codelif.whatevr</string>
+<key>CFBundleURLSchemes</key><array><string>whatevr</string></array>
+</dict></array>
 </dict></plist>

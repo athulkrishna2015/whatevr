@@ -48,6 +48,8 @@ func main() {
 			os.Exit(runPair(os.Args[2:], os.Stdout, os.Stderr))
 		case "frontend":
 			os.Exit(runFrontend(os.Args[2:], os.Stdout, os.Stderr))
+		case "open":
+			os.Exit(runOpen(os.Args[2:], os.Stdout, os.Stderr))
 		case "logs":
 			os.Exit(runLogs(os.Args[2:], os.Stdout, os.Stderr))
 		case "capture":
@@ -201,15 +203,35 @@ func main() {
 		log.Fatal().Err(err).Msg("start the protocol server")
 	}
 
+	// the notifier starts before the commands it opens chats through
+	var opener atomic.Pointer[commands.Opener]
+	handlers := notify.Handlers{
+		Chat: func(key string) bool {
+			o := opener.Load()
+			return o != nil && o.ChatKey(key)
+		},
+		Link: func(url string) {
+			if o := opener.Load(); o != nil {
+				if err := o.Link(ctx, url); err != nil {
+					log.Warn().Err(err).Str("url", url).Msg("open a link")
+				}
+			}
+		},
+		Activate: func() {
+			if o := opener.Load(); o != nil {
+				o.Activate()
+			}
+		},
+	}
 	// a nil *notify.Worker in the interface would not be a nil interface
 	var notifier whatsapp.Notifier
+	var worker *notify.Worker
 	if mockSilencesNotifications(mock) {
 		log.Info().Msg("notifications disabled: mock mode")
-	} else if w, err := notify.NewWorker(ctx, log.With().Str("module", "notify").Logger(), srv.OpenChat); err != nil {
+	} else if w, err := notify.NewWorker(ctx, log.With().Str("module", "notify").Logger(), handlers); err != nil {
 		log.Warn().Err(err).Msg("notifications disabled")
 	} else {
-		w.Start(ctx)
-		notifier = w
+		worker, notifier = w, w
 	}
 
 	var network conn.Network
@@ -257,7 +279,25 @@ func main() {
 	reads.Store(rs)
 
 	rs.Register(srv)
-	commands.Register(commands.Options{Server: srv, Client: client, Reads: rs, Log: log.With().Str("module", "commands").Logger(), Frontends: frontends.DefaultDirs()})
+	opener.Store(commands.Register(commands.Options{
+		Server:    srv,
+		Client:    client,
+		Reads:     rs,
+		Log:       log.With().Str("module", "commands").Logger(),
+		Frontends: frontends.DefaultDirs(),
+		// a mock run never starts a real frontend behind a test's back
+		Launch: !mockSilencesNotifications(mock),
+		Hint: func(title, body string) {
+			if notifier != nil {
+				notifier.Show(live.Notification{ID: "whatevr-hint", Title: title, Body: body, T: time.Now()})
+			}
+		},
+	}))
+	// started once the opener is in: a link that woke the daemon is the
+	// first thing the app hands it
+	if worker != nil {
+		worker.Start(ctx)
+	}
 	go rs.Run(ctx)
 	go watchBoard(ctx, log.With().Str("module", "status").Logger(), board, poke, 30*time.Second)
 	// every view and command is on the server before it accepts

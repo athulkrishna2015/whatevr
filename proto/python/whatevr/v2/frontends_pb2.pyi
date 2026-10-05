@@ -49,3 +49,13 @@ class FrontendSetDefault(_message.Message):
     ID_FIELD_NUMBER: _ClassVar[int]
     id: str
     def __init__(self, id: _Optional[str] = ...) -> None: ...
+
+class LinkOpen(_message.Message):
+    __slots__ = ("url",)
+    URL_FIELD_NUMBER: _ClassVar[int]
+    url: str
+    def __init__(self, url: _Optional[str] = ...) -> None: ...
+
+class Activate(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...

@@ -23,6 +23,15 @@ whatevrd frontend set-default ghostty-tui
 whatevrd frontend terminal set -- foot -e    # where terminal frontends run
 ```
 
+A notification click, or a `whatevr://` link, opens the chat in the frontend
+you're using, or starts the default one when none is open. Links only ever
+open a chat:
+
+```sh
+whatevrd open 'whatevr://chat?phone=+15551234567'
+xdg-open 'whatevr://'    # Linux, through the installed whatevr.desktop
+```
+
 ## Getting it
 On Arch-based systems, Whatevr is available on the AUR:
 ```sh
@@ -314,7 +323,13 @@ whatevrd notifications status
 
 Allow notifications in the macOS dialog. If previously denied, enable **Whatevr**
 in System Settings → Notifications. Notification clicks select
-the chat in a connected frontend. If no frontend is open, no terminal is launched.
+the chat in a connected frontend. If no frontend is open, the default one is
+started (see Frontends) and opens on that chat; if the daemon isn't running,
+the click starts it through the login service.
+
+Whatevr.app handles `whatevr://` links, for Raycast, Shortcuts or scripts:
+`open 'whatevr://chat?phone=+15551234567'`. Opening the app itself brings up
+the default frontend.
 The helper follows system notification/sound settings; a missing helper or denied
 permission does not prevent messaging. Local rebuilds may require checking
 notification authorization again because they use ad-hoc signing.

@@ -35,6 +35,9 @@ if profile != "release":
     info["CFBundleIdentifier"] += ".dev"
     info["CFBundleName"] += " Dev"
     info["CFBundleDisplayName"] += " Dev"
+    for kind in info["CFBundleURLTypes"]:
+        kind["CFBundleURLName"] += ".dev"
+        kind["CFBundleURLSchemes"] = [scheme + "-dev" for scheme in kind["CFBundleURLSchemes"]]
 (contents / "Info.plist").write_bytes(plistlib.dumps(info))
 iconset = out / "Whatevr.iconset"
 renderer = out / "render-icon"

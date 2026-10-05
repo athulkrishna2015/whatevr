@@ -416,3 +416,77 @@ func TestHelloRecordsTheFrontend(t *testing.T) {
 		t.Fatalf("sessions %+v", ss)
 	}
 }
+
+func (c *client) helloAs(frontend string) {
+	c.t.Helper()
+	c.send(func(r *v2.Request) {
+		r.SetHello(v2.Hello_builder{Client: "t", Protocol: 2, FrontendId: frontend}.Build())
+	})
+	if c.read().GetResponse().GetHello() == nil {
+		c.t.Fatal("no hello")
+	}
+}
+
+func dial(t *testing.T, s *Server) *client {
+	t.Helper()
+	nc, err := net.Dial("unix", s.opts.SocketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { nc.Close() })
+	return &client{t: t, nc: nc, r: bufio.NewReader(nc)}
+}
+
+func TestAChatWithNoFrontendWaitsForTheNextOne(t *testing.T) {
+	s, tool := start(t, &fakeList{})
+	// a tool on the socket is not somewhere a chat can open
+	tool.helloAs("")
+	if s.OpenChat("c1") || s.OpenChat("c2") || s.Activate() {
+		t.Fatal("opened on a tool")
+	}
+	// the tool saying hello again elsewhere doesn't take it either
+	dial(t, s).helloAs("")
+	fe := dial(t, s)
+	fe.helloAs("whattui")
+	if got := fe.read().GetEvent().GetOpenChat().GetChatId(); got != "c2" {
+		t.Fatalf("pending went to %q, want the newest", got)
+	}
+	// handed once, and with fe gone other is the only frontend
+	other := dial(t, s)
+	other.helloAs("other")
+	fe.nc.Close()
+	for deadline := time.Now().Add(5 * time.Second); len(s.Sessions()) != 3; {
+		if time.Now().After(deadline) {
+			t.Fatal("fe never went away")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !s.Activate() {
+		t.Fatal("no frontend to activate")
+	}
+	if !other.read().GetEvent().HasActivate() {
+		t.Fatal("activate went to the wrong frontend")
+	}
+	if !s.OpenChat("c3") {
+		t.Fatal("not opened")
+	}
+	if other.read().GetEvent().GetOpenChat().GetChatId() != "c3" {
+		t.Fatal("open went to the wrong frontend")
+	}
+}
+
+func TestAStalePendingChatIsDropped(t *testing.T) {
+	s, _ := start(t, &fakeList{})
+	s.OpenChat("old")
+	s.pendingMu.Lock()
+	s.pendingAt = time.Now().Add(-pendingFor - time.Second)
+	s.pendingMu.Unlock()
+	fe := dial(t, s)
+	fe.helloAs("whattui")
+	if !s.OpenChat("new") {
+		t.Fatal("not opened")
+	}
+	if got := fe.read().GetEvent().GetOpenChat().GetChatId(); got != "new" {
+		t.Fatalf("got %q, the stale chat came through", got)
+	}
+}

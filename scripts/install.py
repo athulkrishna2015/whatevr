@@ -37,6 +37,8 @@ if sys.platform == "darwin":
     link.symlink_to(os.path.relpath(prefix / "Whatevr.app/Contents/MacOS/whatevrd", prefix / "bin"))
 else:
     install(build / "whatevrd", prefix / "bin/whatevrd", 0o755)
+    install(root / "packaging/linux/whatevr.desktop", prefix / "share/applications/whatevr.desktop", 0o644)
+    install(root / "packaging/linux/whatevr.svg", prefix / "share/icons/hicolor/scalable/apps/whatevr.svg", 0o644)
     unit = build / "whatevrd.service"
     unit.write_text((root / "packaging/systemd/whatevrd.service.in").read_text().replace("@BINDIR@", str(prefix / "bin")))
     install(unit, prefix / "lib/systemd/user/whatevrd.service", 0o644)

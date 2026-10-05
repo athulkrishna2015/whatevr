@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import UserNotifications
+import CryptoKit
 import Darwin
 
 // one source for both identities: the release app and the dev build differ
@@ -20,13 +21,17 @@ struct Notice: Codable {
     let sound: Bool
 }
 struct Message: Codable {
-    var version = 1
+    var version = 2
     var type: String
     var namespace: String?
     var id: String?
     var chat: String?
     var status: String?
     var notice: Notice?
+    // the daemon's socket, in hello, so a click can wake it later
+    var socket: String?
+    // a link the app was handed
+    var url: String?
 }
 func statusName(_ status: UNAuthorizationStatus) -> String {
     switch status {
@@ -43,6 +48,16 @@ func userTemp() throws -> String {
     var bytes = [CChar](repeating: 0, count: size)
     guard confstr(_CS_DARWIN_USER_TEMP_DIR, &bytes, size) > 0 else { throw NSError(domain: bundleID, code: 1) }
     return String(cString: bytes)
+}
+// the socket the login service holds, platform.NativeSocketPath. links go to
+// whichever daemon sits on it
+func defaultSocket() -> String? {
+    guard let temp = try? userTemp() else { return nil }
+    return (temp as NSString).appendingPathComponent("in.codelif.whatevr.sock")
+}
+// a daemon's namespace is the first 16 bytes of sha256 of its socket path
+func namespace(of socket: String) -> String {
+    SHA256.hash(data: Data(socket.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
 }
 func unixAddress(_ path: String) throws -> sockaddr_un {
     var address = sockaddr_un()
@@ -96,7 +111,7 @@ final class Peer {
         while let newline = data.firstIndex(of: 10) {
             let line = data.prefix(upTo: newline)
             data.removeSubrange(...newline)
-            guard let message = try? JSONDecoder().decode(Message.self, from: line), message.version == 1 else { stop(); return }
+            guard let message = try? JSONDecoder().decode(Message.self, from: line), message.version == 2 else { stop(); return }
             handle(message)
         }
     }
@@ -124,8 +139,11 @@ final class Peer {
         case "hello":
             guard let ns = message.namespace, ns.count == 32, ns.allSatisfy({ $0.isHexDigit }) else { stop(); return }
             namespace = ns
-            for click in server.pendingClicks.removeValue(forKey: ns) ?? [] where Date().timeIntervalSince(click.0) < 30 {
-                send(Message(type: "click", namespace: ns, chat: click.1))
+            if let socket = message.socket, socket.hasPrefix("/"), socket.utf8.count < 104 {
+                server.sockets[ns] = socket
+            }
+            for item in server.pending.removeValue(forKey: ns) ?? [] where Date().timeIntervalSince(item.0) < 30 {
+                send(item.1)
             }
             settings()
         case "status": settings()
@@ -175,7 +193,9 @@ final class Peer {
 final class Server {
     var peers: [Int32: Peer] = [:]
     var generations: [String: UUID] = [:]
-    var pendingClicks: [String: [(Date, String)]] = [:]
+    // what came in for a daemon that wasn't connected: clicks, links, opens
+    var pending: [String: [(Date, Message)]] = [:]
+    var sockets: [String: String] = [:]
     var listener: Int32 = -1
     var lock: Int32 = -1
     var source: DispatchSourceRead?
@@ -214,30 +234,89 @@ final class Server {
         }
     }
     func clicked(namespace: String, chat: String) {
+        ipcQueue.async { self.deliver(Message(type: "click", namespace: namespace, chat: chat)) }
+    }
+    // links and plain opens go to the daemon on the default socket
+    func link(_ url: String) {
         ipcQueue.async {
-            let recipients = self.peers.values.filter { $0.namespace == namespace }
-            if recipients.isEmpty {
-                // A notification click may relaunch the helper before a daemon reconnects.
-                if self.pendingClicks.count >= 64 { self.pendingClicks.removeAll() }
-                var pending = self.pendingClicks[namespace] ?? []
-                pending.append((Date(), chat))
-                self.pendingClicks[namespace] = Array(pending.suffix(16))
-            }
-            for peer in recipients { peer.send(Message(type: "click", namespace: namespace, chat: chat)) }
+            guard let socket = defaultSocket() else { return }
+            self.deliver(Message(type: "link", namespace: namespace(of: socket), url: url))
+        }
+    }
+    func activate() {
+        ipcQueue.async {
+            guard let socket = defaultSocket() else { return }
+            self.deliver(Message(type: "activate", namespace: namespace(of: socket)))
+        }
+    }
+    func deliver(_ message: Message) {
+        guard let ns = message.namespace else { return }
+        let recipients = peers.values.filter { $0.namespace == ns }
+        for peer in recipients { peer.send(message) }
+        if !recipients.isEmpty { return }
+        // held for the daemon's hello. a click can relaunch the helper
+        // before a daemon reconnects, and a stopped one gets woken
+        if pending.count >= 64 { pending.removeAll() }
+        pending[ns] = Array(((pending[ns] ?? []) + [(Date(), message)]).suffix(16))
+        wake(ns)
+    }
+    // wake connects to the daemon's socket, which starts it when the login
+    // service holds it. nothing listening means the service is off.
+    func wake(_ ns: String) {
+        var path = sockets[ns]
+        if path == nil, let socket = defaultSocket(), namespace(of: socket) == ns { path = socket }
+        guard let path, var address = try? unixAddress(path) else { return }
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return }
+        defer { Darwin.close(fd) }
+        let connected = withUnsafePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+        }
+        if connected != 0 && (errno == ENOENT || errno == ECONNREFUSED) {
+            pending.removeValue(forKey: ns)
+            notifyLocally(title: "\(appName) isn't running", body: "Start it with: whatevrd service enable")
+        }
+    }
+    func notifyLocally(title: String, body: String) {
+        center.getNotificationSettings { settings in
+            guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else { return }
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
+            center.add(UNNotificationRequest(identifier: "local:" + UUID().uuidString, content: content, trigger: nil))
         }
     }
 }
 final class Delegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     let server = Server()
+    // a launch for a link or a click isn't a plain open
+    var handled = false
     func applicationDidFinishLaunching(_ notification: Notification) {
         center.delegate = self
         do { try server.start() }
         catch { NSLog("Whatevr notifications: %@", error.localizedDescription); NSApp.terminate(nil) }
+        // the daemon starts the app with --background. anyone else opening
+        // it with nothing in hand wants a frontend; a link or click arrives
+        // just after launch, so give it a moment
+        if !ProcessInfo.processInfo.arguments.contains("--background") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [self] in
+                if !handled { server.activate() }
+            }
+        }
+    }
+    func application(_ application: NSApplication, open urls: [URL]) {
+        handled = true
+        for url in urls.prefix(16) { server.link(url.absoluteString) }
+    }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        server.activate()
+        return false
     }
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completion: @escaping (UNNotificationPresentationOptions) -> Void) {
         completion([.banner, .list, .sound])
     }
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completion: @escaping () -> Void) {
+        DispatchQueue.main.async { self.handled = true }
         let info = response.notification.request.content.userInfo
         if response.actionIdentifier == UNNotificationDefaultActionIdentifier,
            let namespace = info["namespace"] as? String, let chat = info["chat"] as? String {

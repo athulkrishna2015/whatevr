@@ -119,7 +119,7 @@ func frontendCall(r *v2.Request) (*v2.Response, error) {
 		return nil, err
 	}
 	defer conn.Close()
-	c, err := newDaemonClient(conn, "whatevrd-frontend")
+	c, err := newDaemonClient(conn, "whatevrd")
 	if err != nil {
 		return nil, err
 	}

@@ -21,7 +21,7 @@ import (
 	"whatevrd/internal/live"
 )
 
-const nativeVersion = 1
+const nativeVersion = 2
 const queueSize = 64
 
 type nativeNotice struct {
@@ -41,16 +41,21 @@ type nativeMessage struct {
 	Chat      string        `json:"chat,omitempty"`
 	Status    string        `json:"status,omitempty"`
 	Notice    *nativeNotice `json:"notice,omitempty"`
+	// Socket is the daemon's, in hello, so the app can wake it for a click
+	Socket string `json:"socket,omitempty"`
+	// URL is a link the app was handed
+	URL string `json:"url,omitempty"`
 }
 type Worker struct {
 	log       zerolog.Logger
-	open      func(string) bool
+	open      Handlers
 	namespace string
+	socket    string
 	queue     chan nativeMessage
 	once      sync.Once
 }
 
-func NewWorker(_ context.Context, log zerolog.Logger, open func(string) bool) (*Worker, error) {
+func NewWorker(_ context.Context, log zerolog.Logger, open Handlers) (*Worker, error) {
 	if _, err := helperPath(); err != nil {
 		return nil, err
 	}
@@ -59,7 +64,7 @@ func NewWorker(_ context.Context, log zerolog.Logger, open func(string) bool) (*
 		return nil, err
 	}
 	hash := sha256.Sum256([]byte(socket))
-	return &Worker{log: log, open: open, namespace: fmt.Sprintf("%x", hash[:16]), queue: make(chan nativeMessage, queueSize)}, nil
+	return &Worker{log: log, open: open, namespace: fmt.Sprintf("%x", hash[:16]), socket: socket, queue: make(chan nativeMessage, queueSize)}, nil
 }
 func (w *Worker) Show(n live.Notification) {
 	if w == nil {
@@ -219,7 +224,7 @@ func (w *Worker) session(ctx context.Context, c net.Conn, pending *nativeMessage
 		_ = c.SetWriteDeadline(time.Now().Add(5 * time.Second))
 		return encoder.Encode(m)
 	}
-	if err := write(nativeMessage{Version: nativeVersion, Type: "hello", Namespace: w.namespace}); err != nil {
+	if err := write(nativeMessage{Version: nativeVersion, Type: "hello", Namespace: w.namespace, Socket: w.socket}); err != nil {
 		return pending, err
 	}
 	events := make(chan nativeMessage, 16)
@@ -267,8 +272,16 @@ func (w *Worker) session(ctx context.Context, c net.Conn, pending *nativeMessage
 		case m := <-events:
 			switch m.Type {
 			case "click":
-				if m.Namespace == w.namespace && (w.open == nil || !w.open(m.Chat)) {
-					w.log.Info().Str("chat", m.Chat).Msg("notify: clicked with no frontend connected")
+				if m.Namespace == w.namespace && (w.open.Chat == nil || !w.open.Chat(m.Chat)) {
+					w.log.Info().Str("chat", m.Chat).Msg("notify: click went nowhere")
+				}
+			case "link":
+				if m.Namespace == w.namespace && w.open.Link != nil {
+					w.open.Link(m.URL)
+				}
+			case "activate":
+				if m.Namespace == w.namespace && w.open.Activate != nil {
+					w.open.Activate()
 				}
 			case "status":
 				w.log.Info().Str("authorization", m.Status).Msg("notify: macOS notification settings")
