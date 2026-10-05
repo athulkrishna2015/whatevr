@@ -89,6 +89,8 @@ jobs:
               - 'packaging/systemd/**'
               - 'packaging/frontends/**'
               - 'packaging/linux/**'
+              - 'packaging/homebrew/**'
+              - 'scripts/render_brew_release.py'
               - '.github/workflows/**'
             aur:
               - 'packaging/aur/**'
@@ -308,7 +310,7 @@ jobs:
       matrix:
         os: [macos-latest, macos-15-intel]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 75
     needs: changes
     if: ${{ needs.changes.outputs.build == 'true' || needs.changes.outputs.whattui == 'true' }}
     env:
@@ -364,6 +366,107 @@ jobs:
           test ! -L "$stage/bin/whatevrd"
           test ! -e "$stage/Whatevr.app"
           test ! -e "$stage/share/whatevr"
+      - name: Leave no test sockets behind
+        run: |
+          left="$(find "$(getconf DARWIN_USER_TEMP_DIR)whatevr" -maxdepth 1 -name 'i-*' 2>/dev/null; find /tmp -maxdepth 1 -name 'whattui-mock-*' 2>/dev/null)"
+          if [ -n "$left" ]; then printf 'left behind by the tests:\n%s\n' "$left"; exit 1; fi
+      - name: Render Homebrew packages into a local tap
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+        run: |
+          just _source-tarball
+          just _binary-tarball "$(uname -m)"
+          version="$(just version)"
+          arch="$(uname -m | sed 's/x86_64/amd64/')"
+          source_sha="$(shasum -a 256 "build/whatevr-$version.tar.gz" | cut -d' ' -f1)"
+          bin_sha="$(shasum -a 256 "build/whatevr-$version-darwin-$arch.tar.gz" | cut -d' ' -f1)"
+          brew tap-new --no-git local/test
+          python3 scripts/render_brew_release.py --version "$version" --source-sha "$source_sha" \
+            --arm64-sha "$bin_sha" --amd64-sha "$bin_sha" \
+            --tap "$(brew --repository local/test)" --url-base "file://$PWD/build"
+      - name: Build the formula from source
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+          HOMEBREW_NO_INSTALL_CLEANUP: '1'
+        run: |
+          brew install --build-from-source local/test/whatevr
+          brew test local/test/whatevr
+          prefix="$(brew --prefix local/test/whatevr)"
+          test -L "$(brew --prefix)/bin/whatevrd"
+          test -x "$(brew --prefix)/bin/whattui"
+          codesign --verify --deep --strict "$prefix/Whatevr.app"
+          brew uninstall local/test/whatevr
+          test ! -e "$(brew --prefix)/bin/whatevrd"
+      - name: Install the cask
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+        run: |
+          brew fetch --cask local/test/whatevr
+          # the check below means nothing unless brew quarantined the download
+          xattr -p com.apple.quarantine "$(brew --cache --cask local/test/whatevr)"
+          brew install --cask local/test/whatevr
+          bin="$(brew --prefix)/bin"
+          test -x "$bin/whatevrd"
+          test -x "$bin/whattui"
+          codesign --verify --deep --strict /Applications/Whatevr.app
+          for p in /Applications/Whatevr.app "$(readlink "$bin/whattui")"; do
+            if xattr -r "$p" | grep -q com.apple.quarantine; then printf '%s is still quarantined\n' "$p"; exit 1; fi
+          done
+      - name: Login service, socket activation and links, with whatsapp blackholed
+        run: |
+          set -o pipefail
+          # the service runs the real daemon, unpaired: it would go to whatsapp for a qr
+          for host in web.whatsapp.com g.whatsapp.net v.whatsapp.net mmg.whatsapp.net mmg-fallback.whatsapp.net \
+            pps.whatsapp.net static.whatsapp.net whatsapp.com www.whatsapp.com api.whatsapp.com chat.whatsapp.com \
+            rupload.facebook.com; do
+            printf '0.0.0.0 %s\n:: %s\n' "$host" "$host" | sudo tee -a /etc/hosts >/dev/null
+          done
+          sudo dscacheutil -flushcache
+          sudo killall -HUP mDNSResponder
+          if curl -sS --max-time 10 -o /dev/null https://web.whatsapp.com; then
+            echo 'web.whatsapp.com still reachable, not starting the daemon'
+            exit 1
+          fi
+          logs="$HOME/Library/Logs/in.codelif.whatevr"
+          trap 'tail -n 200 "$logs"/daemon/*.log 2>/dev/null || true' EXIT
+          bin="$(brew --prefix)/bin"
+          "$bin/whatevrd" service enable
+          launchctl print "gui/$(id -u)/in.codelif.whatevr.daemon" >/dev/null
+          "$bin/whatevrd" frontend list
+          lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+          "$lsregister" -u build/release/Whatevr.app build/debug/Whatevr.app || true
+          "$lsregister" -f /Applications/Whatevr.app
+          # a bare link with no frontend up starts the default one, whattui in terminal
+          open 'whatevr://'
+          for _ in $(seq 60); do
+            if "$bin/whatevrd" frontend list | grep -Eq '^whattui .*connected'; then break; fi
+            sleep 1
+          done
+          "$bin/whatevrd" frontend list | grep -E '^whattui .*connected'
+          pid="$(launchctl print "gui/$(id -u)/in.codelif.whatevr.daemon" | awk '/^\tpid = / { print $3 }')"
+          test -n "$pid"
+          if lsof -nP -a -p "$pid" -iTCP -sTCP:ESTABLISHED; then
+            echo 'the daemon holds a tcp connection'
+            exit 1
+          fi
+          pkill -x whattui || true
+          pkill -x Terminal || true
+      - name: Uninstall and zap the cask
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+        run: |
+          brew uninstall --cask --zap local/test/whatevr
+          if launchctl print "gui/$(id -u)/in.codelif.whatevr.daemon" >/dev/null 2>&1; then
+            echo 'the login service is still loaded'
+            exit 1
+          fi
+          test ! -e "$HOME/Library/LaunchAgents/in.codelif.whatevr.daemon.plist"
+          test ! -e /Applications/Whatevr.app
+          test ! -e "$(brew --prefix)/bin/whatevrd"
+          test ! -e "$(brew --prefix)/bin/whattui"
+          for dir in "Application Support" Caches Logs; do
+            test ! -e "$HOME/Library/$dir/in.codelif.whatevr"
+          done
 
   aur:
     name: AUR metadata
