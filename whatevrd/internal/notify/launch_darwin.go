@@ -5,15 +5,21 @@ package notify
 #cgo LDFLAGS: -framework AppKit -framework Foundation
 #include <stdlib.h>
 char *launch_notification_app(const char *path);
+char *bundle_identifier(const char *path);
 */
 import "C"
 import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"unsafe"
 )
 
+const appName = "Whatevr.app"
+
+// helperPath finds the app this daemon belongs to: the bundle it sits in when
+// run through the bin symlink, or Whatevr.app next to it in a build dir.
 func helperPath() (string, error) {
 	executable, err := os.Executable()
 	if err != nil {
@@ -24,19 +30,32 @@ func helperPath() (string, error) {
 		return "", err
 	}
 	dir := filepath.Dir(executable)
-	for _, p := range []string{filepath.Join(dir, "Whatevr Notifications.app"), filepath.Join(filepath.Dir(dir), "libexec", "Whatevr Notifications.app")} {
-		if info, err := os.Stat(filepath.Join(p, "Contents", "MacOS", "WhatevrNotifications")); err == nil && !info.IsDir() {
+	candidates := []string{filepath.Join(dir, appName)}
+	if filepath.Base(dir) == "MacOS" && filepath.Base(filepath.Dir(dir)) == "Contents" && strings.HasSuffix(filepath.Dir(filepath.Dir(dir)), ".app") {
+		candidates = []string{filepath.Dir(filepath.Dir(dir))}
+	}
+	for _, p := range candidates {
+		if info, err := os.Stat(filepath.Join(p, "Contents", "MacOS", "Whatevr")); err == nil && !info.IsDir() {
 			return p, nil
 		}
 	}
-	return "", errors.New("Whatevr Notifications.app is missing; run just build or install the complete macOS build")
+	return "", errors.New("Whatevr.app is missing; run just build or install the complete macOS build")
 }
-func launchHelper() error {
-	path, err := helperPath()
-	if err != nil {
-		return err
+
+// helperID is the bundle id of the app, which names its socket.
+func helperID(app string) (string, error) {
+	p := C.CString(app)
+	defer C.free(unsafe.Pointer(p))
+	id := C.bundle_identifier(p)
+	if id == nil {
+		return "", errors.New(app + " has no bundle identifier")
 	}
-	p := C.CString(path)
+	defer C.free(unsafe.Pointer(id))
+	return C.GoString(id), nil
+}
+
+func launchHelper(app string) error {
+	p := C.CString(app)
 	defer C.free(unsafe.Pointer(p))
 	failure := C.launch_notification_app(p)
 	if failure == nil {

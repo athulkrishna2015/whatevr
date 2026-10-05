@@ -3,8 +3,11 @@ import Foundation
 import UserNotifications
 import Darwin
 
-let bundleID = "in.codelif.whatevr.notifications"
-let ipcQueue = DispatchQueue(label: "in.codelif.whatevr.notifications.ipc")
+// one source for both identities: the release app and the dev build differ
+// only in Info.plist, and the socket is named after whichever this is.
+let bundleID = Bundle.main.bundleIdentifier ?? "in.codelif.whatevr"
+let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "Whatevr"
+let ipcQueue = DispatchQueue(label: bundleID + ".ipc")
 let center = UNUserNotificationCenter.current()
 
 struct Notice: Codable {
@@ -28,7 +31,7 @@ struct Message: Codable {
 func statusName(_ status: UNAuthorizationStatus) -> String {
     switch status {
     case .notDetermined: return "not-determined: run whatevrd notifications setup"
-    case .denied: return "denied: enable Whatevr Notifications in System Settings > Notifications"
+    case .denied: return "denied: enable \(appName) in System Settings > Notifications"
     case .authorized: return "authorized"
     case .provisional: return "provisional"
     @unknown default: return "unknown"
@@ -179,10 +182,10 @@ final class Server {
     func start() throws {
         let dir = try (userTemp() as NSString).appendingPathComponent("whatevr")
         try privateDirectory(dir)
-        lock = Darwin.open((dir as NSString).appendingPathComponent("notifications.lock"), O_CREAT | O_RDWR | O_NOFOLLOW, 0o600)
+        lock = Darwin.open((dir as NSString).appendingPathComponent(bundleID + ".lock"), O_CREAT | O_RDWR | O_NOFOLLOW, 0o600)
         guard lock >= 0 else { throw NSError(domain: bundleID, code: 4) }
         guard flock(lock, LOCK_EX | LOCK_NB) == 0 else { throw NSError(domain: bundleID, code: 5, userInfo: [NSLocalizedDescriptionKey: "Notification helper is already running"]) }
-        let path = (dir as NSString).appendingPathComponent("notifications.sock")
+        let path = (dir as NSString).appendingPathComponent(bundleID + ".sock")
         listener = socket(AF_UNIX, SOCK_STREAM, 0)
         guard listener >= 0 else { throw NSError(domain: bundleID, code: 6) }
         _ = fcntl(listener, F_SETFL, O_NONBLOCK)

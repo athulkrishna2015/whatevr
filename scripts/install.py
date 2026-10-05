@@ -18,17 +18,24 @@ def install(source, path, mode):
     path.chmod(mode)
 
 build = root / "build" / profile
-install(build / "whatevrd", prefix / "bin/whatevrd", 0o755)
 if (build / "whattui").exists():
     install(build / "whattui", prefix / "bin/whattui", 0o755)
 if sys.platform == "darwin":
-    app = staged(prefix / "libexec/Whatevr Notifications.app")
+    app = staged(prefix / "Whatevr.app")
     # Avoid merging obsolete bundle contents across versions.
     if app.exists():
         shutil.rmtree(app)
     app.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(build / "Whatevr Notifications.app", app)
+    shutil.copytree(build / "Whatevr.app", app, symlinks=True)
+    # whatevrd lives in the bundle; bin gets a relative link, so a relocated
+    # prefix (homebrew's Cellar) keeps pointing at its own copy.
+    link = staged(prefix / "bin/whatevrd")
+    link.parent.mkdir(parents=True, exist_ok=True)
+    if link.is_symlink() or link.exists():
+        link.unlink()
+    link.symlink_to(os.path.relpath(prefix / "Whatevr.app/Contents/MacOS/whatevrd", prefix / "bin"))
 else:
+    install(build / "whatevrd", prefix / "bin/whatevrd", 0o755)
     unit = build / "whatevrd.service"
     unit.write_text((root / "packaging/systemd/whatevrd.service.in").read_text().replace("@BINDIR@", str(prefix / "bin")))
     install(unit, prefix / "lib/systemd/user/whatevrd.service", 0o644)

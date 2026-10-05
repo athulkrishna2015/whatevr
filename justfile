@@ -87,7 +87,7 @@ uninstall prefix="/usr/local" destdir="":
     rm -f "$destdir$prefix/bin/whattui"; \
     rm -f "$destdir$prefix/lib/systemd/user/whatevrd.service"; \
     rm -f "$destdir$prefix/lib/systemd/user/whatevrd.socket"; \
-    if [ "$(uname -s)" = Darwin ]; then rm -rf "$destdir$prefix/libexec/Whatevr Notifications.app"; fi
+    if [ "$(uname -s)" = Darwin ]; then rm -rf "$destdir$prefix/Whatevr.app"; fi
 
 clean:
     @rm -rf {{build_dir}}
@@ -96,7 +96,7 @@ _build profile dir=build_dir:
     @test "{{profile}}" = debug -o "{{profile}}" = release
     @just _build-daemon "{{profile}}" "{{dir}}"
     @just _build-whattui "{{profile}}" "{{dir}}"
-    @if [ "$(uname -s)" = Darwin ]; then scripts/build-macos "{{dir}}/{{profile}}"; fi
+    @if [ "$(uname -s)" = Darwin ]; then scripts/build-macos "{{dir}}/{{profile}}" "{{profile}}"; fi
 
 # whattui builds against the vaxis fork in whattui/vaxis, which is a submodule.
 # The source tarball carries it; a clone without it skips whattui rather than

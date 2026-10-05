@@ -83,7 +83,15 @@ func (w *Worker) push(m nativeMessage) {
 	}
 }
 func connectHelper(ctx context.Context) (net.Conn, error) {
-	path, err := platform.NotificationSocket()
+	app, err := helperPath()
+	if err != nil {
+		return nil, err
+	}
+	id, err := helperID(app)
+	if err != nil {
+		return nil, err
+	}
+	path, err := platform.NotificationSocket(id)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +127,7 @@ func connectHelper(ctx context.Context) (net.Conn, error) {
 	if c, err := dial(); err == nil {
 		return c, nil
 	}
-	if err := launchHelper(); err != nil {
+	if err := launchHelper(app); err != nil {
 		return nil, err
 	}
 	timer := time.NewTimer(5 * time.Second)

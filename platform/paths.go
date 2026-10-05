@@ -219,12 +219,13 @@ func InstanceSocket(root string) (string, error) {
 	return p, ValidateSocket(p)
 }
 
-// NotificationSocket is shared by the per-user notification app.
-func NotificationSocket() (string, error) {
+// NotificationSocket is where the app with this bundle id listens. one per
+// identity, so a dev build and the installed one never share a helper.
+func NotificationSocket(bundleID string) (string, error) {
 	dir, err := nativeRuntimeDir()
 	if err != nil {
 		return "", err
 	}
-	p := filepath.Join(dir, "whatevr", "notifications.sock")
+	p := filepath.Join(dir, "whatevr", bundleID+".sock")
 	return p, ValidateSocket(p)
 }

@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleIdentifier</key><string>in.codelif.whatevr.notifications</string>
-<key>CFBundleName</key><string>Whatevr Notifications</string>
-<key>CFBundleDisplayName</key><string>Whatevr Notifications</string>
-<key>CFBundleExecutable</key><string>WhatevrNotifications</string>
+<key>CFBundleIdentifier</key><string>in.codelif.whatevr</string>
+<key>CFBundleName</key><string>Whatevr</string>
+<key>CFBundleDisplayName</key><string>Whatevr</string>
+<key>CFBundleExecutable</key><string>Whatevr</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>CFBundleShortVersionString</key><string>1.0</string>

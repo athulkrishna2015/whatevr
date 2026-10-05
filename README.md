@@ -261,10 +261,19 @@ just install "$HOME/.local"
 # Add $HOME/.local/bin to PATH, or invoke these executables by absolute path.
 ```
 
-The complete installation includes `libexec/Whatevr Notifications.app`; keep
-this private app alongside the binaries. Local builds are ad-hoc signed; they
-are intended for use on the build machine. Developer ID signing and notarization
-are required separately for public distribution.
+The installation is `Whatevr.app` in the prefix, holding the notification helper
+and `whatevrd`, with `bin/whatevrd` linking into it. Spotlight only indexes app
+folders, so link it there if you want to open Whatevr from Spotlight:
+
+```sh
+ln -s "$HOME/.local/Whatevr.app" ~/Applications/Whatevr.app
+```
+
+Debug builds (`just build`, `just install-dev`) are a separate app, **Whatevr
+Dev** (`in.codelif.whatevr.dev`), so they never take notification permission
+from the installed one. Local builds are ad-hoc signed; they are intended for
+use on the build machine. Developer ID signing and notarization are required
+separately for public distribution.
 
 Login startup is optional and never enabled by installation:
 
@@ -292,8 +301,8 @@ whatevrd notifications setup
 whatevrd notifications status
 ```
 
-Allow notifications in the macOS dialog. If previously denied, enable **Whatevr
-Notifications** in System Settings → Notifications. Notification clicks select
+Allow notifications in the macOS dialog. If previously denied, enable **Whatevr**
+in System Settings → Notifications. Notification clicks select
 the chat in a connected frontend. If no frontend is open, no terminal is launched.
 The helper follows system notification/sound settings; a missing helper or denied
 permission does not prevent messaging. Local rebuilds may require checking

@@ -7,6 +7,8 @@ char *launch_notification_app(const char *path) {
   NSURL *url = [NSURL fileURLWithPath:[NSString stringWithUTF8String:path]];
   NSWorkspaceOpenConfiguration *config = [NSWorkspaceOpenConfiguration configuration];
   config.activates = NO;
+  // tells the app the daemon started it, so it doesn't act like a user open.
+  config.arguments = @[@"--background"];
   dispatch_semaphore_t done = dispatch_semaphore_create(0);
   // __block Objective-C storage survives a timeout until the completion runs.
   __block NSString *failure = nil;
@@ -16,5 +18,12 @@ char *launch_notification_app(const char *path) {
   }];
   if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, 5*NSEC_PER_SEC))) return strdup("timed out launching notification helper");
   return failure ? strdup(failure.UTF8String) : NULL;
+ }
+}
+char *bundle_identifier(const char *path) {
+ @autoreleasepool {
+  NSBundle *bundle = [NSBundle bundleWithPath:[NSString stringWithUTF8String:path]];
+  NSString *ident = bundle.bundleIdentifier;
+  return ident.length ? strdup(ident.UTF8String) : NULL;
  }
 }

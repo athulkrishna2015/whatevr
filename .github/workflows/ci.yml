@@ -324,8 +324,12 @@ jobs:
         run: |
           just build
           just build-release
-          codesign --verify --strict "build/release/Whatevr Notifications.app"
-          plutil -lint "build/release/Whatevr Notifications.app/Contents/Info.plist"
+          for profile in debug release; do
+            codesign --verify --deep --strict "build/$profile/Whatevr.app"
+            plutil -lint "build/$profile/Whatevr.app/Contents/Info.plist"
+          done
+          test "$(plutil -extract CFBundleIdentifier raw build/release/Whatevr.app/Contents/Info.plist)" = in.codelif.whatevr
+          test "$(plutil -extract CFBundleIdentifier raw build/debug/Whatevr.app/Contents/Info.plist)" = in.codelif.whatevr.dev
       - name: Test platform paths
         run: go -C platform test ./...
       - name: Test daemon and development build gates
@@ -339,12 +343,18 @@ jobs:
       - name: Stage installation and removal
         run: |
           just install /usr/local "$RUNNER_TEMP/stage"
-          test -x "$RUNNER_TEMP/stage/usr/local/bin/whatevrd"
-          test -x "$RUNNER_TEMP/stage/usr/local/libexec/Whatevr Notifications.app/Contents/MacOS/WhatevrNotifications"
-          test ! -d "$RUNNER_TEMP/stage/usr/local/lib/systemd"
+          stage="$RUNNER_TEMP/stage/usr/local"
+          test -L "$stage/bin/whatevrd"
+          test "$(readlink "$stage/bin/whatevrd")" = ../Whatevr.app/Contents/MacOS/whatevrd
+          test -x "$stage/bin/whatevrd"
+          test -x "$stage/Whatevr.app/Contents/MacOS/Whatevr"
+          codesign --verify --deep --strict "$stage/Whatevr.app"
+          test ! -e "$stage/libexec"
+          test ! -d "$stage/lib/systemd"
           just uninstall /usr/local "$RUNNER_TEMP/stage"
-          test ! -e "$RUNNER_TEMP/stage/usr/local/bin/whatevrd"
-          test ! -e "$RUNNER_TEMP/stage/usr/local/libexec/Whatevr Notifications.app"
+          test ! -e "$stage/bin/whatevrd"
+          test ! -L "$stage/bin/whatevrd"
+          test ! -e "$stage/Whatevr.app"
 
   aur:
     name: AUR metadata

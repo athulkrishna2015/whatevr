@@ -33,14 +33,15 @@ elif sys.argv[1] == "darwin":
     expected = {"amd64": "x86_64", "arm64": "arm64"}.get(arch)
     if not expected:
         raise SystemExit("Darwin artifacts require arm64 or amd64")
-    for executable in [build / "release/whatevrd", build / "release/whattui", build / "release/Whatevr Notifications.app/Contents/MacOS/WhatevrNotifications"]:
+    app = build / "release/Whatevr.app/Contents/MacOS"
+    for executable in [app / "whatevrd", app / "Whatevr", build / "release/whattui"]:
         actual = subprocess.check_output(["lipo", "-archs", str(executable)], text=True).strip()
         if actual != expected:
             raise SystemExit(f"{executable.name} is {actual}, not {expected}; build on the matching architecture")
     name = f"whatevr-{version}-darwin-{arch}"
     destination = build / (name + ".tar.gz")
     with tarfile.open(destination, "w:gz") as archive:
-        for filename in ["whatevrd", "whattui", "Whatevr Notifications.app"]:
+        for filename in ["Whatevr.app", "whattui"]:
             archive.add(build / "release" / filename, arcname=f"{name}/{filename}")
         for filename in ["LICENSE", "README.md"]:
             archive.add(root / filename, arcname=f"{name}/{filename}")
