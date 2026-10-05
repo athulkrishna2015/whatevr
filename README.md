@@ -330,6 +330,7 @@ the click starts it through the login service.
 Whatevr.app handles `whatevr://` links, for Raycast, Shortcuts or scripts:
 `open 'whatevr://chat?phone=+15551234567'`. Opening the app itself brings up
 the default frontend.
+The sender's avatar shows as the notification thumbnail.
 The helper follows system notification/sound settings; a missing helper or denied
 permission does not prevent messaging. Local rebuilds may require checking
 notification authorization again because they use ad-hoc signing.

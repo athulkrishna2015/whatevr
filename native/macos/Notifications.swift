@@ -77,6 +77,51 @@ func privateDirectory(_ path: String) throws {
     }
 }
 
+let maxThumbnail = 10 << 20
+func attachmentDirectory() throws -> String {
+    try (userTemp() as NSString).appendingPathComponent("whatevr/" + bundleID + ".attachments")
+}
+// the system moves an attachment's file into its own store, so it gets a copy.
+// formats it can't take (webp) are redrawn as png
+func thumbnail(_ path: String) -> URL? {
+    guard let dir = try? attachmentDirectory(), (try? privateDirectory(dir)) != nil else { return nil }
+    var info = stat()
+    guard stat(path, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size > 0, info.st_size <= maxThumbnail,
+          var bytes = FileManager.default.contents(atPath: path) else { return nil }
+    var ext = (path as NSString).pathExtension.lowercased()
+    if !["jpg", "jpeg", "png", "gif"].contains(ext) {
+        guard let image = NSBitmapImageRep(data: bytes), let png = image.representation(using: .png, properties: [:]) else { return nil }
+        bytes = png
+        ext = "png"
+    }
+    let url = URL(fileURLWithPath: dir).appendingPathComponent(UUID().uuidString).appendingPathExtension(ext)
+    guard (try? bytes.write(to: url, options: .withoutOverwriting)) != nil else { return nil }
+    return url
+}
+
+func attach(_ avatar: String, to content: UNMutableNotificationContent) -> URL? {
+    guard !avatar.isEmpty, let url = thumbnail(avatar) else { return nil }
+    guard let attachment = try? UNNotificationAttachment(identifier: "avatar", url: url) else {
+        try? FileManager.default.removeItem(at: url)
+        return nil
+    }
+    content.attachments = [attachment]
+    return url
+}
+// a rejected attachment takes the whole request down with it, so retry bare
+func post(_ identifier: String, _ content: UNMutableNotificationContent, _ copy: URL?) {
+    center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil)) { error in
+        guard let error else { return }
+        if let copy {
+            try? FileManager.default.removeItem(at: copy)
+            content.attachments = []
+            post(identifier, content, nil)
+            return
+        }
+        NSLog("Whatevr notification delivery: %@", error.localizedDescription)
+    }
+}
+
 final class Peer {
     let fd: Int32
     let server: Server
@@ -170,13 +215,16 @@ final class Peer {
                 content.userInfo = ["namespace": ns, "chat": notice.chat]
                 content.threadIdentifier = ns + ":" + notice.chat
                 if notice.sound && settings.soundSetting == .enabled { content.sound = .default }
+                // no avatar is better than no notification
+                let copy = attach(notice.avatar, to: content)
                 ipcQueue.async { [weak self] in
-                    guard let self, self.server.generations[identifier] == generation else { return }
+                    guard let self, self.server.generations[identifier] == generation else {
+                        if let copy { try? FileManager.default.removeItem(at: copy) }
+                        return
+                    }
                     // Replacements keep one visible notification per daemon notification id.
                     center.removeDeliveredNotifications(withIdentifiers: [identifier])
-                    center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil)) { error in
-                        if let error { NSLog("Whatevr notification delivery: %@", error.localizedDescription) }
-                    }
+                    post(identifier, content, copy)
                 }
             }
         case "close":
@@ -205,6 +253,8 @@ final class Server {
         lock = Darwin.open((dir as NSString).appendingPathComponent(bundleID + ".lock"), O_CREAT | O_RDWR | O_NOFOLLOW, 0o600)
         guard lock >= 0 else { throw NSError(domain: bundleID, code: 4) }
         guard flock(lock, LOCK_EX | LOCK_NB) == 0 else { throw NSError(domain: bundleID, code: 5, userInfo: [NSLocalizedDescriptionKey: "Notification helper is already running"]) }
+        // copies a crash left behind
+        if let attachments = try? attachmentDirectory() { try? FileManager.default.removeItem(atPath: attachments) }
         let path = (dir as NSString).appendingPathComponent(bundleID + ".sock")
         listener = socket(AF_UNIX, SOCK_STREAM, 0)
         guard listener >= 0 else { throw NSError(domain: bundleID, code: 6) }
