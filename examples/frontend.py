@@ -36,7 +36,13 @@ def runtime_dir():
     raise RuntimeError("XDG_RUNTIME_DIR is not set")
 
 
-path = os.environ.get("WHATEVR_SOCKET") or os.path.join(runtime_dir(), "whatevr", "whatevrd.sock")
+def default_socket():
+    if sys.platform == "darwin" and not os.environ.get("XDG_RUNTIME_DIR"):
+        return os.path.join(runtime_dir(), "in.codelif.whatevr.sock")
+    return os.path.join(runtime_dir(), "whatevr", "whatevrd.sock")
+
+
+path = os.environ.get("WHATEVR_SOCKET") or default_socket()
 sock = socket.socket(socket.AF_UNIX)
 sock.connect(path)
 stream = sock.makefile("rb")

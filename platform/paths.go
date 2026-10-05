@@ -61,13 +61,29 @@ func ValidateSocket(p string) error {
 }
 func SocketPath() (string, error) {
 	p := os.Getenv(SocketEnv)
-	if p == "" {
+	switch {
+	case p != "":
+	case runtime.GOOS == "darwin" && os.Getenv("XDG_RUNTIME_DIR") == "":
+		return NativeSocketPath()
+	default:
 		dir, err := RuntimeDir()
 		if err != nil {
 			return "", err
 		}
 		p = filepath.Join(dir, "whatevr", "whatevrd.sock")
 	}
+	return p, ValidateSocket(p)
+}
+
+// NativeSocketPath is the darwin default socket, the one the login service
+// holds, whatever the environment says. launchd makes a missing socket dir root
+// owned and the boot wipes T's subdirs, so the socket sits in T itself.
+func NativeSocketPath() (string, error) {
+	dir, err := nativeRuntimeDir()
+	if err != nil {
+		return "", err
+	}
+	p := filepath.Join(dir, ID+".sock")
 	return p, ValidateSocket(p)
 }
 

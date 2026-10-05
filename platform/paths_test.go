@@ -36,6 +36,9 @@ func TestNativeDefaults(t *testing.T) {
 				t.Errorf("%s: got %s, want %s", name, got[name], v)
 			}
 		}
+		if filepath.Base(p.SocketPath) != ID+".sock" || filepath.Dir(p.SocketPath) != filepath.Clean(p.RuntimeDir) {
+			t.Errorf("socket must sit directly in the runtime dir: %s", p.SocketPath)
+		}
 		t.Setenv("TMPDIR", "/unrelated/terminal/tmp")
 		second, err := SocketPath()
 		if err != nil || second != p.SocketPath {

@@ -50,12 +50,12 @@ who takes in this section can predict the rest of the document.
   | OS | address |
   | --- | --- |
   | Linux | `$XDG_RUNTIME_DIR/whatevr/whatevrd.sock`, unix socket, directory `0700` |
-  | macOS | `$TMPDIR/whatevr/whatevrd.sock`, unix socket, directory `0700` |
+  | macOS | `$TMPDIR/in.codelif.whatevr.sock`, unix socket, `$TMPDIR` is per-user `0700` |
   | Windows | `\\.\pipe\whatevr-<user SID>`, named pipe, DACL for the user only |
 
   `WHATEVR_SOCKET` overrides the address on every OS. Access control is the
-  OS's: whoever can open the socket is the user. systemd socket activation is
-  supported on Linux.
+  OS's: whoever can open the socket is the user. Socket activation is
+  supported on Linux (systemd) and macOS (launchd).
 - **Framing:** every frame is one protobuf `Frame` message, preceded by its
   length as a varint. This is protobuf's own size-delimited format: Go's
   `protodelim`, protobuf-es `sizeDelimitedEncode`/`sizeDelimitedDecodeStream`,
@@ -527,8 +527,11 @@ longer or harder to read, the change is wrong.
 ### Platform socket defaults
 
 Protocol version 2 is unchanged on macOS. When `WHATEVR_SOCKET` is absent, macOS
-uses `whatevr/whatevrd.sock` within the per-user directory returned by Darwin's
-`confstr(_CS_DARWIN_USER_TEMP_DIR)`. An explicit `XDG_RUNTIME_DIR` overrides that
-base on either platform. Linux continues to use its XDG runtime directory.
+uses `in.codelif.whatevr.sock` directly in the per-user directory returned by
+Darwin's `confstr(_CS_DARWIN_USER_TEMP_DIR)`, with no subdirectory: launchd creates
+a missing socket directory owned by root, and boot clears that directory's
+subdirectories. An explicit `XDG_RUNTIME_DIR` replaces it with
+`$XDG_RUNTIME_DIR/whatevr/whatevrd.sock` on either platform. Linux continues to use
+its XDG runtime directory.
 `whatevrd paths --json` reports the resolved path. The notification app's separate
 private IPC socket is an implementation detail, not part of this protocol.

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"image"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -481,6 +482,15 @@ func (a *App) subscribeStatus() {
 	a.problemsSub = a.client.Subscribe(v2.Subscribe_builder{Problems: &v2.ProblemsView{}}.Build(), a.problems, proto.Hooks{})
 }
 
+// startHint is how this OS starts whatevrd. on macOS the login service starts
+// it on demand once enabled
+func startHint() string {
+	if runtime.GOOS == "darwin" {
+		return "  whatevrd service enable    (or run whatevrd)"
+	}
+	return "  systemctl --user start whatevrd"
+}
+
 // status is the one line that says what is wrong, or nothing at all. The two
 // failures are different and a reader has to be able to tell them apart: the
 // socket being down is whattui's problem, WhatsApp being down is not.
@@ -624,7 +634,7 @@ func (a *App) notice() (title string, colour vaxis.Color, body []string, ok bool
 			"",
 			"start it and whattui connects on its own:",
 			"",
-			"  systemctl --user start whatevrd",
+			startHint(),
 		}, true
 	}
 	if lastErr != nil {

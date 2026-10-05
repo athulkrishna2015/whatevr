@@ -269,17 +269,21 @@ are required separately for public distribution.
 Login startup is optional and never enabled by installation:
 
 ```sh
-whatevrd service enable       # starts now and at subsequent GUI logins
+whatevrd service enable       # starts now, at GUI login, and whenever a frontend connects
 whatevrd service status
 whatevrd service disable      # stops the service and removes its LaunchAgent
 ```
 
-Stop a manually running daemon before enabling the service. Enable the service
-with XDG and `WHATEVR_SOCKET` overrides unset, so it uses the same native defaults
-as normal terminal clients. The agent uses an absolute executable path and a
-PATH containing the installation prefix, the detected Homebrew prefix, and
-system tools. Disable the service before uninstalling. Disable and re-enable it after moving
-the installation to a different prefix.
+The LaunchAgent holds the socket, so launchd starts the daemon again whenever a
+frontend connects, including after a crash. Stop a manually running daemon before
+enabling the service; while the service is enabled, running `whatevrd` by hand on
+the default socket is refused. Enable the service with XDG and `WHATEVR_SOCKET`
+overrides unset, so it uses the same native defaults as normal terminal clients.
+The agent uses the executable path as invoked, so a Homebrew `bin` link keeps
+working across upgrades, and a PATH containing the installation prefix, the
+detected Homebrew prefix, and system tools. Running `whatevrd service enable`
+again replaces an agent written by an older version or from another prefix.
+Disable the service before uninstalling.
 
 Notification authorization is explicit:
 
@@ -304,11 +308,11 @@ Run `whatevrd paths --json` to inspect all resolved locations:
 | Development state and captures | `~/Library/Application Support/in.codelif.whatevr/{state,captures}` |
 | Media and frontend caches | `~/Library/Caches/in.codelif.whatevr/{daemon,tui}` |
 | Daemon and frontend diagnostics | `~/Library/Logs/in.codelif.whatevr/{daemon,tui}` |
-| Socket and lock | OS-provided per-user temporary directory, under `whatevr` |
+| Socket and lock | OS-provided per-user temporary directory, `in.codelif.whatevr.{sock,lock}` |
 
 The socket uses Darwin's per-user temporary directory, rather than an inherited
-`TMPDIR`, so launchd and terminal sessions agree. Socket directories are private,
-sockets are mode 0600, and peers must be the same user. Existing Linux-style
+`TMPDIR`, so launchd and terminal sessions agree. The socket sits directly in that
+private directory, sockets are mode 0600, and peers must be the same user. Existing Linux-style
 macOS data is left untouched; the native location starts as a fresh linked device.
 Explicit XDG overrides retain their existing layout, and `WHATEVR_SOCKET` selects
 an absolute socket path. Darwin socket paths must fit within 103 bytes.

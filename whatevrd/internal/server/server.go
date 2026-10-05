@@ -78,7 +78,7 @@ func New(opts Options) (*Server, error) {
 		conns: map[*conn]struct{}{}, errc: make(chan error, 1)}
 	if opts.Listener != nil {
 		s.ln = opts.Listener
-		// systemd owns the file and reuses it for the next start
+		// systemd or launchd owns the file and reuses it for the next start
 		if u, ok := s.ln.(*net.UnixListener); ok {
 			u.SetUnlinkOnClose(false)
 		}

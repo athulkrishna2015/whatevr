@@ -24,12 +24,16 @@ func xmlText(s string) string {
 	_ = xml.EscapeText(&b, []byte(s))
 	return b.String()
 }
-func servicePlist(binary, logDir, path string) []byte {
+func servicePlist(binary, socket, logDir, path string) []byte {
 	return []byte(fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>Label</key><string>%s</string>
 <key>ProgramArguments</key><array><string>%s</string></array>
+<key>Sockets</key><dict><key>Listeners</key><dict>
+<key>SockPathName</key><string>%s</string>
+<key>SockPathMode</key><integer>384</integer>
+</dict></dict>
 <key>RunAtLoad</key><true/>
 <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
 <key>ThrottleInterval</key><integer>5</integer>
@@ -38,8 +42,20 @@ func servicePlist(binary, logDir, path string) []byte {
 <key>StandardOutPath</key><string>%s</string>
 <key>StandardErrorPath</key><string>%s</string>
 </dict></plist>
-`, serviceLabel, xmlText(binary), xmlText(path), xmlText(filepath.Join(logDir, "service.log")), xmlText(filepath.Join(logDir, "service.log"))))
+`, serviceLabel, xmlText(binary), xmlText(socket), xmlText(path), xmlText(filepath.Join(logDir, "service.log")), xmlText(filepath.Join(logDir, "service.log"))))
 }
+func serviceTarget() string { return "gui/" + strconv.Itoa(os.Getuid()) + "/" + serviceLabel }
+
+// serviceLoaded says launchd holds the service's socket, whether or not the
+// daemon behind it is up yet
+func serviceLoaded() bool {
+	return exec.Command("/bin/launchctl", "print", serviceTarget()).Run() == nil
+}
+
+// asService says launchd started this process for the login service, which
+// sets XPC_SERVICE_NAME to the job label
+func asService() bool { return os.Getenv("XPC_SERVICE_NAME") == serviceLabel }
+
 func runService(args []string, out, stderr io.Writer) int {
 	if len(args) != 1 || (args[0] != "enable" && args[0] != "disable" && args[0] != "status") {
 		fmt.Fprintln(stderr, "usage: whatevrd service enable|disable|status")
@@ -51,7 +67,7 @@ func runService(args []string, out, stderr io.Writer) int {
 		return 1
 	}
 	domain := "gui/" + strconv.Itoa(os.Getuid())
-	target := domain + "/" + serviceLabel
+	target := serviceTarget()
 	plist := filepath.Join(h, "Library", "LaunchAgents", serviceLabel+".plist")
 	run := func(argv ...string) ([]byte, error) { return exec.Command("/bin/launchctl", argv...).CombinedOutput() }
 	_, statusErr := run("print", target)
@@ -82,10 +98,7 @@ func runService(args []string, out, stderr io.Writer) int {
 		fmt.Fprintln(out, "login service disabled")
 		return 0
 	}
-	if statusErr == nil {
-		fmt.Fprintln(out, "login service already enabled")
-		return 0
-	}
+	loaded := statusErr == nil
 	p, err := platform.Resolve()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -98,24 +111,8 @@ func runService(args []string, out, stderr io.Writer) int {
 			return 1
 		}
 	}
-	if conn, err := net.DialTimeout("unix", p.SocketPath, 200*time.Millisecond); err == nil {
-		_ = conn.Close()
-		fmt.Fprintln(stderr, "stop the manually running daemon before enabling the login service")
-		return 1
-	}
-	lock := filepath.Join(filepath.Dir(p.SocketPath), "whatevrd.lock")
-	if _, err := os.Stat(lock); err == nil {
-		l, err := app.AcquireProcessLock(lock)
-		if err != nil {
-			fmt.Fprintln(stderr, "stop the manually running daemon before enabling the login service:", err)
-			return 1
-		}
-		_ = l.Close()
-	}
+	// as invoked, so a homebrew bin symlink outlives brew upgrade
 	binary, err := os.Executable()
-	if err == nil {
-		binary, err = filepath.EvalSymlinks(binary)
-	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
@@ -132,7 +129,36 @@ func runService(args []string, out, stderr io.Writer) int {
 			return 1
 		}
 	}
-	raw := servicePlist(binary, p.LogDir, searchPath)
+	raw := servicePlist(binary, p.SocketPath, p.LogDir, searchPath)
+	if loaded {
+		if old, err := os.ReadFile(plist); err == nil && bytes.Equal(old, raw) {
+			fmt.Fprintln(out, "login service already enabled")
+			return 0
+		}
+		// an older agent, the daemon answering on the socket is its own
+		if b, err := run("bootout", target); err != nil {
+			fmt.Fprintln(stderr, string(b))
+			return 1
+		}
+		for i := 0; i < 50 && serviceLoaded(); i++ {
+			time.Sleep(100 * time.Millisecond)
+		}
+	} else {
+		if conn, err := net.DialTimeout("unix", p.SocketPath, 200*time.Millisecond); err == nil {
+			_ = conn.Close()
+			fmt.Fprintln(stderr, "stop the manually running daemon before enabling the login service")
+			return 1
+		}
+		lock := app.LockPath(p.SocketPath)
+		if _, err := os.Stat(lock); err == nil {
+			l, err := app.AcquireProcessLock(lock)
+			if err != nil {
+				fmt.Fprintln(stderr, "stop the manually running daemon before enabling the login service:", err)
+				return 1
+			}
+			_ = l.Close()
+		}
+	}
 	temp, err := os.CreateTemp(filepath.Dir(plist), ".whatevr-agent-*")
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -159,6 +185,10 @@ func runService(args []string, out, stderr io.Writer) int {
 		fmt.Fprintln(stderr, string(b))
 		return 1
 	}
-	fmt.Fprintln(out, "login service enabled")
+	if loaded {
+		fmt.Fprintln(out, "login service updated")
+	} else {
+		fmt.Fprintln(out, "login service enabled")
+	}
 	return 0
 }

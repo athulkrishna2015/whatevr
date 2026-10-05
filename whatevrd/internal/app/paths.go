@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/codelif/whatevr/platform"
 )
@@ -42,7 +43,7 @@ func ResolvePaths() (Paths, error) {
 		RuntimeDir:    runtimeBase,
 		SocketDir:     socketDir,
 		SocketPath:    socket,
-		LockPath:      filepath.Join(socketDir, "whatevrd.lock"),
+		LockPath:      LockPath(socket),
 		DataDir:       dataDir,
 		CacheDir:      cacheDir,
 		SessionDir:    filepath.Join(dataDir, "session"),
@@ -60,6 +61,12 @@ func (p Paths) Ensure() error {
 	}
 
 	return nil
+}
+
+// LockPath sits next to the socket under the same name, so one socket gets one
+// daemon wherever WHATEVR_SOCKET points
+func LockPath(socket string) string {
+	return strings.TrimSuffix(socket, ".sock") + ".lock"
 }
 
 // StateHome returns the platform's persistent development state location.

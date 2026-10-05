@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/codelif/whatevr/platform"
 	"github.com/rs/zerolog"
 
 	"whatevrd/internal/app"
@@ -101,11 +102,21 @@ func main() {
 	hooks, stopCapture := captureStart(ctx, capture, run.ID)
 	defer stopCapture()
 
-	// a socket systemd handed over, with LISTEN_* cleared so no child
-	// inherits it. nil runs standalone
+	// a socket systemd or launchd handed over, with LISTEN_* cleared so no
+	// child inherits it. nil runs standalone
 	activated, err := app.SystemdListener()
 	if err != nil {
 		log.Fatal().Err(err).Msg("adopt systemd socket")
+	}
+	if activated == nil {
+		if activated, err = app.LaunchdListener(); err != nil {
+			log.Fatal().Err(err).Msg("adopt launchd socket")
+		}
+	}
+	// by hand on the service's socket would unlink the one launchd holds. an
+	// agent from before Sockets still starts here and binds on its own
+	if native, err := platform.NativeSocketPath(); activated == nil && !asService() && err == nil && native == paths.SocketPath && serviceLoaded() {
+		log.Fatal().Msg("the login service is enabled and starts whatevrd on demand; run 'whatevrd service disable' to run it by hand")
 	}
 	processLock, err := app.AcquireProcessLock(paths.LockPath)
 	if err != nil {

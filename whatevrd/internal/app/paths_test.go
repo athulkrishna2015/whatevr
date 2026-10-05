@@ -59,6 +59,9 @@ func TestSocketEnvMovesTheSocket(t *testing.T) {
 	if paths.SocketPath != filepath.Join(dir, "elsewhere", "w.sock") || paths.SocketDir != filepath.Join(dir, "elsewhere") {
 		t.Errorf("socket %q in %q", paths.SocketPath, paths.SocketDir)
 	}
+	if paths.LockPath != filepath.Join(dir, "elsewhere", "w.lock") {
+		t.Errorf("lock %q", paths.LockPath)
+	}
 	t.Setenv(SocketEnv, "w.sock")
 	if _, err := ResolvePaths(); err == nil {
 		t.Error("a relative socket path resolved")
