@@ -130,8 +130,8 @@ jobs:
               "$GITHUB_WORKSPACE/packaging/aur/$pkg/whatevr.install" "$aur_dir/whatevr.install"
             sudo -H -u builduser sh -c 'cd "$1" && makepkg --printsrcinfo > .SRCINFO' sh "$aur_dir"
 
-            sudo -H -u builduser git -C "$aur_dir" config user.name 'Harsh Sharma'
-            sudo -H -u builduser git -C "$aur_dir" config user.email 'harsh@codelif.in'
+            sudo -H -u builduser git -C "$aur_dir" config user.name 'whatevr-release-bot'
+            sudo -H -u builduser git -C "$aur_dir" config user.email 'harsh+bot@codelif.in'
             sudo -H -u builduser git -C "$aur_dir" add PKGBUILD .SRCINFO whatevr.install
             if sudo -H -u builduser git -C "$aur_dir" diff --cached --quiet; then
               continue
