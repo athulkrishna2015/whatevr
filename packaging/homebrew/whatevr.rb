@@ -17,6 +17,7 @@ class Whatevr < Formula
 
   def install
     system "just", "install", prefix
+    generate_completions_from_executable(bin/"whatevrd", "completion")
   end
 
   def caveats

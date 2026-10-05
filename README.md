@@ -96,6 +96,13 @@ sudo just install /usr
 units under the selected prefix.
 Make sure the chosen `bin` directory is on your `PATH` (e.g. `~/.local/bin`).
 
+The AUR and Homebrew packages install shell completions for `whatevrd`. With
+`just install`, load them from your shell's rc file:
+
+```sh
+source <(whatevrd completion zsh)    # or bash; fish: whatevrd completion fish | source
+```
+
 Other handy targets: `just version`, `just artifacts`, and `just clean`.
 
 #### 3. Run
