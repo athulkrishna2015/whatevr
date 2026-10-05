@@ -245,6 +245,8 @@ func (d *mockDaemon) stop() {
 	}
 	_ = os.RemoveAll(d.dir)
 	_ = os.Remove(d.dir + ".log")
+	// on darwin the socket dir sits in the user temp dir, not under d.dir
+	_ = os.RemoveAll(filepath.Dir(d.socket))
 }
 
 func tail(path string) string {

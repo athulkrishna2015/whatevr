@@ -182,6 +182,8 @@ func main() {
 	board.Provide("core", coreProblems(db))
 	media := &mediaWatch{board: board, log: log, now: time.Now}
 
+	// last out, after the server and the mock closed their sockets
+	defer removeInstanceDir()
 	// the fake server binds before the client: whatsmeow snapshots
 	// http.DefaultTransport when it builds one
 	stopMock, err := mockStart(ctx, mock, qr, paths.SocketPath)

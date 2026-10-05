@@ -12,6 +12,9 @@ import (
 	"github.com/codelif/whatevr/platform"
 )
 
+// instanceDir is the darwin socket dir of a mock or capture run, gone with it
+var instanceDir string
+
 func setInstanceSocket(root string) error {
 	if runtime.GOOS != "darwin" {
 		return nil
@@ -20,7 +23,16 @@ func setInstanceSocket(root string) error {
 	if err != nil {
 		return err
 	}
+	instanceDir = filepath.Dir(p)
 	return os.Setenv(platform.SocketEnv, p)
+}
+
+// removeInstanceDir runs once the sockets in it are closed. Remove, not
+// RemoveAll: anything still in there isn't ours to delete.
+func removeInstanceDir() {
+	if instanceDir != "" {
+		_ = os.Remove(instanceDir)
+	}
 }
 
 // instanceEnvironment only changes this process; querying paths creates no files.
