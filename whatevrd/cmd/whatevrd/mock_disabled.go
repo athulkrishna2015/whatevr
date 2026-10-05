@@ -5,9 +5,9 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 
 	"github.com/rs/zerolog"
+	"github.com/urfave/cli/v3"
 
 	"whatevrd/internal/model"
 )
@@ -19,13 +19,15 @@ type mockRun struct{}
 
 type mockFlagSet struct{}
 
-// mockFlags registers nothing, so flag.Parse would reject --mock with a bare
-// "flag provided but not defined". Say why instead.
-func mockFlags(log zerolog.Logger) *mockFlagSet {
-	if usesFlag("mock") {
-		log.Fatal().Msg("this whatevrd was built without mock support; rebuild with -tags whatevr_mock")
+func mockFlags() (*mockFlagSet, []cli.Flag) { return nil, nil }
+
+// mockUnbuilt says why --mock is refused, where urfave would only say
+// "flag provided but not defined".
+func mockUnbuilt(args []string) string {
+	if usesFlag(args, "mock") {
+		return "this whatevrd was built without mock support; rebuild with -tags whatevr_mock"
 	}
-	return nil
+	return ""
 }
 
 func mockPrepare(zerolog.Logger, *mockFlagSet) *mockRun { return nil }
@@ -47,9 +49,19 @@ func mockTime(*mockRun) *mockClocks { return nil }
 
 func heapProfiles(context.Context) {}
 
-func runMock(_ []string, _, stderr io.Writer) int {
-	fmt.Fprintln(stderr, "whatevrd mock: this whatevrd was built without mock support; rebuild with -tags whatevr_mock")
-	return 2
+// mockCommand is hidden here, it only says what to rebuild with.
+func mockCommand() *cli.Command {
+	return &cli.Command{
+		Name:            "mock",
+		Usage:           "mock daemon probes",
+		Category:        "debug",
+		Hidden:          true,
+		SkipFlagParsing: true,
+		Action: func(_ context.Context, c *cli.Command) error {
+			fmt.Fprintln(c.Root().ErrWriter, "whatevrd mock: this whatevrd was built without mock support; rebuild with -tags whatevr_mock")
+			return code(1)
+		},
+	}
 }
 
 const mockPathsSupported = false

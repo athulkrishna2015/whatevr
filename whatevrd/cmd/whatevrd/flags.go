@@ -1,17 +1,18 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
+	"github.com/urfave/cli/v3"
 	"go.mau.fi/whatsmeow"
 )
 
-// usesFlag reports whether the command line has -name or any -name-*.
-func usesFlag(name string) bool {
-	for _, arg := range os.Args[1:] {
+// usesFlag reports whether args has -name or any -name-*.
+func usesFlag(args []string, name string) bool {
+	for _, arg := range args {
 		if arg == "--" {
 			break
 		}
@@ -44,3 +45,27 @@ type qrSource interface {
 
 // tap sees every frame on the socket, for captures.
 type tap = func(conn uint64, dir string, frame []byte)
+
+// debugFlags are the daemon's own, never a command's: no persistence into
+// subcommands, which have flags of the same names.
+func debugFlags(flags ...cli.Flag) []cli.Flag {
+	for _, f := range flags {
+		switch f := f.(type) {
+		case *cli.StringFlag:
+			f.Local, f.Category = true, "debug"
+		case *cli.BoolFlag:
+			f.Local, f.Category = true, "debug"
+		case *cli.Int64Flag:
+			f.Local, f.Category = true, "debug"
+		case *cli.IntFlag:
+			f.Local, f.Category = true, "debug"
+		case *cli.DurationFlag:
+			f.Local, f.Category = true, "debug"
+		case *cli.FloatFlag:
+			f.Local, f.Category = true, "debug"
+		default:
+			panic(fmt.Sprintf("debugFlags: %T", f))
+		}
+	}
+	return flags
+}

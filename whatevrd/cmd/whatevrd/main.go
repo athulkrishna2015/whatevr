@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"io/fs"
 	"os"
 	"os/signal"
@@ -36,31 +35,11 @@ var version = "dev"
 func main() {
 	memstatusOff()
 	limitMemory()
-	if len(os.Args) > 1 {
-		switch os.Args[1] {
-		case "paths":
-			os.Exit(runPaths(os.Args[2:], os.Stdout, os.Stderr))
-		case "service":
-			os.Exit(runService(os.Args[2:], os.Stdout, os.Stderr))
-		case "notifications":
-			os.Exit(runNotifications(os.Args[2:], os.Stdout, os.Stderr))
-		case "pair":
-			os.Exit(runPair(os.Args[2:], os.Stdout, os.Stderr))
-		case "frontend":
-			os.Exit(runFrontend(os.Args[2:], os.Stdout, os.Stderr))
-		case "open":
-			os.Exit(runOpen(os.Args[2:], os.Stdout, os.Stderr))
-		case "logs":
-			os.Exit(runLogs(os.Args[2:], os.Stdout, os.Stderr))
-		case "capture":
-			os.Exit(runCapture(os.Args[2:], os.Stdout, os.Stderr))
-		case "mock":
-			os.Exit(runMock(os.Args[2:], os.Stdout, os.Stderr))
-		case "rederive":
-			os.Exit(runRederive(os.Args[2:], os.Stdout, os.Stderr))
-		}
-	}
+	os.Exit(run(os.Args, os.Stdout, os.Stderr))
+}
 
+// runDaemon is whatevrd with no command, after the flags parsed.
+func runDaemon(mockFlagSet *mockFlagSet, captureFlagSet *captureFlagSet) {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	heapProfiles(ctx)
@@ -70,15 +49,6 @@ func main() {
 	log := logx.Console(os.Stderr, zerolog.InfoLevel)
 	if levelErr != nil {
 		log.Fatal().Err(levelErr).Msg("bad log level")
-	}
-
-	// every flag is parsed in every build, so a typo stops here instead of
-	// starting a daemon on the real account
-	mockFlagSet := mockFlags(log)
-	captureFlagSet := captureFlags(log)
-	flag.Parse()
-	if flag.NArg() > 0 {
-		log.Fatal().Strs("args", flag.Args()).Msg("unexpected arguments")
 	}
 
 	// mock and capture runs move the XDG dirs, so they settle before any

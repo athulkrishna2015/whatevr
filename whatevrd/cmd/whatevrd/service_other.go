@@ -7,9 +7,9 @@ import (
 	"io"
 )
 
-func runService(_ []string, _, stderr io.Writer) int {
+func runService(_ string, _, stderr io.Writer) int {
 	fmt.Fprintln(stderr, "service commands are available on macOS; on Linux use systemctl --user with the installed units")
-	return 2
+	return 1
 }
 
 func serviceLoaded() bool { return false }

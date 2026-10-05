@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"io/fs"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"github.com/codelif/whatevr/platform"
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"github.com/rs/zerolog"
+	"github.com/urfave/cli/v3"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
@@ -28,12 +28,15 @@ type captureFlagSet struct {
 	guard *bool
 }
 
-func captureFlags(zerolog.Logger) *captureFlagSet {
-	return &captureFlagSet{
-		name:  flag.String("capture", "", "record this run into a capture: a name under the platform capture directory, or a path"),
-		guard: flag.Bool("send-guard", false, "refuse every outward send to anyone but this account and the allowlist"),
-	}
+func captureFlags() (*captureFlagSet, []cli.Flag) {
+	f := &captureFlagSet{name: new(string), guard: new(bool)}
+	return f, debugFlags(
+		&cli.StringFlag{Name: "capture", Destination: f.name, Usage: "record this run into a capture: a name under the platform capture directory, or a path"},
+		&cli.BoolFlag{Name: "send-guard", Destination: f.guard, Usage: "refuse every outward send to anyone but this account and the allowlist"},
+	)
 }
+
+func captureUnbuilt([]string) string { return "" }
 
 // guardAllow reads who a real-account run may write to besides the account
 // itself (the fork's guard adds its own pn and lid): one number with its

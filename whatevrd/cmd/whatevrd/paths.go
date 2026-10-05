@@ -1,8 +1,8 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -10,6 +10,7 @@ import (
 	"runtime"
 
 	"github.com/codelif/whatevr/platform"
+	"github.com/urfave/cli/v3"
 )
 
 // instanceDir is the darwin socket dir of a mock or capture run, gone with it
@@ -51,23 +52,29 @@ func instanceEnvironment(root string) error {
 	}
 	return setInstanceSocket(root)
 }
-func runPaths(args []string, out, stderr io.Writer) int {
-	fs := flag.NewFlagSet("paths", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	asJSON := fs.Bool("json", false, "print resolved platform paths as JSON")
-	var instance *string
+
+func pathsCommand() *cli.Command {
+	flags := []cli.Flag{&cli.BoolFlag{Name: "json", Usage: "print resolved platform paths as JSON"}}
 	if mockPathsSupported {
-		instance = fs.String("mock-dir", "", "resolve an isolated mock directory without starting a daemon")
+		flags = append(flags, &cli.StringFlag{Name: "mock-dir", Usage: "resolve an isolated mock directory without starting a daemon"})
 	}
-	if err := fs.Parse(args); err != nil {
-		return 2
+	return &cli.Command{
+		Name:  "paths",
+		Usage: "print where whatevrd keeps its socket, data, cache and logs",
+		Flags: flags,
+		Action: func(_ context.Context, c *cli.Command) error {
+			if c.Args().Present() {
+				return usage(c, "paths takes no positional arguments")
+			}
+			out, stderr := outputs(c)
+			return code(printPaths(c.Bool("json"), c.String("mock-dir"), out, stderr))
+		},
 	}
-	if fs.NArg() != 0 {
-		fmt.Fprintln(stderr, "paths takes no positional arguments")
-		return 2
-	}
-	if instance != nil && *instance != "" {
-		if err := instanceEnvironment(*instance); err != nil {
+}
+
+func printPaths(asJSON bool, instance string, out, stderr io.Writer) int {
+	if instance != "" {
+		if err := instanceEnvironment(instance); err != nil {
 			fmt.Fprintln(stderr, err)
 			return 1
 		}
@@ -82,7 +89,7 @@ func runPaths(args []string, out, stderr io.Writer) int {
 		platform.Paths
 		ControlPath string
 	}{p, filepath.Join(filepath.Dir(p.SocketPath), "control.sock")}
-	if *asJSON {
+	if asJSON {
 		err = json.NewEncoder(out).Encode(result)
 	} else {
 		var raw []byte

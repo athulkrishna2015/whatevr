@@ -2,8 +2,8 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -14,21 +14,31 @@ import (
 	"rsc.io/qr"
 
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
+	"github.com/urfave/cli/v3"
 )
 
 // quietZone is the blank border the qr spec asks for, in modules.
 const quietZone = 4
 
-// runPair is `whatevrd pair`: a protocol client for the login view, so a
+// pairCommand is `whatevrd pair`: a protocol client for the login view, so a
 // headless box can link a phone without any frontend.
-func runPair(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("pair", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	socket := fs.String("socket", "", "whatevrd socket (default: WHATEVR_SOCKET or platform runtime directory)")
-	if err := fs.Parse(args); err != nil {
-		return 2
+func pairCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "pair",
+		Usage: "link a phone by showing the QR code here",
+		Flags: []cli.Flag{&cli.StringFlag{Name: "socket", Usage: "whatevrd socket (default: WHATEVR_SOCKET or platform runtime directory)"}},
+		Action: func(_ context.Context, c *cli.Command) error {
+			if c.Args().Present() {
+				return usage(c, "pair takes no arguments")
+			}
+			stdout, stderr := outputs(c)
+			return code(runPair(c.String("socket"), stdout, stderr))
+		},
 	}
-	conn, err := dialDaemon(*socket)
+}
+
+func runPair(socket string, stdout, stderr io.Writer) int {
+	conn, err := dialDaemon(socket)
 	if err != nil {
 		fmt.Fprintf(stderr, "whatevrd pair: %v\n", err)
 		return 1

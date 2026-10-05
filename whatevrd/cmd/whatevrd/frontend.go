@@ -1,116 +1,145 @@
 package main
 
 import (
-	"flag"
+	"context"
 	"fmt"
-	"io"
 	"strings"
 	"text/tabwriter"
 
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
+	"github.com/urfave/cli/v3"
 
 	"whatevrd/internal/frontends"
 )
 
-const frontendUsage = `usage:
-  whatevrd frontend list
-  whatevrd frontend set-default <id>
-  whatevrd frontend add [--name NAME] [--terminal] <id> -- <argv...>
-  whatevrd frontend remove <id>
-  whatevrd frontend terminal set -- <argv...>
-  whatevrd frontend terminal unset
-`
-
-// runFrontend is `whatevrd frontend`: which frontends exist, which one a
+// frontendCommand is `whatevrd frontend`: which frontends exist, which one a
 // click starts, and the terminal a terminal frontend runs in.
-func runFrontend(args []string, stdout, stderr io.Writer) int {
-	fail := func(err error) int {
+func frontendCommand() *cli.Command {
+	fail := func(c *cli.Command, err error) error {
+		_, stderr := outputs(c)
 		fmt.Fprintf(stderr, "whatevrd frontend: %v\n", err)
-		return 1
+		return code(1)
 	}
-	if len(args) == 0 {
-		fmt.Fprint(stderr, frontendUsage)
-		return 2
+	list := &cli.Command{
+		Name:  "list",
+		Usage: "list the frontends whatevrd knows",
+		Action: func(_ context.Context, c *cli.Command) error {
+			if c.Args().Present() {
+				return usage(c, "list takes no arguments")
+			}
+			resp, err := frontendCall(v2.Request_builder{FrontendList: &v2.FrontendList{}}.Build())
+			if err != nil {
+				return fail(c, err)
+			}
+			stdout, _ := outputs(c)
+			w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
+			fmt.Fprintln(w, "ID\tNAME\tSOURCE\t")
+			for _, f := range resp.GetFrontendList().GetFrontends() {
+				var flags []string
+				if f.GetIsDefault() {
+					flags = append(flags, "default")
+				}
+				if f.GetConnected() {
+					flags = append(flags, "connected")
+				}
+				if f.GetTerminal() {
+					flags = append(flags, "terminal")
+				}
+				source := strings.ToLower(strings.TrimPrefix(f.GetSource().String(), "FRONTEND_SOURCE_"))
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", f.GetId(), f.GetName(), source, strings.Join(flags, ","))
+			}
+			return w.Flush()
+		},
 	}
-	switch args[0] {
-	case "list":
-		resp, err := frontendCall(v2.Request_builder{FrontendList: &v2.FrontendList{}}.Build())
-		if err != nil {
-			return fail(err)
-		}
-		w := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-		fmt.Fprintln(w, "ID\tNAME\tSOURCE\t")
-		for _, f := range resp.GetFrontendList().GetFrontends() {
-			var flags []string
-			if f.GetIsDefault() {
-				flags = append(flags, "default")
+	setDefault := &cli.Command{
+		Name:      "set-default",
+		Usage:     "pick the frontend a click or link starts",
+		ArgsUsage: "<id>",
+		Action: func(_ context.Context, c *cli.Command) error {
+			if c.Args().Len() != 1 {
+				return usage(c, "set-default takes one id")
 			}
-			if f.GetConnected() {
-				flags = append(flags, "connected")
+			if _, err := frontendCall(v2.Request_builder{FrontendSetDefault: v2.FrontendSetDefault_builder{Id: c.Args().First()}.Build()}.Build()); err != nil {
+				return fail(c, err)
 			}
-			if f.GetTerminal() {
-				flags = append(flags, "terminal")
+			return nil
+		},
+	}
+	add := &cli.Command{
+		Name:      "add",
+		Usage:     "write a frontend manifest for this user",
+		ArgsUsage: "<id> -- <argv...>",
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "name", Usage: "name to show"},
+			&cli.BoolFlag{Name: "terminal", Usage: "it runs in a terminal"},
+		},
+		Action: func(_ context.Context, c *cli.Command) error {
+			args := c.Args().Slice()
+			if len(args) < 2 {
+				return usage(c, "add takes an id and the command to run it")
 			}
-			source := strings.ToLower(strings.TrimPrefix(f.GetSource().String(), "FRONTEND_SOURCE_"))
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", f.GetId(), f.GetName(), source, strings.Join(flags, ","))
-		}
-		w.Flush()
-		return 0
-	case "set-default":
-		if len(args) != 2 {
-			fmt.Fprint(stderr, frontendUsage)
-			return 2
-		}
-		if _, err := frontendCall(v2.Request_builder{FrontendSetDefault: v2.FrontendSetDefault_builder{Id: args[1]}.Build()}.Build()); err != nil {
-			return fail(err)
-		}
-		return 0
-	case "add":
-		fs := flag.NewFlagSet("frontend add", flag.ContinueOnError)
-		fs.SetOutput(stderr)
-		name := fs.String("name", "", "name to show")
-		terminal := fs.Bool("terminal", false, "it runs in a terminal")
-		if err := fs.Parse(args[1:]); err != nil {
-			return 2
-		}
-		rest := fs.Args()
-		if len(rest) < 3 || rest[1] != "--" {
-			fmt.Fprint(stderr, frontendUsage)
-			return 2
-		}
-		p, err := frontends.Write(frontends.DefaultDirs(), frontends.Manifest{ID: rest[0], Name: *name, Exec: rest[2:], Terminal: *terminal})
-		if err != nil {
-			return fail(err)
-		}
-		fmt.Fprintln(stdout, p)
-		return 0
-	case "remove":
-		if len(args) != 2 {
-			fmt.Fprint(stderr, frontendUsage)
-			return 2
-		}
-		if err := frontends.Remove(frontends.DefaultDirs(), args[1]); err != nil {
-			return fail(err)
-		}
-		return 0
-	case "terminal":
-		var argv []string
-		switch {
-		case len(args) >= 4 && args[1] == "set" && args[2] == "--":
-			argv = args[3:]
-		case len(args) == 2 && args[1] == "unset":
-		default:
-			fmt.Fprint(stderr, frontendUsage)
-			return 2
-		}
+			p, err := frontends.Write(frontends.DefaultDirs(), frontends.Manifest{ID: args[0], Name: c.String("name"), Exec: args[1:], Terminal: c.Bool("terminal")})
+			if err != nil {
+				return fail(c, err)
+			}
+			stdout, _ := outputs(c)
+			fmt.Fprintln(stdout, p)
+			return nil
+		},
+	}
+	remove := &cli.Command{
+		Name:      "remove",
+		Usage:     "delete a frontend manifest written by add",
+		ArgsUsage: "<id>",
+		Action: func(_ context.Context, c *cli.Command) error {
+			if c.Args().Len() != 1 {
+				return usage(c, "remove takes one id")
+			}
+			if err := frontends.Remove(frontends.DefaultDirs(), c.Args().First()); err != nil {
+				return fail(c, err)
+			}
+			return nil
+		},
+	}
+	setTerminal := func(c *cli.Command, argv []string) error {
 		set := v2.PreferencesSet_builder{Terminal: v2.Argv_builder{Args: argv}.Build()}.Build()
 		if _, err := frontendCall(v2.Request_builder{PreferencesSet: set}.Build()); err != nil {
-			return fail(err)
+			return fail(c, err)
 		}
-		return 0
+		return nil
 	}
-	fmt.Fprint(stderr, frontendUsage)
-	return 2
+	terminal := group(&cli.Command{
+		Name:  "terminal",
+		Usage: "set the terminal a terminal frontend runs in",
+		Commands: []*cli.Command{
+			{
+				Name:      "set",
+				Usage:     "run terminal frontends as <argv...> <frontend argv...>",
+				ArgsUsage: "-- <argv...>",
+				Action: func(_ context.Context, c *cli.Command) error {
+					if !c.Args().Present() {
+						return usage(c, "set takes the terminal's command")
+					}
+					return setTerminal(c, c.Args().Slice())
+				},
+			},
+			{
+				Name:  "unset",
+				Usage: "go back to the platform's terminal",
+				Action: func(_ context.Context, c *cli.Command) error {
+					if c.Args().Present() {
+						return usage(c, "unset takes no arguments")
+					}
+					return setTerminal(c, nil)
+				},
+			},
+		},
+	})
+	return group(&cli.Command{
+		Name:     "frontend",
+		Usage:    "list frontends, pick the default and the terminal",
+		Commands: []*cli.Command{list, setDefault, add, remove, terminal},
+	})
 }
 
 func frontendCall(r *v2.Request) (*v2.Response, error) {

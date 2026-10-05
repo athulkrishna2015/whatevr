@@ -3,23 +3,35 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 	"time"
+
+	"github.com/urfave/cli/v3"
+
 	"whatevrd/internal/notify"
 )
 
-func runNotifications(args []string, out, stderr io.Writer) int {
-	if len(args) != 1 || (args[0] != "setup" && args[0] != "status") {
-		fmt.Fprintln(stderr, "usage: whatevrd notifications setup|status")
-		return 2
+func notificationsCommand() *cli.Command {
+	sub := func(name, use string) *cli.Command {
+		return &cli.Command{
+			Name:  name,
+			Usage: use,
+			Action: func(_ context.Context, c *cli.Command) error {
+				out, stderr := outputs(c)
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+				defer cancel()
+				status, err := notify.Configure(ctx, name == "setup")
+				if err != nil {
+					fmt.Fprintln(stderr, err)
+					return code(1)
+				}
+				fmt.Fprintln(out, status)
+				return nil
+			},
+		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	status, err := notify.Configure(ctx, args[0] == "setup")
-	if err != nil {
-		fmt.Fprintln(stderr, err)
-		return 1
-	}
-	fmt.Fprintln(out, status)
-	return 0
+	return group(&cli.Command{
+		Name:     "notifications",
+		Usage:    "set up desktop notifications or check on them",
+		Commands: []*cli.Command{sub("setup", "ask for permission to notify"), sub("status", "print whether notifications can show")},
+	})
 }

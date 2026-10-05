@@ -4,10 +4,10 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"maps"
@@ -16,59 +16,78 @@ import (
 	"time"
 
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
+	"github.com/urfave/cli/v3"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"whatevrd/internal/probe"
 	"whatevrd/internal/views"
 )
 
-const mockUsage = `usage: whatevrd mock snapshot --socket PATH
-       whatevrd mock send --socket PATH --to PHONE --text TEXT
-       whatevrd mock watch --socket PATH VIEW...
-
-snapshot subscribes to every view, every chat's included, and prints what
-each holds once all are filled and quiet. send writes to someone through
-the daemon. watch prints every row of the named global views as a json
-line as it lands, until the daemon goes. for scripts/replay and
-scripts/netfault against a mock daemon.
-`
-
 // per-chat views loading or closing at once: a first sync's worth at once
 // outgrows the daemon's queue for this connection, and with the global views
 // this stays under its 64 subscriptions
 const chatViewsAtOnce = 32
 
-func runMock(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 {
-		fmt.Fprint(stderr, mockUsage)
-		return 2
+// mockCommand is for scripts/replay and scripts/netfault against a mock daemon.
+func mockCommand() *cli.Command {
+	socket := &cli.StringFlag{Name: "socket", Usage: "the daemon's socket", Required: true}
+	act := func(name string, do func(c *cli.Command, stdout io.Writer) error) cli.ActionFunc {
+		return func(_ context.Context, c *cli.Command) error {
+			stdout, stderr := outputs(c)
+			if err := do(c, stdout); err != nil {
+				fmt.Fprintf(stderr, "whatevrd mock %s: %v\n", name, err)
+				return code(1)
+			}
+			return nil
+		}
 	}
-	fs := flag.NewFlagSet("whatevrd mock "+args[0], flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	socket := fs.String("socket", "", "the daemon's socket")
-	to := fs.String("to", "", "send: the phone number to write to")
-	text := fs.String("text", "", "send: what to write")
-	if err := fs.Parse(args[1:]); err != nil || *socket == "" || (fs.NArg() > 0) != (args[0] == "watch") {
-		fmt.Fprint(stderr, mockUsage)
-		return 2
-	}
-	var err error
-	switch args[0] {
-	case "snapshot":
-		err = mockSnapshot(*socket, stdout)
-	case "send":
-		err = mockSend(*socket, *to, *text)
-	case "watch":
-		err = mockWatch(*socket, fs.Args(), stdout)
-	default:
-		fmt.Fprint(stderr, mockUsage)
-		return 2
-	}
-	if err != nil {
-		fmt.Fprintf(stderr, "whatevrd mock %s: %v\n", args[0], err)
-		return 1
-	}
-	return 0
+	return group(&cli.Command{
+		Name:     "mock",
+		Usage:    "probe a mock daemon",
+		Category: "debug",
+		Commands: []*cli.Command{
+			{
+				Name:        "snapshot",
+				Usage:       "print every view once all are filled and quiet",
+				Description: "subscribes to every view, every chat's included.",
+				Flags:       []cli.Flag{socket},
+				Action: act("snapshot", func(c *cli.Command, stdout io.Writer) error {
+					if c.Args().Present() {
+						return usage(c, "snapshot takes no arguments")
+					}
+					return mockSnapshot(c.String("socket"), stdout)
+				}),
+			},
+			{
+				Name:  "send",
+				Usage: "write to someone through the daemon",
+				Flags: []cli.Flag{
+					socket,
+					&cli.StringFlag{Name: "to", Usage: "the phone number to write to"},
+					&cli.StringFlag{Name: "text", Usage: "what to write"},
+				},
+				Action: act("send", func(c *cli.Command, _ io.Writer) error {
+					if c.Args().Present() {
+						return usage(c, "send takes no arguments")
+					}
+					return mockSend(c.String("socket"), c.String("to"), c.String("text"))
+				}),
+			},
+			{
+				Name:        "watch",
+				Usage:       "print every row of the named global views as a json line",
+				Description: "rows print as they land, until the daemon goes.",
+				ArgsUsage:   "VIEW...",
+				Flags:       []cli.Flag{socket},
+				Action: act("watch", func(c *cli.Command, stdout io.Writer) error {
+					if !c.Args().Present() {
+						return usage(c, "watch takes at least one view")
+					}
+					return mockWatch(c.String("socket"), c.Args().Slice(), stdout)
+				}),
+			},
+		},
+	})
 }
 
 func mockSend(socket, to, text string) error {

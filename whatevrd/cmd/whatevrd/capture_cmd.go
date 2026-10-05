@@ -3,14 +3,15 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/urfave/cli/v3"
 	waBinary "go.mau.fi/whatsmeow/binary"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"google.golang.org/protobuf/encoding/prototext"
@@ -20,63 +21,64 @@ import (
 	"whatevrd/internal/capture"
 )
 
-const captureUsage = `usage: whatevrd capture list
-       whatevrd capture show [flags] NAME|PATH
-
-show prints a capture one record per line, stanzas as xml and payloads as
-protobuf text. it holds real messages, read it on this machine only.
-
-flags:
-`
-
-// runCapture is `whatevrd capture`, it never touches the daemon or the account.
-func runCapture(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("whatevrd capture", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	segment := fs.Int("segment", 0, "only this segment")
-	kinds := fs.String("kind", "", "only these kinds, comma separated (recv,send,decrypted,encrypted,media,http,frontend,conn,account,start,end)")
-	fs.Usage = func() {
-		fmt.Fprint(stderr, captureUsage)
-		fs.PrintDefaults()
-	}
-	var positional []string
-	for {
-		if err := fs.Parse(args); err != nil {
-			if err == flag.ErrHelp {
-				return 0
-			}
-			return 2
-		}
-		if fs.NArg() == 0 {
-			break
-		}
-		positional = append(positional, fs.Arg(0))
-		args = fs.Args()[1:]
-	}
-	stateHome, err := app.StateHome()
-	if err != nil {
+// captureCommand is `whatevrd capture`, it never touches the daemon or the account.
+func captureCommand() *cli.Command {
+	fail := func(c *cli.Command, err error) error {
+		_, stderr := outputs(c)
 		fmt.Fprintf(stderr, "whatevrd capture: %v\n", err)
-		return 1
+		return code(1)
 	}
-	switch {
-	case len(positional) == 1 && positional[0] == "list":
-		return listCaptures(capture.Root(stateHome), stdout, stderr)
-	case len(positional) == 2 && positional[0] == "show":
-		dir, err := capture.Resolve(positional[1], stateHome)
-		if err != nil {
-			fmt.Fprintf(stderr, "whatevrd capture: %v\n", err)
-			return 2
-		}
-		want := map[string]bool{}
-		for _, k := range strings.Split(*kinds, ",") {
-			if k = strings.TrimSpace(k); k != "" {
-				want[k] = true
-			}
-		}
-		return showCapture(dir, *segment, want, stdout, stderr)
-	}
-	fs.Usage()
-	return 2
+	return group(&cli.Command{
+		Name:     "capture",
+		Usage:    "list or read the captures -capture records",
+		Category: "debug",
+		Commands: []*cli.Command{
+			{
+				Name:  "list",
+				Usage: "list captures",
+				Action: func(_ context.Context, c *cli.Command) error {
+					stateHome, err := app.StateHome()
+					if err != nil {
+						return fail(c, err)
+					}
+					stdout, stderr := outputs(c)
+					return code(listCaptures(capture.Root(stateHome), stdout, stderr))
+				},
+			},
+			{
+				Name:      "show",
+				Usage:     "print a capture one record per line",
+				ArgsUsage: "NAME|PATH",
+				Description: `stanzas print as xml and payloads as protobuf text. it holds real
+messages, read it on this machine only.`,
+				Flags: []cli.Flag{
+					&cli.IntFlag{Name: "segment", Usage: "only this segment"},
+					&cli.StringFlag{Name: "kind", Usage: "only these kinds, comma separated (recv,send,decrypted,encrypted,media,http,frontend,conn,account,start,end)"},
+				},
+				Action: func(_ context.Context, c *cli.Command) error {
+					if c.Args().Len() != 1 {
+						return usage(c, "show takes one capture")
+					}
+					stateHome, err := app.StateHome()
+					if err != nil {
+						return fail(c, err)
+					}
+					dir, err := capture.Resolve(c.Args().First(), stateHome)
+					if err != nil {
+						return fail(c, err)
+					}
+					want := map[string]bool{}
+					for _, k := range strings.Split(c.String("kind"), ",") {
+						if k = strings.TrimSpace(k); k != "" {
+							want[k] = true
+						}
+					}
+					stdout, stderr := outputs(c)
+					return code(showCapture(dir, c.Int("segment"), want, stdout, stderr))
+				},
+			},
+		},
+	})
 }
 
 func listCaptures(root string, stdout, stderr io.Writer) int {

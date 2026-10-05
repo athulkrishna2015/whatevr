@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/codelif/whatevr/platform"
 	"github.com/rs/zerolog"
+	"github.com/urfave/cli/v3"
 
 	"whatevrd/internal/app"
 	"whatevrd/internal/capture"
@@ -48,26 +48,36 @@ type mockFlagSet struct {
 	speed                                       *float64
 }
 
-func mockFlags(zerolog.Logger) *mockFlagSet {
-	return &mockFlagSet{
-		scenario:   flag.String("mock", "", "run against a fake WhatsApp server using this scenario"),
-		list:       flag.Bool("mock-list", false, "list mock scenarios and exit"),
-		dir:        flag.String("mock-dir", "", "scratch directory for mock state (default: platform runtime directory)"),
-		seed:       flag.Int64("mock-seed", 1, "seed for every key and identifier the mock generates"),
-		scanDelay:  flag.Duration("mock-scan-delay", 0, "how long a published QR sits unscanned before the mock phone pairs"),
-		phone:      flag.String("mock-phone", "", "phone number the mock account answers as"),
-		keep:       flag.Bool("mock-keep", false, "keep existing mock state instead of starting fresh"),
-		histDelay:  flag.Duration("mock-history-delay", 0, "how long between history sync chunks, to make the sync view watchable"),
-		olderDelay: flag.Duration("mock-older-delay", 0, "how long the mock phone takes to answer a request for older history"),
-		control:    flag.String("mock-control", "", "bind a control socket here for the quiescence barrier"),
-		now:        flag.String("mock-now", "", "pin the clock scenario timestamps hang off, as RFC3339, for reproducible frames"),
-		notify:     flag.Bool("mock-notify", false, "let a mock run raise desktop notifications"),
-		capture:    flag.String("mock-capture", "", "replay this capture (a name or a path) instead of a scenario"),
-		segment:    flag.Int("mock-segment", 1, "which segment of --mock-capture this run plays"),
-		speed:      flag.Float64("mock-speed", 0, "replay pace against the recorded clock, 1 is real time, 0 as fast as the gates allow"),
-		gate:       flag.Duration("mock-gate", 5*time.Second, "how long a replayed push waits for the client to catch up"),
+func mockFlags() (*mockFlagSet, []cli.Flag) {
+	f := &mockFlagSet{
+		scenario: new(string), dir: new(string), phone: new(string), control: new(string), now: new(string), capture: new(string),
+		list: new(bool), keep: new(bool), notify: new(bool),
+		seed:      new(int64),
+		scanDelay: new(time.Duration), histDelay: new(time.Duration), olderDelay: new(time.Duration), gate: new(time.Duration),
+		segment: new(int),
+		speed:   new(float64),
 	}
+	return f, debugFlags(
+		&cli.StringFlag{Name: "mock", Destination: f.scenario, Usage: "run against a fake WhatsApp server using this scenario"},
+		&cli.BoolFlag{Name: "mock-list", Destination: f.list, Usage: "list mock scenarios and exit"},
+		&cli.StringFlag{Name: "mock-dir", Destination: f.dir, Usage: "scratch directory for mock state (default: platform runtime directory)"},
+		&cli.Int64Flag{Name: "mock-seed", Value: 1, Destination: f.seed, Usage: "seed for every key and identifier the mock generates"},
+		&cli.DurationFlag{Name: "mock-scan-delay", Destination: f.scanDelay, Usage: "how long a published QR sits unscanned before the mock phone pairs"},
+		&cli.StringFlag{Name: "mock-phone", Destination: f.phone, Usage: "phone number the mock account answers as"},
+		&cli.BoolFlag{Name: "mock-keep", Destination: f.keep, Usage: "keep existing mock state instead of starting fresh"},
+		&cli.DurationFlag{Name: "mock-history-delay", Destination: f.histDelay, Usage: "how long between history sync chunks, to make the sync view watchable"},
+		&cli.DurationFlag{Name: "mock-older-delay", Destination: f.olderDelay, Usage: "how long the mock phone takes to answer a request for older history"},
+		&cli.StringFlag{Name: "mock-control", Destination: f.control, Usage: "bind a control socket here for the quiescence barrier"},
+		&cli.StringFlag{Name: "mock-now", Destination: f.now, Usage: "pin the clock scenario timestamps hang off, as RFC3339, for reproducible frames"},
+		&cli.BoolFlag{Name: "mock-notify", Destination: f.notify, Usage: "let a mock run raise desktop notifications"},
+		&cli.StringFlag{Name: "mock-capture", Destination: f.capture, Usage: "replay this capture (a name or a path) instead of a scenario"},
+		&cli.IntFlag{Name: "mock-segment", Value: 1, Destination: f.segment, Usage: "which segment of --mock-capture this run plays"},
+		&cli.FloatFlag{Name: "mock-speed", Destination: f.speed, Usage: "replay pace against the recorded clock, 1 is real time, 0 as fast as the gates allow"},
+		&cli.DurationFlag{Name: "mock-gate", Value: 5 * time.Second, Destination: f.gate, Usage: "how long a replayed push waits for the client to catch up"},
+	)
 }
+
+func mockUnbuilt([]string) string { return "" }
 
 func mockScenario(run *mockRun) string {
 	if run == nil {

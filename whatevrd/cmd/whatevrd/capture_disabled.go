@@ -5,9 +5,9 @@ package main
 import (
 	"context"
 	"fmt"
-	"io"
 
 	"github.com/rs/zerolog"
+	"github.com/urfave/cli/v3"
 )
 
 // captures hold every message in plaintext, so a shipped binary cannot make
@@ -17,11 +17,13 @@ type captureFlagSet struct{}
 
 type captureRun struct{}
 
-func captureFlags(log zerolog.Logger) *captureFlagSet {
-	if usesFlag("capture") || usesFlag("send-guard") {
-		log.Fatal().Msg("this whatevrd was built without capture support; rebuild with -tags whatevr_capture")
+func captureFlags() (*captureFlagSet, []cli.Flag) { return nil, nil }
+
+func captureUnbuilt(args []string) string {
+	if usesFlag(args, "capture") || usesFlag(args, "send-guard") {
+		return "this whatevrd was built without capture support; rebuild with -tags whatevr_capture"
 	}
-	return nil
+	return ""
 }
 
 func capturePrepare(zerolog.Logger, *captureFlagSet, string) *captureRun { return nil }
@@ -32,7 +34,17 @@ func captureStart(context.Context, *captureRun, string) (clientHooks, func()) {
 
 func captureTap(*captureRun) tap { return nil }
 
-func runCapture(_ []string, _, stderr io.Writer) int {
-	fmt.Fprintln(stderr, "whatevrd capture: this whatevrd was built without capture support; rebuild with -tags whatevr_capture")
-	return 2
+// captureCommand is hidden here, it only says what to rebuild with.
+func captureCommand() *cli.Command {
+	return &cli.Command{
+		Name:            "capture",
+		Usage:           "read a capture",
+		Category:        "debug",
+		Hidden:          true,
+		SkipFlagParsing: true,
+		Action: func(_ context.Context, c *cli.Command) error {
+			fmt.Fprintln(c.Root().ErrWriter, "whatevrd capture: this whatevrd was built without capture support; rebuild with -tags whatevr_capture")
+			return code(1)
+		},
+	}
 }

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -12,42 +11,36 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+	"github.com/urfave/cli/v3"
 
 	"whatevrd/internal/app"
 	"whatevrd/internal/core"
 	"whatevrd/internal/model"
 )
 
-const rederiveUsage = `usage: whatevrd rederive [flags]
-
-drops every table the core derives and folds its whole log again, as a
+// rederiveCommand is `whatevrd rederive`. it never touches the account.
+func rederiveCommand() *cli.Command {
+	return &cli.Command{
+		Name:     "rederive",
+		Usage:    "rebuild every derived table from the log",
+		Category: "debug",
+		Description: `drops every table the core derives and folds its whole log again, as a
 fold version change does at startup. the log itself is not touched. refuses
 while a daemon or anything else has the store open. exits 1 when any input
-failed to fold.
+failed to fold.`,
+		Flags: []cli.Flag{&cli.StringFlag{Name: "data", Usage: "directory holding whatevr.db (default: the daemon's data directory)"}},
+		Action: func(_ context.Context, c *cli.Command) error {
+			if c.Args().Present() {
+				return usage(c, "rederive takes no arguments")
+			}
+			stdout, stderr := outputs(c)
+			return code(runRederive(c.String("data"), stdout, stderr))
+		},
+	}
+}
 
-flags:
-`
-
-// runRederive is `whatevrd rederive`. it never touches the account.
-func runRederive(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("whatevrd rederive", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	data := fs.String("data", "", "directory holding whatevr.db (default: the daemon's data directory)")
-	fs.Usage = func() {
-		fmt.Fprint(stderr, rederiveUsage)
-		fs.PrintDefaults()
-	}
-	if err := fs.Parse(args); err != nil {
-		if err == flag.ErrHelp {
-			return 0
-		}
-		return 2
-	}
-	if fs.NArg() > 0 {
-		fs.Usage()
-		return 2
-	}
-	dir := *data
+func runRederive(data string, stdout, stderr io.Writer) int {
+	dir := data
 	if dir == "" {
 		paths, err := app.ResolvePaths()
 		if err != nil {

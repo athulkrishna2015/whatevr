@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -12,55 +11,40 @@ import (
 
 	"github.com/mattn/go-isatty"
 	"github.com/rs/zerolog"
+	"github.com/urfave/cli/v3"
 
 	"github.com/codelif/whatevr/platform"
 	"whatevrd/internal/logx"
 )
 
-const logsUsage = `usage: whatevrd logs [flags] [RUN] [field=value ...]
-       whatevrd logs [flags] list
-
-prints a run's log, the newest run when RUN (an id prefix) is left out.
-every field=value has to match a line's field for it to print.
-
-flags:
-`
-
-// runLogs is `whatevrd logs`, it never touches the daemon or the account.
-func runLogs(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("whatevrd logs", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	dir := fs.String("dir", "", "log directory (default: platform log directory)")
-	follow := fs.Bool("f", false, "keep printing new lines")
-	level := fs.String("level", "trace", "lowest level to print")
-	asJSON := fs.Bool("json", false, "print the stored json lines")
-	fs.Usage = func() {
-		fmt.Fprint(stderr, logsUsage)
-		fs.PrintDefaults()
+// logsCommand is `whatevrd logs`, it never touches the daemon or the account.
+func logsCommand() *cli.Command {
+	return &cli.Command{
+		Name:      "logs",
+		Usage:     "print a run's log, the newest run by default",
+		ArgsUsage: "[RUN] [field=value ...] | list",
+		Description: `RUN is a run id prefix. every field=value has to match a line's field for
+it to print. list prints every run.`,
+		Flags: []cli.Flag{
+			&cli.StringFlag{Name: "dir", Usage: "log directory (default: platform log directory)"},
+			&cli.BoolFlag{Name: "f", Usage: "keep printing new lines"},
+			&cli.StringFlag{Name: "level", Value: "trace", Usage: "lowest level to print"},
+			&cli.BoolFlag{Name: "json", Usage: "print the stored json lines"},
+		},
+		Action: func(_ context.Context, c *cli.Command) error {
+			stdout, stderr := outputs(c)
+			return code(runLogs(c.Args().Slice(), c.String("dir"), c.String("level"), c.Bool("f"), c.Bool("json"), stdout, stderr))
+		},
 	}
+}
 
-	// flags may come after positionals
-	var positional []string
-	for {
-		if err := fs.Parse(args); err != nil {
-			if err == flag.ErrHelp {
-				return 0
-			}
-			return 2
-		}
-		if fs.NArg() == 0 {
-			break
-		}
-		positional = append(positional, fs.Arg(0))
-		args = fs.Args()[1:]
-	}
-
-	minLevel, err := zerolog.ParseLevel(*level)
+func runLogs(positional []string, dir, level string, follow, asJSON bool, stdout, stderr io.Writer) int {
+	minLevel, err := zerolog.ParseLevel(level)
 	if err != nil {
 		fmt.Fprintf(stderr, "whatevrd logs: %v\n", err)
-		return 2
+		return 1
 	}
-	opts := logx.ReadOptions{MinLevel: minLevel, JSON: *asJSON, Follow: *follow}
+	opts := logx.ReadOptions{MinLevel: minLevel, JSON: asJSON, Follow: follow}
 	var runID string
 	list := false
 	for _, a := range positional {
@@ -75,19 +59,19 @@ func runLogs(args []string, stdout, stderr io.Writer) int {
 			runID = a
 		default:
 			fmt.Fprintf(stderr, "whatevrd logs: unexpected %q\n", a)
-			return 2
+			return 1
 		}
 	}
 
-	if *dir == "" {
+	if dir == "" {
 		logDir, err := platform.LogDir()
 		if err != nil {
 			fmt.Fprintf(stderr, "whatevrd logs: %v\n", err)
 			return 1
 		}
-		*dir = logDir
+		dir = logDir
 	}
-	runs, err := logx.ListRuns(*dir)
+	runs, err := logx.ListRuns(dir)
 	if err != nil {
 		fmt.Fprintf(stderr, "whatevrd logs: %v\n", err)
 		return 1
@@ -107,7 +91,7 @@ func runLogs(args []string, stdout, stderr io.Writer) int {
 	run, ok := logx.FindRun(runs, runID)
 	if !ok {
 		if runID == "" {
-			fmt.Fprintf(stderr, "whatevrd logs: no runs in %s\n", *dir)
+			fmt.Fprintf(stderr, "whatevrd logs: no runs in %s\n", dir)
 		} else {
 			fmt.Fprintf(stderr, "whatevrd logs: no single run matches %q (try whatevrd logs list)\n", runID)
 		}

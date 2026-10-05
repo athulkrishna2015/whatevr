@@ -29,7 +29,7 @@ func logsDir(t *testing.T) string {
 func runLogsArgs(t *testing.T, args ...string) (int, string, string) {
 	t.Helper()
 	var out, errb bytes.Buffer
-	code := runLogs(args, &out, &errb)
+	code := run(append([]string{"whatevrd", "logs"}, args...), &out, &errb)
 	return code, out.String(), errb.String()
 }
 
@@ -66,13 +66,13 @@ func TestLogsList(t *testing.T) {
 
 func TestLogsRejectsJunk(t *testing.T) {
 	dir := logsDir(t)
-	if code, _, _ := runLogsArgs(t, "--dir", dir, "aaaa", "bbbb"); code != 2 {
+	if code, _, _ := runLogsArgs(t, "--dir", dir, "aaaa", "bbbb"); code != 1 {
 		t.Fatalf("two runs: exit %d", code)
 	}
-	if code, _, _ := runLogsArgs(t, "--dir", dir, "--level", "loud"); code != 2 {
+	if code, _, _ := runLogsArgs(t, "--dir", dir, "--level", "loud"); code != 1 {
 		t.Fatalf("bad level: exit %d", code)
 	}
-	if code, _, _ := runLogsArgs(t, "--nope"); code != 2 {
+	if code, _, _ := runLogsArgs(t, "--nope"); code != 1 {
 		t.Fatalf("unknown flag: exit %d", code)
 	}
 }

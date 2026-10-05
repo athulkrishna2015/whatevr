@@ -23,7 +23,7 @@ func TestPathsQueryDoesNotCreateAccountFiles(t *testing.T) {
 		t.Setenv("XDG_RUNTIME_DIR", "/tmp/wv-paths-query")
 		t.Setenv("XDG_DATA_HOME", root)
 	}
-	if code := runPaths(args, &out, &stderr); code != 0 {
+	if code := run(append([]string{"whatevrd", "paths"}, args...), &out, &stderr); code != 0 {
 		t.Fatalf("paths query: %d %s", code, &stderr)
 	}
 	var got struct {

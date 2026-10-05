@@ -56,11 +56,7 @@ func serviceLoaded() bool {
 // sets XPC_SERVICE_NAME to the job label
 func asService() bool { return os.Getenv("XPC_SERVICE_NAME") == serviceLabel }
 
-func runService(args []string, out, stderr io.Writer) int {
-	if len(args) != 1 || (args[0] != "enable" && args[0] != "disable" && args[0] != "status") {
-		fmt.Fprintln(stderr, "usage: whatevrd service enable|disable|status")
-		return 2
-	}
+func runService(action string, out, stderr io.Writer) int {
 	h, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -71,7 +67,7 @@ func runService(args []string, out, stderr io.Writer) int {
 	plist := filepath.Join(h, "Library", "LaunchAgents", serviceLabel+".plist")
 	run := func(argv ...string) ([]byte, error) { return exec.Command("/bin/launchctl", argv...).CombinedOutput() }
 	_, statusErr := run("print", target)
-	switch args[0] {
+	switch action {
 	case "status":
 		if statusErr != nil {
 			fmt.Fprintln(out, "disabled")

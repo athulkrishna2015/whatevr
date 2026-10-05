@@ -13,6 +13,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.52
 	github.com/nyaruka/phonenumbers v1.8.1
 	github.com/rs/zerolog v1.35.1
+	github.com/urfave/cli/v3 v3.14.0
 	go.mau.fi/libsignal v0.2.2
 	go.mau.fi/whatsmeow v0.0.0-20260929112325-8b41cfe6d9c4
 	golang.org/x/crypto v0.57.0
