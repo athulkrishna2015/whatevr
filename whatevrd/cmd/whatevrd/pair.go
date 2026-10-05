@@ -6,19 +6,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net"
 	"os"
 	"strings"
-	"syscall"
 	"time"
 
 	"google.golang.org/protobuf/encoding/protodelim"
 	"rsc.io/qr"
 
-	"github.com/codelif/whatevr/platform"
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
-
-	"whatevrd/internal/app"
 )
 
 // quietZone is the blank border the qr spec asks for, in modules.
@@ -33,26 +28,9 @@ func runPair(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	if *socket == "" {
-		paths, err := app.ResolvePaths()
-		if err != nil {
-			fmt.Fprintf(stderr, "whatevrd pair: %v\n", err)
-			return 1
-		}
-		*socket = paths.SocketPath
-	}
-
-	if err := platform.ValidateSocket(*socket); err != nil {
-		fmt.Fprintf(stderr, "whatevrd pair: %v\n", err)
-		return 1
-	}
-	conn, err := net.Dial("unix", *socket)
+	conn, err := dialDaemon(*socket)
 	if err != nil {
-		if errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED) {
-			fmt.Fprintf(stderr, "whatevrd is not running on %s\nstart it: whatevrd (or enable your platform service)\n", *socket)
-		} else {
-			fmt.Fprintf(stderr, "whatevrd pair: %v\n", err)
-		}
+		fmt.Fprintf(stderr, "whatevrd pair: %v\n", err)
 		return 1
 	}
 	defer conn.Close()

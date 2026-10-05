@@ -85,6 +85,8 @@ uninstall prefix="/usr/local" destdir="":
     destdir="{{destdir}}"; \
     rm -f "$destdir$prefix/bin/whatevrd"; \
     rm -f "$destdir$prefix/bin/whattui"; \
+    rm -f "$destdir$prefix/share/whatevr/frontends/whattui.json"; \
+    rmdir "$destdir$prefix/share/whatevr/frontends" "$destdir$prefix/share/whatevr" 2>/dev/null || true; \
     rm -f "$destdir$prefix/lib/systemd/user/whatevrd.service"; \
     rm -f "$destdir$prefix/lib/systemd/user/whatevrd.socket"; \
     if [ "$(uname -s)" = Darwin ]; then rm -rf "$destdir$prefix/Whatevr.app"; fi

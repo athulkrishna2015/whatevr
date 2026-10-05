@@ -41,6 +41,11 @@ renderer = out / "render-icon"
 subprocess.run(["xcrun", "swiftc", "-module-cache-path", str(cache), str(root / "native/macos/Icon.swift"), "-o", str(renderer)], check=True)
 subprocess.run([str(renderer), str(iconset)], check=True)
 subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(contents / "Resources/Whatevr.icns")], check=True)
+# the cask has no share dir, so the bundle carries the shipped manifests
+frontends = contents / "Resources/frontends"
+frontends.mkdir(parents=True, exist_ok=True)
+for manifest in (root / "packaging/frontends").glob("*.json"):
+    shutil.copy2(manifest, frontends / manifest.name)
 daemon = contents / "MacOS/whatevrd"
 shutil.copy2(out / "whatevrd", daemon)
 # nested code is signed before the bundle that seals it.

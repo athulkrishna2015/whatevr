@@ -274,6 +274,7 @@ type Session struct {
 
 	mu        sync.Mutex
 	client    string
+	frontend  string
 	focused   bool
 	active    string
 	notifies  bool
@@ -295,7 +296,9 @@ func (s *Session) Update(focused bool, active string, notifies bool) {
 
 // SessionState is a frontend as the daemon's own decisions see it.
 type SessionState struct {
-	Focused bool
+	// Frontend is the id it said hello with, empty for tools
+	Frontend string
+	Focused  bool
 	// Active is the chat id it has open
 	Active    string
 	Notifies  bool
@@ -309,7 +312,7 @@ type SessionState struct {
 
 func (s *Session) state() SessionState {
 	s.mu.Lock()
-	st := SessionState{Focused: s.focused, Active: s.active, Notifies: s.notifies, Touched: s.touched, FocusedAt: s.focusedAt}
+	st := SessionState{Frontend: s.frontend, Focused: s.focused, Active: s.active, Notifies: s.notifies, Touched: s.touched, FocusedAt: s.focusedAt}
 	s.mu.Unlock()
 	for _, w := range s.conn.windows() {
 		st.Windows++

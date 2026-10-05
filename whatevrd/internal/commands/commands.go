@@ -19,6 +19,7 @@ import (
 
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 
+	"whatevrd/internal/frontends"
 	"whatevrd/internal/model"
 	"whatevrd/internal/server"
 	"whatevrd/internal/views"
@@ -30,19 +31,22 @@ type Options struct {
 	Client *whatsapp.Client
 	Reads  *views.Reads
 	Log    zerolog.Logger
+	// Frontends is where frontend manifests are read from
+	Frontends frontends.Dirs
 }
 
 type commands struct {
-	srv *server.Server
-	c   *whatsapp.Client
-	rs  *views.Reads
-	log zerolog.Logger
+	srv  *server.Server
+	c    *whatsapp.Client
+	rs   *views.Reads
+	log  zerolog.Logger
+	dirs frontends.Dirs
 }
 
 // Register serves every command on o.Server and has it tell the client
 // what the frontends show.
 func Register(o Options) {
-	x := &commands{srv: o.Server, c: o.Client, rs: o.Reads, log: o.Log}
+	x := &commands{srv: o.Server, c: o.Client, rs: o.Reads, log: o.Log, dirs: o.Frontends}
 	type arm = protoreflect.FieldNumber
 	off := map[arm]server.Method{
 		arm(v2.Request_DaemonReconnect_case):          x.reconnect,
@@ -79,6 +83,8 @@ func Register(o Options) {
 		arm(v2.Request_StickerPackInstall_case):       x.packInstall,
 		arm(v2.Request_StickerPacksRefresh_case):      x.packsRefresh,
 		arm(v2.Request_ContactCheckPhone_case):        x.checkPhone,
+		arm(v2.Request_FrontendList_case):             x.frontendList,
+		arm(v2.Request_FrontendSetDefault_case):       x.frontendSetDefault,
 	}
 	for n, fn := range off {
 		o.Server.Handle(n, fn)

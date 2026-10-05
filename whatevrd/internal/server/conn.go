@@ -195,9 +195,10 @@ func (c *conn) handleHello(req *v2.Request) {
 	_ = c.nc.SetReadDeadline(time.Time{})
 	c.sess.mu.Lock()
 	c.sess.client = h.GetClient()
+	c.sess.frontend = h.GetFrontendId()
 	c.sess.mu.Unlock()
 	c.hello.Store(true)
-	c.log.Info().Str("client", h.GetClient()).Msg("hello")
+	c.log.Info().Str("client", h.GetClient()).Str("frontend", h.GetFrontendId()).Msg("hello")
 	resp := &v2.Response{}
 	resp.SetId(req.GetId())
 	resp.SetHello(v2.HelloResult_builder{

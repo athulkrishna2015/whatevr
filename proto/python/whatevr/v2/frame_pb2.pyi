@@ -1,5 +1,6 @@
 from whatevr.v2 import account_pb2 as _account_pb2
 from whatevr.v2 import chats_pb2 as _chats_pb2
+from whatevr.v2 import frontends_pb2 as _frontends_pb2
 from whatevr.v2 import groups_pb2 as _groups_pb2
 from whatevr.v2 import media_pb2 as _media_pb2
 from whatevr.v2 import messages_pb2 as _messages_pb2
@@ -66,7 +67,7 @@ class Frame(_message.Message):
     def __init__(self, request: _Optional[_Union[Request, _Mapping]] = ..., response: _Optional[_Union[Response, _Mapping]] = ..., event: _Optional[_Union[Event, _Mapping]] = ...) -> None: ...
 
 class Request(_message.Message):
-    __slots__ = ("id", "hello", "subscribe", "extend", "unsubscribe", "session_update", "daemon_reconnect", "account_logout", "chat_mark_read", "chat_pin", "chat_archive", "chat_mute", "chat_typing", "chat_request_older", "chat_ensure_direct", "send_text", "send_media", "send_sticker", "message_react", "message_edit", "message_revoke", "message_delete", "message_star", "message_pin", "message_forward", "message_mark_played", "message_request_from_phone", "poll_vote", "event_rsvp", "group_join_invite", "message_text", "media_download", "media_stream", "media_cancel_download", "media_read", "media_fetch_profile_picture", "privacy_set", "preferences_set", "self_set_about", "contact_block", "sticker_favorite", "sticker_download", "sticker_pack_install", "sticker_packs_refresh", "notification_dismiss", "search_chats", "search_messages", "search_stickers", "contact_check_phone")
+    __slots__ = ("id", "hello", "subscribe", "extend", "unsubscribe", "session_update", "daemon_reconnect", "account_logout", "frontend_set_default", "chat_mark_read", "chat_pin", "chat_archive", "chat_mute", "chat_typing", "chat_request_older", "chat_ensure_direct", "send_text", "send_media", "send_sticker", "message_react", "message_edit", "message_revoke", "message_delete", "message_star", "message_pin", "message_forward", "message_mark_played", "message_request_from_phone", "poll_vote", "event_rsvp", "group_join_invite", "message_text", "media_download", "media_stream", "media_cancel_download", "media_read", "media_fetch_profile_picture", "privacy_set", "preferences_set", "self_set_about", "contact_block", "sticker_favorite", "sticker_download", "sticker_pack_install", "sticker_packs_refresh", "notification_dismiss", "search_chats", "search_messages", "search_stickers", "contact_check_phone", "frontend_list")
     ID_FIELD_NUMBER: _ClassVar[int]
     HELLO_FIELD_NUMBER: _ClassVar[int]
     SUBSCRIBE_FIELD_NUMBER: _ClassVar[int]
@@ -75,6 +76,7 @@ class Request(_message.Message):
     SESSION_UPDATE_FIELD_NUMBER: _ClassVar[int]
     DAEMON_RECONNECT_FIELD_NUMBER: _ClassVar[int]
     ACCOUNT_LOGOUT_FIELD_NUMBER: _ClassVar[int]
+    FRONTEND_SET_DEFAULT_FIELD_NUMBER: _ClassVar[int]
     CHAT_MARK_READ_FIELD_NUMBER: _ClassVar[int]
     CHAT_PIN_FIELD_NUMBER: _ClassVar[int]
     CHAT_ARCHIVE_FIELD_NUMBER: _ClassVar[int]
@@ -116,6 +118,7 @@ class Request(_message.Message):
     SEARCH_MESSAGES_FIELD_NUMBER: _ClassVar[int]
     SEARCH_STICKERS_FIELD_NUMBER: _ClassVar[int]
     CONTACT_CHECK_PHONE_FIELD_NUMBER: _ClassVar[int]
+    FRONTEND_LIST_FIELD_NUMBER: _ClassVar[int]
     id: int
     hello: Hello
     subscribe: Subscribe
@@ -124,6 +127,7 @@ class Request(_message.Message):
     session_update: _account_pb2.SessionUpdate
     daemon_reconnect: _account_pb2.DaemonReconnect
     account_logout: _account_pb2.AccountLogout
+    frontend_set_default: _frontends_pb2.FrontendSetDefault
     chat_mark_read: _chats_pb2.ChatMarkRead
     chat_pin: _chats_pb2.ChatPin
     chat_archive: _chats_pb2.ChatArchive
@@ -165,10 +169,11 @@ class Request(_message.Message):
     search_messages: _search_pb2.SearchMessages
     search_stickers: _search_pb2.SearchStickers
     contact_check_phone: _search_pb2.ContactCheckPhone
-    def __init__(self, id: _Optional[int] = ..., hello: _Optional[_Union[Hello, _Mapping]] = ..., subscribe: _Optional[_Union[Subscribe, _Mapping]] = ..., extend: _Optional[_Union[Extend, _Mapping]] = ..., unsubscribe: _Optional[_Union[Unsubscribe, _Mapping]] = ..., session_update: _Optional[_Union[_account_pb2.SessionUpdate, _Mapping]] = ..., daemon_reconnect: _Optional[_Union[_account_pb2.DaemonReconnect, _Mapping]] = ..., account_logout: _Optional[_Union[_account_pb2.AccountLogout, _Mapping]] = ..., chat_mark_read: _Optional[_Union[_chats_pb2.ChatMarkRead, _Mapping]] = ..., chat_pin: _Optional[_Union[_chats_pb2.ChatPin, _Mapping]] = ..., chat_archive: _Optional[_Union[_chats_pb2.ChatArchive, _Mapping]] = ..., chat_mute: _Optional[_Union[_chats_pb2.ChatMute, _Mapping]] = ..., chat_typing: _Optional[_Union[_chats_pb2.ChatTyping, _Mapping]] = ..., chat_request_older: _Optional[_Union[_chats_pb2.ChatRequestOlder, _Mapping]] = ..., chat_ensure_direct: _Optional[_Union[_chats_pb2.ChatEnsureDirect, _Mapping]] = ..., send_text: _Optional[_Union[_messages_pb2.SendText, _Mapping]] = ..., send_media: _Optional[_Union[_messages_pb2.SendMedia, _Mapping]] = ..., send_sticker: _Optional[_Union[_messages_pb2.SendSticker, _Mapping]] = ..., message_react: _Optional[_Union[_messages_pb2.MessageReact, _Mapping]] = ..., message_edit: _Optional[_Union[_messages_pb2.MessageEdit, _Mapping]] = ..., message_revoke: _Optional[_Union[_messages_pb2.MessageRevoke, _Mapping]] = ..., message_delete: _Optional[_Union[_messages_pb2.MessageDelete, _Mapping]] = ..., message_star: _Optional[_Union[_messages_pb2.MessageStar, _Mapping]] = ..., message_pin: _Optional[_Union[_messages_pb2.MessagePin, _Mapping]] = ..., message_forward: _Optional[_Union[_messages_pb2.MessageForward, _Mapping]] = ..., message_mark_played: _Optional[_Union[_messages_pb2.MessageMarkPlayed, _Mapping]] = ..., message_request_from_phone: _Optional[_Union[_messages_pb2.MessageRequestFromPhone, _Mapping]] = ..., poll_vote: _Optional[_Union[_messages_pb2.PollVote, _Mapping]] = ..., event_rsvp: _Optional[_Union[_messages_pb2.EventRsvp, _Mapping]] = ..., group_join_invite: _Optional[_Union[_messages_pb2.GroupJoinInvite, _Mapping]] = ..., message_text: _Optional[_Union[_messages_pb2.MessageText, _Mapping]] = ..., media_download: _Optional[_Union[_media_pb2.MediaDownload, _Mapping]] = ..., media_stream: _Optional[_Union[_media_pb2.MediaStream, _Mapping]] = ..., media_cancel_download: _Optional[_Union[_media_pb2.MediaCancelDownload, _Mapping]] = ..., media_read: _Optional[_Union[_media_pb2.MediaRead, _Mapping]] = ..., media_fetch_profile_picture: _Optional[_Union[_media_pb2.MediaFetchProfilePicture, _Mapping]] = ..., privacy_set: _Optional[_Union[_settings_pb2.PrivacySet, _Mapping]] = ..., preferences_set: _Optional[_Union[_settings_pb2.PreferencesSet, _Mapping]] = ..., self_set_about: _Optional[_Union[_people_pb2.SelfSetAbout, _Mapping]] = ..., contact_block: _Optional[_Union[_people_pb2.ContactBlock, _Mapping]] = ..., sticker_favorite: _Optional[_Union[_stickers_pb2.StickerFavorite, _Mapping]] = ..., sticker_download: _Optional[_Union[_stickers_pb2.StickerDownload, _Mapping]] = ..., sticker_pack_install: _Optional[_Union[_stickers_pb2.StickerPackInstall, _Mapping]] = ..., sticker_packs_refresh: _Optional[_Union[_stickers_pb2.StickerPacksRefresh, _Mapping]] = ..., notification_dismiss: _Optional[_Union[_notifications_pb2.NotificationDismiss, _Mapping]] = ..., search_chats: _Optional[_Union[_search_pb2.SearchChats, _Mapping]] = ..., search_messages: _Optional[_Union[_search_pb2.SearchMessages, _Mapping]] = ..., search_stickers: _Optional[_Union[_search_pb2.SearchStickers, _Mapping]] = ..., contact_check_phone: _Optional[_Union[_search_pb2.ContactCheckPhone, _Mapping]] = ...) -> None: ...
+    frontend_list: _frontends_pb2.FrontendList
+    def __init__(self, id: _Optional[int] = ..., hello: _Optional[_Union[Hello, _Mapping]] = ..., subscribe: _Optional[_Union[Subscribe, _Mapping]] = ..., extend: _Optional[_Union[Extend, _Mapping]] = ..., unsubscribe: _Optional[_Union[Unsubscribe, _Mapping]] = ..., session_update: _Optional[_Union[_account_pb2.SessionUpdate, _Mapping]] = ..., daemon_reconnect: _Optional[_Union[_account_pb2.DaemonReconnect, _Mapping]] = ..., account_logout: _Optional[_Union[_account_pb2.AccountLogout, _Mapping]] = ..., frontend_set_default: _Optional[_Union[_frontends_pb2.FrontendSetDefault, _Mapping]] = ..., chat_mark_read: _Optional[_Union[_chats_pb2.ChatMarkRead, _Mapping]] = ..., chat_pin: _Optional[_Union[_chats_pb2.ChatPin, _Mapping]] = ..., chat_archive: _Optional[_Union[_chats_pb2.ChatArchive, _Mapping]] = ..., chat_mute: _Optional[_Union[_chats_pb2.ChatMute, _Mapping]] = ..., chat_typing: _Optional[_Union[_chats_pb2.ChatTyping, _Mapping]] = ..., chat_request_older: _Optional[_Union[_chats_pb2.ChatRequestOlder, _Mapping]] = ..., chat_ensure_direct: _Optional[_Union[_chats_pb2.ChatEnsureDirect, _Mapping]] = ..., send_text: _Optional[_Union[_messages_pb2.SendText, _Mapping]] = ..., send_media: _Optional[_Union[_messages_pb2.SendMedia, _Mapping]] = ..., send_sticker: _Optional[_Union[_messages_pb2.SendSticker, _Mapping]] = ..., message_react: _Optional[_Union[_messages_pb2.MessageReact, _Mapping]] = ..., message_edit: _Optional[_Union[_messages_pb2.MessageEdit, _Mapping]] = ..., message_revoke: _Optional[_Union[_messages_pb2.MessageRevoke, _Mapping]] = ..., message_delete: _Optional[_Union[_messages_pb2.MessageDelete, _Mapping]] = ..., message_star: _Optional[_Union[_messages_pb2.MessageStar, _Mapping]] = ..., message_pin: _Optional[_Union[_messages_pb2.MessagePin, _Mapping]] = ..., message_forward: _Optional[_Union[_messages_pb2.MessageForward, _Mapping]] = ..., message_mark_played: _Optional[_Union[_messages_pb2.MessageMarkPlayed, _Mapping]] = ..., message_request_from_phone: _Optional[_Union[_messages_pb2.MessageRequestFromPhone, _Mapping]] = ..., poll_vote: _Optional[_Union[_messages_pb2.PollVote, _Mapping]] = ..., event_rsvp: _Optional[_Union[_messages_pb2.EventRsvp, _Mapping]] = ..., group_join_invite: _Optional[_Union[_messages_pb2.GroupJoinInvite, _Mapping]] = ..., message_text: _Optional[_Union[_messages_pb2.MessageText, _Mapping]] = ..., media_download: _Optional[_Union[_media_pb2.MediaDownload, _Mapping]] = ..., media_stream: _Optional[_Union[_media_pb2.MediaStream, _Mapping]] = ..., media_cancel_download: _Optional[_Union[_media_pb2.MediaCancelDownload, _Mapping]] = ..., media_read: _Optional[_Union[_media_pb2.MediaRead, _Mapping]] = ..., media_fetch_profile_picture: _Optional[_Union[_media_pb2.MediaFetchProfilePicture, _Mapping]] = ..., privacy_set: _Optional[_Union[_settings_pb2.PrivacySet, _Mapping]] = ..., preferences_set: _Optional[_Union[_settings_pb2.PreferencesSet, _Mapping]] = ..., self_set_about: _Optional[_Union[_people_pb2.SelfSetAbout, _Mapping]] = ..., contact_block: _Optional[_Union[_people_pb2.ContactBlock, _Mapping]] = ..., sticker_favorite: _Optional[_Union[_stickers_pb2.StickerFavorite, _Mapping]] = ..., sticker_download: _Optional[_Union[_stickers_pb2.StickerDownload, _Mapping]] = ..., sticker_pack_install: _Optional[_Union[_stickers_pb2.StickerPackInstall, _Mapping]] = ..., sticker_packs_refresh: _Optional[_Union[_stickers_pb2.StickerPacksRefresh, _Mapping]] = ..., notification_dismiss: _Optional[_Union[_notifications_pb2.NotificationDismiss, _Mapping]] = ..., search_chats: _Optional[_Union[_search_pb2.SearchChats, _Mapping]] = ..., search_messages: _Optional[_Union[_search_pb2.SearchMessages, _Mapping]] = ..., search_stickers: _Optional[_Union[_search_pb2.SearchStickers, _Mapping]] = ..., contact_check_phone: _Optional[_Union[_search_pb2.ContactCheckPhone, _Mapping]] = ..., frontend_list: _Optional[_Union[_frontends_pb2.FrontendList, _Mapping]] = ...) -> None: ...
 
 class Response(_message.Message):
-    __slots__ = ("id", "error", "hello", "subscribe", "done", "chat_ensure_direct", "chat_request_older", "send", "message_forward", "group_join_invite", "message_text", "media_stream", "media_read", "media_fetch_profile_picture", "search_chats", "search_messages", "search_stickers", "contact_check_phone")
+    __slots__ = ("id", "error", "hello", "subscribe", "done", "chat_ensure_direct", "chat_request_older", "send", "message_forward", "group_join_invite", "message_text", "media_stream", "media_read", "media_fetch_profile_picture", "search_chats", "search_messages", "search_stickers", "contact_check_phone", "frontend_list")
     ID_FIELD_NUMBER: _ClassVar[int]
     ERROR_FIELD_NUMBER: _ClassVar[int]
     HELLO_FIELD_NUMBER: _ClassVar[int]
@@ -187,6 +192,7 @@ class Response(_message.Message):
     SEARCH_MESSAGES_FIELD_NUMBER: _ClassVar[int]
     SEARCH_STICKERS_FIELD_NUMBER: _ClassVar[int]
     CONTACT_CHECK_PHONE_FIELD_NUMBER: _ClassVar[int]
+    FRONTEND_LIST_FIELD_NUMBER: _ClassVar[int]
     id: int
     error: Error
     hello: HelloResult
@@ -205,7 +211,8 @@ class Response(_message.Message):
     search_messages: _search_pb2.SearchMessagesResult
     search_stickers: _search_pb2.SearchStickersResult
     contact_check_phone: _search_pb2.ContactCheckPhoneResult
-    def __init__(self, id: _Optional[int] = ..., error: _Optional[_Union[Error, _Mapping]] = ..., hello: _Optional[_Union[HelloResult, _Mapping]] = ..., subscribe: _Optional[_Union[SubscribeResult, _Mapping]] = ..., done: _Optional[_Union[Done, _Mapping]] = ..., chat_ensure_direct: _Optional[_Union[_chats_pb2.ChatEnsureDirectResult, _Mapping]] = ..., chat_request_older: _Optional[_Union[_chats_pb2.ChatRequestOlderResult, _Mapping]] = ..., send: _Optional[_Union[_messages_pb2.SendResult, _Mapping]] = ..., message_forward: _Optional[_Union[_messages_pb2.MessageForwardResult, _Mapping]] = ..., group_join_invite: _Optional[_Union[_messages_pb2.GroupJoinInviteResult, _Mapping]] = ..., message_text: _Optional[_Union[_messages_pb2.MessageTextResult, _Mapping]] = ..., media_stream: _Optional[_Union[_media_pb2.MediaStreamResult, _Mapping]] = ..., media_read: _Optional[_Union[_media_pb2.MediaReadResult, _Mapping]] = ..., media_fetch_profile_picture: _Optional[_Union[_media_pb2.MediaFetchProfilePictureResult, _Mapping]] = ..., search_chats: _Optional[_Union[_search_pb2.SearchChatsResult, _Mapping]] = ..., search_messages: _Optional[_Union[_search_pb2.SearchMessagesResult, _Mapping]] = ..., search_stickers: _Optional[_Union[_search_pb2.SearchStickersResult, _Mapping]] = ..., contact_check_phone: _Optional[_Union[_search_pb2.ContactCheckPhoneResult, _Mapping]] = ...) -> None: ...
+    frontend_list: _frontends_pb2.FrontendListResult
+    def __init__(self, id: _Optional[int] = ..., error: _Optional[_Union[Error, _Mapping]] = ..., hello: _Optional[_Union[HelloResult, _Mapping]] = ..., subscribe: _Optional[_Union[SubscribeResult, _Mapping]] = ..., done: _Optional[_Union[Done, _Mapping]] = ..., chat_ensure_direct: _Optional[_Union[_chats_pb2.ChatEnsureDirectResult, _Mapping]] = ..., chat_request_older: _Optional[_Union[_chats_pb2.ChatRequestOlderResult, _Mapping]] = ..., send: _Optional[_Union[_messages_pb2.SendResult, _Mapping]] = ..., message_forward: _Optional[_Union[_messages_pb2.MessageForwardResult, _Mapping]] = ..., group_join_invite: _Optional[_Union[_messages_pb2.GroupJoinInviteResult, _Mapping]] = ..., message_text: _Optional[_Union[_messages_pb2.MessageTextResult, _Mapping]] = ..., media_stream: _Optional[_Union[_media_pb2.MediaStreamResult, _Mapping]] = ..., media_read: _Optional[_Union[_media_pb2.MediaReadResult, _Mapping]] = ..., media_fetch_profile_picture: _Optional[_Union[_media_pb2.MediaFetchProfilePictureResult, _Mapping]] = ..., search_chats: _Optional[_Union[_search_pb2.SearchChatsResult, _Mapping]] = ..., search_messages: _Optional[_Union[_search_pb2.SearchMessagesResult, _Mapping]] = ..., search_stickers: _Optional[_Union[_search_pb2.SearchStickersResult, _Mapping]] = ..., contact_check_phone: _Optional[_Union[_search_pb2.ContactCheckPhoneResult, _Mapping]] = ..., frontend_list: _Optional[_Union[_frontends_pb2.FrontendListResult, _Mapping]] = ...) -> None: ...
 
 class Done(_message.Message):
     __slots__ = ()
@@ -220,12 +227,14 @@ class Error(_message.Message):
     def __init__(self, code: _Optional[_Union[ErrorCode, str]] = ..., message: _Optional[str] = ...) -> None: ...
 
 class Hello(_message.Message):
-    __slots__ = ("client", "protocol")
+    __slots__ = ("client", "protocol", "frontend_id")
     CLIENT_FIELD_NUMBER: _ClassVar[int]
     PROTOCOL_FIELD_NUMBER: _ClassVar[int]
+    FRONTEND_ID_FIELD_NUMBER: _ClassVar[int]
     client: str
     protocol: int
-    def __init__(self, client: _Optional[str] = ..., protocol: _Optional[int] = ...) -> None: ...
+    frontend_id: str
+    def __init__(self, client: _Optional[str] = ..., protocol: _Optional[int] = ..., frontend_id: _Optional[str] = ...) -> None: ...
 
 class HelloResult(_message.Message):
     __slots__ = ("daemon", "version", "protocol", "features", "data_dir", "cache_dir")

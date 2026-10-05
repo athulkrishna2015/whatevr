@@ -79,6 +79,7 @@ func run(socket string, showCaps bool) (err error) {
 	defer vx.Close()
 
 	client := proto.New(socket, "whattui")
+	client.FrontendID = "whattui"
 	return ui.New(vx, caps, client).Run()
 }
 

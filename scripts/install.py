@@ -20,6 +20,7 @@ def install(source, path, mode):
 build = root / "build" / profile
 if (build / "whattui").exists():
     install(build / "whattui", prefix / "bin/whattui", 0o755)
+    install(root / "packaging/frontends/whattui.json", prefix / "share/whatevr/frontends/whattui.json", 0o644)
 if sys.platform == "darwin":
     app = staged(prefix / "Whatevr.app")
     # Avoid merging obsolete bundle contents across versions.

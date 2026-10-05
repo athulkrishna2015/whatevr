@@ -100,7 +100,7 @@ func (c *Client) update(u *v2.ViewUpdate) {
 
 func (c *Client) sendHello() error {
 	req := &v2.Request{}
-	req.SetHello(v2.Hello_builder{Client: c.name, Protocol: ProtocolVersion}.Build())
+	req.SetHello(v2.Hello_builder{Client: c.name, Protocol: ProtocolVersion, FrontendId: c.FrontendID}.Build())
 	err := c.enqueue(req, func(resp *v2.Response, err *Error) {
 		if err == nil && resp.GetHello().GetProtocol() != ProtocolVersion {
 			err = &Error{Message: fmt.Sprintf("whatevrd speaks protocol %d", resp.GetHello().GetProtocol())}

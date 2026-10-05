@@ -43,6 +43,17 @@ func (c *Client) prefs(ctx context.Context) *v2.Preferences {
 	return Preferences(raw)
 }
 
+// Prefs is the preferences now, the defaults when the read fails.
+func (c *Client) Prefs(ctx context.Context) *v2.Preferences { return c.prefs(ctx) }
+
+// SetDefaultFrontend stores the frontend a click starts. the caller checks
+// the id names one.
+func (c *Client) SetDefaultFrontend(ctx context.Context, id string) error {
+	p := c.prefs(ctx)
+	p.SetDefaultFrontend(id)
+	return c.storePrefs(ctx, p)
+}
+
 // SetPreferences sets the fields set has; the rest stay.
 func (c *Client) SetPreferences(ctx context.Context, set *v2.PreferencesSet) error {
 	p := c.prefs(ctx)
@@ -76,6 +87,13 @@ func (c *Client) SetPreferences(ctx context.Context, set *v2.PreferencesSet) err
 	if set.HasAutoFetchMaps() {
 		p.SetAutoFetchMaps(set.GetAutoFetchMaps())
 	}
+	if set.HasTerminal() {
+		p.SetTerminal(set.GetTerminal().GetArgs())
+	}
+	return c.storePrefs(ctx, p)
+}
+
+func (c *Client) storePrefs(ctx context.Context, p *v2.Preferences) error {
 	raw, err := protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(p)
 	if err != nil {
 		return err

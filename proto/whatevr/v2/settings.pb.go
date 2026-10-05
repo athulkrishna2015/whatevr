@@ -518,6 +518,8 @@ type Preferences struct {
 	xxx_hidden_AutoDownloadStickers  bool                   `protobuf:"varint,8,opt,name=auto_download_stickers,json=autoDownloadStickers"`
 	xxx_hidden_AutoDownloadMaxBytes  uint64                 `protobuf:"varint,9,opt,name=auto_download_max_bytes,json=autoDownloadMaxBytes"`
 	xxx_hidden_AutoFetchMaps         bool                   `protobuf:"varint,10,opt,name=auto_fetch_maps,json=autoFetchMaps"`
+	xxx_hidden_DefaultFrontend       string                 `protobuf:"bytes,11,opt,name=default_frontend,json=defaultFrontend"`
+	xxx_hidden_Terminal              []string               `protobuf:"bytes,12,rep,name=terminal"`
 	unknownFields                    protoimpl.UnknownFields
 	sizeCache                        protoimpl.SizeCache
 }
@@ -617,6 +619,20 @@ func (x *Preferences) GetAutoFetchMaps() bool {
 	return false
 }
 
+func (x *Preferences) GetDefaultFrontend() string {
+	if x != nil {
+		return x.xxx_hidden_DefaultFrontend
+	}
+	return ""
+}
+
+func (x *Preferences) GetTerminal() []string {
+	if x != nil {
+		return x.xxx_hidden_Terminal
+	}
+	return nil
+}
+
 func (x *Preferences) SetNotifications(v bool) {
 	x.xxx_hidden_Notifications = v
 }
@@ -657,6 +673,14 @@ func (x *Preferences) SetAutoFetchMaps(v bool) {
 	x.xxx_hidden_AutoFetchMaps = v
 }
 
+func (x *Preferences) SetDefaultFrontend(v string) {
+	x.xxx_hidden_DefaultFrontend = v
+}
+
+func (x *Preferences) SetTerminal(v []string) {
+	x.xxx_hidden_Terminal = v
+}
+
 type Preferences_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -671,6 +695,12 @@ type Preferences_builder struct {
 	AutoDownloadMaxBytes  uint64
 	// fetch map tiles for a location's picture
 	AutoFetchMaps bool
+	// the frontend a click or link starts when none is connected. empty is
+	// whattui. set it with frontend_set_default
+	DefaultFrontend string
+	// the terminal a terminal frontend runs in, its argv appended. empty is
+	// the platform's default
+	Terminal []string
 }
 
 func (b0 Preferences_builder) Build() *Preferences {
@@ -687,6 +717,66 @@ func (b0 Preferences_builder) Build() *Preferences {
 	x.xxx_hidden_AutoDownloadStickers = b.AutoDownloadStickers
 	x.xxx_hidden_AutoDownloadMaxBytes = b.AutoDownloadMaxBytes
 	x.xxx_hidden_AutoFetchMaps = b.AutoFetchMaps
+	x.xxx_hidden_DefaultFrontend = b.DefaultFrontend
+	x.xxx_hidden_Terminal = b.Terminal
+	return m0
+}
+
+// an argv as one value, so a set can tell empty from absent
+type Argv struct {
+	state           protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Args []string               `protobuf:"bytes,1,rep,name=args"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *Argv) Reset() {
+	*x = Argv{}
+	mi := &file_whatevr_v2_settings_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Argv) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Argv) ProtoMessage() {}
+
+func (x *Argv) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_settings_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *Argv) GetArgs() []string {
+	if x != nil {
+		return x.xxx_hidden_Args
+	}
+	return nil
+}
+
+func (x *Argv) SetArgs(v []string) {
+	x.xxx_hidden_Args = v
+}
+
+type Argv_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Args []string
+}
+
+func (b0 Argv_builder) Build() *Argv {
+	m0 := &Argv{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Args = b.Args
 	return m0
 }
 
@@ -703,6 +793,7 @@ type PreferencesSet struct {
 	xxx_hidden_AutoDownloadStickers  bool                   `protobuf:"varint,8,opt,name=auto_download_stickers,json=autoDownloadStickers"`
 	xxx_hidden_AutoDownloadMaxBytes  uint64                 `protobuf:"varint,9,opt,name=auto_download_max_bytes,json=autoDownloadMaxBytes"`
 	xxx_hidden_AutoFetchMaps         bool                   `protobuf:"varint,10,opt,name=auto_fetch_maps,json=autoFetchMaps"`
+	xxx_hidden_Terminal              *Argv                  `protobuf:"bytes,12,opt,name=terminal"`
 	XXX_raceDetectHookData           protoimpl.RaceDetectHookData
 	XXX_presence                     [1]uint32
 	unknownFields                    protoimpl.UnknownFields
@@ -711,7 +802,7 @@ type PreferencesSet struct {
 
 func (x *PreferencesSet) Reset() {
 	*x = PreferencesSet{}
-	mi := &file_whatevr_v2_settings_proto_msgTypes[6]
+	mi := &file_whatevr_v2_settings_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -723,7 +814,7 @@ func (x *PreferencesSet) String() string {
 func (*PreferencesSet) ProtoMessage() {}
 
 func (x *PreferencesSet) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_settings_proto_msgTypes[6]
+	mi := &file_whatevr_v2_settings_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -804,54 +895,65 @@ func (x *PreferencesSet) GetAutoFetchMaps() bool {
 	return false
 }
 
+func (x *PreferencesSet) GetTerminal() *Argv {
+	if x != nil {
+		return x.xxx_hidden_Terminal
+	}
+	return nil
+}
+
 func (x *PreferencesSet) SetNotifications(v bool) {
 	x.xxx_hidden_Notifications = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 10)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 11)
 }
 
 func (x *PreferencesSet) SetNotificationSound(v bool) {
 	x.xxx_hidden_NotificationSound = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 10)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 11)
 }
 
 func (x *PreferencesSet) SetNotificationPreview(v bool) {
 	x.xxx_hidden_NotificationPreview = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 10)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 11)
 }
 
 func (x *PreferencesSet) SetAutoDownloadPhotos(v bool) {
 	x.xxx_hidden_AutoDownloadPhotos = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 10)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 11)
 }
 
 func (x *PreferencesSet) SetAutoDownloadVideos(v bool) {
 	x.xxx_hidden_AutoDownloadVideos = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 4, 10)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 4, 11)
 }
 
 func (x *PreferencesSet) SetAutoDownloadAudio(v bool) {
 	x.xxx_hidden_AutoDownloadAudio = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 10)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 11)
 }
 
 func (x *PreferencesSet) SetAutoDownloadDocuments(v bool) {
 	x.xxx_hidden_AutoDownloadDocuments = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 6, 10)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 6, 11)
 }
 
 func (x *PreferencesSet) SetAutoDownloadStickers(v bool) {
 	x.xxx_hidden_AutoDownloadStickers = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 7, 10)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 7, 11)
 }
 
 func (x *PreferencesSet) SetAutoDownloadMaxBytes(v uint64) {
 	x.xxx_hidden_AutoDownloadMaxBytes = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 8, 10)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 8, 11)
 }
 
 func (x *PreferencesSet) SetAutoFetchMaps(v bool) {
 	x.xxx_hidden_AutoFetchMaps = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 9, 10)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 9, 11)
+}
+
+func (x *PreferencesSet) SetTerminal(v *Argv) {
+	x.xxx_hidden_Terminal = v
 }
 
 func (x *PreferencesSet) HasNotifications() bool {
@@ -924,6 +1026,13 @@ func (x *PreferencesSet) HasAutoFetchMaps() bool {
 	return protoimpl.X.Present(&(x.XXX_presence[0]), 9)
 }
 
+func (x *PreferencesSet) HasTerminal() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Terminal != nil
+}
+
 func (x *PreferencesSet) ClearNotifications() {
 	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
 	x.xxx_hidden_Notifications = false
@@ -974,6 +1083,10 @@ func (x *PreferencesSet) ClearAutoFetchMaps() {
 	x.xxx_hidden_AutoFetchMaps = false
 }
 
+func (x *PreferencesSet) ClearTerminal() {
+	x.xxx_hidden_Terminal = nil
+}
+
 type PreferencesSet_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -987,6 +1100,8 @@ type PreferencesSet_builder struct {
 	AutoDownloadStickers  *bool
 	AutoDownloadMaxBytes  *uint64
 	AutoFetchMaps         *bool
+	// present and empty goes back to the platform's terminal
+	Terminal *Argv
 }
 
 func (b0 PreferencesSet_builder) Build() *PreferencesSet {
@@ -994,45 +1109,46 @@ func (b0 PreferencesSet_builder) Build() *PreferencesSet {
 	b, x := &b0, m0
 	_, _ = b, x
 	if b.Notifications != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 10)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 11)
 		x.xxx_hidden_Notifications = *b.Notifications
 	}
 	if b.NotificationSound != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 10)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 11)
 		x.xxx_hidden_NotificationSound = *b.NotificationSound
 	}
 	if b.NotificationPreview != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 10)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 11)
 		x.xxx_hidden_NotificationPreview = *b.NotificationPreview
 	}
 	if b.AutoDownloadPhotos != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 10)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 11)
 		x.xxx_hidden_AutoDownloadPhotos = *b.AutoDownloadPhotos
 	}
 	if b.AutoDownloadVideos != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 4, 10)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 4, 11)
 		x.xxx_hidden_AutoDownloadVideos = *b.AutoDownloadVideos
 	}
 	if b.AutoDownloadAudio != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 10)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 11)
 		x.xxx_hidden_AutoDownloadAudio = *b.AutoDownloadAudio
 	}
 	if b.AutoDownloadDocuments != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 6, 10)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 6, 11)
 		x.xxx_hidden_AutoDownloadDocuments = *b.AutoDownloadDocuments
 	}
 	if b.AutoDownloadStickers != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 7, 10)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 7, 11)
 		x.xxx_hidden_AutoDownloadStickers = *b.AutoDownloadStickers
 	}
 	if b.AutoDownloadMaxBytes != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 8, 10)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 8, 11)
 		x.xxx_hidden_AutoDownloadMaxBytes = *b.AutoDownloadMaxBytes
 	}
 	if b.AutoFetchMaps != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 9, 10)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 9, 11)
 		x.xxx_hidden_AutoFetchMaps = *b.AutoFetchMaps
 	}
+	x.xxx_hidden_Terminal = b.Terminal
 	return m0
 }
 
@@ -1058,7 +1174,7 @@ const file_whatevr_v2_settings_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\x0e2\x18.whatevr.v2.PrivacyValueR\x05value\"\x11\n" +
 	"\x0fPreferencesView\"K\n" +
 	"\x0ePreferencesRow\x129\n" +
-	"\vpreferences\x18\x01 \x01(\v2\x17.whatevr.v2.PreferencesR\vpreferences\"\xf6\x03\n" +
+	"\vpreferences\x18\x01 \x01(\v2\x17.whatevr.v2.PreferencesR\vpreferences\"\xbd\x04\n" +
 	"\vPreferences\x12$\n" +
 	"\rnotifications\x18\x01 \x01(\bR\rnotifications\x12-\n" +
 	"\x12notification_sound\x18\x02 \x01(\bR\x11notificationSound\x121\n" +
@@ -1070,7 +1186,11 @@ const file_whatevr_v2_settings_proto_rawDesc = "" +
 	"\x16auto_download_stickers\x18\b \x01(\bR\x14autoDownloadStickers\x125\n" +
 	"\x17auto_download_max_bytes\x18\t \x01(\x04R\x14autoDownloadMaxBytes\x12&\n" +
 	"\x0fauto_fetch_maps\x18\n" +
-	" \x01(\bR\rautoFetchMaps\"\xbf\x04\n" +
+	" \x01(\bR\rautoFetchMaps\x12)\n" +
+	"\x10default_frontend\x18\v \x01(\tR\x0fdefaultFrontend\x12\x1a\n" +
+	"\bterminal\x18\f \x03(\tR\bterminal\"\x1a\n" +
+	"\x04Argv\x12\x12\n" +
+	"\x04args\x18\x01 \x03(\tR\x04args\"\xed\x04\n" +
 	"\x0ePreferencesSet\x12+\n" +
 	"\rnotifications\x18\x01 \x01(\bB\x05\xaa\x01\x02\b\x01R\rnotifications\x124\n" +
 	"\x12notification_sound\x18\x02 \x01(\bB\x05\xaa\x01\x02\b\x01R\x11notificationSound\x128\n" +
@@ -1082,7 +1202,8 @@ const file_whatevr_v2_settings_proto_rawDesc = "" +
 	"\x16auto_download_stickers\x18\b \x01(\bB\x05\xaa\x01\x02\b\x01R\x14autoDownloadStickers\x12<\n" +
 	"\x17auto_download_max_bytes\x18\t \x01(\x04B\x05\xaa\x01\x02\b\x01R\x14autoDownloadMaxBytes\x12-\n" +
 	"\x0fauto_fetch_maps\x18\n" +
-	" \x01(\bB\x05\xaa\x01\x02\b\x01R\rautoFetchMaps*\x93\x02\n" +
+	" \x01(\bB\x05\xaa\x01\x02\b\x01R\rautoFetchMaps\x12,\n" +
+	"\bterminal\x18\f \x01(\v2\x10.whatevr.v2.ArgvR\bterminal*\x93\x02\n" +
 	"\x0fPrivacyCategory\x12 \n" +
 	"\x1cPRIVACY_CATEGORY_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aPRIVACY_CATEGORY_LAST_SEEN\x10\x01\x12\x1b\n" +
@@ -1105,7 +1226,7 @@ const file_whatevr_v2_settings_proto_rawDesc = "" +
 	"Whatevr\\V2\xe2\x02\x16Whatevr\\V2\\GPBMetadata\xea\x02\vWhatevr::V2\x92\x03\x02\b\x02b\beditionsp\xe9\a"
 
 var file_whatevr_v2_settings_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_whatevr_v2_settings_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_whatevr_v2_settings_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_whatevr_v2_settings_proto_goTypes = []any{
 	(PrivacyCategory)(0),    // 0: whatevr.v2.PrivacyCategory
 	(PrivacyValue)(0),       // 1: whatevr.v2.PrivacyValue
@@ -1115,23 +1236,25 @@ var file_whatevr_v2_settings_proto_goTypes = []any{
 	(*PreferencesView)(nil), // 5: whatevr.v2.PreferencesView
 	(*PreferencesRow)(nil),  // 6: whatevr.v2.PreferencesRow
 	(*Preferences)(nil),     // 7: whatevr.v2.Preferences
-	(*PreferencesSet)(nil),  // 8: whatevr.v2.PreferencesSet
+	(*Argv)(nil),            // 8: whatevr.v2.Argv
+	(*PreferencesSet)(nil),  // 9: whatevr.v2.PreferencesSet
 }
 var file_whatevr_v2_settings_proto_depIdxs = []int32{
-	1, // 0: whatevr.v2.PrivacyRow.last_seen:type_name -> whatevr.v2.PrivacyValue
-	1, // 1: whatevr.v2.PrivacyRow.online:type_name -> whatevr.v2.PrivacyValue
-	1, // 2: whatevr.v2.PrivacyRow.profile_photo:type_name -> whatevr.v2.PrivacyValue
-	1, // 3: whatevr.v2.PrivacyRow.about:type_name -> whatevr.v2.PrivacyValue
-	1, // 4: whatevr.v2.PrivacyRow.group_add:type_name -> whatevr.v2.PrivacyValue
-	1, // 5: whatevr.v2.PrivacyRow.call_add:type_name -> whatevr.v2.PrivacyValue
-	0, // 6: whatevr.v2.PrivacySet.category:type_name -> whatevr.v2.PrivacyCategory
-	1, // 7: whatevr.v2.PrivacySet.value:type_name -> whatevr.v2.PrivacyValue
-	7, // 8: whatevr.v2.PreferencesRow.preferences:type_name -> whatevr.v2.Preferences
-	9, // [9:9] is the sub-list for method output_type
-	9, // [9:9] is the sub-list for method input_type
-	9, // [9:9] is the sub-list for extension type_name
-	9, // [9:9] is the sub-list for extension extendee
-	0, // [0:9] is the sub-list for field type_name
+	1,  // 0: whatevr.v2.PrivacyRow.last_seen:type_name -> whatevr.v2.PrivacyValue
+	1,  // 1: whatevr.v2.PrivacyRow.online:type_name -> whatevr.v2.PrivacyValue
+	1,  // 2: whatevr.v2.PrivacyRow.profile_photo:type_name -> whatevr.v2.PrivacyValue
+	1,  // 3: whatevr.v2.PrivacyRow.about:type_name -> whatevr.v2.PrivacyValue
+	1,  // 4: whatevr.v2.PrivacyRow.group_add:type_name -> whatevr.v2.PrivacyValue
+	1,  // 5: whatevr.v2.PrivacyRow.call_add:type_name -> whatevr.v2.PrivacyValue
+	0,  // 6: whatevr.v2.PrivacySet.category:type_name -> whatevr.v2.PrivacyCategory
+	1,  // 7: whatevr.v2.PrivacySet.value:type_name -> whatevr.v2.PrivacyValue
+	7,  // 8: whatevr.v2.PreferencesRow.preferences:type_name -> whatevr.v2.Preferences
+	8,  // 9: whatevr.v2.PreferencesSet.terminal:type_name -> whatevr.v2.Argv
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_whatevr_v2_settings_proto_init() }
@@ -1145,7 +1268,7 @@ func file_whatevr_v2_settings_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_whatevr_v2_settings_proto_rawDesc), len(file_whatevr_v2_settings_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   7,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

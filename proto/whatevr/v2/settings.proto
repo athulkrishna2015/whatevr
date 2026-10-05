@@ -65,6 +65,17 @@ message Preferences {
   uint64 auto_download_max_bytes = 9;
   // fetch map tiles for a location's picture
   bool auto_fetch_maps = 10;
+  // the frontend a click or link starts when none is connected. empty is
+  // whattui. set it with frontend_set_default
+  string default_frontend = 11;
+  // the terminal a terminal frontend runs in, its argv appended. empty is
+  // the platform's default
+  repeated string terminal = 12;
+}
+
+// an argv as one value, so a set can tell empty from absent
+message Argv {
+  repeated string args = 1;
 }
 
 // sets the fields that are present; the rest stay as they are
@@ -79,4 +90,6 @@ message PreferencesSet {
   bool auto_download_stickers = 8 [features.field_presence = EXPLICIT];
   uint64 auto_download_max_bytes = 9 [features.field_presence = EXPLICIT];
   bool auto_fetch_maps = 10 [features.field_presence = EXPLICIT];
+  // present and empty goes back to the platform's terminal
+  Argv terminal = 12;
 }

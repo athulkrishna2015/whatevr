@@ -87,6 +87,8 @@ jobs:
               - 'scripts/artifacts.py'
               - 'whattui/**'
               - 'packaging/systemd/**'
+              - 'packaging/frontends/**'
+              - 'packaging/linux/**'
               - '.github/workflows/**'
             aur:
               - 'packaging/aur/**'
@@ -290,7 +292,9 @@ jobs:
         run: just build
 
       - name: Install smoke test
-        run: just install-dev /usr "$RUNNER_TEMP/pkgroot"
+        run: |
+          just install-dev /usr "$RUNNER_TEMP/pkgroot"
+          test -f "$RUNNER_TEMP/pkgroot/usr/share/whatevr/frontends/whattui.json"
 
       - name: Show resolved version
         run: just version
@@ -348,6 +352,8 @@ jobs:
           test "$(readlink "$stage/bin/whatevrd")" = ../Whatevr.app/Contents/MacOS/whatevrd
           test -x "$stage/bin/whatevrd"
           test -x "$stage/Whatevr.app/Contents/MacOS/Whatevr"
+          test -f "$stage/Whatevr.app/Contents/Resources/frontends/whattui.json"
+          test -f "$stage/share/whatevr/frontends/whattui.json"
           codesign --verify --deep --strict "$stage/Whatevr.app"
           test ! -e "$stage/libexec"
           test ! -d "$stage/lib/systemd"
@@ -355,6 +361,7 @@ jobs:
           test ! -e "$stage/bin/whatevrd"
           test ! -L "$stage/bin/whatevrd"
           test ! -e "$stage/Whatevr.app"
+          test ! -e "$stage/share/whatevr"
 
   aur:
     name: AUR metadata

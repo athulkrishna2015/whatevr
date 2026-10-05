@@ -19,6 +19,7 @@ import (
 	"whatevrd/internal/commands"
 	"whatevrd/internal/conn"
 	"whatevrd/internal/core"
+	"whatevrd/internal/frontends"
 	"whatevrd/internal/live"
 	"whatevrd/internal/logx"
 	"whatevrd/internal/model"
@@ -45,6 +46,8 @@ func main() {
 			os.Exit(runNotifications(os.Args[2:], os.Stdout, os.Stderr))
 		case "pair":
 			os.Exit(runPair(os.Args[2:], os.Stdout, os.Stderr))
+		case "frontend":
+			os.Exit(runFrontend(os.Args[2:], os.Stdout, os.Stderr))
 		case "logs":
 			os.Exit(runLogs(os.Args[2:], os.Stdout, os.Stderr))
 		case "capture":
@@ -254,7 +257,7 @@ func main() {
 	reads.Store(rs)
 
 	rs.Register(srv)
-	commands.Register(commands.Options{Server: srv, Client: client, Reads: rs, Log: log.With().Str("module", "commands").Logger()})
+	commands.Register(commands.Options{Server: srv, Client: client, Reads: rs, Log: log.With().Str("module", "commands").Logger(), Frontends: frontends.DefaultDirs()})
 	go rs.Run(ctx)
 	go watchBoard(ctx, log.With().Str("module", "status").Logger(), board, poke, 30*time.Second)
 	// every view and command is on the server before it accepts

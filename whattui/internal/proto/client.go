@@ -74,6 +74,10 @@ type Client struct {
 	socketPath string
 	name       string
 
+	// FrontendID is the id hello gives, the one this frontend's manifest
+	// uses. set before Start
+	FrontendID string
+
 	// OnState fires on every connection state change. The UI shows a banner
 	// off this; it is the socket's state, not WhatsApp's.
 	OnState func(state State, info *v2.HelloResult, err error)

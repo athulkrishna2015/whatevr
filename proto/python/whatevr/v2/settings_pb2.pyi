@@ -1,7 +1,8 @@
+from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
-from collections.abc import Mapping as _Mapping
+from collections.abc import Iterable as _Iterable, Mapping as _Mapping
 from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
@@ -83,7 +84,7 @@ class PreferencesRow(_message.Message):
     def __init__(self, preferences: _Optional[_Union[Preferences, _Mapping]] = ...) -> None: ...
 
 class Preferences(_message.Message):
-    __slots__ = ("notifications", "notification_sound", "notification_preview", "auto_download_photos", "auto_download_videos", "auto_download_audio", "auto_download_documents", "auto_download_stickers", "auto_download_max_bytes", "auto_fetch_maps")
+    __slots__ = ("notifications", "notification_sound", "notification_preview", "auto_download_photos", "auto_download_videos", "auto_download_audio", "auto_download_documents", "auto_download_stickers", "auto_download_max_bytes", "auto_fetch_maps", "default_frontend", "terminal")
     NOTIFICATIONS_FIELD_NUMBER: _ClassVar[int]
     NOTIFICATION_SOUND_FIELD_NUMBER: _ClassVar[int]
     NOTIFICATION_PREVIEW_FIELD_NUMBER: _ClassVar[int]
@@ -94,6 +95,8 @@ class Preferences(_message.Message):
     AUTO_DOWNLOAD_STICKERS_FIELD_NUMBER: _ClassVar[int]
     AUTO_DOWNLOAD_MAX_BYTES_FIELD_NUMBER: _ClassVar[int]
     AUTO_FETCH_MAPS_FIELD_NUMBER: _ClassVar[int]
+    DEFAULT_FRONTEND_FIELD_NUMBER: _ClassVar[int]
+    TERMINAL_FIELD_NUMBER: _ClassVar[int]
     notifications: bool
     notification_sound: bool
     notification_preview: bool
@@ -104,10 +107,18 @@ class Preferences(_message.Message):
     auto_download_stickers: bool
     auto_download_max_bytes: int
     auto_fetch_maps: bool
-    def __init__(self, notifications: _Optional[bool] = ..., notification_sound: _Optional[bool] = ..., notification_preview: _Optional[bool] = ..., auto_download_photos: _Optional[bool] = ..., auto_download_videos: _Optional[bool] = ..., auto_download_audio: _Optional[bool] = ..., auto_download_documents: _Optional[bool] = ..., auto_download_stickers: _Optional[bool] = ..., auto_download_max_bytes: _Optional[int] = ..., auto_fetch_maps: _Optional[bool] = ...) -> None: ...
+    default_frontend: str
+    terminal: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, notifications: _Optional[bool] = ..., notification_sound: _Optional[bool] = ..., notification_preview: _Optional[bool] = ..., auto_download_photos: _Optional[bool] = ..., auto_download_videos: _Optional[bool] = ..., auto_download_audio: _Optional[bool] = ..., auto_download_documents: _Optional[bool] = ..., auto_download_stickers: _Optional[bool] = ..., auto_download_max_bytes: _Optional[int] = ..., auto_fetch_maps: _Optional[bool] = ..., default_frontend: _Optional[str] = ..., terminal: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class Argv(_message.Message):
+    __slots__ = ("args",)
+    ARGS_FIELD_NUMBER: _ClassVar[int]
+    args: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, args: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class PreferencesSet(_message.Message):
-    __slots__ = ("notifications", "notification_sound", "notification_preview", "auto_download_photos", "auto_download_videos", "auto_download_audio", "auto_download_documents", "auto_download_stickers", "auto_download_max_bytes", "auto_fetch_maps")
+    __slots__ = ("notifications", "notification_sound", "notification_preview", "auto_download_photos", "auto_download_videos", "auto_download_audio", "auto_download_documents", "auto_download_stickers", "auto_download_max_bytes", "auto_fetch_maps", "terminal")
     NOTIFICATIONS_FIELD_NUMBER: _ClassVar[int]
     NOTIFICATION_SOUND_FIELD_NUMBER: _ClassVar[int]
     NOTIFICATION_PREVIEW_FIELD_NUMBER: _ClassVar[int]
@@ -118,6 +129,7 @@ class PreferencesSet(_message.Message):
     AUTO_DOWNLOAD_STICKERS_FIELD_NUMBER: _ClassVar[int]
     AUTO_DOWNLOAD_MAX_BYTES_FIELD_NUMBER: _ClassVar[int]
     AUTO_FETCH_MAPS_FIELD_NUMBER: _ClassVar[int]
+    TERMINAL_FIELD_NUMBER: _ClassVar[int]
     notifications: bool
     notification_sound: bool
     notification_preview: bool
@@ -128,4 +140,5 @@ class PreferencesSet(_message.Message):
     auto_download_stickers: bool
     auto_download_max_bytes: int
     auto_fetch_maps: bool
-    def __init__(self, notifications: _Optional[bool] = ..., notification_sound: _Optional[bool] = ..., notification_preview: _Optional[bool] = ..., auto_download_photos: _Optional[bool] = ..., auto_download_videos: _Optional[bool] = ..., auto_download_audio: _Optional[bool] = ..., auto_download_documents: _Optional[bool] = ..., auto_download_stickers: _Optional[bool] = ..., auto_download_max_bytes: _Optional[int] = ..., auto_fetch_maps: _Optional[bool] = ...) -> None: ...
+    terminal: Argv
+    def __init__(self, notifications: _Optional[bool] = ..., notification_sound: _Optional[bool] = ..., notification_preview: _Optional[bool] = ..., auto_download_photos: _Optional[bool] = ..., auto_download_videos: _Optional[bool] = ..., auto_download_audio: _Optional[bool] = ..., auto_download_documents: _Optional[bool] = ..., auto_download_stickers: _Optional[bool] = ..., auto_download_max_bytes: _Optional[int] = ..., auto_fetch_maps: _Optional[bool] = ..., terminal: _Optional[_Union[Argv, _Mapping]] = ...) -> None: ...

@@ -4,6 +4,7 @@ package whatevr.v2;
 
 import "whatevr/v2/account.proto";
 import "whatevr/v2/chats.proto";
+import "whatevr/v2/frontends.proto";
 import "whatevr/v2/groups.proto";
 import "whatevr/v2/media.proto";
 import "whatevr/v2/messages.proto";
@@ -40,6 +41,7 @@ message Request {
     SessionUpdate session_update = 20;
     DaemonReconnect daemon_reconnect = 21;
     AccountLogout account_logout = 22;
+    FrontendSetDefault frontend_set_default = 23;
 
     // 30-49: chats
     ChatMarkRead chat_mark_read = 30;
@@ -93,6 +95,7 @@ message Request {
     SearchMessages search_messages = 121;
     SearchStickers search_stickers = 122;
     ContactCheckPhone contact_check_phone = 123;
+    FrontendList frontend_list = 124;
   }
 }
 
@@ -125,6 +128,7 @@ message Response {
     SearchMessagesResult search_messages = 121;
     SearchStickersResult search_stickers = 122;
     ContactCheckPhoneResult contact_check_phone = 123;
+    FrontendListResult frontend_list = 124;
   }
 }
 
@@ -164,6 +168,9 @@ message Hello {
   string client = 1;
   // 2 for this document
   uint32 protocol = 2;
+  // which frontend this is, the id its manifest or app entry gives. empty
+  // for tools that aren't one
+  string frontend_id = 3;
 }
 
 message HelloResult {

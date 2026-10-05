@@ -72,7 +72,7 @@ def read() -> frame_pb2.Frame:
             return frame_pb2.Frame.FromString(stream.read(n))
 
 
-send(hello=frame_pb2.Hello(client="frontend.py", protocol=2))
+send(hello=frame_pb2.Hello(client="frontend.py", protocol=2, frontend_id="frontend.py"))
 if len(sys.argv) == 4 and sys.argv[1] == "send":
     rid = send(send_text=messages_pb2.SendText(chat_id=sys.argv[2], text=sys.argv[3]))
     while (f := read()).WhichOneof("frame") != "response" or f.response.id != rid:

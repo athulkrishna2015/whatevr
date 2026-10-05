@@ -404,3 +404,15 @@ func TestWindowCaps(t *testing.T) {
 		}
 	}
 }
+
+func TestHelloRecordsTheFrontend(t *testing.T) {
+	s, c := start(t, &fakeList{})
+	c.send(func(r *v2.Request) {
+		r.SetHello(v2.Hello_builder{Client: "t", Protocol: 2, FrontendId: "whattui"}.Build())
+	})
+	c.read()
+	ss := s.Sessions()
+	if len(ss) != 1 || ss[0].Frontend != "whattui" {
+		t.Fatalf("sessions %+v", ss)
+	}
+}

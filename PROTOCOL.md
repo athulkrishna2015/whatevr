@@ -119,6 +119,9 @@ something optional checks for its name instead of calling and waiting for
 ever add names. A daemon that cannot speak the requested protocol answers
 `ERROR_CODE_INVALID_REQUEST` and closes.
 
+A frontend also says which one it is in `frontend_id`, the id its manifest or
+app entry gives (see Frontends). Tools that aren't a frontend leave it empty.
+
 ### Errors
 
 An `Error` is a `code` from the `ErrorCode` enum and a `message` for humans
@@ -332,6 +335,7 @@ ids for correlation.
 | `session_update` | `focused`, `active_chat_id`, `shows_notifications` | `done`: feeds notification suppression and `OpenChat` routing |
 | `daemon_reconnect` | none | `done` |
 | `account_logout` | none | `done`: logs out and wipes this account's data |
+| `frontend_set_default` | `id` | `done`: the frontend a click or link starts; `NOT_FOUND` for one the daemon can't start |
 
 **Chats**
 
@@ -417,6 +421,7 @@ results are whole rows inside the response.
 | `search_messages` | `query`, `chat_id` (empty for all), `limit`, `before` | `messages` with `chat_name`, newest first; `more` says another page exists, asked for with `before` set to the last id |
 | `search_stickers` | `query`, `limit` | `stickers`, daemon-ordered |
 | `contact_check_phone` | `phone` | `registered`, the normalized `phone`, `person_id`, `name`, `business` |
+| `frontend_list` | none | `frontends`: each one's `id`, `name`, `terminal`, `source`, `connected`, `is_default`, by id |
 
 ## Messages
 
@@ -511,6 +516,27 @@ Events without a subscription, sent to one connection:
 | --- | --- | --- |
 | `open_chat` | `chat_id` | a notification was clicked; sent to the most recently focused frontend, or the most recently active one if none is focused |
 | `media_stream_update` | `stream_id`, `message_id`, `state`, `path` or `error` | see *Files*; at most once per stream, after its response |
+
+## Frontends
+
+The daemon knows which frontends it can start, so a notification click or a
+link works with none open. It finds them in three places, and when two share an
+id the later one wins:
+
+1. **system**: json manifests a package installed, in `share/whatevr/frontends`
+   next to the binary, in each `$XDG_DATA_DIRS/whatevr/frontends` on Linux, and
+   in `Whatevr.app/Contents/Resources/frontends` on macOS.
+2. **native**: a `.desktop` file with `X-Whatevr-Frontend=<id>` on Linux; on
+   macOS an app that declares the `whatevr-frontend` URL scheme and names
+   itself with a `WhatevrFrontendID` Info.plist key.
+3. **user**: manifests in the config dir's `frontends`, which
+   `whatevrd frontend add` writes.
+
+A manifest is `{"id", "name", "exec", "terminal"}`: `exec` is the argv, run
+without a shell, and `terminal` runs it in a terminal. That terminal is the
+`terminal` preference with the argv appended, or the platform's when it's
+empty (`xdg-terminal-exec`, then `$TERMINAL -e`; Terminal.app on macOS). The
+`default_frontend` preference picks which one starts; empty is `whattui`.
 
 ## Example
 

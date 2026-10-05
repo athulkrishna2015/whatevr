@@ -12,6 +12,17 @@ talk over a documented protocol on a unix socket, and writing one is a fun weeke
 
 `whattui` is the terminal frontend, and the one frontend for now.
 
+The daemon knows which frontends are installed, so it can start one when
+nothing is open. Each says who it is in a small manifest; add your own, or pick
+the default:
+
+```sh
+whatevrd frontend list
+whatevrd frontend add --name "whattui in ghostty" ghostty-tui -- ghostty -e whattui
+whatevrd frontend set-default ghostty-tui
+whatevrd frontend terminal set -- foot -e    # where terminal frontends run
+```
+
 ## Getting it
 On Arch-based systems, Whatevr is available on the AUR:
 ```sh
