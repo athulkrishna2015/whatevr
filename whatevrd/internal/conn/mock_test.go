@@ -170,6 +170,44 @@ func paired(t *testing.T, opts Options) *watched {
 	return w
 }
 
+// an unpaired device has to say so, or no frontend knows to show the code
+func TestAnUnpairedDevicePublishesNeedLogin(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	db, err := sql.Open("sqlite3", "file:"+filepath.Join(t.TempDir(), "session.db")+"?_foreign_keys=on&_busy_timeout=5000&_journal_mode=WAL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	container := sqlstore.NewWithDB(db, "sqlite3", waLog.Noop)
+	if err := container.Upgrade(ctx); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = container.Close() })
+	device, err := container.GetFirstDevice(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	w := &watched{cli: whatsmeow.NewClient(device, waLog.Noop)}
+	opts := fast
+	opts.Log = zerolog.Nop()
+	opts.Wall = wamock.Wall
+	opts.Publish = func(s Status) {
+		w.mu.Lock()
+		w.seen = append(w.seen, s)
+		w.mu.Unlock()
+	}
+	opts.Login = func(ctx context.Context, _ *whatsmeow.Client) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	w.Machine = New(opts)
+	w.Attach(w.cli)
+	go w.Run(ctx)
+	w.until(t, 0, 5*time.Second, "need login", func(s Status) bool { return s.Kind == NeedLogin })
+}
+
 func (w *watched) fault(t *testing.T, f wamock.Fault, ms int) {
 	t.Helper()
 	if err := w.srv.Fault(f, ms); err != nil {

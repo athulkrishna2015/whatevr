@@ -664,9 +664,8 @@ func (m *Machine) login(ctx context.Context) outcome {
 		}
 		return outcome{next: phaseConnect, fresh: true}
 	}
-	m.mu.Lock()
-	m.status = Status{Kind: NeedLogin, Since: m.opts.Wall(), Detail: "Waiting for a QR scan"}
-	m.mu.Unlock()
+	// published, the connection view is what tells a frontend to show the code
+	m.set(Status{Kind: NeedLogin, Detail: "Waiting for a QR scan"})
 	err := m.opts.Login(ctx, cli)
 	switch {
 	case err == nil:
