@@ -24,6 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     container: archlinux:latest
     timeout-minutes: 90
+    outputs:
+      source-sha: ${{ steps.source.outputs.sha }}
     env:
       AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
@@ -48,6 +50,10 @@ jobs:
 
       - name: Build release artifacts
         run: just artifacts x86_64
+
+      - name: Record the source tarball checksum
+        id: source
+        run: printf 'sha=%s\n' "$(awk '/\.tar\.gz$/ { print $1; exit }' build/SHA256SUMS)" >> "$GITHUB_OUTPUT"
 
       - name: Write release notes from tag
         id: release-notes
@@ -140,3 +146,98 @@ jobs:
             sudo -H -u builduser git -C "$aur_dir" commit -m "Update to $RELEASE_TAG"
             sudo -H -u builduser git -C "$aur_dir" push origin HEAD:master
           done
+
+  macos:
+    name: Darwin ${{ matrix.arch }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            arch: arm64
+          - os: macos-15-intel
+            arch: amd64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: whatevrd/go.mod
+          cache-dependency-path: whatevrd/go.sum
+      - name: Install native build dependencies
+        run: brew install just jpeg-turbo pkgconf
+      - name: Build the darwin tarball
+        run: |
+          just _binary-tarball ${{ matrix.arch }}
+          test "$(just version)" = "${RELEASE_TAG#v}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: darwin-${{ matrix.arch }}
+          path: build/whatevr-*-darwin-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+
+  tap:
+    name: Darwin release assets and Homebrew tap
+    needs: [release, macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      HOMEBREW_TAP_SSH_KEY: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      SOURCE_SHA: ${{ needs.release.outputs.source-sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: darwin-*
+          path: build
+          merge-multiple: true
+      - name: Write darwin checksums
+        run: cd build && sha256sum whatevr-*-darwin-*.tar.gz > SHA256SUMS-darwin && cat SHA256SUMS-darwin
+      - name: Publish darwin release assets
+        uses: softprops/action-gh-release@v3
+        with:
+          fail_on_unmatched_files: true
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: |
+            build/whatevr-*-darwin-*.tar.gz
+            build/SHA256SUMS-darwin
+      - name: Render Homebrew packages
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          python3 scripts/render_brew_release.py \
+            --version "$VERSION" \
+            --source-sha "$SOURCE_SHA" \
+            --arm64-sha "$(awk '/darwin-arm64\.tar\.gz$/ { print $1 }' build/SHA256SUMS-darwin)" \
+            --amd64-sha "$(awk '/darwin-amd64\.tar\.gz$/ { print $1 }' build/SHA256SUMS-darwin)" \
+            --tap "$RUNNER_TEMP/rendered"
+      - name: Push the tap
+        if: env.HOMEBREW_TAP_SSH_KEY != ''
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$HOMEBREW_TAP_SSH_KEY" | tr -d '\r' > ~/.ssh/tap
+          chmod 600 ~/.ssh/tap
+          ssh-keyscan -t ed25519 github.com > ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/tap -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o BatchMode=yes"
+          tap="$RUNNER_TEMP/tap"
+          git -c init.defaultBranch=main clone git@github.com:codelif/homebrew-tap.git "$tap"
+          git -C "$tap" checkout -B main
+          cp -R "$RUNNER_TEMP/rendered/." "$tap/"
+          git -C "$tap" config user.name 'whatevr-release-bot'
+          git -C "$tap" config user.email 'harsh+bot@codelif.in'
+          git -C "$tap" add Formula/whatevr.rb Casks/whatevr.rb
+          if git -C "$tap" diff --cached --quiet; then
+            exit 0
+          fi
+          git -C "$tap" commit -m "whatevr $RELEASE_TAG"
+          git -C "$tap" push origin HEAD:main
