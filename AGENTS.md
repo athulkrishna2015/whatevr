@@ -4,8 +4,12 @@ Development guide for the Whatevr project (daemon `whatevrd` + Qt frontend `what
 
 ## Build commands
 
-Every build and test run is capped at **2 parallel jobs** (`GOMAXPROCS=2` for
-Go, `-- -j2` for Ninja). Never let these run unbounded.
+Builds and full test runs go through GitHub Actions CI on `origin`: push the
+branch and let the runners (unbounded CPU) do the work instead of this slow
+laptop. Local builds are for quick iteration only.
+
+Every local build and test run is capped at **2 parallel jobs**
+(`GOMAXPROCS=2` for Go, `-- -j2` for Ninja). Never let these run unbounded.
 
 ### Daemon (Go)
 

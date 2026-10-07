@@ -27,6 +27,7 @@ jobs:
       go: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.go == 'true' }}
       whattui: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.whattui == 'true' }}
       build: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.build == 'true' }}
+      qt: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.qt == 'true' }}
       aur: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.aur == 'true' }}
     steps:
       - name: Checkout
@@ -96,6 +97,12 @@ jobs:
               - 'packaging/aur/**'
               - 'scripts/release.py'
               - 'scripts/render_aur_release.py'
+              - '.github/workflows/**'
+            qt:
+              - 'justfile'
+              - 'VERSION'
+              - 'whatkevr/**'
+              - 'proto/**'
               - '.github/workflows/**'
 
   go:
@@ -302,6 +309,82 @@ jobs:
 
       - name: Show resolved version
         run: just version
+
+  qt:
+    name: Qt frontend (Arch)
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    timeout-minutes: 60
+    needs: changes
+    if: ${{ needs.changes.outputs.qt == 'true' }}
+    steps:
+      - name: Install dependencies
+        run: |
+          pacman -Syu --noconfirm --needed \
+            git sudo base-devel cmake ninja ccache extra-cmake-modules \
+            qt6-base qt6-declarative qt6-multimedia qt6-shadertools mpv ffmpeg \
+            kcoreaddons kdbusaddons ki18n kirigami kirigami-addons prison qqc2-desktop-style \
+            kquickimageeditor sqlite protobuf
+          useradd -m -G wheel builduser
+          printf 'builduser ALL=(ALL) NOPASSWD: ALL\n' >> /etc/sudoers
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Mark workspace safe for Git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Set rlottie cache key
+        id: rlottie-cache-key
+        run: printf 'week=%s\n' "$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore rlottie package
+        uses: actions/cache@v5
+        with:
+          path: .cache/aur/rlottie
+          key: arch-rlottie-${{ steps.rlottie-cache-key.outputs.week }}
+
+      - name: Install rlottie
+        run: |
+          install -d "$GITHUB_WORKSPACE/.cache/aur/rlottie"
+          shopt -s nullglob
+          cached=("$GITHUB_WORKSPACE"/.cache/aur/rlottie/rlottie-*.pkg.tar*)
+          if ((${#cached[@]})) && pacman -U --noconfirm "${cached[@]}"; then
+            exit 0
+          fi
+
+          rm -f "$GITHUB_WORKSPACE"/.cache/aur/rlottie/rlottie-*.pkg.tar*
+          rm -rf "$RUNNER_TEMP/rlottie"
+          git clone https://aur.archlinux.org/rlottie.git "$RUNNER_TEMP/rlottie"
+          chown -R builduser:builduser "$RUNNER_TEMP/rlottie"
+          cd "$RUNNER_TEMP/rlottie"
+          sudo -u builduser makepkg -s --noconfirm
+          cp rlottie-*.pkg.tar* "$GITHUB_WORKSPACE/.cache/aur/rlottie/"
+          pacman -U --noconfirm "$GITHUB_WORKSPACE"/.cache/aur/rlottie/rlottie-*.pkg.tar*
+
+      - name: Restore ccache
+        uses: actions/cache@v5
+        with:
+          path: .cache/ccache-qt
+          key: arch-ccache-qt-${{ github.sha }}
+          restore-keys: arch-ccache-qt-
+
+      - name: Build frontend and tests
+        env:
+          CCACHE_DIR: ${{ github.workspace }}/.cache/ccache-qt
+          CCACHE_MAXSIZE: 1G
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+        run: |
+          cmake -S whatkevr -B build/debug/whatkevr -G Ninja -DCMAKE_BUILD_TYPE=Debug -DWHATEVR_BUILD_TESTS=ON
+          cmake --build build/debug/whatkevr
+
+      - name: Test frontend
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: ctest --test-dir build/debug/whatkevr --output-on-failure
 
   macos:
     name: Native macOS (${{ matrix.os }})

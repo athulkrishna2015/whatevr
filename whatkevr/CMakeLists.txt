@@ -80,6 +80,32 @@ pkg_check_modules(RLottie REQUIRED IMPORTED_TARGET rlottie)
 # a blank rectangle.
 pkg_check_modules(Mpv REQUIRED IMPORTED_TARGET mpv)
 
+# Protocol v2 schema (../proto/whatevr/v2/*.proto). The system protobuf
+# generates plain C++ bindings into a static lib; the Qt frontend has no
+# QtProtobuf module to use instead. The generated headers land under
+# whatevr/v2/ in the build dir, exposed via whatevr_proto's PUBLIC includes.
+find_package(protobuf CONFIG REQUIRED)
+set(WHATEVR_PROTO_FILES
+    "${CMAKE_CURRENT_SOURCE_DIR}/../proto/whatevr/v2/account.proto"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../proto/whatevr/v2/chats.proto"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../proto/whatevr/v2/frame.proto"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../proto/whatevr/v2/frontends.proto"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../proto/whatevr/v2/groups.proto"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../proto/whatevr/v2/media.proto"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../proto/whatevr/v2/messages.proto"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../proto/whatevr/v2/notifications.proto"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../proto/whatevr/v2/people.proto"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../proto/whatevr/v2/search.proto"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../proto/whatevr/v2/settings.proto"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../proto/whatevr/v2/stickers.proto"
+)
+add_library(whatevr_proto STATIC)
+protobuf_generate(TARGET whatevr_proto
+    PROTOS ${WHATEVR_PROTO_FILES}
+    IMPORT_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/../proto"
+    PROTOC_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}")
+target_include_directories(whatevr_proto PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
+
 ecm_find_qmlmodule(org.kde.ki18n REQUIRED)
 ecm_find_qmlmodule(org.kde.desktop REQUIRED)
 ecm_find_qmlmodule(org.kde.kirigami REQUIRED)

@@ -75,6 +75,7 @@ set(WHATKEVR_LINK_LIBRARIES
     KQuickImageEditor
     PkgConfig::RLottie
     PkgConfig::Mpv
+    whatevr_proto
 )
 
 set(WHATKEVR_INCLUDE_DIRS
