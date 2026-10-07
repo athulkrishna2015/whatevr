@@ -393,19 +393,11 @@ func (a *App) onMouse(m vaxis.Mouse) bool {
 		return true
 	case vaxis.MouseRightButton:
 		// The gesture every pointer has meant since pointers had two buttons:
-		// the things this one can do, here. It acts on the row under the
+		// the things this one can do, here. It acts on the message under the
 		// pointer rather than the one the cursor was on, so right-clicking is
 		// one gesture and not two.
 		if m.EventType != vaxis.EventRelease {
 			return true
-		}
-		// A chat row and a message row are the same gesture in different
-		// panes, and the chat list is the one that is on screen when there is
-		// no conversation open at all.
-		if over >= 0 && inRect(m, l.ChatList) {
-			a.setSelection(over)
-			a.openChatMenu(over, point{m.Col, m.Row})
-			return dirty
 		}
 		id := a.messageUnder(m)
 		if id == "" || !inRect(m, l.Transcript) {
