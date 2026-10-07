@@ -190,10 +190,11 @@ class ProtocolController final : public QObject
     /// re-rendering the transcript (PROTOCOL.md, Granularity).
     Q_PROPERTY(int liveLocationsCount READ liveLocationsCount NOTIFY liveLocationsChanged FINAL)
 
-    // Forward picker (D4b): a `chats` subscription that lives exactly as long as
-    // the picker dialog is open. The dialog's search box filters the rows it
-    // already has (presentation-side, like the group-member and receipt lists);
-    // the revision tick makes those reads re-evaluate.
+    // Forward picker (D4b): `chats` subscriptions (active plus archived) that
+    // live exactly as long as the picker dialog is open. The dialog's search
+    // box filters the rows it already has (presentation-side, like the
+    // group-member and receipt lists); the revision tick makes those reads
+    // re-evaluate.
     Q_PROPERTY(int forwardTargetsRevision READ forwardTargetsRevision NOTIFY forwardTargetsChanged FINAL)
 
     // Group-member picker: a `chats` subscription over direct chats (the
@@ -1140,6 +1141,7 @@ private:
     whatevr::proto::Subscription *m_liveLocationsSub = nullptr;
     QString m_liveLocationsChatId;
     whatevr::proto::CollectionViewModel *m_forwardTargetsModel = nullptr;
+    whatevr::proto::CollectionViewModel *m_forwardArchivedModel = nullptr;
     whatevr::proto::CollectionViewModel *m_contactTargetsModel = nullptr;
     whatevr::proto::CollectionViewModel *m_transfersModel = nullptr;
     whatevr::proto::CollectionViewModel *m_starredModel = nullptr;
@@ -1177,6 +1179,7 @@ private:
     whatevr::proto::Subscription *m_receiptsSub = nullptr;
     whatevr::proto::Subscription *m_pinnedSub = nullptr;
     whatevr::proto::Subscription *m_forwardTargetsSub = nullptr;
+    whatevr::proto::Subscription *m_forwardArchivedSub = nullptr;
     whatevr::proto::Subscription *m_contactTargetsSub = nullptr;
     whatevr::proto::Subscription *m_transfersSub = nullptr;
     whatevr::proto::Subscription *m_starredSub = nullptr;

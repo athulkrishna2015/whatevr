@@ -384,9 +384,12 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
     connect(m_pinnedModel, &CollectionViewModel::modelReset, this, &ProtocolController::pinnedMessagesChanged);
     connect(m_pinnedModel, &CollectionViewModel::readyChanged, this, &ProtocolController::pinnedMessagesChanged);
 
-    // Forward picker (D4b): its own `chats` collection, read through
+    // Forward picker (D4b): its own `chats` collections, read through
     // forwardChatTargets() with a revision tick like the receipts roster.
+    // Two subscriptions — active and archived — so the picker offers every
+    // chat, not just the unarchived ones the sidebar shows by default.
     m_forwardTargetsModel = new CollectionViewModel(this);
+    m_forwardArchivedModel = new CollectionViewModel(this);
     const auto bumpForwardTargets = [this] {
         ++m_forwardTargetsRevision;
         Q_EMIT forwardTargetsChanged();
@@ -394,6 +397,9 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
     connect(m_forwardTargetsModel, &CollectionViewModel::countChanged, this, bumpForwardTargets);
     connect(m_forwardTargetsModel, &CollectionViewModel::dataChanged, this, bumpForwardTargets);
     connect(m_forwardTargetsModel, &CollectionViewModel::modelReset, this, bumpForwardTargets);
+    connect(m_forwardArchivedModel, &CollectionViewModel::countChanged, this, bumpForwardTargets);
+    connect(m_forwardArchivedModel, &CollectionViewModel::dataChanged, this, bumpForwardTargets);
+    connect(m_forwardArchivedModel, &CollectionViewModel::modelReset, this, bumpForwardTargets);
 
     // Group-member picker: the same shape over the daemon's direct chats (the
     // synced contact list) rather than every chat.
@@ -613,6 +619,7 @@ ProtocolController::~ProtocolController()
     delete m_pinnedSub;
     delete m_liveLocationsSub;
     delete m_forwardTargetsSub;
+    delete m_forwardArchivedSub;
     delete m_contactTargetsSub;
     delete m_transfersSub;
     delete m_chatMediaSub;
@@ -661,6 +668,7 @@ ProtocolController::~ProtocolController()
     m_liveLocationsSub = nullptr;
     m_liveLocationsChatId.clear();
     m_forwardTargetsSub = nullptr;
+    m_forwardArchivedSub = nullptr;
     m_contactTargetsSub = nullptr;
     m_transfersSub = nullptr;
     if (m_client) {
@@ -3120,36 +3128,62 @@ void ProtocolController::openForwardTargets()
     if (m_forwardTargetsSub) {
         return;
     }
-    // Its own subscription rather than the sidebar's: the picker offers every
-    // chat, not whatever the chat-list filter happens to be showing.
+    // Its own subscriptions rather than the sidebar's: the picker offers every
+    // chat — active and archived — not whatever the chat-list filter happens
+    // to be showing.
     m_forwardTargetsSub = m_client->subscribe(
         QStringLiteral("chats"),
         {{QStringLiteral("filter"), QStringLiteral("all")}, {QStringLiteral("archived"), false}},
         m_forwardTargetsModel);
+    m_forwardArchivedSub = m_client->subscribe(
+        QStringLiteral("chats"),
+        {{QStringLiteral("filter"), QStringLiteral("all")}, {QStringLiteral("archived"), true}},
+        m_forwardArchivedModel);
 }
 
 void ProtocolController::closeForwardTargets()
 {
     delete m_forwardTargetsSub;
     m_forwardTargetsSub = nullptr;
+    delete m_forwardArchivedSub;
+    m_forwardArchivedSub = nullptr;
     m_forwardTargetsModel->onReset();
+    m_forwardArchivedModel->onReset();
 }
+
+namespace {
+void appendMatchingChats(const whatevr::proto::CollectionViewModel *model, const QString &needle,
+                         QSet<QString> &seen, QVariantList &rows)
+{
+    if (!model) {
+        return;
+    }
+    for (int row = 0; row < model->count(); ++row) {
+        const QVariantMap item = model
+                                     ->data(model->index(row, 0), whatevr::proto::CollectionViewModel::ItemRole)
+                                     .toMap();
+        const QString id = item.value(QStringLiteral("id")).toString();
+        if (id.isEmpty() || seen.contains(id)) {
+            continue;
+        }
+        if (!needle.isEmpty()
+            && !item.value(QStringLiteral("name")).toString().contains(needle, Qt::CaseInsensitive)) {
+            continue;
+        }
+        seen.insert(id);
+        rows.append(item);
+    }
+}
+} // namespace
 
 QVariantList ProtocolController::forwardChatTargets(const QString &query) const
 {
     const QString needle = query.trimmed();
     QVariantList rows;
-    rows.reserve(m_forwardTargetsModel->count());
-    for (int row = 0; row < m_forwardTargetsModel->count(); ++row) {
-        const QVariantMap item = m_forwardTargetsModel
-                                     ->data(m_forwardTargetsModel->index(row, 0), CollectionViewModel::ItemRole)
-                                     .toMap();
-        if (!needle.isEmpty()
-            && !item.value(QStringLiteral("name")).toString().contains(needle, Qt::CaseInsensitive)) {
-            continue;
-        }
-        rows.append(item);
-    }
+    rows.reserve(m_forwardTargetsModel->count() + m_forwardArchivedModel->count());
+    QSet<QString> seen;
+    appendMatchingChats(m_forwardTargetsModel, needle, seen, rows);
+    appendMatchingChats(m_forwardArchivedModel, needle, seen, rows);
     return rows;
 }
 
