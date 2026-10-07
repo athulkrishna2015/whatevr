@@ -40,6 +40,26 @@ target_link_libraries(tst_v2codec PRIVATE
 
 add_test(NAME tst_v2codec COMMAND tst_v2codec)
 
+# v1/v2 compatibility shim. Compiles the shim plus the client header's
+# ViewSink (header-only use); the socket client itself joins in the next step.
+qt_add_executable(tst_v2shim
+    tst_v2shim.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/protocol/v2shim.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/protocol/v2shim.h
+)
+
+target_include_directories(tst_v2shim PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/protocol
+)
+
+target_link_libraries(tst_v2shim PRIVATE
+    Qt6::Core
+    Qt6::Test
+    whatevr_proto
+)
+
+add_test(NAME tst_v2shim COMMAND tst_v2shim)
+
 qt_add_executable(tst_protocolmessagemodel
     tst_protocolmessagemodel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/models/protocolmessagemodel.cpp
