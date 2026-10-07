@@ -26,7 +26,6 @@ jobs:
     outputs:
       go: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.go == 'true' }}
       whattui: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.whattui == 'true' }}
-      validate: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.validate == 'true' }}
       build: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.build == 'true' }}
       aur: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.aur == 'true' }}
     steps:
@@ -52,7 +51,15 @@ jobs:
             go:
               - 'justfile'
               - 'VERSION'
+              - '.gitmodules'
               - 'whatevrd/**'
+              - 'platform/**'
+              - 'native/macos/**'
+              - 'scripts/build-macos'
+              - 'scripts/install.py'
+              - 'scripts/artifacts.py'
+              - 'scripts/check-mock-gate'
+              - 'scripts/replay'
               - '.github/workflows/**'
             whattui:
               - 'justfile'
@@ -61,23 +68,29 @@ jobs:
               # The golden frames are drawn against a real whatevrd in mock
               # mode, so a daemon change can move them.
               - 'whatevrd/**'
-              - '.github/workflows/**'
-            validate:
-              - 'justfile'
-              - 'VERSION'
-              - 'scripts/release.py'
-              - 'whatkevr/data/**'
+              - 'platform/**'
+              - 'native/macos/**'
+              - 'scripts/build-macos'
+              - 'scripts/install.py'
+              - 'scripts/artifacts.py'
               - '.github/workflows/**'
             build:
               - 'justfile'
               - 'VERSION'
               - 'PROTOCOL.md'
-              - 'scripts/conformance'
               - '.gitmodules'
               - 'whatevrd/**'
-              - 'whatkevr/**'
+              - 'platform/**'
+              - 'native/macos/**'
+              - 'scripts/build-macos'
+              - 'scripts/install.py'
+              - 'scripts/artifacts.py'
               - 'whattui/**'
               - 'packaging/systemd/**'
+              - 'packaging/frontends/**'
+              - 'packaging/linux/**'
+              - 'packaging/homebrew/**'
+              - 'scripts/render_brew_release.py'
               - '.github/workflows/**'
             aur:
               - 'packaging/aur/**'
@@ -95,7 +108,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
+          # whatevrd builds against the whatsmeow fork, which is a submodule.
+          submodules: recursive
           persist-credentials: false
+
+      - name: Install libjpeg-turbo
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libturbojpeg0-dev
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -106,11 +126,14 @@ jobs:
       - name: Check formatting
         working-directory: whatevrd
         run: |
-          files="$(gofmt -l .)"
+          files="$(gofmt -l . | grep -v '^whatsmeow/' || true)"
           if [ -n "$files" ]; then
             printf '%s\n' "$files"
             exit 1
           fi
+
+      - name: Test platform paths
+        run: go -C platform test ./...
 
       - name: Vet
         working-directory: whatevrd
@@ -128,12 +151,34 @@ jobs:
 
       - name: Test mock server
         working-directory: whatevrd
-        run: go test -tags "sqlite_fts5 whatevr_mock" ./internal/wamock/...
+        run: go test -tags "sqlite_fts5 whatevr_mock" ./internal/wamock/... ./internal/ingest/...
+
+      - name: Race the new core
+        working-directory: whatevrd
+        run: go test -tags sqlite_fts5 -race ./internal/core/... ./internal/ingest/...
+
+      - name: Vet and test captures
+        working-directory: whatevrd
+        run: |
+          go vet -tags "sqlite_fts5 whatevr_mock whatevr_capture" ./...
+          go test -tags "sqlite_fts5 whatevr_mock whatevr_capture" ./cmd/whatevrd/
 
       # The fake WhatsApp server overrides whatsmeow's pinned certificate key
-      # and trusts a private CA. It must never reach a shipped binary.
-      - name: Check mock build gate
+      # and trusts a private CA, and a capture holds every message in
+      # plaintext. Neither may reach a shipped binary.
+      - name: Check mock and capture build gates
         run: scripts/check-mock-gate
+
+      # Captures a synthetic scenario and plays it back through the mock:
+      # never the real account.
+      - name: Replay self-test
+        run: scripts/replay --self-test
+
+      - name: Test the whatsmeow fork
+        working-directory: whatevrd/whatsmeow
+        run: |
+          go vet ./...
+          go test ./...
 
   whattui:
     name: Terminal frontend
@@ -154,6 +199,11 @@ jobs:
         with:
           go-version-file: whattui/go.mod
           cache-dependency-path: whattui/go.sum
+
+      - name: Install libjpeg-turbo
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libturbojpeg0-dev
 
       # The golden frames and the paint benchmarks run against a real daemon
       # speaking to a fake WhatsApp server. Mock mode mutates process-global
@@ -208,27 +258,6 @@ jobs:
           go test -tags kittyonly ./...
           go vet ./...
 
-  validate:
-    name: Validate metadata
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: changes
-    if: ${{ needs.changes.outputs.validate == 'true' }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Install validators
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            just desktop-file-utils appstream libxml2-utils
-
-      - name: Validate desktop entry and metainfo
-        run: just validate
-
   build-arch:
     name: Build and install (Arch)
     runs-on: ubuntu-latest
@@ -239,13 +268,7 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
-          pacman -Syu --noconfirm --needed \
-            git sudo base-devel go just python cmake ninja ccache extra-cmake-modules zstd vulkan-headers \
-            qt6-base qt6-declarative qt6-multimedia qt6-shadertools mpv ffmpeg appstream \
-            kcoreaddons kdbusaddons ki18n kirigami kirigami-addons prison qqc2-desktop-style \
-            kquickimageeditor sqlite
-          useradd -m -G wheel builduser
-          printf 'builduser ALL=(ALL) NOPASSWD: ALL\n' >> /etc/sudoers
+          pacman -Syu --noconfirm --needed git base-devel go just zstd python libjpeg-turbo desktop-file-utils
 
       - name: Checkout
         uses: actions/checkout@v6
@@ -258,34 +281,6 @@ jobs:
       - name: Mark workspace safe for Git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Set rlottie cache key
-        id: rlottie-cache-key
-        run: printf 'week=%s\n' "$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore rlottie package
-        uses: actions/cache@v5
-        with:
-          path: .cache/aur/rlottie
-          key: arch-rlottie-${{ steps.rlottie-cache-key.outputs.week }}
-
-      - name: Install rlottie
-        run: |
-          install -d "$GITHUB_WORKSPACE/.cache/aur/rlottie"
-          shopt -s nullglob
-          cached=("$GITHUB_WORKSPACE"/.cache/aur/rlottie/rlottie-*.pkg.tar*)
-          if ((${#cached[@]})) && pacman -U --noconfirm "${cached[@]}"; then
-            exit 0
-          fi
-
-          rm -f "$GITHUB_WORKSPACE"/.cache/aur/rlottie/rlottie-*.pkg.tar*
-          rm -rf "$RUNNER_TEMP/rlottie"
-          git clone https://aur.archlinux.org/rlottie.git "$RUNNER_TEMP/rlottie"
-          chown -R builduser:builduser "$RUNNER_TEMP/rlottie"
-          cd "$RUNNER_TEMP/rlottie"
-          sudo -u builduser makepkg -s --noconfirm
-          cp rlottie-*.pkg.tar* "$GITHUB_WORKSPACE/.cache/aur/rlottie/"
-          pacman -U --noconfirm "$GITHUB_WORKSPACE"/.cache/aur/rlottie/rlottie-*.pkg.tar*
-
       - name: Restore Go caches
         uses: actions/cache@v5
         with:
@@ -295,126 +290,201 @@ jobs:
           key: arch-go-${{ hashFiles('whatevrd/go.sum') }}
           restore-keys: arch-go-
 
-      - name: Restore ccache
-        uses: actions/cache@v5
-        with:
-          path: .cache/ccache
-          key: arch-ccache-${{ github.sha }}
-          restore-keys: arch-ccache-
-
-      - name: Build application and tests
-        env:
-          CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
-          CCACHE_MAXSIZE: 500M
-          CMAKE_CXX_COMPILER_LAUNCHER: ccache
-        run: |
-          just build
-          cmake -S whatkevr -B build/debug/whatkevr -DWHATEVR_BUILD_TESTS=ON
-          cmake --build build/debug/whatkevr
-
-      - name: Test protocol conformance
-        run: scripts/conformance
-
-      # Weekly only. A soak is minutes rather than seconds, and its value is in
-      # running the same frames over and over with faults armed, which is a
-      # schedule's job rather than a push's. There is no recorded stream in the
-      # repository (a recording is real conversation data), so this soaks the
-      # synthetic fixture: what it still exercises is the fault paths, which is
-      # the half a recording does not add.
-      - name: Soak the protocol engine
-        if: github.event_name == 'schedule'
-        run: |
-          python3 - <<'EOF' > "$RUNNER_TEMP/synthetic.ndjson"
-          import json
-          for i in range(200):
-              print(json.dumps({"view": "messages", "event": "upsert",
-                                "sort": "%08d" % i,
-                                "item": {"id": "m%04d" % i, "kind": "text",
-                                         "text": "row %d" % i}}))
-          print(json.dumps({"view": "messages", "event": "ready", "exhausted": False}))
-          EOF
-          scripts/conformance --replay "$RUNNER_TEMP/synthetic.ndjson" --soak 300 --fault all:7
-
-      - name: Test frontend
-        env:
-          QT_QPA_PLATFORM: offscreen
-        run: ctest --test-dir build/debug/whatkevr --output-on-failure
+      - name: Build
+        run: just build
 
       - name: Install smoke test
-        run: just install-dev /usr "$RUNNER_TEMP/pkgroot"
+        run: |
+          just install-dev /usr "$RUNNER_TEMP/pkgroot"
+          test -f "$RUNNER_TEMP/pkgroot/usr/share/whatevr/frontends/whattui.json"
+          test -f "$RUNNER_TEMP/pkgroot/usr/share/icons/hicolor/scalable/apps/whatevr.svg"
+          desktop-file-validate "$RUNNER_TEMP/pkgroot/usr/share/applications/whatevr.desktop"
 
       - name: Show resolved version
         run: just version
 
-  sanitizers:
-    name: Frontend sanitizers (ASan/UBSan)
-    runs-on: ubuntu-latest
-    container: archlinux:latest
-    timeout-minutes: 60
+  macos:
+    name: Native macOS (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
     needs: changes
-    if: ${{ needs.changes.outputs.build == 'true' }}
+    if: ${{ needs.changes.outputs.build == 'true' || needs.changes.outputs.whattui == 'true' }}
+    env:
+      TMPDIR: /tmp
     steps:
-      - name: Install dependencies
-        run: |
-          pacman -Syu --noconfirm --needed \
-            git base-devel just python cmake ninja ccache extra-cmake-modules vulkan-headers \
-            qt6-base qt6-declarative qt6-multimedia qt6-shadertools mpv ffmpeg \
-            kcoreaddons kdbusaddons ki18n kirigami kirigami-addons prison qqc2-desktop-style \
-            kquickimageeditor sqlite
-
-      - name: Checkout
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
         with:
-          fetch-depth: 0
+          submodules: recursive
           persist-credentials: false
-
-      - name: Set rlottie cache key
-        id: rlottie-cache-key
-        run: printf 'week=%s\n' "$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore rlottie package
-        uses: actions/cache@v5
+      - uses: actions/setup-go@v6
         with:
-          path: .cache/aur/rlottie
-          key: arch-rlottie-${{ steps.rlottie-cache-key.outputs.week }}
-
-      - name: Install rlottie
+          go-version-file: whatevrd/go.mod
+          cache-dependency-path: |
+            whatevrd/go.sum
+            whattui/go.sum
+      - name: Install native build dependencies
+        run: brew install just jpeg-turbo pkgconf ffmpeg
+      - name: Build debug and release binaries and notification app
         run: |
-          install -d "$GITHUB_WORKSPACE/.cache/aur/rlottie"
-          shopt -s nullglob
-          cached=("$GITHUB_WORKSPACE"/.cache/aur/rlottie/rlottie-*.pkg.tar*)
-          if ((${#cached[@]})) && pacman -U --noconfirm "${cached[@]}"; then
-            exit 0
-          fi
-
-          rm -f "$GITHUB_WORKSPACE"/.cache/aur/rlottie/rlottie-*.pkg.tar*
-          rm -rf "$RUNNER_TEMP/rlottie"
-          git clone https://aur.archlinux.org/rlottie.git "$RUNNER_TEMP/rlottie"
-          useradd -m -G wheel builduser || true
-          printf 'builduser ALL=(ALL) NOPASSWD: ALL\n' >> /etc/sudoers
-          chown -R builduser:builduser "$RUNNER_TEMP/rlottie"
-          cd "$RUNNER_TEMP/rlottie"
-          sudo -u builduser makepkg -s --noconfirm
-          cp rlottie-*.pkg.tar* "$GITHUB_WORKSPACE/.cache/aur/rlottie/"
-          pacman -U --noconfirm "$GITHUB_WORKSPACE"/.cache/aur/rlottie/rlottie-*.pkg.tar*
-
-      - name: Restore ccache
-        uses: actions/cache@v5
-        with:
-          path: .cache/ccache
-          key: arch-asan-ccache-${{ github.sha }}
-          restore-keys: arch-asan-ccache-
-
-      # Memory safety, not leak accounting: Qt and KDE hold singletons to exit,
-      # so leak detection here would only ever report their teardown. What this
-      # is for is use-after-free and undefined behaviour, and both abort.
-      - name: Build and run the sanitized tests
+          just build
+          just build-release
+          for profile in debug release; do
+            codesign --verify --deep --strict "build/$profile/Whatevr.app"
+            plutil -lint "build/$profile/Whatevr.app/Contents/Info.plist"
+          done
+          test "$(plutil -extract CFBundleIdentifier raw build/release/Whatevr.app/Contents/Info.plist)" = in.codelif.whatevr
+          test "$(plutil -extract CFBundleIdentifier raw build/debug/Whatevr.app/Contents/Info.plist)" = in.codelif.whatevr.dev
+      - name: Test platform paths
+        run: go -C platform test ./...
+      - name: Test daemon and development build gates
+        run: just test daemon
+      - name: Test terminal frontend
         env:
-          CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
-          CCACHE_MAXSIZE: 500M
-          CMAKE_CXX_COMPILER_LAUNCHER: ccache
-        run: scripts/asan
-
+          WHATTUI_WHATEVRD: ${{ github.workspace }}/build/debug/whatevrd
+        run: just test whattui
+      - name: Vet daemon
+        run: go -C whatevrd vet -tags sqlite_fts5 ./...
+      - name: Stage installation and removal
+        run: |
+          just install /usr/local "$RUNNER_TEMP/stage"
+          stage="$RUNNER_TEMP/stage/usr/local"
+          test -L "$stage/bin/whatevrd"
+          test "$(readlink "$stage/bin/whatevrd")" = ../Whatevr.app/Contents/MacOS/whatevrd
+          test -x "$stage/bin/whatevrd"
+          test -x "$stage/Whatevr.app/Contents/MacOS/Whatevr"
+          test -f "$stage/Whatevr.app/Contents/Resources/frontends/whattui.json"
+          test -f "$stage/share/whatevr/frontends/whattui.json"
+          codesign --verify --deep --strict "$stage/Whatevr.app"
+          test ! -e "$stage/libexec"
+          test ! -d "$stage/lib/systemd"
+          just uninstall /usr/local "$RUNNER_TEMP/stage"
+          test ! -e "$stage/bin/whatevrd"
+          test ! -L "$stage/bin/whatevrd"
+          test ! -e "$stage/Whatevr.app"
+          test ! -e "$stage/share/whatevr"
+      - name: Leave no test sockets behind
+        run: |
+          left="$(find "$(getconf DARWIN_USER_TEMP_DIR)whatevr" -maxdepth 1 -name 'i-*' 2>/dev/null; find /tmp -maxdepth 1 -name 'whattui-mock-*' 2>/dev/null)"
+          if [ -n "$left" ]; then
+            printf 'left behind by the tests:\n'
+            printf '%s\n' "$left" | while read -r dir; do ls -la "$dir"; done
+            exit 1
+          fi
+      - name: Render Homebrew packages into a local tap
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+        run: |
+          just _source-tarball
+          just _binary-tarball "$(uname -m)"
+          version="$(just version)"
+          arch="$(uname -m | sed 's/x86_64/amd64/')"
+          source_sha="$(shasum -a 256 "build/whatevr-$version.tar.gz" | cut -d' ' -f1)"
+          bin_sha="$(shasum -a 256 "build/whatevr-$version-darwin-$arch.tar.gz" | cut -d' ' -f1)"
+          brew tap-new --no-git local/test
+          python3 scripts/render_brew_release.py --version "$version" --source-sha "$source_sha" \
+            --arm64-sha "$bin_sha" --amd64-sha "$bin_sha" \
+            --tap "$(brew --repository local/test)" --url-base "file://$PWD/build"
+      - name: Build the formula from source
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+          HOMEBREW_NO_INSTALL_CLEANUP: '1'
+        run: |
+          brew install --build-from-source local/test/whatevr
+          brew test local/test/whatevr
+          prefix="$(brew --prefix local/test/whatevr)"
+          test -L "$(brew --prefix)/bin/whatevrd"
+          test -x "$(brew --prefix)/bin/whattui"
+          codesign --verify --deep --strict "$prefix/Whatevr.app"
+          "$(brew --prefix)/bin/whatevrd" --version
+          completions=("$(brew --prefix)/etc/bash_completion.d/whatevrd" "$(brew --prefix)/share/zsh/site-functions/_whatevrd" \
+            "$(brew --prefix)/share/fish/vendor_completions.d/whatevrd.fish")
+          for f in "${completions[@]}"; do grep -q whatevrd "$f"; done
+          brew uninstall local/test/whatevr
+          test ! -e "$(brew --prefix)/bin/whatevrd"
+          for f in "${completions[@]}"; do test ! -e "$f"; done
+      - name: Install the cask
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+        run: |
+          brew fetch --cask local/test/whatevr
+          # the check below means nothing unless brew quarantined the download
+          xattr -p com.apple.quarantine "$(brew --cache --cask local/test/whatevr)"
+          brew install --cask local/test/whatevr
+          bin="$(brew --prefix)/bin"
+          test -x "$bin/whatevrd"
+          test -x "$bin/whattui"
+          codesign --verify --deep --strict /Applications/Whatevr.app
+          for p in /Applications/Whatevr.app "$(readlink "$bin/whattui")"; do
+            if xattr -r "$p" | grep -q com.apple.quarantine; then printf '%s is still quarantined\n' "$p"; exit 1; fi
+          done
+          # generated by running the installed whatevrd, which quarantine would stop
+          for f in "$(brew --prefix)/etc/bash_completion.d/whatevrd" "$(brew --prefix)/share/zsh/site-functions/_whatevrd" \
+            "$(brew --prefix)/share/fish/vendor_completions.d/whatevrd.fish"; do
+            grep -q whatevrd "$f"
+          done
+          "$bin/whatevrd" --generate-shell-completion | grep -q frontend
+      - name: Login service, socket activation and links, with whatsapp blackholed
+        run: |
+          set -o pipefail
+          # the service runs the real daemon, unpaired: it would go to whatsapp for a qr
+          for host in web.whatsapp.com g.whatsapp.net v.whatsapp.net mmg.whatsapp.net mmg-fallback.whatsapp.net \
+            pps.whatsapp.net static.whatsapp.net whatsapp.com www.whatsapp.com api.whatsapp.com chat.whatsapp.com \
+            rupload.facebook.com; do
+            printf '0.0.0.0 %s\n:: %s\n' "$host" "$host" | sudo tee -a /etc/hosts >/dev/null
+          done
+          sudo dscacheutil -flushcache
+          sudo killall -HUP mDNSResponder
+          if curl -sS --max-time 10 -o /dev/null https://web.whatsapp.com; then
+            echo 'web.whatsapp.com still reachable, not starting the daemon'
+            exit 1
+          fi
+          logs="$HOME/Library/Logs/in.codelif.whatevr"
+          trap 'tail -n 200 "$logs"/daemon/*.log 2>/dev/null || true' EXIT
+          bin="$(brew --prefix)/bin"
+          "$bin/whatevrd" service enable
+          launchctl print "gui/$(id -u)/in.codelif.whatevr.daemon" >/dev/null
+          "$bin/whatevrd" frontend list
+          lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+          "$lsregister" -u build/release/Whatevr.app build/debug/Whatevr.app || true
+          "$lsregister" -f /Applications/Whatevr.app
+          # a bare link with no frontend up starts the default one, whattui in terminal
+          open 'whatevr://'
+          for _ in $(seq 60); do
+            if "$bin/whatevrd" frontend list | grep -Eq '^whattui .*connected'; then break; fi
+            sleep 1
+          done
+          "$bin/whatevrd" frontend list | grep -E '^whattui .*connected'
+          pid="$(launchctl print "gui/$(id -u)/in.codelif.whatevr.daemon" | awk '/^\tpid = / { print $3 }')"
+          test -n "$pid"
+          if lsof -nP -a -p "$pid" -iTCP -sTCP:ESTABLISHED; then
+            echo 'the daemon holds a tcp connection'
+            exit 1
+          fi
+          pkill -x whattui || true
+          pkill -x Terminal || true
+      - name: Uninstall and zap the cask
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: '1'
+        run: |
+          brew uninstall --cask --zap local/test/whatevr
+          if launchctl print "gui/$(id -u)/in.codelif.whatevr.daemon" >/dev/null 2>&1; then
+            echo 'the login service is still loaded'
+            exit 1
+          fi
+          test ! -e "$HOME/Library/LaunchAgents/in.codelif.whatevr.daemon.plist"
+          test ! -e /Applications/Whatevr.app
+          test ! -e "$(brew --prefix)/bin/whatevrd"
+          test ! -e "$(brew --prefix)/bin/whattui"
+          test ! -e "$(brew --prefix)/etc/bash_completion.d/whatevrd"
+          test ! -e "$(brew --prefix)/share/zsh/site-functions/_whatevrd"
+          test ! -e "$(brew --prefix)/share/fish/vendor_completions.d/whatevrd.fish"
+          for dir in "Application Support" Caches Logs; do
+            test ! -e "$HOME/Library/$dir/in.codelif.whatevr"
+          done
 
   aur:
     name: AUR metadata

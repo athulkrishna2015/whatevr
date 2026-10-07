@@ -1,0 +1,323 @@
+edition = "2024";
+
+package whatevr.v2;
+
+import "whatevr/v2/account.proto";
+import "whatevr/v2/chats.proto";
+import "whatevr/v2/frontends.proto";
+import "whatevr/v2/groups.proto";
+import "whatevr/v2/media.proto";
+import "whatevr/v2/messages.proto";
+import "whatevr/v2/notifications.proto";
+import "whatevr/v2/people.proto";
+import "whatevr/v2/search.proto";
+import "whatevr/v2/settings.proto";
+import "whatevr/v2/stickers.proto";
+
+option features.field_presence = IMPLICIT;
+
+// every frame on the socket is one of these, varint size-delimited
+message Frame {
+  oneof frame {
+    Request request = 1;
+    Response response = 2;
+    Event event = 3;
+  }
+}
+
+// frontend to daemon. the first request on a connection must be hello.
+message Request {
+  // chosen by the frontend, echoed on the response
+  uint64 id = 1;
+
+  oneof method {
+    // 10-19: the connection and views
+    Hello hello = 10;
+    Subscribe subscribe = 11;
+    Extend extend = 12;
+    Unsubscribe unsubscribe = 13;
+
+    // 20-29: session and account
+    SessionUpdate session_update = 20;
+    DaemonReconnect daemon_reconnect = 21;
+    AccountLogout account_logout = 22;
+    FrontendSetDefault frontend_set_default = 23;
+    LinkOpen link_open = 24;
+
+    // 30-49: chats
+    ChatMarkRead chat_mark_read = 30;
+    ChatPin chat_pin = 31;
+    ChatArchive chat_archive = 32;
+    ChatMute chat_mute = 33;
+    ChatTyping chat_typing = 34;
+    ChatRequestOlder chat_request_older = 35;
+    ChatEnsureDirect chat_ensure_direct = 36;
+
+    // 50-59: sends
+    SendText send_text = 50;
+    SendMedia send_media = 51;
+    SendSticker send_sticker = 52;
+
+    // 60-89: messages
+    MessageReact message_react = 60;
+    MessageEdit message_edit = 61;
+    MessageRevoke message_revoke = 62;
+    MessageDelete message_delete = 63;
+    MessageStar message_star = 64;
+    MessagePin message_pin = 65;
+    MessageForward message_forward = 66;
+    MessageMarkPlayed message_mark_played = 67;
+    MessageRequestFromPhone message_request_from_phone = 68;
+    PollVote poll_vote = 69;
+    EventRsvp event_rsvp = 70;
+    GroupJoinInvite group_join_invite = 71;
+    MessageText message_text = 72;
+
+    // 90-99: media
+    MediaDownload media_download = 90;
+    MediaStream media_stream = 91;
+    MediaCancelDownload media_cancel_download = 92;
+    MediaRead media_read = 93;
+    MediaFetchProfilePicture media_fetch_profile_picture = 94;
+
+    // 100-119: settings, people, stickers, notifications
+    PrivacySet privacy_set = 100;
+    PreferencesSet preferences_set = 101;
+    SelfSetAbout self_set_about = 102;
+    ContactBlock contact_block = 103;
+    StickerFavorite sticker_favorite = 104;
+    StickerDownload sticker_download = 105;
+    StickerPackInstall sticker_pack_install = 106;
+    StickerPacksRefresh sticker_packs_refresh = 107;
+    NotificationDismiss notification_dismiss = 108;
+
+    // 120-129: queries
+    SearchChats search_chats = 120;
+    SearchMessages search_messages = 121;
+    SearchStickers search_stickers = 122;
+    ContactCheckPhone contact_check_phone = 123;
+    FrontendList frontend_list = 124;
+  }
+}
+
+// daemon to frontend, exactly one per request. results carry ids for
+// correlation, never rows to render (rule 2); queries are the exception.
+message Response {
+  uint64 id = 1;
+
+  oneof result {
+    Error error = 2;
+
+    HelloResult hello = 10;
+    SubscribeResult subscribe = 11;
+    Done done = 12;
+
+    ChatEnsureDirectResult chat_ensure_direct = 36;
+    ChatRequestOlderResult chat_request_older = 35;
+
+    SendResult send = 50;
+
+    MessageForwardResult message_forward = 66;
+    GroupJoinInviteResult group_join_invite = 71;
+    MessageTextResult message_text = 72;
+
+    MediaStreamResult media_stream = 91;
+    MediaReadResult media_read = 93;
+    MediaFetchProfilePictureResult media_fetch_profile_picture = 94;
+
+    SearchChatsResult search_chats = 120;
+    SearchMessagesResult search_messages = 121;
+    SearchStickersResult search_stickers = 122;
+    ContactCheckPhoneResult contact_check_phone = 123;
+    FrontendListResult frontend_list = 124;
+  }
+}
+
+// the result of every request that has nothing to say beyond "it worked"
+message Done {}
+
+message Error {
+  ErrorCode code = 1;
+  // for humans and logs, never parsed
+  string message = 2;
+}
+
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  // a frame that does not decode, or a request before hello
+  ERROR_CODE_INVALID_REQUEST = 1;
+  // a method arm this daemon does not know
+  ERROR_CODE_UNKNOWN_METHOD = 2;
+  ERROR_CODE_INVALID_PARAMS = 3;
+  ERROR_CODE_NOT_FOUND = 4;
+  ERROR_CODE_NOT_LOGGED_IN = 5;
+  ERROR_CODE_NOT_CONNECTED = 6;
+  ERROR_CODE_ALREADY_EXISTS = 7;
+  // an edit or revoke window passed, an invite ran out
+  ERROR_CODE_EXPIRED = 8;
+  // whatsapp said no, or the thing can't be done to this target
+  ERROR_CODE_REJECTED = 9;
+  // a file or media problem on this machine
+  ERROR_CODE_IO = 10;
+  ERROR_CODE_INTERNAL = 11;
+  // a send to an address outside the guard
+  ERROR_CODE_GUARDED = 12;
+}
+
+message Hello {
+  // free text, for the daemon's logs and the sessions list
+  string client = 1;
+  // 2 for this document
+  uint32 protocol = 2;
+  // which frontend this is, the id its manifest or app entry gives. empty
+  // for tools that aren't one
+  string frontend_id = 3;
+}
+
+message HelloResult {
+  string daemon = 1;
+  string version = 2;
+  uint32 protocol = 3;
+  // optional parts this daemon serves, see PROTOCOL.md
+  repeated string features = 4;
+  string data_dir = 5;
+  string cache_dir = 6;
+}
+
+// daemon to frontend, unasked
+message Event {
+  oneof event {
+    ViewUpdate update = 1;
+    OpenChat open_chat = 2;
+    MediaStreamUpdate media_stream_update = 3;
+    Activate activate = 4;
+  }
+}
+
+// one daemon change to one subscription, applied whole and then rendered:
+// reset first if set, then changes in order, then ready if set
+message ViewUpdate {
+  uint64 sub = 1;
+  bool reset = 2;
+  repeated Change changes = 3;
+  Ready ready = 4;
+}
+
+message Change {
+  oneof change {
+    Upsert upsert = 1;
+    Remove remove = 2;
+  }
+}
+
+// insert or replace the item with this id, placed by sort
+message Upsert {
+  string id = 1;
+  // opaque, compared bytewise, ascending
+  bytes sort = 2;
+
+  oneof item {
+    ConnectionRow connection = 10;
+    LoginRow login = 11;
+    SyncRow sync = 12;
+    ProblemRow problem = 13;
+    ChatRow chat = 14;
+    MessageRow message = 15;
+    TypingRow typing = 16;
+    PresenceRow presence = 17;
+    ReceiptRow receipt = 18;
+    SelfRow self = 19;
+    ContactRow contact = 20;
+    GroupRow group = 21;
+    GroupMemberRow group_member = 22;
+    PrivacyRow privacy = 23;
+    PreferencesRow preferences = 24;
+    BlockedRow blocked = 25;
+    LiveLocationRow live_location = 26;
+    StickerRow sticker = 27;
+    StickerPackRow sticker_pack = 28;
+    TransferRow transfer = 29;
+    NotificationRow notification = 30;
+    Reaction reaction = 31;
+    PollVoteRow poll_vote = 32;
+    Responder responder = 33;
+  }
+}
+
+message Remove {
+  string id = 1;
+  // the item this one folded into, when two became one (a phone number chat
+  // and its lid chat); a frontend moves its open chat, draft or scroll there
+  string replaced_by = 2;
+}
+
+// the window is filled for the latest subscribe or extend
+message Ready {
+  // nothing further to extend into locally, on the frontier just extended
+  bool exhausted = 1;
+}
+
+// a notification was clicked; sent to the most recently focused frontend
+message OpenChat {
+  string chat_id = 1;
+}
+
+message Subscribe {
+  // the window size for collection views, 0 for the view's default
+  uint32 limit = 1;
+
+  oneof view {
+    ConnectionView connection = 10;
+    LoginView login = 11;
+    SyncView sync = 12;
+    ProblemsView problems = 13;
+    ChatsView chats = 14;
+    ChatView chat = 15;
+    MessagesView messages = 16;
+    TypingView typing = 17;
+    PresenceView presence = 18;
+    ReceiptsView receipts = 19;
+    SelfView self = 20;
+    ContactView contact = 21;
+    GroupView group = 22;
+    GroupMembersView group_members = 23;
+    PrivacyView privacy = 24;
+    PreferencesView preferences = 25;
+    BlocklistView blocklist = 26;
+    StarredView starred = 27;
+    PinnedView pinned = 28;
+    LiveLocationsView live_locations = 29;
+    ChatMediaView chat_media = 30;
+    StickersView stickers = 31;
+    StickerPacksView sticker_packs = 32;
+    StickerPackView sticker_pack = 33;
+    TransfersView transfers = 34;
+    NotificationsView notifications = 35;
+    ReactionsView reactions = 36;
+    PollVotesView poll_votes = 37;
+    EventResponsesView event_responses = 38;
+  }
+}
+
+message SubscribeResult {
+  uint64 sub = 1;
+  // a messages view anchored at unread: the message it settled on
+  string anchor_id = 2;
+}
+
+message Extend {
+  uint64 sub = 1;
+  uint32 count = 2;
+  Direction direction = 3;
+}
+
+enum Direction {
+  DIRECTION_UNSPECIFIED = 0;
+  DIRECTION_OLDER = 1;
+  // only for a window anchored in the middle of history
+  DIRECTION_NEWER = 2;
+}
+
+message Unsubscribe {
+  uint64 sub = 1;
+}

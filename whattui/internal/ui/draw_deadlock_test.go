@@ -5,7 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"whattui/internal/proto"
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
+
 	"whattui/internal/view"
 )
 
@@ -15,7 +16,7 @@ import (
 // next batch: a frozen terminal that answers no key.
 func TestDrawingWhileTheDaemonWritesNeverDeadlocks(t *testing.T) {
 	a := stubApp(100, 26, 0, 0)
-	a.chats = view.NewCollection[proto.ChatRow]()
+	a.chats = view.NewCollection(view.Chat)
 
 	stop := make(chan struct{})
 	writing := make(chan struct{})
@@ -27,8 +28,7 @@ func TestDrawingWhileTheDaemonWritesNeverDeadlocks(t *testing.T) {
 				return
 			default:
 			}
-			a.chats.BatchBegin()
-			a.chats.BatchEnd()
+			update(a.chats, v2.ViewUpdate_builder{})
 		}
 	}()
 	<-writing
@@ -66,12 +66,9 @@ func TestDrawingATranscriptWhileMessagesArriveNeverDeadlocks(t *testing.T) {
 				return
 			default:
 			}
-			c.msgs.BatchBegin()
-			c.msgs.Upsert(fmt.Sprintf("%020d", 1000+i), mustJSON(proto.MessageRow{
-				ID: fmt.Sprintf("live%d", i), Kind: "text", Direction: "incoming",
-				Text: "one more", Sender: proto.Sender{ID: "x", Name: "someone"},
-			}))
-			c.msgs.BatchEnd()
+			putMsg(c.msgs, fmt.Sprintf("%020d", 1000+i), v2.MessageRow_builder{
+				Id: fmt.Sprintf("live%d", i), TextBody: &v2.Text{}, Text: "one more", Sender: person("x", "someone"),
+			}.Build())
 		}
 	}()
 	<-writing

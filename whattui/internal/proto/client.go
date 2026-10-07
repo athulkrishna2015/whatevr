@@ -2,16 +2,16 @@ package proto
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"io/fs"
 	"net"
-	"os"
-	"path/filepath"
+	"slices"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
+
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 )
 
 const (
@@ -20,22 +20,22 @@ const (
 	// remote service to back off from.
 	reconnectDelay = time.Second
 
-	// A single protocol object is never remotely this large. The cap stops a
-	// wedged peer flooding us with an unframed blob.
-	maxLineBytes = 8 << 20
-
 	// How long the daemon gets to answer hello. A socket that connects and
 	// then says nothing is otherwise a permanent wedge, because reconnect only
 	// runs off a disconnect that is never coming.
 	handshakeTimeout = 10 * time.Second
 
-	// Ceilings on what one connection may owe. Every callback fires exactly
-	// once, so an unanswered request has to be held until something answers
-	// it, and holding an unbounded number of them is how a daemon that stops
-	// replying turns into a frontend that grows without limit.
-	maxInFlight = 4096
-	maxQueued   = 1024
+	// What one connection may owe. The daemon runs 32 requests at a time, so
+	// past that the writer holds them back; past the queue a request is
+	// refused rather than held without limit.
+	maxAwaiting    = 32
+	maxQueued      = 64
+	maxQueuedBytes = 16 << 20
 )
+
+// a write the daemon has not taken by then is a wedged daemon. a var so a
+// test can stall one without waiting it out
+var writeTimeout = 10 * time.Second
 
 // State is where the connection is.
 type State int
@@ -60,68 +60,73 @@ func (s State) String() string {
 	}
 }
 
-// ResponseFunc receives exactly one of result or err, exactly once, on the
-// client's read goroutine.
-type ResponseFunc func(result json.RawMessage, err *Error)
+// ResponseFunc receives exactly one of resp or err, exactly once. A daemon's
+// answer, a deadline and a lost connection run one at a time; a request
+// refused on the spot runs on the caller's goroutine, inside Do.
+type ResponseFunc func(resp *v2.Response, err *Error)
 
-// Client is one connection to whatevrd: NDJSON framing, the hello handshake,
-// id-correlated requests, sub-keyed event routing, and reconnect that re-issues
-// every live subscription.
+// Client is one connection to whatevrd: framing, the hello handshake,
+// id-correlated requests with deadlines, sub-keyed updates, and reconnect
+// that re-issues every live subscription.
 //
-// Callbacks and sink methods all run on the client's own goroutine, one at a
-// time. Everything else is safe to call from anywhere.
+// Everything is safe to call from anywhere.
 type Client struct {
 	socketPath string
 	name       string
 
-	// OnState fires on every connection state change, on the client
-	// goroutine. The UI shows a banner off this; it is the transport's state,
-	// which is not the same thing as WhatsApp's.
-	OnState func(state State, info *ServerInfo, err error)
+	// FrontendID is the id hello gives, the one this frontend's manifest
+	// uses. set before Start
+	FrontendID string
 
-	// OnDrain fires once after each batch of frames has been applied, which is
-	// exactly when the UI should redraw.
+	// OnState fires on every connection state change. The UI shows a banner
+	// off this; it is the socket's state, not WhatsApp's.
+	OnState func(state State, info *v2.HelloResult, err error)
+
+	// OnDrain fires once the frames in hand are applied, which is exactly
+	// when the UI should redraw.
 	OnDrain func()
 
-	// OnOpenChat and OnMediaStreamUpdate carry the connection-directed events,
-	// the two that arrive with no sub.
-	OnOpenChat          func(OpenChat)
-	OnMediaStreamUpdate func(MediaStreamUpdate)
+	// the connection events, the two that arrive with no sub
+	OnOpenChat          func(*v2.OpenChat)
+	OnMediaStreamUpdate func(*v2.MediaStreamUpdate)
 
-	mu       sync.Mutex
-	conn     net.Conn
-	state    State
-	nextID   uint64
-	pending  map[uint64]ResponseFunc
-	queued   []queuedRequest
-	subs     []*Subscription
-	bySubID  map[uint64]*Subscription
-	info     *ServerInfo
-	writeErr error
+	// serial makes the daemon's answers and the deadlines take turns
+	serial sync.Mutex
 
-	batched []ViewSink
+	nextID atomic.Uint64
+
+	mu    sync.Mutex
+	conn  net.Conn
+	state State
+	info  *v2.HelloResult
+	// offers is the last hello's features, kept across a drop. nil before
+	// the first one
+	offers []string
+	// calls is every request not answered yet, queue the ones not written
+	calls       map[uint64]*call
+	queue       []*call
+	queuedBytes int
+	written     int
+	wake        chan struct{}
+	subs        []*Subscription
+	bySub       map[uint64]*Subscription
 
 	cancel context.CancelFunc
 	done   chan struct{}
 }
 
-type queuedRequest struct {
-	id  uint64
-	req []byte
-	cb  ResponseFunc
+type call struct {
+	id      uint64
+	body    []byte
+	cb      ResponseFunc
+	timer   *time.Timer
+	written bool
+	// late hears an answer that came after the deadline
+	late func(*v2.Response)
 }
 
-// DefaultSocketPath is where whatevrd listens.
-func DefaultSocketPath() string {
-	dir := os.Getenv("XDG_RUNTIME_DIR")
-	if dir == "" {
-		dir = filepath.Join("/run/user", fmt.Sprint(os.Getuid()))
-	}
-	return filepath.Join(dir, "whatevr", "whatevrd.sock")
-}
-
-// New returns a client that has not connected yet. name identifies this
-// frontend in hello.
+// New returns a client that has not connected yet. socketPath "" is the
+// default; name identifies this frontend in hello.
 func New(socketPath, name string) *Client {
 	if socketPath == "" {
 		socketPath = DefaultSocketPath()
@@ -129,8 +134,9 @@ func New(socketPath, name string) *Client {
 	return &Client{
 		socketPath: socketPath,
 		name:       name,
-		pending:    make(map[uint64]ResponseFunc),
-		bySubID:    make(map[uint64]*Subscription),
+		calls:      map[uint64]*call{},
+		bySub:      map[uint64]*Subscription{},
+		wake:       make(chan struct{}, 1),
 	}
 }
 
@@ -155,8 +161,8 @@ func (c *Client) Start() {
 	}()
 }
 
-// Stop closes the connection and stops reconnecting. It waits for the client
-// goroutine, so no callback runs after it returns.
+// Stop closes the connection and stops reconnecting. It waits for the
+// session, so no callback runs after it returns.
 func (c *Client) Stop() {
 	c.mu.Lock()
 	cancel, done, conn := c.cancel, c.done, c.conn
@@ -182,14 +188,22 @@ func (c *Client) State() State {
 }
 
 // ServerInfo is what hello answered with, nil until the handshake completes.
-func (c *Client) ServerInfo() *ServerInfo {
+func (c *Client) ServerInfo() *v2.HelloResult {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return c.info
 }
 
-// SocketPath is where this client dials, resolved. Worth showing a reader who
-// is being told the daemon is not there.
+// Offers reports whether the daemon serves a view or method, by its oneof arm
+// name, as the last hello said. Everything is offered before the first one,
+// so a frontend that never reached the daemon refuses as offline instead.
+func (c *Client) Offers(feature string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.offers == nil || slices.Contains(c.offers, feature)
+}
+
+// SocketPath is where this client dials, resolved.
 func (c *Client) SocketPath() string { return c.socketPath }
 
 // NotRunning reports whether a transport error means there is nothing
@@ -199,4 +213,11 @@ func NotRunning(err error) bool {
 	return errors.Is(err, syscall.ENOENT) ||
 		errors.Is(err, syscall.ECONNREFUSED) ||
 		errors.Is(err, fs.ErrNotExist)
+}
+
+func signal(ch chan struct{}) {
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
 }

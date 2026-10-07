@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -63,6 +64,9 @@ type session struct {
 	done chan struct{}
 
 	closeOnce sync.Once
+
+	// silent is a session the network fault turned into a dead peer
+	silent atomic.Bool
 }
 
 func newSession(srv *Server, conn *websocket.Conn) *session {
@@ -88,12 +92,12 @@ func (s *session) run(ctx context.Context) {
 	err := s.handshake(hsCtx)
 	cancel()
 	if err != nil {
-		s.srv.log.Printf("handshake failed: %v", err)
+		s.srv.log.Warn().Err(err).Msg("handshake failed")
 		return
 	}
 
 	if err := s.onConnected(ctx); err != nil {
-		s.srv.log.Printf("post-connect: %v", err)
+		s.srv.log.Warn().Err(err).Msg("post-connect")
 		return
 	}
 
@@ -101,13 +105,16 @@ func (s *session) run(ctx context.Context) {
 		node, err := s.readNode(ctx)
 		if err != nil {
 			if !errors.Is(err, context.Canceled) && websocket.CloseStatus(err) == -1 {
-				s.srv.log.Printf("read: %v", err)
+				s.srv.log.Warn().Err(err).Msg("read")
 			}
 			return
 		}
+		if s.silent.Load() {
+			continue
+		}
 		s.srv.quiet.touch()
 		if err := s.handleNode(ctx, node); err != nil {
-			s.srv.log.Printf("handle <%s>: %v", node.Tag, err)
+			s.srv.log.Warn().Err(err).Str("tag", node.Tag).Msg("handle stanza")
 		}
 	}
 }
@@ -270,6 +277,9 @@ func (s *session) readNode(ctx context.Context) (*waBinary.Node, error) {
 }
 
 func (s *session) sendNode(ctx context.Context, node waBinary.Node) error {
+	if s.silent.Load() {
+		return nil
+	}
 	plaintext, err := waBinary.Marshal(node)
 	if err != nil {
 		return fmt.Errorf("marshal <%s>: %w", node.Tag, err)
@@ -287,6 +297,32 @@ func (s *session) sendNode(ctx context.Context, node waBinary.Node) error {
 	ciphertext := s.writeKey.Seal(nil, iv, plaintext, nil)
 	s.srv.quiet.touch()
 	return s.writeFrame(ctx, ciphertext)
+}
+
+// sendRaw puts a recorded stanza back on the wire byte for byte. data is the
+// unpacked frame, the flag byte in front says it is not compressed.
+func (s *session) sendRaw(ctx context.Context, data []byte) error {
+	if s.silent.Load() {
+		return nil
+	}
+	plaintext := append([]byte{0}, data...)
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	iv := make([]byte, 12)
+	binary.BigEndian.PutUint32(iv[8:], s.writeCounter)
+	s.writeCounter++
+	ciphertext := s.writeKey.Seal(nil, iv, plaintext, nil)
+	s.srv.quiet.touch()
+	return s.writeFrame(ctx, ciphertext)
+}
+
+func (s *session) isClosed() bool {
+	select {
+	case <-s.done:
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *session) setPairRequest(id string) {

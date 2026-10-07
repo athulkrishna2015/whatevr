@@ -56,7 +56,7 @@ func TestEveryCellBelongsToAPaneInEveryState(t *testing.T) {
 
 	for name, setup := range map[string]func(*App){
 		"no chat open":    bare,
-		"no chats at all": func(a *App) { bare(a); a.chats.Reset() },
+		"no chats at all": func(a *App) { bare(a); reset(a.chats) },
 		"a notice":        func(a *App) { a.transport = proto.Connecting },
 		"a modal":         func(a *App) { a.openModal(modalPalette) },
 		"the list focused": func(a *App) {

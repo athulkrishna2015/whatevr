@@ -1,15 +1,13 @@
 package ui
 
 import (
-	"bytes"
-	"encoding/json"
 	"time"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
 
 	"whattui/internal/layout"
 	"whattui/internal/paint"
-	"whattui/internal/proto"
 	"whattui/internal/term"
 	"whattui/internal/theme"
 	"whattui/internal/view"
@@ -21,7 +19,7 @@ import (
 // does, and the one thing about a message that does not change while the
 // reader scrolls past it.
 type entry struct {
-	raw     json.RawMessage
+	rev     uint64
 	centred bool
 	lines   []string
 	block   block
@@ -52,6 +50,9 @@ type run struct {
 	// divider is a day rather than a person: the line that says the messages
 	// under it happened on another day. It has a name and no messages.
 	divider bool
+	// loading is the divider over the oldest message while the phone sends
+	// older ones: a spinner and no rules
+	loading bool
 	name    string
 	colour  vaxis.Color
 	width   int
@@ -61,19 +62,22 @@ type run struct {
 // speaker identifies a run. A message nobody wrote breaks the run rather than
 // joining it, which is why the id is in here: two texts either side of a
 // system line are not one run.
-func speaker(m proto.MessageRow, id string) string {
-	if m.Centred() {
+func speaker(m *v2.MessageRow, id string) string {
+	if centred(m) {
 		return id
 	}
-	return m.Direction + "\x00" + m.Sender.ID
+	if m.GetFromMe() {
+		return "out\x00" + m.GetSender().GetId()
+	}
+	return "in\x00" + m.GetSender().GetId()
 }
 
 // refreshTranscript brings the layout cache up to date with the window.
 //
-// Keyed on the raw row rather than on the id alone: the daemon upserts a whole
+// Keyed on the row's revision rather than on the id alone: the daemon upserts a whole
 // item for a status tick or an edit, and a version bump that threw the window
 // away would re-wrap four hundred messages because one of them was read.
-func (a *App) refreshTranscript(c *conversation, items []view.Item[proto.MessageRow], state view.State, w, rows int) {
+func (a *App) refreshTranscript(c *conversation, items []view.Item[*v2.MessageRow], state view.State, above topMark, w, rows int) {
 	// The version arrives with the window rather than being asked for. A
 	// second read lock on the collection we are already inside is a deadlock
 	// the moment a writer is waiting, and a writer is the daemon delivering a
@@ -83,29 +87,48 @@ func (a *App) refreshTranscript(c *conversation, items []view.Item[proto.Message
 	// person, both names are on the screen already and every one of them
 	// costs a row.
 	group := false
-	if it, ok := a.chats.Get(c.chatID); ok {
-		group = it.Value.IsGroup
+	if row, ok := a.chatRow(c.chatID); ok {
+		group = isGroup(row)
 	}
-	if c.cache != nil && c.cacheWidth == w && c.cacheRows == rows &&
-		c.cacheVer == ver && c.cacheGroup == group && c.cacheBoxed == a.boxed {
+	expandGen := a.expandGeneration()
+	if c.cache != nil && c.cacheWidth == w && c.cacheRows == rows && c.cacheExpand == expandGen &&
+		c.cacheVer == ver && c.cacheGroup == group && c.cacheBoxed == a.boxed && c.cacheTop == above {
 		return
+	}
+	a.pruneExpanded(items)
+	// rows count up from the live edge, so anything landing below the reader
+	// would push them up the screen: hold the middle message where it is
+	if c.hold == nil && c.scroll > 0 && c.cacheWidth == w && c.cacheRows == rows {
+		if id, row := c.middle(rows); id != "" {
+			c.hold = &hold{id: id, top: row}
+		}
 	}
 	// A version bump is the daemon changing a row, which may well be the row
 	// the cursor is on, or the row the cursor was on leaving the window.
 	a.syncCursor(c, items)
-	if c.cache == nil || c.cacheWidth != w || c.cacheRows != rows {
+	if c.cache == nil || c.cacheWidth != w || c.cacheRows != rows || c.cacheExpand != expandGen {
 		c.cache = make(map[string]entry, len(items))
 	}
+	c.cacheExpand = expandGen
 	c.cacheWidth, c.cacheRows, c.cacheVer = w, rows, ver
-	c.cacheGroup, c.cacheBoxed = group, a.boxed
+	c.cacheGroup, c.cacheBoxed, c.cacheTop = group, a.boxed, above
 
 	for _, it := range items {
-		if e, ok := c.cache[it.ID]; !ok || !bytes.Equal(e.raw, it.Raw) {
+		if e, ok := c.cache[it.ID]; !ok || e.rev != it.Rev {
 			c.cache[it.ID] = a.layoutEntry(it, w)
 		}
 	}
 
 	c.runs = a.runsOf(c, items, w, group)
+	switch above {
+	case topLoading:
+		c.runs = append(c.runs, run{divider: true, loading: true, height: 1, name: "loading older messages"})
+	case topStart:
+		// nothing older can share the first day, so it gets its line too
+		c.runs = append(c.runs,
+			run{divider: true, height: 1, name: dayLabel(items[len(items)-1].Value.GetTMs())},
+			run{divider: true, height: 1, name: "start of chat"})
+	}
 	total := 0
 	for _, r := range c.runs {
 		total += r.height + 1
@@ -129,7 +152,7 @@ func (a *App) refreshTranscript(c *conversation, items []view.Item[proto.Message
 
 // runsOf gathers the window into runs, newest first, the way the transcript
 // draws them.
-func (a *App) runsOf(c *conversation, items []view.Item[proto.MessageRow], w int, group bool) []run {
+func (a *App) runsOf(c *conversation, items []view.Item[*v2.MessageRow], w int, group bool) []run {
 	runs := make([]run, 0, len(items))
 	for i := 0; i < len(items); {
 		key := speaker(items[i].Value, items[i].ID)
@@ -139,18 +162,18 @@ func (a *App) runsOf(c *conversation, items []view.Item[proto.MessageRow], w int
 		}
 
 		top := items[last].Value
-		r := run{outgoing: top.Outgoing(), centred: top.Centred(), colour: a.theme.Accent}
+		r := run{outgoing: top.GetFromMe(), centred: centred(top), colour: a.theme.Accent}
 		for j := last; j >= i; j-- {
 			r.ids = append(r.ids, items[j].ID)
 		}
 		if !r.outgoing {
-			r.sender = top.Sender.ID
-			r.colour = a.theme.IdentityFor(top.Sender.ID)
+			r.sender = top.GetSender().GetId()
+			r.colour = a.theme.IdentityFor(top.GetSender().GetId())
 		}
 		// The person who spoke is named at the top of what they said, once,
 		// and only where there is more than one of them.
-		if group && !r.outgoing && !r.centred && top.Sender.Name != "" {
-			r.name = top.Sender.Name
+		if group && !r.outgoing && !r.centred && top.GetSender().GetName() != "" {
+			r.name = top.GetSender().GetName()
 		}
 
 		for _, id := range r.ids {
@@ -171,8 +194,8 @@ func (a *App) runsOf(c *conversation, items []view.Item[proto.MessageRow], w int
 		// A run drawn above this one on the screen is one further along the
 		// window, so the day it belongs to is decided here and the line that
 		// says so is appended after it.
-		if last+1 < len(items) && !sameDay(top.Timestamp, items[last+1].Value.Timestamp) {
-			runs = append(runs, run{divider: true, height: 1, name: dayLabel(top.Timestamp)})
+		if last+1 < len(items) && !sameDay(top.GetTMs(), items[last+1].Value.GetTMs()) {
+			runs = append(runs, run{divider: true, height: 1, name: dayLabel(top.GetTMs())})
 		}
 		i = last + 1
 	}
@@ -180,7 +203,7 @@ func (a *App) runsOf(c *conversation, items []view.Item[proto.MessageRow], w int
 }
 
 func sameDay(a, b int64) bool {
-	at, bt := time.Unix(a, 0), time.Unix(b, 0)
+	at, bt := time.UnixMilli(a), time.UnixMilli(b)
 	ay, am, ad := at.Date()
 	by, bm, bd := bt.Date()
 	return ay == by && am == bm && ad == bd
@@ -188,12 +211,12 @@ func sameDay(a, b int64) bool {
 
 // dayLabel names a day the way a person would say it.
 func dayLabel(stamp int64) string {
-	t := time.Unix(stamp, 0)
+	t := time.UnixMilli(stamp)
 	now := time.Now()
 	switch {
-	case sameDay(stamp, now.Unix()):
+	case sameDay(stamp, now.UnixMilli()):
 		return "Today"
-	case sameDay(stamp, now.AddDate(0, 0, -1).Unix()):
+	case sameDay(stamp, now.AddDate(0, 0, -1).UnixMilli()):
 		return "Yesterday"
 	case now.Sub(t) < 6*24*time.Hour:
 		return t.Format("Monday")
@@ -240,18 +263,18 @@ const (
 	bubblePadX = 1
 )
 
-func (a *App) layoutEntry(it view.Item[proto.MessageRow], w int) entry {
+func (a *App) layoutEntry(it view.Item[*v2.MessageRow], w int) entry {
 	m := it.Value
-	if m.Centred() {
-		return entry{raw: it.Raw, centred: true, lines: a.wrap(a.body(m), w-4)}
+	if centred(m) {
+		return entry{rev: it.Rev, centred: true, lines: a.wrap(a.body(m), w-4)}
 	}
 	// A message nobody can read any more carries neither flag: what was done
 	// to it before it went is no longer news.
 	return entry{
-		raw:     it.Raw,
+		rev:     it.Rev,
 		block:   a.layoutMessage(m, w),
-		starred: m.Starred && !m.Revoked,
-		edited:  m.Edited && !m.Revoked,
+		starred: m.GetStarred() && !m.GetRevoked(),
+		edited:  m.GetEdited() && !m.GetRevoked(),
 	}
 }
 
@@ -259,6 +282,10 @@ func (a *App) layoutEntry(it view.Item[proto.MessageRow], w int) entry {
 // the pane: a run taller than the screen has to be readable a row at a time,
 // so the parts that do not fit are clipped rather than skipped.
 func (a *App) drawRun(pane vaxis.Window, c *conversation, r run, row, w int) {
+	if r.loading {
+		a.drawLoading(pane, r.name, row, w)
+		return
+	}
 	if r.divider {
 		a.drawDay(pane, r.name, row, w)
 		return
@@ -385,6 +412,46 @@ func (a *App) drawDay(pane vaxis.Window, label string, row, w int) {
 	bx := boxFor(a.caps)
 	a.rule(pane, left, row, at-left, bx.horizontal, style)
 	a.rule(pane, at+a.width(text), row, right-at-a.width(text), bx.horizontal, style)
+}
+
+// drawLoading is the row over the oldest message while older ones are on
+// their way from the phone.
+func (a *App) drawLoading(pane vaxis.Window, label string, row, w int) {
+	frames := spinnerFrames
+	if a.caps.Tier <= term.TierPlain {
+		frames = spinnerPlain
+	}
+	frame := frames[int(time.Now().UnixMilli()/spinnerTick.Milliseconds())%len(frames)]
+	text := frame + " " + label
+	a.print(pane, maxInt((w-a.width(text))/2, 0), row, vaxis.Style{
+		Foreground: a.theme.TextMuted, Background: a.theme.Background,
+	}, text)
+	a.spin()
+}
+
+var (
+	spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+	// a bare font has no braille
+	spinnerPlain = []string{"-", "\\", "|", "/"}
+)
+
+// topOf is what goes over the oldest message in the window: the phone
+// sending older history, or the start of the chat, once the window holds the
+// oldest message the daemon has.
+func (a *App) topOf(c *conversation) topMark {
+	a.mu.Lock()
+	done := c.window.olderDone
+	a.mu.Unlock()
+	row, ok := a.chatRow(c.chatID)
+	switch {
+	case !done || !ok:
+		return topNone
+	case row.GetHistoryExhausted():
+		return topStart
+	case row.GetLoadingOlder():
+		return topLoading
+	}
+	return topNone
 }
 
 // drawStamp puts the time in the gutter, on the first row of the message and

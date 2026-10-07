@@ -1,0 +1,101 @@
+edition = "2024";
+
+package whatevr.v2;
+
+option features.field_presence = IMPLICIT;
+
+// whoever a command is about, in whatever form the frontend has
+message Address {
+  oneof address {
+    // a person or chat id from a row
+    string id = 1;
+    // digits with or without +, spaces and dashes are fine
+    string phone = 2;
+    string lid = 3;
+    string username = 4;
+  }
+}
+
+// a person as a row shows them
+message Person {
+  string id = 1;
+  string name = 2;
+  // e164 without +, empty when the daemon doesn't know it
+  string phone = 3;
+  string avatar_path = 4;
+  bool self = 5;
+}
+
+// the account this daemon is logged in as
+message SelfView {}
+
+message SelfRow {
+  string id = 1;
+  string phone = 2;
+  string push_name = 3;
+  string about = 4;
+  string avatar_path = 5;
+}
+
+// one contact card; local facts land first, about lands when fetched
+message ContactView {
+  Address person = 1;
+}
+
+message ContactRow {
+  string id = 1;
+  string phone = 2;
+  string saved_name = 3;
+  string push_name = 4;
+  string business_name = 5;
+  bool business = 6;
+  string about = 7;
+  string avatar_path = 8;
+  bool blocked = 9;
+}
+
+// one item per person on the blocklist
+message BlocklistView {}
+
+message BlockedRow {
+  Person person = 1;
+}
+
+// availability of everyone in a chat; subscribing is what asks whatsapp for it
+message PresenceView {
+  string chat_id = 1;
+}
+
+message PresenceRow {
+  Person person = 1;
+  Availability availability = 2;
+  int64 last_seen_ms = 3;
+}
+
+enum Availability {
+  AVAILABILITY_UNSPECIFIED = 0;
+  AVAILABILITY_ONLINE = 1;
+  AVAILABILITY_OFFLINE = 2;
+}
+
+// one item per chat with anyone composing, id is the chat id
+message TypingView {}
+
+message TypingRow {
+  string chat_id = 1;
+  repeated Typist typists = 2;
+}
+
+message Typist {
+  Person person = 1;
+  bool recording = 2;
+}
+
+message ContactBlock {
+  Address person = 1;
+  bool blocked = 2;
+}
+
+message SelfSetAbout {
+  string text = 1;
+}

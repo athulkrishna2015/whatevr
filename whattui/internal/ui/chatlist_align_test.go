@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"whattui/internal/proto"
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 )
 
 // nastyChatNames is the same corpus wamock's torture scenario serves, in the
@@ -36,15 +36,15 @@ var nastyChatNames = []string{
 // pane into the transcript beside it.
 func TestChatNamesShareOneLeftEdge(t *testing.T) {
 	a := stubApp(120, 40, 0, 0)
-	a.chats.Reset()
+	reset(a.chats)
 	for i, name := range nastyChatNames {
-		a.chats.Upsert(fmt.Sprintf("%020d", i), mustJSON(proto.ChatRow{
-			ID: fmt.Sprintf("%d@s.whatsapp.net", 910000000+i), Name: name,
-			Preview:         "preview",
-			LastMessageTime: 1758000000 - int64(i)*900,
-		}))
+		putChat(a.chats, fmt.Sprintf("%020d", i), v2.ChatRow_builder{
+			Id: fmt.Sprintf("%d@s.whatsapp.net", 910000000+i), Name: name,
+			Preview: preview("preview"),
+			LastMs:  (1758000000 - int64(i)*900) * 1000,
+		}.Build())
 	}
-	a.chats.Ready(true, true)
+	ready(a.chats, true)
 	a.paint()
 
 	pane := a.layout().ChatList
@@ -83,15 +83,15 @@ func TestChatNamesShareOneLeftEdge(t *testing.T) {
 // not at all.
 func TestNoControlCharactersReachTheScreen(t *testing.T) {
 	a := stubApp(120, 40, 0, 0)
-	a.chats.Reset()
+	reset(a.chats)
 	for i, name := range nastyChatNames {
-		a.chats.Upsert(fmt.Sprintf("%020d", i), mustJSON(proto.ChatRow{
-			ID: fmt.Sprintf("%d@s.whatsapp.net", 910000000+i), Name: name,
-			Preview:         "\x1b[31mpreview\x07\x00\x1b]8;;https://evil.example\x1b\\",
-			LastMessageTime: 1758000000 - int64(i)*900,
-		}))
+		putChat(a.chats, fmt.Sprintf("%020d", i), v2.ChatRow_builder{
+			Id: fmt.Sprintf("%d@s.whatsapp.net", 910000000+i), Name: name,
+			Preview: preview("\x1b[31mpreview\x07\x00\x1b]8;;https://evil.example\x1b\\"),
+			LastMs:  (1758000000 - int64(i)*900) * 1000,
+		}.Build())
 	}
-	a.chats.Ready(true, true)
+	ready(a.chats, true)
 	a.paint()
 
 	cols, rows := a.vx.Snapshot().Dimensions()

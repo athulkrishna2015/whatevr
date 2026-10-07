@@ -1,75 +1,60 @@
 package app
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/codelif/whatevr/platform"
 )
+
+// SocketEnv names the socket on every OS, for the daemon and its frontends.
+const SocketEnv = "WHATEVR_SOCKET"
 
 type Paths struct {
 	RuntimeDir string
-	// SocketDir/SocketPath serve the whatevr protocol (PROTOCOL.md) — the
-	// daemon's only socket.
+	// SocketDir/SocketPath serve the whatevr protocol (PROTOCOL.md), the
+	// daemon's only socket. WHATEVR_SOCKET moves it
 	SocketDir  string
 	SocketPath string
-	// LockDir/LockPath deliberately keep the pre-teardown location rather than
-	// moving into SocketDir: a pre-teardown daemon (which still binds the gRPC
-	// socket and locks here) and this one must continue to exclude each other,
-	// or an upgrade could leave two daemons on one SQLite database. Safe to
-	// fold into SocketDir once no such build can still be running.
-	LockDir       string
+	// LockPath is one daemon per socket; the core locks its own db
 	LockPath      string
 	DataDir       string
 	CacheDir      string
-	DatabasePath  string
 	SessionDir    string
 	SessionDBPath string
 	MediaCacheDir string
+	// LogDir holds one jsonl file per run, see internal/logx.
+	LogDir string
 }
 
 func ResolvePaths() (Paths, error) {
-	runtimeBase := os.Getenv("XDG_RUNTIME_DIR")
-	if runtimeBase == "" {
-		return Paths{}, errors.New("XDG_RUNTIME_DIR is not set")
-	}
-
-	home, err := os.UserHomeDir()
+	defaults, err := platform.Resolve()
 	if err != nil {
 		return Paths{}, err
 	}
-
-	dataBase := os.Getenv("XDG_DATA_HOME")
-	if dataBase == "" {
-		dataBase = filepath.Join(home, ".local", "share")
-	}
-
-	cacheBase := os.Getenv("XDG_CACHE_HOME")
-	if cacheBase == "" {
-		cacheBase = filepath.Join(home, ".cache")
-	}
-
-	socketDir := filepath.Join(runtimeBase, "whatevr")
-	lockDir := filepath.Join(runtimeBase, "whatevrd")
-	dataDir := filepath.Join(dataBase, "whatevrd")
-	cacheDir := filepath.Join(cacheBase, "whatevrd")
+	runtimeBase := defaults.RuntimeDir
+	socket := defaults.SocketPath
+	socketDir := filepath.Dir(socket)
+	dataDir := defaults.DataDir
+	cacheDir := defaults.CacheDir
 
 	return Paths{
 		RuntimeDir:    runtimeBase,
 		SocketDir:     socketDir,
-		SocketPath:    filepath.Join(socketDir, "whatevrd.sock"),
-		LockDir:       lockDir,
-		LockPath:      filepath.Join(lockDir, "whatevrd.lock"),
+		SocketPath:    socket,
+		LockPath:      LockPath(socket),
 		DataDir:       dataDir,
 		CacheDir:      cacheDir,
-		DatabasePath:  filepath.Join(dataDir, "whatevrd.db"),
 		SessionDir:    filepath.Join(dataDir, "session"),
 		SessionDBPath: filepath.Join(dataDir, "session", "whatsmeow.db"),
 		MediaCacheDir: filepath.Join(cacheDir, "media"),
+		LogDir:        defaults.LogDir,
 	}, nil
 }
 
 func (p Paths) Ensure() error {
-	for _, dir := range []string{p.SocketDir, p.LockDir, p.DataDir, p.SessionDir, p.CacheDir, p.MediaCacheDir} {
+	for _, dir := range []string{p.SocketDir, p.DataDir, p.SessionDir, p.CacheDir, p.MediaCacheDir, p.LogDir} {
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return err
 		}
@@ -77,3 +62,12 @@ func (p Paths) Ensure() error {
 
 	return nil
 }
+
+// LockPath sits next to the socket under the same name, so one socket gets one
+// daemon wherever WHATEVR_SOCKET points
+func LockPath(socket string) string {
+	return strings.TrimSuffix(socket, ".sock") + ".lock"
+}
+
+// StateHome returns the platform's persistent development state location.
+func StateHome() (string, error) { return platform.StateHome() }

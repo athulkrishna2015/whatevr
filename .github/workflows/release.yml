@@ -24,18 +24,15 @@ jobs:
     runs-on: ubuntu-latest
     container: archlinux:latest
     timeout-minutes: 90
+    outputs:
+      source-sha: ${{ steps.source.outputs.sha }}
     env:
       AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - name: Install dependencies
         run: |
-          pacman -Syu --noconfirm --needed \
-            git openssh sudo base-devel go just cmake ninja extra-cmake-modules zstd vulkan-headers \
-            qt6-base qt6-declarative qt6-multimedia qt6-shadertools mpv ffmpeg \
-            kcoreaddons kdbusaddons ki18n kirigami kirigami-addons prison qqc2-desktop-style \
-            kquickimageeditor sqlite \
-            desktop-file-utils appstream libxml2
+          pacman -Syu --noconfirm --needed git openssh sudo base-devel go just zstd python libjpeg-turbo
           useradd -m -G wheel builduser
           printf 'builduser ALL=(ALL) NOPASSWD: ALL\n' >> /etc/sudoers
 
@@ -51,39 +48,12 @@ jobs:
       - name: Mark workspace as safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
-      - name: Set rlottie cache key
-        id: rlottie-cache-key
-        run: printf 'week=%s\n' "$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
-
-      - name: Restore rlottie package
-        uses: actions/cache@v5
-        with:
-          path: .cache/aur/rlottie
-          key: arch-rlottie-${{ steps.rlottie-cache-key.outputs.week }}
-
-      - name: Install rlottie
-        run: |
-          install -d "$GITHUB_WORKSPACE/.cache/aur/rlottie"
-          shopt -s nullglob
-          cached=("$GITHUB_WORKSPACE"/.cache/aur/rlottie/rlottie-*.pkg.tar*)
-          if ((${#cached[@]})) && pacman -U --noconfirm "${cached[@]}"; then
-            exit 0
-          fi
-
-          rm -f "$GITHUB_WORKSPACE"/.cache/aur/rlottie/rlottie-*.pkg.tar*
-          rm -rf "$RUNNER_TEMP/rlottie"
-          git clone https://aur.archlinux.org/rlottie.git "$RUNNER_TEMP/rlottie"
-          chown -R builduser:builduser "$RUNNER_TEMP/rlottie"
-          cd "$RUNNER_TEMP/rlottie"
-          sudo -u builduser makepkg -s --noconfirm
-          cp rlottie-*.pkg.tar* "$GITHUB_WORKSPACE/.cache/aur/rlottie/"
-          pacman -U --noconfirm "$GITHUB_WORKSPACE"/.cache/aur/rlottie/rlottie-*.pkg.tar*
-
-      - name: Validate metadata
-        run: just validate
-
       - name: Build release artifacts
         run: just artifacts x86_64
+
+      - name: Record the source tarball checksum
+        id: source
+        run: printf 'sha=%s\n' "$(awk '/\.tar\.gz$/ { print $1; exit }' build/SHA256SUMS)" >> "$GITHUB_OUTPUT"
 
       - name: Write release notes from tag
         id: release-notes
@@ -166,8 +136,8 @@ jobs:
               "$GITHUB_WORKSPACE/packaging/aur/$pkg/whatevr.install" "$aur_dir/whatevr.install"
             sudo -H -u builduser sh -c 'cd "$1" && makepkg --printsrcinfo > .SRCINFO' sh "$aur_dir"
 
-            sudo -H -u builduser git -C "$aur_dir" config user.name 'Harsh Sharma'
-            sudo -H -u builduser git -C "$aur_dir" config user.email 'harsh@codelif.in'
+            sudo -H -u builduser git -C "$aur_dir" config user.name 'whatevr-release-bot'
+            sudo -H -u builduser git -C "$aur_dir" config user.email 'harsh+bot@codelif.in'
             sudo -H -u builduser git -C "$aur_dir" add PKGBUILD .SRCINFO whatevr.install
             if sudo -H -u builduser git -C "$aur_dir" diff --cached --quiet; then
               continue
@@ -176,3 +146,98 @@ jobs:
             sudo -H -u builduser git -C "$aur_dir" commit -m "Update to $RELEASE_TAG"
             sudo -H -u builduser git -C "$aur_dir" push origin HEAD:master
           done
+
+  macos:
+    name: Darwin ${{ matrix.arch }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            arch: arm64
+          - os: macos-15-intel
+            arch: amd64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: whatevrd/go.mod
+          cache-dependency-path: whatevrd/go.sum
+      - name: Install native build dependencies
+        run: brew install just jpeg-turbo pkgconf
+      - name: Build the darwin tarball
+        run: |
+          just _binary-tarball ${{ matrix.arch }}
+          test "$(just version)" = "${RELEASE_TAG#v}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: darwin-${{ matrix.arch }}
+          path: build/whatevr-*-darwin-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+
+  tap:
+    name: Darwin release assets and Homebrew tap
+    needs: [release, macos]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      HOMEBREW_TAP_SSH_KEY: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      SOURCE_SHA: ${{ needs.release.outputs.source-sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.tag || github.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: darwin-*
+          path: build
+          merge-multiple: true
+      - name: Write darwin checksums
+        run: cd build && sha256sum whatevr-*-darwin-*.tar.gz > SHA256SUMS-darwin && cat SHA256SUMS-darwin
+      - name: Publish darwin release assets
+        uses: softprops/action-gh-release@v3
+        with:
+          fail_on_unmatched_files: true
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: |
+            build/whatevr-*-darwin-*.tar.gz
+            build/SHA256SUMS-darwin
+      - name: Render Homebrew packages
+        run: |
+          VERSION="${RELEASE_TAG#v}"
+          python3 scripts/render_brew_release.py \
+            --version "$VERSION" \
+            --source-sha "$SOURCE_SHA" \
+            --arm64-sha "$(awk '/darwin-arm64\.tar\.gz$/ { print $1 }' build/SHA256SUMS-darwin)" \
+            --amd64-sha "$(awk '/darwin-amd64\.tar\.gz$/ { print $1 }' build/SHA256SUMS-darwin)" \
+            --tap "$RUNNER_TEMP/rendered"
+      - name: Push the tap
+        if: env.HOMEBREW_TAP_SSH_KEY != ''
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$HOMEBREW_TAP_SSH_KEY" | tr -d '\r' > ~/.ssh/tap
+          chmod 600 ~/.ssh/tap
+          ssh-keyscan -t ed25519 github.com > ~/.ssh/known_hosts
+          export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/tap -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o BatchMode=yes"
+          tap="$RUNNER_TEMP/tap"
+          git -c init.defaultBranch=main clone git@github.com:codelif/homebrew-tap.git "$tap"
+          git -C "$tap" checkout -B main
+          cp -R "$RUNNER_TEMP/rendered/." "$tap/"
+          git -C "$tap" config user.name 'whatevr-release-bot'
+          git -C "$tap" config user.email 'harsh+bot@codelif.in'
+          git -C "$tap" add Formula/whatevr.rb Casks/whatevr.rb
+          if git -C "$tap" diff --cached --quiet; then
+            exit 0
+          fi
+          git -C "$tap" commit -m "whatevr $RELEASE_TAG"
+          git -C "$tap" push origin HEAD:main

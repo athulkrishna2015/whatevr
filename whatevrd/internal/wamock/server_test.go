@@ -4,8 +4,6 @@ package wamock
 
 import (
 	"context"
-	"io"
-	"log"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -16,19 +14,16 @@ import (
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
-
-	"whatevrd/internal/app"
 )
 
-// testLogin stands in for app.Daemon: the mock needs somewhere to read the QR
-// from, and the test plays the part of the daemon that publishes it.
+// testLogin is the daemon's side of the QR: the test publishes it.
 type testLogin struct {
 	mu  sync.Mutex
-	chs []chan app.LoginEvent
+	chs []chan string
 }
 
-func (t *testLogin) SubscribeLoginEvents() (<-chan app.LoginEvent, func()) {
-	ch := make(chan app.LoginEvent, 8)
+func (t *testLogin) QRCodes() (<-chan string, func()) {
+	ch := make(chan string, 8)
 	t.mu.Lock()
 	t.chs = append(t.chs, ch)
 	t.mu.Unlock()
@@ -40,13 +35,11 @@ func (t *testLogin) publish(code string) {
 	defer t.mu.Unlock()
 	for _, ch := range t.chs {
 		select {
-		case ch <- app.LoginEvent{Kind: app.LoginEventQR, QRCode: code}:
+		case ch <- code:
 		default:
 		}
 	}
 }
-
-func discardLogger() *log.Logger { return log.New(io.Discard, "", 0) }
 
 // dialMock brings up a mock server and drives a real whatsmeow client through
 // pairing into a logged-in session. Everything below the daemon runs exactly as
@@ -57,10 +50,7 @@ func dialMock(ctx context.Context, t *testing.T, opts Options) (*Server, *whatsm
 
 	login := &testLogin{}
 	opts.Login = login
-	if opts.Logger == nil {
-		opts.Logger = discardLogger()
-	}
-	srv, err := New(opts)
+	srv, err := New(ctx, opts)
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}
@@ -195,7 +185,7 @@ func TestSeedIsDeterministic(t *testing.T) {
 // are worth testing without a handshake in the way.
 func testServer(t *testing.T) *Server {
 	t.Helper()
-	srv, err := New(Options{Login: &testLogin{}, Logger: discardLogger()})
+	srv, err := New(t.Context(), Options{Login: &testLogin{}})
 	if err != nil {
 		t.Fatalf("new server: %v", err)
 	}

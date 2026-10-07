@@ -26,7 +26,7 @@ func TestNamedScenariosExist(t *testing.T) {
 			have[name] = true
 		}
 	}
-	for _, name := range []string{framesScenario, floodScenario, tortureScenario} {
+	for _, name := range []string{framesScenario, floodScenario, tortureScenario, historyScenario} {
 		if !have[name] {
 			t.Errorf("scenario %q is gone; whatevrd --mock-list knows %v", name, keys(have))
 		}

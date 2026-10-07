@@ -3,10 +3,10 @@ package ui
 import (
 	"time"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
 
 	"whattui/internal/layout"
-	"whattui/internal/proto"
 	"whattui/internal/view"
 )
 
@@ -238,7 +238,7 @@ func (a *App) setSelection(to int) {
 func (a *App) openSelected() {
 	at := a.selection()
 	var id string
-	a.chats.Read(func(items []view.Item[proto.ChatRow], _ view.State) {
+	a.chats.Read(func(items []view.Item[*v2.ChatRow], _ view.State) {
 		if at >= 0 && at < len(items) {
 			id = items[at].ID
 		}
@@ -360,11 +360,19 @@ func (a *App) onMouse(m vaxis.Mouse) bool {
 			over = top + at
 		}
 	}
+	onStatus := a.overStatus(m)
 	dirty := a.hover(over)
 	if a.hoverMessage(a.messageUnder(m)) {
 		dirty = true
 	}
-	a.pointer(a.shapeFor(m, over))
+	if a.hoverStatus(onStatus) {
+		dirty = true
+	}
+	if onStatus {
+		a.pointer(vaxis.MouseShapeClickable)
+	} else {
+		a.pointer(a.shapeFor(m, over))
+	}
 
 	switch m.Button {
 	case vaxis.MouseWheelUp, vaxis.MouseWheelDown:
@@ -408,7 +416,7 @@ func (a *App) onMouse(m vaxis.Mouse) bool {
 		// menu over it would be a list of things that all answer no. The same
 		// goes for the lines nobody wrote: a day, a system notice or a call
 		// never lands in the pointer's list of messages to begin with.
-		if row, ok := a.messageRow(id); !ok || row.Revoked {
+		if row, ok := a.messageRow(id); !ok || row.GetRevoked() {
 			return dirty
 		}
 		a.setCursor(id)
@@ -419,6 +427,9 @@ func (a *App) onMouse(m vaxis.Mouse) bool {
 		p := point{m.Col, m.Row}
 		switch m.EventType {
 		case vaxis.EventPress:
+			if onStatus {
+				return dirty
+			}
 			// A press is only ever the start of a selection. What the click
 			// meant waits for the release, because a click that acts on the
 			// way down cannot also be a drag.
@@ -433,6 +444,11 @@ func (a *App) onMouse(m vaxis.Mouse) bool {
 			return a.onSelectMotion(p)
 		case vaxis.EventRelease:
 			if a.onSelectRelease() {
+				return true
+			}
+			if onStatus {
+				a.hoverStatus(false)
+				a.openStatus()
 				return true
 			}
 			a.mu.Lock()

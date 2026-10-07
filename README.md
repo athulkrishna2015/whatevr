@@ -10,23 +10,27 @@ talk over a documented protocol on a unix socket, and writing one is a fun weeke
 
 ## Frontends
 
-### WhatKevr
-![whatkevr2](https://github.com/user-attachments/assets/be7e52a0-491c-4f96-972c-b264fa66887b)
-![whatkevr](https://github.com/user-attachments/assets/46f96ee9-32a7-4e1d-8cae-1d0e82371f8f)
+`whattui` is the terminal frontend, and the one frontend for now.
 
-`whatkevr` is the Qt/Kirigami desktop frontend and the one that owns pixels on a
-desktop: the daemon-owned tray icon, its right-click menu, the image/video
-viewer and the pre-send photo editor all live here.
+The daemon knows which frontends are installed, so it can start one when
+nothing is open. Each says who it is in a small manifest; add your own, or pick
+the default:
 
-<details>
-    <summary>Other Frontends</summary>
+```sh
+whatevrd frontend list
+whatevrd frontend add --name "whattui in ghostty" ghostty-tui -- ghostty -e whattui
+whatevrd frontend set-default ghostty-tui
+whatevrd frontend terminal set -- foot -e    # where terminal frontends run
+```
 
-### WhatGevr
-![whatgevr](https://github.com/user-attachments/assets/785ed14e-77e5-48c2-a7da-ba2f61b1f951)
+A notification click, or a `whatevr://` link, opens the chat in the frontend
+you're using, or starts the default one when none is open. Links only ever
+open a chat:
 
-### WhatTui
-The terminal frontend, in Go on a fork of vaxis.
-</details>
+```sh
+whatevrd open 'whatevr://chat?phone=+15551234567'
+xdg-open 'whatevr://'    # Linux, through the installed whatevr.desktop
+```
 
 ## Getting it
 On Arch-based systems, Whatevr is available on the AUR:
@@ -34,6 +38,18 @@ On Arch-based systems, Whatevr is available on the AUR:
 yay -S whatevr-bin
 ```
 Note: You can install the `whatevr` or `whatevr-git` packages also if you want to build yourself
+
+On macOS, from the Homebrew tap, prebuilt:
+```sh
+brew install --cask codelif/tap/whatevr
+```
+or built from source (`--HEAD` for main):
+```sh
+brew install codelif/tap/whatevr
+```
+The cask is ad-hoc signed, not notarized, and clears the quarantine flag on
+install. `brew uninstall --cask --zap whatevr` also removes the login service
+and all data.
 
 For other systems, for now you can follow the build instructions below:
 
@@ -43,47 +59,28 @@ For other systems, for now you can follow the build instructions below:
       Build Instructions</summary>
     
 whatevr builds through a single top-level `justfile` that compiles the daemon
-(`whatevrd`), the Qt/Kirigami frontend (`whatkevr`) and the terminal frontend
-(`whattui`). The daemon must be running for any frontend to work.
+(`whatevrd`) and the terminal frontend (`whattui`). The daemon must be running for any frontend to work.
 
-`whattui` builds against a fork of vaxis carried as a git submodule, so clone
-with `git clone --recursive`, or run
+`whatevrd` builds against a fork of whatsmeow and `whattui` against a fork of
+vaxis, both carried as git submodules, so clone with `git clone --recursive`, or run
 `git submodule update --init --recursive` in an existing checkout.
 
 #### 1. Install dependencies
 
-**Daemon:** Go 1.26+, just, a C compiler, SQLite dev files, pkg-config.
+**Daemon:** Go 1.26+, just, a C compiler, SQLite and libjpeg-turbo dev files, pkg-config.
 **Terminal frontend:** the same Go toolchain, nothing else.
-**Frontend (whatkevr):** C++20 compiler, CMake 3.21+, Ninja, Qt 6.8+, KDE Frameworks 6.5+
-(KCoreAddons, KDBusAddons, KI18n, Kirigami, Prison, QQC2 Desktop Style),
-Kirigami Addons 1.0+, KQuickImageEditor, rlottie, Vulkan headers.
+**Optional at runtime:** ffmpeg, for video posters and voice note waveforms.
 
 ```sh
 # Arch
-sudo pacman -S --needed base-devel go just sqlite pkgconf cmake ninja \
-  extra-cmake-modules vulkan-headers qt6-base qt6-declarative qt6-shadertools \
-  kcoreaddons kdbusaddons ki18n kirigami kirigami-addons prison qqc2-desktop-style \
-  kquickimageeditor rlottie ffmpeg
-
-# Note: rlottie is not available on the official Arch repos, you can install it from the AUR 
+sudo pacman -S --needed base-devel go just sqlite libjpeg-turbo pkgconf
 
 # Fedora
-sudo dnf install go just gcc gcc-c++ sqlite-devel pkgconf-pkg-config cmake ninja-build \
-  extra-cmake-modules vulkan-headers qt6-qtbase-devel qt6-qtdeclarative-devel \
-  qt6-qtshadertools-devel kf6-kcoreaddons-devel \
-  kf6-kdbusaddons-devel kf6-ki18n-devel kf6-kirigami-devel kf6-prison-devel \
-  kf6-qqc2-desktop-style-devel kf6-kirigami-addons-devel kquickimageeditor-devel \
-  rlottie-devel ffmpeg-free
+sudo dnf install go just gcc sqlite-devel turbojpeg-devel pkgconf-pkg-config
 
 # Debian 13 "trixie" (needs Go >= 1.26, see Platform support)
-sudo apt install golang just gcc g++ libsqlite3-dev pkg-config cmake ninja-build \
-  extra-cmake-modules vulkan-headers qt6-base-dev qt6-declarative-dev qt6-shadertools-dev \
-  libkf6coreaddons-dev libkf6dbusaddons-dev libkf6i18n-dev \
-  libkf6kirigami-dev libkf6prison-dev libkf6qqc2desktopstyle-dev kirigami-addons-dev \
-  libkquickimageeditor-dev librlottie-dev ffmpeg
+sudo apt install golang just gcc libsqlite3-dev libturbojpeg0-dev pkg-config
 ```
-
-**Optional at runtime:** ffmpeg, for video posters and voice note waveforms.
 
 #### 2. Build and install
 
@@ -95,12 +92,18 @@ just install "$HOME/.local"           # user-local release install
 sudo just install /usr
 ```
 
-`just install` places the `whatevrd`, `whatkevr` and `whattui` binaries, desktop
-entry, icon, AppStream metainfo and the systemd user units under the selected
-prefix. Make sure the chosen `bin` directory is on your `PATH` (e.g. `~/.local/bin`).
+`just install` places the `whatevrd` and `whattui` binaries and the systemd user
+units under the selected prefix.
+Make sure the chosen `bin` directory is on your `PATH` (e.g. `~/.local/bin`).
 
-Other handy targets: `just version`, `just validate`, `just artifacts`, and
-`just clean`.
+The AUR and Homebrew packages install shell completions for `whatevrd`. With
+`just install`, load them from your shell's rc file:
+
+```sh
+source <(whatevrd completion zsh)    # or bash; fish: whatevrd completion fish | source
+```
+
+Other handy targets: `just version`, `just artifacts`, and `just clean`.
 
 #### 3. Run
 
@@ -108,8 +111,7 @@ Start the daemon, then the frontend:
 
 ```sh
 whatevrd      # or run it via systemd (below)
-whatkevr      # desktop
-whattui       # terminal
+whattui
 ```
 
 The first time, link your phone: `whattui` shows the QR code to scan, or run
@@ -158,19 +160,11 @@ Distro packages install both units to `/usr/lib/systemd/user/` (shipped disabled
 Whatevr is very early-stage software. It is usable for development and testing, but the should be treated as **EXPERIMENTAL**. 
 There is lots of missing functionality that is considered essential, and there WILL be bugs.
 
-The **protocol**, on the other hand, is stable at version 1: new views, commands
+The **protocol**, on the other hand, is stable at version 2: new views, commands
 and message kinds will be added, but nothing already in PROTOCOL.md changes
 shape. A frontend written against it today keeps working.
 
-The desktop frontend includes configurable notification muting for archived
-chats (enabled by default) and shows a retryable connection error if the daemon
-does not respond during startup. See [CHANGELOG.md](CHANGELOG.md) for recent
-changes.
-
-Now with that, here is the current feature map for `whatevrd`. It is a map of
-the **daemon**: what it speaks over the protocol. What each frontend has built
-on top of it is its own business, and the gaps are tracked per frontend in
-[feature-gap.md](feature-gap.md).
+Now with that, here is the current feature map for whatevrd.
 <details>
   <summary>Feature Map</summary>
   
@@ -238,23 +232,24 @@ computed that order.
 
 The daemon is Go (`whatevrd/`); the terminal frontend is `whattui`, in Go on a
 fork of vaxis (`whattui/`). A scriptable CLI is wanted and
-unclaimed (see *Write a frontend* above); that work needs no changes to the
-daemon.
+unclaimed; that work needs no changes to the daemon.
 
 Whatevr will be Linux-first for now until its stable. I am open to contributions for porting functionality to other platforms as long as they don't affect existing performance and Linux functionality significantly. 
 
 
 ## The protocol is the point
 
-[**PROTOCOL.md**](PROTOCOL.md) is the contract: newline-delimited JSON over
-`$XDG_RUNTIME_DIR/whatevr/whatevrd.sock`, protocol version 1, stable. Four ideas
-carry the whole thing:
+[**PROTOCOL.md**](PROTOCOL.md) is the contract: protobuf frames, each preceded
+by its length as a varint, over `$XDG_RUNTIME_DIR/whatevr/whatevrd.sock`.
+Protocol version 2. The schema lives in [`proto/`](proto) and generates for
+any language; Go and Python types are checked in. Four ideas carry the whole
+thing:
 
 - **The daemon owns all state.** A frontend does no sorting, merging, dedup or
   cache invalidation. Ever. It keeps a map of items and renders it.
 - **You subscribe to views, not endpoints.** `subscribe` to `chats`, `messages`,
   `typing`, `presence`… and the daemon sends the contents, then keeps your copy
-  correct forever with keyed `upsert`/`remove` events. Every item carries a
+  correct forever with keyed upserts and removes. Every item carries a
   daemon-computed `sort` key; ordering is never your problem.
 - **Commands only ever return an id.** Send a message and the response is a
   message id. The message itself arrives through the view you already had open,
@@ -263,35 +258,126 @@ carry the whole thing:
   string, so a client that has never heard of stickers still shows something
   sensible. Partial frontends are first-class.
 
-The whole surface is slim, and it is meant to be driven by hand:
-
-```console
-$ socat - UNIX-CONNECT:"$XDG_RUNTIME_DIR/whatevr/whatevrd.sock"
-{"id":1,"method":"hello","params":{"client":"human","protocol":1}}
-{"id":1,"result":{"daemon":"whatevrd","version":"0.6.0","protocol":1,"state":"online","data_dir":"…","cache_dir":"…"}}
-{"id":2,"method":"subscribe","params":{"view":"chats","limit":2}}
-{"id":2,"result":{"sub":1}}
-{"sub":1,"event":"upsert","sort":"0-…","item":{"id":"12036…@g.us","name":"family","unread":3,"preview":"📷 Photo","pinned":true}}
-{"sub":1,"event":"ready"}
-{"id":3,"method":"send.text","params":{"chat_id":"91887…@s.whatsapp.net","text":"oi"}}
-{"id":3,"result":{"message_id":"3EB0…"}}
-```
+The whole surface is slim. [`examples/frontend.py`](examples/frontend.py) is a
+complete frontend in under 80 lines: it says hello, subscribes to the chat
+list, keeps it live, and sends a message.
 
 ## Acknowledgements
 Whatevr stands on the shoulders of:
 
-- [whatsmeow](https://github.com/tulir/whatsmeow): WhatsApp Web multidevice protocol library (MPL-2.0)
+- [whatsmeow](https://github.com/tulir/whatsmeow): WhatsApp Web multidevice protocol library that whatevrd runs on a fork of (MPL-2.0)
 - [vaxis](https://git.sr.ht/~rockorager/vaxis): terminal UI library that whattui runs on a fork of (Apache-2.0)
-- [Qt](https://www.qt.io): cross-platform application framework (LGPL-3.0)
-- [KDE Frameworks](https://kde.org) / [Kirigami](https://develop.kde.org/frameworks/kirigami/): UI toolkit and helpers (LGPL)
-- [Kirigami Addons](https://invent.kde.org/libraries/kirigami-addons): convergent UI components (LGPL)
-- [KQuickImageEditor](https://invent.kde.org/libraries/kquickimageeditor): the pre-send photo editor — crop, rotate, mirror, undo (LGPL-2.1-or-later)
-- [rlottie](https://github.com/Samsung/rlottie): Lottie rendering for animated stickers (MIT)
-- [emojilib](https://github.com/muan/emojilib): emoji keyword / shortcode data, © 2014 Mu-An Chiou (MIT)
-- [Google Fonts emoji metadata](https://github.com/googlefonts/emoji-metadata): emoji ordering & grouping data (Apache-2.0)
-
-Additionally, I took a fair amount of inspiration for UI layouts :from [NeoChat](https://apps.kde.org/neochat/),
-whose own use of KQuickImageEditor is what the pre-send editor is built on.
 
 ## License
 This program is licensed under the BSD-3-Clause License
+
+## macOS
+
+macOS 13 or later is supported. The daemon and terminal frontend use native
+macOS defaults; no XDG variables or shell configuration are needed to connect.
+Install Apple's Command Line Tools (`xcode-select --install`) and dependencies:
+
+```sh
+brew install go just jpeg-turbo pkgconf python ffmpeg
+```
+
+Go 1.26 or later is required. ffmpeg is optional. Both macOS executables use cgo
+for native path lookup; Swift builds the private notification app. The SQLite
+Go driver includes SQLite itself, so a separate Homebrew SQLite installation is
+not required. Clone submodules as described above, then:
+
+```sh
+just build-release
+./build/release/whatevrd
+# In another terminal:
+./build/release/whattui
+```
+
+To install without administrator privileges:
+
+```sh
+just install "$HOME/.local"
+# Add $HOME/.local/bin to PATH, or invoke these executables by absolute path.
+```
+
+The installation is `Whatevr.app` in the prefix, holding the notification helper
+and `whatevrd`, with `bin/whatevrd` linking into it. Spotlight only indexes app
+folders, so link it there if you want to open Whatevr from Spotlight:
+
+```sh
+ln -s "$HOME/.local/Whatevr.app" ~/Applications/Whatevr.app
+```
+
+Debug builds (`just build`, `just install-dev`) are a separate app, **Whatevr
+Dev** (`in.codelif.whatevr.dev`), so they never take notification permission
+from the installed one. Local builds are ad-hoc signed; they are intended for
+use on the build machine. Developer ID signing and notarization are required
+separately for public distribution.
+
+Login startup is optional and never enabled by installation:
+
+```sh
+whatevrd service enable       # starts now, at GUI login, and whenever a frontend connects
+whatevrd service status
+whatevrd service disable      # stops the service and removes its LaunchAgent
+```
+
+The LaunchAgent holds the socket, so launchd starts the daemon again whenever a
+frontend connects, including after a crash. Stop a manually running daemon before
+enabling the service; while the service is enabled, running `whatevrd` by hand on
+the default socket is refused. Enable the service with XDG and `WHATEVR_SOCKET`
+overrides unset, so it uses the same native defaults as normal terminal clients.
+The agent uses the executable path as invoked, so a Homebrew `bin` link keeps
+working across upgrades, and a PATH containing the installation prefix, the
+detected Homebrew prefix, and system tools. Running `whatevrd service enable`
+again replaces an agent written by an older version or from another prefix.
+Disable the service before uninstalling.
+
+Notification authorization is explicit:
+
+```sh
+whatevrd notifications setup
+whatevrd notifications status
+```
+
+Allow notifications in the macOS dialog. If previously denied, enable **Whatevr**
+in System Settings → Notifications. Notification clicks select
+the chat in a connected frontend. If no frontend is open, the default one is
+started (see Frontends) and opens on that chat; if the daemon isn't running,
+the click starts it through the login service.
+
+Whatevr.app handles `whatevr://` links, for Raycast, Shortcuts or scripts:
+`open 'whatevr://chat?phone=+15551234567'`. Opening the app itself brings up
+the default frontend.
+The sender's avatar shows as the notification thumbnail.
+The helper follows system notification/sound settings; a missing helper or denied
+permission does not prevent messaging. Local rebuilds may require checking
+notification authorization again because they use ad-hoc signing.
+
+Run `whatevrd paths --json` to inspect all resolved locations:
+
+| Contents | Default location |
+| --- | --- |
+| Databases and WhatsApp session | `~/Library/Application Support/in.codelif.whatevr/daemon` |
+| Configuration and send guard | `~/Library/Application Support/in.codelif.whatevr/config` |
+| Development state and captures | `~/Library/Application Support/in.codelif.whatevr/{state,captures}` |
+| Media and frontend caches | `~/Library/Caches/in.codelif.whatevr/{daemon,tui}` |
+| Daemon and frontend diagnostics | `~/Library/Logs/in.codelif.whatevr/{daemon,tui}` |
+| Socket and lock | OS-provided per-user temporary directory, `in.codelif.whatevr.{sock,lock}` |
+
+The socket uses Darwin's per-user temporary directory, rather than an inherited
+`TMPDIR`, so launchd and terminal sessions agree. The socket sits directly in that
+private directory, sockets are mode 0600, and peers must be the same user. Existing Linux-style
+macOS data is left untouched; the native location starts as a fresh linked device.
+Explicit XDG overrides retain their existing layout, and `WHATEVR_SOCKET` selects
+an absolute socket path. Darwin socket paths must fit within 103 bytes.
+
+Debug mock and capture runs isolate their account state. Their Darwin sockets
+use short, deterministic instance directories under the native runtime directory.
+Query a mock instance with `build/debug/whatevrd paths --json --mock-dir DIR`, then
+pass its `SocketPath` to `whattui --socket`. The capture startup log prints its
+`WHATEVR_SOCKET`. Mock notifications remain disabled unless `--mock-notify` is set.
+
+`just test` uses `/tmp` for temporary test files to keep existing socket test paths
+short. Network and wake monitoring use Network.framework and IOKit independently
+of the notification app. Linux keeps its XDG, systemd, D-Bus, and netlink support.

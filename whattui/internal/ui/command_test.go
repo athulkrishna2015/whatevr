@@ -1,9 +1,9 @@
 package ui
 
 import (
-	"encoding/json"
 	"testing"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
 
 	"whattui/internal/proto"
@@ -203,11 +203,11 @@ func TestPaletteChatSearchPreservesDaemonOrderAndIgnoresStaleResponses(t *testin
 		cb    proto.ResponseFunc
 	}
 	var calls []call
-	a.request = func(method string, params proto.Params, cb proto.ResponseFunc) {
-		if method != "search.chats" {
-			t.Fatalf("method = %q, want search.chats", method)
+	a.request = func(req *v2.Request, cb proto.ResponseFunc) {
+		if !req.HasSearchChats() {
+			t.Fatalf("method = %v, want search_chats", req.WhichMethod())
 		}
-		calls = append(calls, call{params["query"].(string), cb})
+		calls = append(calls, call{req.GetSearchChats().GetQuery(), cb})
 	}
 	a.openModal(modalPalette)
 	// The slash alone is not a search for nothing: the daemon answers an empty
@@ -225,14 +225,11 @@ func TestPaletteChatSearchPreservesDaemonOrderAndIgnoresStaleResponses(t *testin
 		t.Fatalf("calls = %#v, want queries a then ab", calls)
 	}
 
-	respond := func(c call, chats ...proto.ChatRow) {
-		raw, _ := json.Marshal(struct {
-			Chats []proto.ChatRow `json:"chats"`
-		}{chats})
-		c.cb(raw, nil)
+	respond := func(c call, chats ...*v2.ChatRow) {
+		c.cb(chatsAnswer(chats...), nil)
 	}
-	respond(calls[1], proto.ChatRow{ID: "2", Name: "second"}, proto.ChatRow{ID: "1", Name: "first"})
-	respond(calls[0], proto.ChatRow{ID: "old", Name: "stale"})
+	respond(calls[1], v2.ChatRow_builder{Id: "2", Name: "second"}.Build(), v2.ChatRow_builder{Id: "1", Name: "first"}.Build())
+	respond(calls[0], v2.ChatRow_builder{Id: "old", Name: "stale"}.Build())
 	items := a.modal.selector.Items()
 	if len(items) != 2 || items[0].ChatID != "2" || items[1].ChatID != "1" {
 		t.Fatalf("chat order = %#v, want daemon order 2, 1", items)
@@ -242,7 +239,7 @@ func TestPaletteChatSearchPreservesDaemonOrderAndIgnoresStaleResponses(t *testin
 func TestPaletteIgnoresResponseFromPreviousOpen(t *testing.T) {
 	a := stubApp(80, 24, 2, 0)
 	var callbacks []proto.ResponseFunc
-	a.request = func(_ string, _ proto.Params, cb proto.ResponseFunc) { callbacks = append(callbacks, cb) }
+	a.request = func(_ *v2.Request, cb proto.ResponseFunc) { callbacks = append(callbacks, cb) }
 	a.openModal(modalPalette)
 	a.onKey(key('/'))
 	a.onKey(key('a'))
@@ -251,10 +248,7 @@ func TestPaletteIgnoresResponseFromPreviousOpen(t *testing.T) {
 	a.onKey(key('/'))
 	a.onKey(key('a'))
 
-	raw, _ := json.Marshal(struct {
-		Chats []proto.ChatRow `json:"chats"`
-	}{[]proto.ChatRow{{ID: "old", Name: "old"}}})
-	callbacks[0](raw, nil)
+	callbacks[0](chatsAnswer(v2.ChatRow_builder{Id: "old", Name: "old"}.Build()), nil)
 	if got := a.modal.selector.Items(); len(got) != 0 {
 		t.Fatalf("previous-open response replaced current results: %#v", got)
 	}

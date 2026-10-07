@@ -7,17 +7,15 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/util/keys"
-
-	"whatevrd/internal/app"
 )
 
 const (
@@ -30,7 +28,6 @@ const (
 // server generates, so two runs of the same scenario produce the same bytes.
 type Options struct {
 	Seed     int64
-	Logger   *log.Logger
 	Scenario string
 
 	// AccountPhone is the number the mock account answers as, in plain digits.
@@ -48,6 +45,10 @@ type Options struct {
 	// finishes before the first frame can be watched.
 	HistoryDelay time.Duration
 
+	// OlderDelay is how long the phone takes to answer a request for older
+	// history, so the wait for it can be looked at.
+	OlderDelay time.Duration
+
 	// Now pins the clock every relative scenario timestamp hangs off. Zero
 	// means the real one, which is what you want when looking at the thing; a
 	// fixed instant is what you want when comparing frames byte for byte.
@@ -60,13 +61,24 @@ type Options struct {
 	// Login is the daemon's login event stream. The mock needs it to read the
 	// QR it is meant to scan, because the adv secret exists nowhere else.
 	Login LoginWatcher
+
+	// Capture plays back a capture directory instead of a scenario, Segment
+	// says which daemon run of it. Speed paces it against the recorded clock
+	// (0 is as fast as the gates allow) and Gate is how long a push waits for
+	// the client to catch up. Socket is the daemon's protocol socket, where
+	// the recorded frontend requests go.
+	Capture string
+	Segment int
+	Speed   float64
+	Gate    time.Duration
+	Socket  string
 }
 
-// LoginWatcher is the slice of app.Daemon the mock depends on. Keeping it an
-// interface means the fake server never reaches further into the daemon than
-// the QR it has to scan.
+// LoginWatcher is where the mock reads the daemon's QR codes: the mock plays
+// the phone, and the adv secret is in the QR and nowhere else.
 type LoginWatcher interface {
-	SubscribeLoginEvents() (<-chan app.LoginEvent, func())
+	// QRCodes hears every QR the daemon shows from now on, until stop
+	QRCodes() (codes <-chan string, stop func())
 }
 
 // Server is the fake WhatsApp Web endpoint. It binds loopback TLS, points the
@@ -74,7 +86,7 @@ type LoginWatcher interface {
 // protocol whatsmeow expects. The daemon above it is unmodified.
 type Server struct {
 	opts  Options
-	log   *log.Logger
+	log   zerolog.Logger
 	ident *serverIdentity
 	tlsID *tlsIdentity
 	rng   *seededRand
@@ -123,18 +135,27 @@ type Server struct {
 	keysReady chan struct{}
 	keysOnce  sync.Once
 
+	// replay is set when the run plays a capture
+	replay *replay
+
+	// unacked is every message stanza the client has not acked yet, in send
+	// order, with the session it went out on. a real server hands them over
+	// again on the next connection. held is what came in while nothing was
+	// connected, for the next login.
+	ackMu   sync.Mutex
+	unacked []unacked
+	held    []*Msg
+
 	mu          sync.Mutex
 	sessions    map[*session]struct{}
+	faults      faults
 	peers       map[string]*peer
 	closed      bool
 	paired      *pairedDevice
 	liveSession *session
 }
 
-func New(opts Options) (*Server, error) {
-	if opts.Logger == nil {
-		opts.Logger = log.New(log.Writer(), "wamock: ", log.LstdFlags)
-	}
+func New(ctx context.Context, opts Options) (*Server, error) {
 	if !opts.Now.IsZero() {
 		SetBootTime(opts.Now)
 	}
@@ -160,7 +181,7 @@ func New(opts Options) (*Server, error) {
 	}
 	srv := &Server{
 		opts:      opts,
-		log:       opts.Logger,
+		log:       zerolog.Ctx(ctx).With().Str("module", "wamock").Logger(),
 		ident:     ident,
 		tlsID:     tlsID,
 		rng:       rng,
@@ -175,6 +196,18 @@ func New(opts Options) (*Server, error) {
 		stickers:  newStickerCatalogue(),
 		appState:  newMockAppState(rng),
 		quiet:     newQuiescence(),
+	}
+	if opts.Capture != "" {
+		r, err := loadReplay(srv)
+		if err != nil {
+			return nil, fmt.Errorf("load capture: %w", err)
+		}
+		srv.replay = r
+		srv.opts.AccountPhone = r.pn.User
+		if r.acct.PushName != "" {
+			srv.opts.AccountName = r.acct.PushName
+		}
+		srv.quiet.hold = r.holding
 	}
 	srv.world = newWorld(srv)
 	if scenario, ok := Lookup(opts.Scenario); ok && scenario.Build != nil {
@@ -205,21 +238,34 @@ func (s *Server) Start(ctx context.Context) error {
 	// page to decide the version it advertises. Serving it keeps the daemon
 	// from retrying a 404 on every connect.
 	mux.HandleFunc("/", s.handleRoot)
-	s.http = &http.Server{Handler: s.countHTTP(mux)}
+	var handler http.Handler = mux
+	var hosts []string
+	if r := s.replay; r != nil {
+		hosts = r.hosts()
+		handler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			if req.URL.Path == websocketPath || !r.serveHTTP(w, req) {
+				mux.ServeHTTP(w, req)
+			}
+		})
+	}
+	s.http = &http.Server{Handler: s.countHTTP(handler)}
 
 	installCertPubKey(s.ident)
-	installTransport(s.tlsID, ln.Addr().String())
+	installTransport(s.tlsID, ln.Addr().String(), hosts, s.dialFault)
 
 	go func() {
 		if err := s.http.Serve(ln); err != nil && !s.isClosed() {
-			s.log.Printf("serve: %v", err)
+			s.log.Error().Err(err).Msg("serve")
 		}
 	}()
 	go func() {
 		<-ctx.Done()
 		_ = s.Close()
 	}()
-	s.log.Printf("fake WhatsApp server on %s (scenario %q, seed %d)", ln.Addr(), s.opts.Scenario, s.opts.Seed)
+	if s.replay != nil {
+		go s.replay.run(ctx)
+	}
+	s.log.Info().Stringer("addr", ln.Addr()).Str("scenario", s.opts.Scenario).Int64("seed", s.opts.Seed).Msg("fake WhatsApp server up")
 	return nil
 }
 
@@ -281,7 +327,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		CompressionMode:    websocket.CompressionContextTakeover,
 	})
 	if err != nil {
-		s.log.Printf("websocket accept: %v", err)
+		s.log.Warn().Err(err).Msg("websocket accept")
 		return
 	}
 	conn.SetReadLimit(frameMaxSize)
@@ -301,6 +347,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		delete(s.sessions, sess)
 		s.mu.Unlock()
+		s.orphaned(sess)
 	}()
 
 	sess.run(r.Context())
@@ -311,25 +358,36 @@ func (s *Server) accountJID() types.JID {
 	return types.JID{User: s.opts.AccountPhone, Server: types.DefaultUserServer}
 }
 
+// lidOf is lidFor, except that a replay's account has the lid the capture
+// gave it: a made up one would be a second lid for the same number.
+func (s *Server) lidOf(j types.JID) types.JID {
+	if r := s.replay; r != nil && !r.lid.IsEmpty() && j.User == r.pn.User {
+		lid := r.lid.ToNonAD()
+		lid.Device = j.Device
+		return lid
+	}
+	return lidFor(j)
+}
+
 // waitForQR blocks until the daemon publishes a pairing code. The mock plays
 // the phone, and a phone cannot pair without seeing the QR.
 func (s *Server) waitForQR(ctx context.Context) (string, error) {
 	if s.opts.Login == nil {
 		return "", errors.New("no login watcher wired, cannot read the qr")
 	}
-	events, cancel := s.opts.Login.SubscribeLoginEvents()
-	defer cancel()
+	codes, stop := s.opts.Login.QRCodes()
+	defer stop()
 
 	deadline := time.NewTimer(qrWait)
 	defer deadline.Stop()
 	for {
 		select {
-		case evt, ok := <-events:
+		case code, ok := <-codes:
 			if !ok {
 				return "", errNoQR
 			}
-			if evt.Kind == app.LoginEventQR && evt.QRCode != "" {
-				return evt.QRCode, nil
+			if code != "" {
+				return code, nil
 			}
 		case <-deadline.C:
 			return "", errNoQR
@@ -389,7 +447,7 @@ const websocketPath = "/ws/chat"
 
 func (s *Server) handleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
-		s.log.Printf("unhandled http %s %s", r.Method, r.URL.Path)
+		s.log.Warn().Str("method", r.Method).Str("path", r.URL.Path).Msg("unhandled http")
 		http.NotFound(w, r)
 		return
 	}

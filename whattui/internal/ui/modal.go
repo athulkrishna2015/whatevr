@@ -1,10 +1,11 @@
 package ui
 
 import (
-	"encoding/json"
 	"image/color"
 	"strings"
+	"time"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
 
 	"whattui/internal/layout"
@@ -33,6 +34,8 @@ const (
 	// modalMenu is the context menu: the actions that apply to one message,
 	// where the pointer asked for them.
 	modalMenu
+	// modalStatus is /status: rows to read, live, nothing to pick
+	modalStatus
 )
 
 type modalChoice struct {
@@ -45,10 +48,6 @@ type modalChoice struct {
 	// Mine marks the reaction this account already put on the message, which is
 	// the row that takes it off again.
 	Mine bool
-	// Target is the chat a chat action acts on, for the menu opened on a chat
-	// row. It is not ChatID: that one means "open this chat", and a row in a
-	// chat menu that opened the chat would be a row that undid the menu.
-	Target string
 }
 
 type modalState struct {
@@ -60,9 +59,6 @@ type modalState struct {
 	// the cursor is on. Held rather than asked for again, so the panel acts on
 	// the message it was opened for whatever has happened to the cursor since.
 	message string
-	// chat is the same idea for a menu opened on a chat row: it acts on the
-	// chat it was opened for, not on whichever one is open now.
-	chat string
 	// marked is the chats a forward has been pointed at, by id, and it is keyed
 	// rather than indexed because the list under it is re-filtered on every
 	// keystroke.
@@ -89,6 +85,30 @@ func (a *App) openModal(kind modalKind) {
 	if issue {
 		a.searchChats(search, generation)
 	}
+	if kind == modalStatus {
+		a.refreshStatus()
+	}
+}
+
+// refreshStatus rebuilds the open /status panel from the views, and keeps a
+// redraw coming once a second while something in it counts down
+func (a *App) refreshStatus() {
+	choices, ticking := a.statusChoices(time.Now())
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.modal.kind != modalStatus {
+		return
+	}
+	a.modal.selector.Refresh(choices, maxInt(a.modal.visible, 1))
+	if ticking && !a.statusTick {
+		a.statusTick = true
+		time.AfterFunc(time.Second, func() {
+			a.mu.Lock()
+			a.statusTick = false
+			a.mu.Unlock()
+			a.vx.PostEvent(redraw{})
+		})
+	}
 }
 
 // openMessageModal opens a panel about one message, at a place on the screen.
@@ -101,32 +121,12 @@ func (a *App) openMessageModal(kind modalKind, at point) {
 	}
 	a.initCommands()
 	a.mu.Lock()
-	a.modal = modalState{kind: kind, message: m.ID, at: at, marked: map[string]bool{}}
+	a.modal = modalState{kind: kind, message: m.GetId(), at: at, marked: map[string]bool{}}
 	search, generation, issue := a.refreshModalLocked()
 	a.mu.Unlock()
 	if issue {
 		a.searchChats(search, generation)
 	}
-}
-
-// openChatMenu is the context menu over one chat row, at the cell it was
-// asked for. The row is named rather than the open conversation, so the menu
-// is about the chat under the pointer even when another one is open.
-func (a *App) openChatMenu(at int, where point) {
-	a.initCommands()
-	var id string
-	a.chats.Read(func(items []view.Item[proto.ChatRow], _ view.State) {
-		if at >= 0 && at < len(items) {
-			id = items[at].ID
-		}
-	})
-	if id == "" {
-		return
-	}
-	a.mu.Lock()
-	a.modal = modalState{kind: modalMenu, chat: id, at: where}
-	a.refreshModalLocked()
-	a.mu.Unlock()
 }
 
 // modalPage is how many rows of results a panel shows when what it holds could
@@ -159,13 +159,8 @@ func (a *App) refreshModalLocked() (string, uint64, bool) {
 	case modalHelp:
 		a.modal.selector.Set(a.commandChoicesFor(query, false, true, a.commandStateLocked()))
 	case modalMenu:
-		// The menu is the registry, filtered to whatever it was opened on: the
-		// message under the pointer, or the chat row beside it. It is not typed
-		// into, so it is built once and never refiltered.
-		if a.modal.chat != "" {
-			a.modal.selector.Set(a.chatChoicesLocked(a.modal.chat))
-			return "", 0, false
-		}
+		// The menu is the registry, filtered to the message it was opened on.
+		// It is not typed into, so it is built once and never refiltered.
 		a.modal.selector.Set(a.messageChoicesLocked())
 	case modalReact:
 		message, _ := a.selectedMessageLocked()
@@ -188,10 +183,10 @@ func (a *App) refreshModalLocked() (string, uint64, bool) {
 // asked anything.
 func (a *App) chatChoices() []modalChoice {
 	var out []modalChoice
-	a.chats.Read(func(items []view.Item[proto.ChatRow], _ view.State) {
+	a.chats.Read(func(items []view.Item[*v2.ChatRow], _ view.State) {
 		out = make([]modalChoice, 0, len(items))
 		for _, it := range items {
-			out = append(out, modalChoice{ChatID: it.ID, Label: it.Value.Name, Detail: a.spelled(it.Value.Preview)})
+			out = append(out, modalChoice{ChatID: it.ID, Label: it.Value.GetName(), Detail: a.spelled(it.Value.GetPreview().GetText())})
 		}
 	})
 	return out
@@ -205,24 +200,25 @@ func (a *App) searchChats(query string, generation uint64) {
 		a.showChats(a.chatChoices(), generation)
 		return
 	}
+	if a.offers != nil && !a.offers(v2.Request_SearchChats_case.String()) {
+		a.refuse("this whatevrd cannot search chats")
+		return
+	}
 	request := a.request
 	if request == nil {
 		return
 	}
-	request("search.chats", proto.Params{"query": query, "limit": 50}, func(raw json.RawMessage, err *proto.Error) {
+	req := &v2.Request{}
+	req.SetSearchChats(v2.SearchChats_builder{Query: query, Limit: 50}.Build())
+	request(req, func(resp *v2.Response, err *proto.Error) {
 		if err != nil {
 			a.refuse(err.Message)
 			return
 		}
-		var result struct {
-			Chats []proto.ChatRow `json:"chats"`
-		}
-		if json.Unmarshal(raw, &result) != nil {
-			return
-		}
-		choices := make([]modalChoice, 0, len(result.Chats))
-		for _, chat := range result.Chats {
-			choices = append(choices, modalChoice{ChatID: chat.ID, Label: chat.Name, Detail: a.spelled(chat.Preview)})
+		chats := resp.GetSearchChats().GetChats()
+		choices := make([]modalChoice, 0, len(chats))
+		for _, chat := range chats {
+			choices = append(choices, modalChoice{ChatID: chat.GetId(), Label: chat.GetName(), Detail: a.spelled(chat.GetPreview().GetText())})
 		}
 		a.showChats(choices, generation)
 		a.vx.PostEvent(redraw{})
@@ -245,7 +241,7 @@ func (a *App) showChats(choices []modalChoice, generation uint64) {
 // the pointer come through here, so the two can never disagree about what a row
 // does.
 func (a *App) chooseLocked(choice modalChoice) func() {
-	kind, message, chat := a.modal.kind, a.modal.message, a.modal.chat
+	kind, message := a.modal.kind, a.modal.message
 	marked := make([]string, 0, len(a.modal.marked))
 	for id := range a.modal.marked {
 		marked = append(marked, id)
@@ -273,41 +269,10 @@ func (a *App) chooseLocked(choice modalChoice) func() {
 		}
 		return func() { a.forward(message, marked) }
 	}
-	if choice.Target != "" {
-		// A chat action, on the chat its menu was opened over rather than on
-		// whichever chat is open: the one thing a context menu must never do
-		// is act on something else.
-		return func() { a.runChatAction(choice.Command, choice.Target) }
-	}
-	if kind == modalMenu && chat != "" {
-		return func() { a.runChatAction(choice.Command, chat) }
-	}
 	if choice.ChatID != "" {
 		return func() { a.openChat(choice.ChatID) }
 	}
 	return func() { a.execute(choice.Command) }
-}
-
-// runChatAction is one row of a chat menu, pressed by its own key or chosen
-// with enter. It resolves through the registry so the row and the palette can
-// never drift apart, and acts on the chat named rather than the open one.
-func (a *App) runChatAction(id commandID, chatID string) {
-	switch id {
-	case cmdMarkRead:
-		a.markRead(chatID)
-	case cmdPin:
-		a.togglePin(chatID)
-	case cmdUnmute:
-		a.toggleMute(chatID)
-	case cmdArchive:
-		a.toggleArchive(chatID)
-	case cmdFavorite:
-		a.toggleFavorite(chatID)
-	case cmdBlock:
-		a.toggleBlock(chatID)
-	default:
-		a.execute(id)
-	}
 }
 
 // menuKeyLocked resolves a keystroke against the actions a menu is showing.
@@ -336,6 +301,15 @@ func (a *App) onModalKey(k vaxis.Key) bool {
 	// wherever it came from.
 	case k.Matches(vaxis.KeyEsc), k.Matches('c', vaxis.ModCtrl), k.Matches('g', vaxis.ModCtrl):
 		a.dismissModalLocked()
+		a.mu.Unlock()
+		return true
+	case a.modal.kind == modalStatus:
+		switch {
+		case k.Matches(vaxis.KeyUp), k.Matches('p', vaxis.ModCtrl):
+			a.modal.selector.Wheel(-1, visible)
+		case k.Matches(vaxis.KeyDown), k.Matches('n', vaxis.ModCtrl):
+			a.modal.selector.Wheel(1, visible)
+		}
 		a.mu.Unlock()
 		return true
 	case k.Matches(vaxis.KeyUp), k.Matches('p', vaxis.ModCtrl):
@@ -379,13 +353,8 @@ func (a *App) onModalKey(k vaxis.Key) bool {
 	// is the other way of choosing the row. It is not typed into otherwise.
 	case a.modal.kind == modalMenu:
 		if id, ok := a.menuKeyLocked(k); ok {
-			chat := a.modal.chat
 			a.modal = modalState{}
 			a.mu.Unlock()
-			if chat != "" {
-				a.runChatAction(id, chat)
-				return true
-			}
 			a.execute(id)
 			return true
 		}
@@ -455,7 +424,7 @@ func (a *App) modalShape(m vaxis.Mouse) vaxis.MouseShape {
 	if a.modal.kind == modalNone {
 		return vaxis.MouseShapeDefault
 	}
-	if inRect(m, a.modal.list) {
+	if inRect(m, a.modal.list) && a.modal.kind != modalStatus {
 		if at := a.modal.selector.top + m.Row - a.modal.list.Row; at < len(a.modal.selector.items) {
 			return vaxis.MouseShapeClickable
 		}
@@ -510,6 +479,10 @@ func (a *App) onModalMouse(m vaxis.Mouse) (bool, bool) {
 			a.mu.Unlock()
 			return true, true
 		}
+		if m.EventType == vaxis.EventRelease && inside && a.modal.kind == modalStatus {
+			a.mu.Unlock()
+			return true, dirty
+		}
 		if m.EventType == vaxis.EventRelease && inside {
 			choice, ok := a.modal.selector.Click(itemRow, visible)
 			if ok && choice.Disabled != "" {
@@ -555,6 +528,16 @@ func (a *App) modalRect(w, h, rows int) layout.Rect {
 	return layout.Rect{Col: maxInt((w-width)/2, 0), Row: maxInt((h-height)/3, 0), Width: width, Height: height}
 }
 
+// statusRect is the /status panel: the palette's place, as tall as its rows
+// and the frame, with no query line
+func (a *App) statusRect(w, h, rows int) layout.Rect {
+	r := a.modalRect(w, h, rows)
+	if r.Height > 4 {
+		r.Height = minInt(rows+2, r.Height)
+	}
+	return r
+}
+
 // menuRect is where a context menu sits: under the cell it was asked for, as
 // wide as the longest thing in it, and pulled back onto the screen when there
 // is not enough screen that way. That last part is the whole of what makes a
@@ -588,6 +571,12 @@ const menuGap = 3
 
 func (a *App) drawModal(win vaxis.Window) {
 	a.mu.Lock()
+	status := a.modal.kind == modalStatus
+	a.mu.Unlock()
+	if status {
+		a.refreshStatus()
+	}
+	a.mu.Lock()
 	if a.modal.kind == modalNone {
 		a.mu.Unlock()
 		return
@@ -604,13 +593,16 @@ func (a *App) drawModal(win vaxis.Window) {
 	// long as they are.
 	rows := modalPage
 	switch kind {
-	case modalConfirm, modalMenu:
+	case modalConfirm, modalMenu, modalStatus:
 		rows = answers
 	}
 	w, h := win.Size()
 	outer := a.modalRect(w, h, rows)
 	if kind == modalMenu {
 		outer = a.menuRect(w, h, items, at)
+	}
+	if kind == modalStatus {
+		outer = a.statusRect(w, h, answers)
 	}
 	if outer.Empty() {
 		return
@@ -639,9 +631,8 @@ func (a *App) drawModal(win vaxis.Window) {
 		title, prompt = "React", "> "
 	case modalMenu:
 		title = "Message"
-		if a.modal.chat != "" {
-			title = "Chat"
-		}
+	case modalStatus:
+		title = "Status"
 	case modalForward:
 		title, prompt = "Forward to", "> "
 		if len(marked) > 0 {
@@ -653,8 +644,10 @@ func (a *App) drawModal(win vaxis.Window) {
 	// rather than a hole in it, and in the focused border colour because a
 	// modal is the only thing with focus while it is open. A terminal too
 	// small for a frame gets the content instead of the decoration.
+	// a panel with no query line needs only the frame around its rows
+	framed := height > 4 || (kind == modalStatus || kind == modalMenu) && height >= 3
 	inner := outer
-	if width > 4 && height > 4 {
+	if width > 4 && framed {
 		bx := boxFor(a.caps)
 		edge := vaxis.Style{Foreground: a.theme.BorderActive, Background: panel}
 		a.print(pane, 0, 0, edge, bx.topLeft+strings.Repeat(bx.horizontal, width-2)+bx.topRight)
@@ -683,7 +676,7 @@ func (a *App) drawModal(win vaxis.Window) {
 	// A menu is the rows and nothing else: there is no query, and a blank line
 	// where one would be is a menu with a hole in the top of it.
 	head := 2
-	if kind == modalMenu {
+	if kind == modalMenu || kind == modalStatus {
 		head = 0
 	} else {
 		line := vaxis.Style{Foreground: a.theme.Text, Background: panel}
@@ -720,6 +713,18 @@ func (a *App) drawModal(win vaxis.Window) {
 		if keys > 0 {
 			split = maxInt(inner.Width-keys, 1)
 		}
+	case kind == modalStatus:
+		// the names column is as wide as its widest name, a problem row has
+		// no name and takes the whole line
+		names := 0
+		for _, item := range items {
+			if item.Detail != "" {
+				names = maxInt(names, a.width(item.Label))
+			}
+		}
+		if names > 0 {
+			split = minInt(names+menuGap, inner.Width/2)
+		}
 	case inner.Width >= 44:
 		split = inner.Width / 2
 	}
@@ -727,9 +732,11 @@ func (a *App) drawModal(win vaxis.Window) {
 	for i, item := range shown {
 		absolute := top + i
 		bg := panel
-		if absolute == selected {
+		switch {
+		case kind == modalStatus:
+		case absolute == selected:
 			bg = a.theme.BackgroundActive
-		} else if absolute == hovered {
+		case absolute == hovered:
 			bg = a.theme.BackgroundHover
 		}
 		line := body.New(0, head+i, inner.Width, 1)
@@ -747,8 +754,12 @@ func (a *App) drawModal(win vaxis.Window) {
 			col = a.print(line, 0, 0, vaxis.Style{Foreground: a.theme.Accent, Background: bg},
 				a.markGlyph(marked[item.ChatID]))
 		}
-		a.print(line, col, 0, style, a.clip(item.Label, maxInt(split-col-1, 1)))
-		if split < inner.Width {
+		labelWidth := split - col - 1
+		if kind == modalStatus && item.Detail == "" {
+			labelWidth = inner.Width - col
+		}
+		a.print(line, col, 0, style, a.clip(item.Label, maxInt(labelWidth, 1)))
+		if split < inner.Width && (kind != modalStatus || item.Detail != "") {
 			a.print(line, split, 0, vaxis.Style{Foreground: a.theme.TextMuted, Background: bg},
 				a.clip(detail, inner.Width-split))
 		}

@@ -1,0 +1,115 @@
+edition = "2024";
+
+package whatevr.v2;
+
+import "whatevr/v2/messages.proto";
+import "whatevr/v2/people.proto";
+
+option features.field_presence = IMPLICIT;
+
+message ChatsView {
+  ChatFilter filter = 1;
+  bool archived = 2;
+}
+
+enum ChatFilter {
+  CHAT_FILTER_UNSPECIFIED = 0;
+  CHAT_FILTER_ALL = 1;
+  CHAT_FILTER_DIRECT = 2;
+  CHAT_FILTER_GROUPS = 3;
+}
+
+// the same row chats sends, outside any filter or window
+message ChatView {
+  string chat_id = 1;
+}
+
+message ChatRow {
+  string id = 1;
+  string name = 2;
+  ChatType type = 3;
+  string avatar_path = 4;
+  // the newest message as the list shows it
+  ChatPreview preview = 5;
+  int64 last_ms = 6;
+  uint32 unread = 7;
+  // the phone's mark as unread, no count behind it
+  bool marked_unread = 8;
+  bool pinned = 9;
+  bool archived = 10;
+  bool muted = 11;
+  // 0 with muted set is forever
+  int64 mute_end_ms = 12;
+  // the phone has nothing older to give
+  bool history_exhausted = 13;
+  // the disappearing message timer, 0 for off
+  uint32 ephemeral_secs = 14;
+  // we can't send here (an announcement group, a left group)
+  bool read_only = 15;
+  // a chat_request_older is out
+  bool loading_older = 16;
+}
+
+enum ChatType {
+  CHAT_TYPE_UNSPECIFIED = 0;
+  CHAT_TYPE_DIRECT = 1;
+  CHAT_TYPE_GROUP = 2;
+  CHAT_TYPE_COMMUNITY = 3;
+  CHAT_TYPE_NEWSLETTER = 4;
+  CHAT_TYPE_BROADCAST = 5;
+}
+
+message ChatPreview {
+  // one line, sender prefix included in groups
+  string text = 1;
+  bool from_me = 2;
+  MessageStatus status = 3;
+}
+
+message ChatMarkRead {
+  string chat_id = 1;
+  // the newest message the user actually saw
+  string up_to_message_id = 2;
+}
+
+message ChatPin {
+  string chat_id = 1;
+  bool pinned = 2;
+}
+
+message ChatArchive {
+  string chat_id = 1;
+  bool archived = 2;
+}
+
+message ChatMute {
+  string chat_id = 1;
+  bool muted = 2;
+  // 0 is forever
+  int64 duration_ms = 3;
+}
+
+message ChatTyping {
+  string chat_id = 1;
+  bool composing = 2;
+  bool recording = 3;
+}
+
+// asks the phone for older history; results land as message upserts
+message ChatRequestOlder {
+  string chat_id = 1;
+}
+
+message ChatRequestOlderResult {
+  // false when the phone has nothing older or a request is in flight
+  bool requested = 1;
+}
+
+// the direct chat with someone, there to open even before anything is in it
+message ChatEnsureDirect {
+  Address person = 1;
+}
+
+message ChatEnsureDirectResult {
+  string chat_id = 1;
+}

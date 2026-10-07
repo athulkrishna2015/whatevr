@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"image"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
 
 	"whattui/internal/layout"
@@ -37,20 +40,40 @@ type App struct {
 	theme  theme.Theme
 	client *proto.Client
 
-	chats    *view.Collection[proto.ChatRow]
+	chats    *view.Collection[*v2.ChatRow]
 	chatsSub *proto.Subscription
 
-	// blocklist is who this account has blocked, and the only thing that
-	// answers whether a chat is already blocked without a round trip per
-	// keystroke in the menu.
-	blocklist    *view.Collection[proto.BlockedContact]
-	blocklistSub *proto.Subscription
-
-	conn    *view.Object[proto.Connection]
+	conn    *view.Object[*v2.ConnectionRow]
 	connSub *proto.Subscription
 
-	login    *view.Object[proto.Login]
+	login    *view.Object[*v2.LoginRow]
 	loginSub *proto.Subscription
+
+	// the header's summary and the /status panel read these two
+	syncs       *view.Object[*v2.SyncRow]
+	syncSub     *proto.Subscription
+	problems    *view.Collection[*v2.ProblemRow]
+	problemsSub *proto.Subscription
+	// statusAt is where the last frame drew the summary, statusHovered the
+	// pointer being on it
+	statusAt      layout.Rect
+	statusHovered bool
+	// statusTick is a countdown redraw already waiting
+	statusTick bool
+
+	// everyone who reacted to the message the picker is open on, subscribed
+	// only while it is open. reactors is what the picker last read of it
+	reactions     *view.Collection[*v2.Reaction]
+	reactionsSub  *proto.Subscription
+	reactionsFor  string
+	reactionsSeen uint64
+	reactors      []*v2.Reaction
+
+	// expanded is what /expand fetched, by message id. expandMu is a leaf
+	// lock, taken from paint with or without App.mu
+	expandMu  sync.Mutex
+	expanded  map[string]expansion
+	expandGen uint64
 
 	// The rasteriser for the scripts a cell grid cannot hold, and the images
 	// it has already produced. shaping is snapshotted once per frame so
@@ -125,45 +148,64 @@ type App struct {
 	// first focus event corrects it if they did something else since.
 	focused bool
 
-	composer      composer
-	commands      commandRegistry
-	modal         modalState
-	leader        bool
-	request       func(string, proto.Params, proto.ResponseFunc)
+	composer composer
+	commands commandRegistry
+	modal    modalState
+	leader   bool
+	request  func(*v2.Request, proto.ResponseFunc)
+	// offers is whether the daemon serves a feature, nil means everything
+	offers        func(feature string) bool
 	searchRequest uint64
 
 	conversation *conversation
+	// spinning is a redraw already waiting on the next spinner frame
+	spinning atomic.Bool
+}
+
+// followFolds moves the open chat along when the chat list says it folded
+// into another.
+func (a *App) followFolds() {
+	a.chats.OnReplaced = func(old, by string) {
+		a.mu.Lock()
+		if c := a.conversation; c != nil && c.chatID == old {
+			c.replacedBy = by
+		}
+		a.mu.Unlock()
+	}
 }
 
 // New wires an app to a terminal and a daemon. It does not connect.
 func New(vx *vaxis.Vaxis, caps term.Caps, client *proto.Client) *App {
 	a := &App{
-		vx:        vx,
-		caps:      caps,
-		theme:     paletteFor(vx, caps),
-		client:    client,
-		chats:     view.NewCollection[proto.ChatRow](),
-		blocklist: view.NewCollection[proto.BlockedContact](),
-		conn:      view.NewObject[proto.Connection](),
-		login:     view.NewObject[proto.Login](),
-		focus:     FocusList,
-		focused:   true,
-		hovered:   -1,
-		shape:     vaxis.MouseShapeDefault,
-		images:    map[imgKey]*vaxis.KittyImage{},
-		seen:      map[imgKey]bool{},
-		glyphs:    map[glyphKey]*image.NRGBA{},
-		drag:      drag{chat: -1},
+		vx:       vx,
+		caps:     caps,
+		theme:    paletteFor(vx, caps),
+		client:   client,
+		chats:    view.NewCollection(view.Chat),
+		conn:     view.NewObject(view.Connection),
+		login:    view.NewObject(view.Login),
+		syncs:    view.NewObject(view.Sync),
+		problems: view.NewCollection(view.Problem),
+		focus:    FocusList,
+		focused:  true,
+		hovered:  -1,
+		shape:    vaxis.MouseShapeDefault,
+		images:   map[imgKey]*vaxis.KittyImage{},
+		seen:     map[imgKey]bool{},
+		glyphs:   map[glyphKey]*image.NRGBA{},
+		drag:     drag{chat: -1},
 	}
 	a.shaper = shaperFor(vx, caps)
 	a.request = client.Do
+	a.offers = client.Offers
+	a.followFolds()
 	a.initCommands()
 	a.setCell()
 
 	client.OnState = a.onTransport
 	client.OnDrain = func() { vx.PostEvent(redraw{}) }
-	client.OnOpenChat = func(ev proto.OpenChat) {
-		a.openChat(ev.ChatID)
+	client.OnOpenChat = func(ev *v2.OpenChat) {
+		a.openChat(ev.GetChatId())
 		vx.PostEvent(redraw{})
 	}
 	return a
@@ -299,7 +341,7 @@ func (a *App) recell() {
 // redraw wakes the event loop after the client applied a batch.
 type redraw struct{}
 
-func (a *App) onTransport(s proto.State, _ *proto.ServerInfo, err error) {
+func (a *App) onTransport(s proto.State, _ *v2.HelloResult, err error) {
 	a.mu.Lock()
 	a.transport = s
 	if err != nil {
@@ -327,10 +369,15 @@ func (a *App) Run() error {
 	a.client.Start()
 	defer a.client.Stop()
 
-	a.connSub = a.client.Subscribe("connection", nil, a.conn)
+	sub := &v2.Subscribe{}
+	sub.SetConnection(&v2.ConnectionView{})
+	a.connSub = a.client.Subscribe(sub, a.conn, proto.Hooks{})
 	// held for the whole run: a phone can unlink at any time, and the code
 	// has to be on screen the moment it does
-	a.loginSub = a.client.Subscribe("login", nil, a.login)
+	sub = &v2.Subscribe{}
+	sub.SetLogin(&v2.LoginView{})
+	a.loginSub = a.client.Subscribe(sub, a.login, proto.Hooks{})
+	a.subscribeStatus()
 	a.subscribeChats()
 
 	a.draw()
@@ -419,22 +466,30 @@ func (a *App) done() bool {
 func (a *App) subscribeChats() {
 	if a.chatsSub != nil {
 		a.chatsSub.Close()
-		a.chats.Reset()
 	}
-	a.chatsSub = a.client.Subscribe("chats", proto.Params{
-		"filter":   "all",
-		"archived": false,
-		"limit":    chatPageSize,
-	}, a.chats)
-
-	if a.blocklistSub != nil {
-		a.blocklistSub.Close()
-		a.blocklist.Reset()
-	}
-	a.blocklistSub = a.client.Subscribe("blocklist", proto.Params{}, a.blocklist)
+	a.chatsSub = a.client.Subscribe(v2.Subscribe_builder{
+		Limit: chatPageSize,
+		Chats: v2.ChatsView_builder{Filter: v2.ChatFilter_CHAT_FILTER_ALL}.Build(),
+	}.Build(), a.chats, proto.Hooks{})
 }
 
 const chatPageSize = 50
+
+// subscribeStatus holds the sync and problems views for the whole run, the
+// header summarises them
+func (a *App) subscribeStatus() {
+	a.syncSub = a.client.Subscribe(v2.Subscribe_builder{Sync: &v2.SyncView{}}.Build(), a.syncs, proto.Hooks{})
+	a.problemsSub = a.client.Subscribe(v2.Subscribe_builder{Problems: &v2.ProblemsView{}}.Build(), a.problems, proto.Hooks{})
+}
+
+// startHint is how this OS starts whatevrd. on macOS the login service starts
+// it on demand once enabled
+func startHint() string {
+	if runtime.GOOS == "darwin" {
+		return "  whatevrd service enable    (or run whatevrd)"
+	}
+	return "  systemctl --user start whatevrd"
+}
 
 // status is the one line that says what is wrong, or nothing at all. The two
 // failures are different and a reader has to be able to tell them apart: the
@@ -459,19 +514,26 @@ func (a *App) status() (string, vaxis.Color, bool) {
 	if !ok {
 		return "", 0, false
 	}
-	switch c.State {
-	case "online":
+	switch connState(c) {
+	case v2.ConnectionState_CONNECTION_STATE_ONLINE:
+		if p, ok := a.topProblem(); ok {
+			return p.GetText(), a.theme.Warning, true
+		}
 		return "", 0, false
-	case "need_login":
+	case v2.ConnectionState_CONNECTION_STATE_NEED_LOGIN:
 		return "not linked to a phone: scan the code", a.theme.Warning, true
-	case "connecting", "starting":
+	case v2.ConnectionState_CONNECTION_STATE_CONNECTING, v2.ConnectionState_CONNECTION_STATE_STARTING:
 		return "connecting to whatsapp", a.theme.TextMuted, true
-	case "reconnecting":
+	case v2.ConnectionState_CONNECTION_STATE_WAITING:
 		return "reconnecting to whatsapp", a.theme.Warning, true
-	case "offline":
+	case v2.ConnectionState_CONNECTION_STATE_OFFLINE:
 		return "whatsapp is offline", a.theme.Error, true
 	default:
-		return c.State, a.theme.TextMuted, true
+		// a state this build does not know: the daemon's own sentence
+		if d := c.GetDetail(); d != "" {
+			return d, a.theme.TextMuted, true
+		}
+		return "", 0, false
 	}
 }
 
@@ -532,7 +594,7 @@ func (a *App) hover(chat int) bool {
 // holds, with no collection to read and no callback to run.
 func (a *App) linkedLocked() bool {
 	c, ok := a.conn.Value()
-	return !ok || c.State != "need_login"
+	return !ok || connState(c) != v2.ConnectionState_CONNECTION_STATE_NEED_LOGIN
 }
 
 // notice is the panel that replaces the transcript when there is nothing to
@@ -553,8 +615,8 @@ func (a *App) notice() (title string, colour vaxis.Color, body []string, ok bool
 		if !have {
 			return "", 0, nil, false
 		}
-		switch c.State {
-		case "offline":
+		switch connState(c) {
+		case v2.ConnectionState_CONNECTION_STATE_OFFLINE:
 			return "whatsapp is offline", a.theme.Error, []string{
 				"the daemon is running and is not connected.",
 				"it retries on its own.",
@@ -572,7 +634,7 @@ func (a *App) notice() (title string, colour vaxis.Color, body []string, ok bool
 			"",
 			"start it and whattui connects on its own:",
 			"",
-			"  systemctl --user start whatevrd",
+			startHint(),
 		}, true
 	}
 	if lastErr != nil {

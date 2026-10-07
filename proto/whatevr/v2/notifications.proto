@@ -1,0 +1,33 @@
+edition = "2024";
+
+package whatevr.v2;
+
+import "whatevr/v2/people.proto";
+
+option features.field_presence = IMPLICIT;
+
+// what the daemon thinks deserves a notification now; one item each,
+// removed when read or dismissed anywhere
+message NotificationsView {}
+
+message NotificationRow {
+  string id = 1;
+  string chat_id = 2;
+  // the newest message it covers
+  string message_id = 3;
+  // the chat's name
+  string title = 4;
+  // empty when preferences hide previews
+  string body = 5;
+  Person sender = 6;
+  string avatar_path = 7;
+  // how many messages it stands for
+  uint32 count = 8;
+  int64 t_ms = 9;
+  // play a sound for it
+  bool sound = 10;
+}
+
+message NotificationDismiss {
+  string id = 1;
+}

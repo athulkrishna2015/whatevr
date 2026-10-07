@@ -4,11 +4,12 @@ package main
 
 import (
 	"context"
-	"log"
-	"os"
-	"strings"
+	"fmt"
 
-	"whatevrd/internal/app"
+	"github.com/rs/zerolog"
+	"github.com/urfave/cli/v3"
+
+	"whatevrd/internal/model"
 )
 
 // mockRun never exists in a release binary. The mock server mutates
@@ -16,20 +17,24 @@ import (
 // -tags whatevr_mock.
 type mockRun struct{}
 
-func mockPrepare() *mockRun {
-	for _, arg := range os.Args[1:] {
-		if arg == "--" {
-			break
-		}
-		name := strings.TrimLeft(arg, "-")
-		if name == "mock" || strings.HasPrefix(name, "mock=") || strings.HasPrefix(name, "mock-") {
-			log.Fatalf("this whatevrd was built without mock support; rebuild with -tags whatevr_mock")
-		}
+type mockFlagSet struct{}
+
+func mockFlags() (*mockFlagSet, []cli.Flag) { return nil, nil }
+
+// mockUnbuilt says why --mock is refused, where urfave would only say
+// "flag provided but not defined".
+func mockUnbuilt(args []string) string {
+	if usesFlag(args, "mock") {
+		return "this whatevrd was built without mock support; rebuild with -tags whatevr_mock"
 	}
-	return nil
+	return ""
 }
 
-func mockStart(context.Context, *mockRun, *app.Daemon) (func(), error) {
+func mockPrepare(zerolog.Logger, *mockFlagSet) *mockRun { return nil }
+
+func mockScenario(*mockRun) string { return "" }
+
+func mockStart(context.Context, *mockRun, qrSource, string) (func(), error) {
 	return func() {}, nil
 }
 
@@ -37,6 +42,26 @@ func mockStart(context.Context, *mockRun, *app.Daemon) (func(), error) {
 // run to silence them for.
 func mockSilencesNotifications(*mockRun) bool { return false }
 
-// mockSilencesTray is never true in a release build, for the same reason. The
-// real daemon owns exactly one icon, and it is the one the user sees.
-func mockSilencesTray(*mockRun) bool { return false }
+func mockIDs(*mockRun, *model.IDs) {}
+
+// mockTime is nil: the real clocks.
+func mockTime(*mockRun) *mockClocks { return nil }
+
+func heapProfiles(context.Context) {}
+
+// mockCommand is hidden here, it only says what to rebuild with.
+func mockCommand() *cli.Command {
+	return &cli.Command{
+		Name:            "mock",
+		Usage:           "mock daemon probes",
+		Category:        "debug",
+		Hidden:          true,
+		SkipFlagParsing: true,
+		Action: func(_ context.Context, c *cli.Command) error {
+			fmt.Fprintln(c.Root().ErrWriter, "whatevrd mock: this whatevrd was built without mock support; rebuild with -tags whatevr_mock")
+			return code(1)
+		},
+	}
+}
+
+const mockPathsSupported = false

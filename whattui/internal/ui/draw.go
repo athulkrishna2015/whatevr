@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
 
 	"whattui/internal/layout"
@@ -39,8 +40,13 @@ func (a *App) paint() {
 
 	// No clear: the panes tile the screen between them, so clearing first is a
 	// write to every cell that every one of them is about to write again.
+	// the cursor stays where the last frame put it unless hidden, and only
+	// a field that takes typing shows it again
+	a.vx.HideCursor()
 	win := a.vx.Window()
 	l := a.layout()
+	a.followChat(max(l.Transcript.Height, 1))
+	a.followReactions()
 
 	if a.pairing() {
 		a.drawPairing(win)
@@ -262,7 +268,7 @@ func (a *App) drawChatList(win vaxis.Window, l layout.Layout) {
 
 	perRow := l.ChatRowHeight()
 	drawn := 0
-	a.chats.Read(func(items []view.Item[proto.ChatRow], state view.State) {
+	a.chats.Read(func(items []view.Item[*v2.ChatRow], state view.State) {
 		if len(items) == 0 {
 			fill(pane.New(0, 0, w, h), a.theme.BackgroundPanel)
 			a.drawEmptyList(pane, state.Ready)
@@ -333,12 +339,12 @@ func (a *App) ground(st rowState) vaxis.Color {
 	}
 }
 
-func (a *App) drawChatRow(pane vaxis.Window, row, w, height int, c proto.ChatRow, st rowState) {
+func (a *App) drawChatRow(pane vaxis.Window, row, w, height int, c *v2.ChatRow, st rowState) {
 	bg := a.ground(st)
 	fill(pane.New(0, row, w, height), bg)
 	line := pane.New(0, row, w, 1)
 
-	unread := c.Unread > 0
+	unread := c.GetUnread() > 0
 	nameStyle := vaxis.Style{Foreground: a.theme.Text, Background: bg}
 	if unread {
 		// Weight as well as colour: at the plain tier and for anyone who
@@ -365,7 +371,7 @@ func (a *App) drawChatRow(pane vaxis.Window, row, w, height int, c proto.ChatRow
 
 	badge := ""
 	if unread {
-		badge = strconv.Itoa(int(c.Unread))
+		badge = strconv.Itoa(int(c.GetUnread()))
 	}
 
 	// The time goes on the name's line and the badge on the preview's, which
@@ -376,15 +382,15 @@ func (a *App) drawChatRow(pane vaxis.Window, row, w, height int, c proto.ChatRow
 	case height < 2 && badge != "":
 		right = badge
 		rightStyle = vaxis.Style{Foreground: a.theme.Accent, Background: bg, Attribute: vaxis.AttrBold}
-	case c.LastMessageTime > 0:
-		right = relTime(time.Unix(c.LastMessageTime, 0))
+	case c.GetLastMs() > 0:
+		right = relTime(time.UnixMilli(c.GetLastMs()))
 	}
 	rightW := a.width(right)
 	nameRoom := w - col - rightW - 2
 	if nameRoom < 1 {
 		nameRoom = 1
 	}
-	a.print(line.New(col, 0, nameRoom, 1), 0, 0, nameStyle, c.Name)
+	a.print(line.New(col, 0, nameRoom, 1), 0, 0, nameStyle, c.GetName())
 	if right != "" && w-rightW-1 > col {
 		a.print(line, w-rightW-1, 0, rightStyle, right)
 	}
@@ -411,7 +417,7 @@ func (a *App) drawChatRow(pane vaxis.Window, row, w, height int, c proto.ChatRow
 	// The preview shares the name's left edge rather than the avatar's, so the
 	// two lines of a row line up as one block.
 	a.printLine(preview, col, 0, vaxis.Style{Foreground: a.theme.TextMuted, Background: bg},
-		a.clipLine(a.linkLine(a.spelled(c.Preview)), room))
+		a.clipLine(a.linkLine(a.spelled(c.GetPreview().GetText())), room))
 	if badge != "" {
 		a.print(preview, w-badgeW-1, 0, vaxis.Style{
 			Foreground: a.theme.Accent, Background: bg, Attribute: vaxis.AttrBold,
@@ -433,8 +439,8 @@ func relTime(t time.Time) string {
 	}
 }
 
-func (a *App) drawRailRow(line vaxis.Window, c proto.ChatRow, bg vaxis.Color, unread bool) {
-	a.avatar(line, 0, 0, 3, 1, c.ID, c.Name, bg)
+func (a *App) drawRailRow(line vaxis.Window, c *v2.ChatRow, bg vaxis.Color, unread bool) {
+	a.avatar(line, 0, 0, 3, 1, c.GetId(), c.GetName(), bg)
 	if unread {
 		a.print(line, 3, 0, vaxis.Style{Foreground: a.theme.Accent, Background: bg}, "\u2022")
 	}
@@ -443,9 +449,9 @@ func (a *App) drawRailRow(line vaxis.Window, c proto.ChatRow, bg vaxis.Color, un
 // drawAvatar draws the disc a chat is known by, and answers the column after
 // it. A row with the room draws it two rows tall with the initial at twice the
 // size, which is the size an avatar is in every chat application there is.
-func (a *App) drawAvatar(pane vaxis.Window, row, height int, c proto.ChatRow, bg vaxis.Color) int {
+func (a *App) drawAvatar(pane vaxis.Window, row, height int, c *v2.ChatRow, bg vaxis.Color) int {
 	width, scale := a.avatarBox(height)
-	a.avatar(pane, 1, row, width, scale, c.ID, c.Name, bg)
+	a.avatar(pane, 1, row, width, scale, c.GetId(), c.GetName(), bg)
 	return 1 + width
 }
 
@@ -557,20 +563,71 @@ func (a *App) drawHeader(win vaxis.Window, r layout.Rect) {
 	// of you, and it says it long after it stopped being true.
 	title := "whattui"
 	if active != "" && live {
-		if it, ok := a.chats.Get(active); ok {
-			title = it.Value.Name
+		if row, ok := a.chatRow(active); ok {
+			title = row.GetName()
 		}
 	}
 	a.noteBlock(pane, 1, 0, maxInt(a.width(title), 1), 1)
 	a.print(pane, 1, 0, style, title)
+	a.drawSummary(pane, r, a.width(title)+2)
+}
 
-	if msg, colour, show := a.status(); show {
-		w, _ := pane.Size()
-		if len(msg) < w-2 {
-			a.print(pane, w-len(msg)-1, 0, vaxis.Style{
-				Foreground: colour, Background: a.theme.BackgroundPanel,
-			}, msg)
-		}
+// summarySep sits between the header's two status slots
+const summarySep = " · "
+
+// drawSummary is the right of the header: what is wrong, then a running sync.
+// the sync goes first when both don't fit beside the title, then the rest is
+// clipped. it opens /status, so it answers the pointer
+func (a *App) drawSummary(pane vaxis.Window, r layout.Rect, taken int) {
+	msg, colour, show := a.status()
+	syncing := a.syncSlot()
+	w, _ := pane.Size()
+	// a cell of air each side of the summary, plus one between it and the title
+	room := w - taken - 3
+	sep := summarySep
+	if a.caps.Tier <= term.TierPlain {
+		sep = " - "
+	}
+	parts := []string{}
+	if show && msg != "" {
+		parts = append(parts, msg)
+	}
+	if syncing != "" {
+		parts = append(parts, syncing)
+	}
+	if len(parts) == 2 && a.width(parts[0]+sep+parts[1]) > room {
+		parts = parts[:1]
+	}
+	if len(parts) == 0 || room < 1 {
+		a.mu.Lock()
+		a.statusAt = layout.Rect{}
+		a.mu.Unlock()
+		return
+	}
+	if !show || msg == "" {
+		colour = a.theme.TextMuted
+	}
+	first := a.clip(parts[0], room)
+	width := a.width(first)
+	if len(parts) == 2 {
+		width += a.width(sep + parts[1])
+	}
+
+	a.mu.Lock()
+	hovered := a.statusHovered
+	a.statusAt = layout.Rect{Col: r.Col + w - width - 2, Row: r.Row, Width: width + 2, Height: 1}
+	a.mu.Unlock()
+
+	bg := a.theme.BackgroundPanel
+	if hovered {
+		bg = a.theme.BackgroundHover
+		fill(pane.New(w-width-2, 0, width+2, 1), bg)
+	}
+	col := a.print(pane, w-width-1, 0, vaxis.Style{Foreground: colour, Background: bg}, first)
+	if len(parts) == 2 {
+		muted := vaxis.Style{Foreground: a.theme.TextMuted, Background: bg}
+		col = a.print(pane, col, 0, vaxis.Style{Foreground: a.theme.TextFaint, Background: bg}, sep)
+		a.print(pane, col, 0, muted, parts[1])
 	}
 }
 
@@ -623,7 +680,8 @@ func (a *App) drawTranscript(win vaxis.Window, r layout.Rect) {
 		return
 	}
 
-	c.msgs.Read(func(items []view.Item[proto.MessageRow], state view.State) {
+	above := a.topOf(c)
+	c.msgs.Read(func(items []view.Item[*v2.MessageRow], state view.State) {
 		if len(items) == 0 {
 			msg := "loading messages"
 			if state.Ready {
@@ -634,7 +692,8 @@ func (a *App) drawTranscript(win vaxis.Window, r layout.Rect) {
 			}, msg)
 			return
 		}
-		a.refreshTranscript(c, items, state, w, h)
+		a.refreshTranscript(c, items, state, above, w, h)
+		c.keepHeld(h)
 		if c.scroll > c.maxScroll(h) {
 			c.scroll = c.maxScroll(h)
 		}
@@ -660,33 +719,30 @@ func (a *App) drawTranscript(win vaxis.Window, r layout.Rect) {
 // layoutMessage turns one row into a bubble. Every kind ends up here, and a
 // kind whattui does not draw itself renders the daemon's fallback, so the
 // transcript is never blank because of a message nobody taught it.
-func (a *App) layoutMessage(m proto.MessageRow, paneWidth int) block {
+func (a *App) layoutMessage(m *v2.MessageRow, paneWidth int) block {
 	quote := ""
-	if m.ReplyTo != nil {
-		quote = m.ReplyTo.Text
-		if quote == "" {
-			quote = a.spelled(m.ReplyTo.Fallback)
-		}
+	if m.HasReplyTo() {
+		quote = m.GetReplyTo().GetText()
 	}
 
 	b := a.layoutBlock(quote, a.body(m), a.messageStamp(m), a.runRoom(paneWidth))
-	b.muted = m.Revoked
-	b.outgoing = m.Outgoing()
-	b.mark, b.status = a.statusMark(m), m.Status
+	b.muted = m.GetRevoked()
+	b.outgoing = m.GetFromMe()
+	b.mark, b.status = a.statusMark(m), statusOf(m)
 
 	// A message nobody can read any more carries no reactions: WhatsApp drops
 	// them when it goes, and a row of applause under a deleted message is
 	// applause for a sentence that is not there.
-	if !m.Revoked {
+	if !m.GetRevoked() {
 		room := a.runRoom(paneWidth)
 		var strip int
-		b.reacts, strip = a.pillsFor(groupReactions(m.Reactions), room)
+		b.reacts, strip = a.pillsFor(reactionGroups(m.GetReactionCounts(), nil), room)
 		b.width = minInt(maxInt(b.width, strip), room)
 	}
 
 	// A message that is nothing but emoji draws big, the way it does in every
 	// other chat client, because the size is what the message means.
-	if n := emojiOnlyCount(m.Text); n > 0 && !m.Revoked && len(b.body) == 1 &&
+	if n := emojiOnlyCount(a.textOf(m)); n > 0 && !m.GetRevoked() && len(b.body) == 1 &&
 		a.caps.TextScale && bigEmojiWanted() {
 		// Clamped to the room the column can grow into, not the room it
 		// currently occupies: the message is sized by its content, and at
@@ -708,17 +764,17 @@ func (a *App) layoutMessage(m proto.MessageRow, paneWidth int) block {
 // messageStamp is when a message was sent. It stands in the gutter beside the
 // message rather than at the end of its words, which is what makes a column of
 // times down the edge of the transcript readable as a column.
-func (a *App) messageStamp(m proto.MessageRow) string {
-	return time.Unix(m.Timestamp, 0).Format("15:04")
+func (a *App) messageStamp(m *v2.MessageRow) string {
+	return time.UnixMilli(m.GetTMs()).Format("15:04")
 }
 
 // statusMark is how far a message you sent got, and nothing at all for one you
 // did not: a message somebody else wrote has no delivery state of yours.
-func (a *App) statusMark(m proto.MessageRow) string {
-	if !m.Outgoing() {
+func (a *App) statusMark(m *v2.MessageRow) string {
+	if !m.GetFromMe() {
 		return ""
 	}
-	return a.statusGlyph(m.Status)
+	return a.statusGlyph(statusOf(m))
 }
 
 // statusGlyph is the mark itself. Every state is its own glyph and not just its
@@ -730,29 +786,29 @@ func (a *App) statusMark(m proto.MessageRow) string {
 // two holes say nothing whatever colour they are. The letter every font has
 // carries the same count there, and capitals carry the weight the heavy tick
 // carries everywhere else.
-func (a *App) statusGlyph(status string) string {
+func (a *App) statusGlyph(status v2.MessageStatus) string {
 	if a.caps.PlainFont {
 		switch status {
-		case "read":
+		case v2.MessageStatus_MESSAGE_STATUS_READ, v2.MessageStatus_MESSAGE_STATUS_PLAYED:
 			return "VV"
-		case "delivered":
+		case v2.MessageStatus_MESSAGE_STATUS_DELIVERED:
 			return "vv"
-		case "sent":
+		case v2.MessageStatus_MESSAGE_STATUS_SENT:
 			return "v"
-		case "failed":
+		case v2.MessageStatus_MESSAGE_STATUS_FAILED:
 			return "!"
 		default:
 			return "."
 		}
 	}
 	switch status {
-	case "read":
+	case v2.MessageStatus_MESSAGE_STATUS_READ, v2.MessageStatus_MESSAGE_STATUS_PLAYED:
 		return "✔✔"
-	case "delivered":
+	case v2.MessageStatus_MESSAGE_STATUS_DELIVERED:
 		return "✓✓"
-	case "sent":
+	case v2.MessageStatus_MESSAGE_STATUS_SENT:
 		return "✓"
-	case "failed":
+	case v2.MessageStatus_MESSAGE_STATUS_FAILED:
 		return "!"
 	default:
 		return "·"
@@ -762,11 +818,11 @@ func (a *App) statusGlyph(status string) string {
 // statusInk is the mark's colour. Read is the accent, which is where every
 // chat application puts it, and a send that failed is the one delivery state
 // worth interrupting somebody over.
-func (a *App) statusInk(status string) vaxis.Color {
+func (a *App) statusInk(status v2.MessageStatus) vaxis.Color {
 	switch status {
-	case "read":
+	case v2.MessageStatus_MESSAGE_STATUS_READ, v2.MessageStatus_MESSAGE_STATUS_PLAYED:
 		return a.theme.Accent
-	case "failed":
+	case v2.MessageStatus_MESSAGE_STATUS_FAILED:
 		return a.theme.Error
 	default:
 		return a.theme.TextFaint
@@ -779,6 +835,7 @@ func (a *App) drawComposer(win vaxis.Window, r layout.Rect) {
 
 	a.mu.Lock()
 	active, focus := a.activeChat, a.focus
+	readOnly := a.conversation != nil && a.conversation.readOnly
 	text, cursor := a.composer.String(), a.composer.cursor
 	editing, targetName, targetText := a.composer.editing != "", a.composer.targetName, a.composer.targetText
 	targetColour, targeted := a.composer.targetColour, a.composer.targeted()
@@ -793,6 +850,14 @@ func (a *App) drawComposer(win vaxis.Window, r layout.Rect) {
 	}
 	fill(pane, ground)
 	if active == "" {
+		return
+	}
+	if readOnly {
+		// the field goes and the line takes its place, where the marker and
+		// the draft would start, so the eye finds it where it looks to type
+		a.print(pane, composerText, 0, vaxis.Style{
+			Foreground: a.theme.TextMuted, Background: ground, Attribute: vaxis.AttrItalic,
+		}, a.clip(readOnlyNote, w-composerGutter))
 		return
 	}
 	a.drawField(pane, 1, 0, w-2, h, focus == FocusComposer)
@@ -934,7 +999,9 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 	typed := !a.composer.empty()
 	leader := a.leader
 	modal := a.modal.kind
+	statusRows := len(a.modal.selector.items)
 	message, pointing := a.selectedMessageLocked()
+	readOnly := a.conversation != nil && a.conversation.readOnly
 	a.mu.Unlock()
 
 	newline := "s-\u23ce"
@@ -957,6 +1024,14 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 	// rather than what the pane behind it would have done.
 	case modal != modalNone:
 		hints = []hint{{"", "\u2191\u2193 move"}, {"", "\u23ce run"}, {"", "esc close"}}
+		if modal == modalStatus {
+			// nothing to pick, only to read
+			hints = []hint{{"", "esc close"}}
+			w, h := win.Size()
+			if r := a.statusRect(w, h, statusRows); statusRows > r.Height-2 {
+				hints = []hint{{"", "\u2191\u2193 scroll"}, {"", "esc close"}}
+			}
+		}
 		if modal == modalForward {
 			// The one panel that takes more than one answer has to say so:
 			// nothing else on the screen suggests a list can be marked.
@@ -971,7 +1046,7 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 	// in, because at the chat list those letters are not live.
 	case pointing && focus != FocusList:
 		star := "star"
-		if message.Starred {
+		if message.GetStarred() {
 			star = "unstar"
 		}
 		// What the marks in the transcript mean, in words, for the one message
@@ -998,6 +1073,8 @@ func (a *App) drawHintBar(win vaxis.Window, r layout.Rect) {
 		hints = []hint{{cmdOpenChat, "open"}, {"", "\u2191\u2193 move"}, {cmdFocusNext, "chat"}, {cmdQuit, "quit"}}
 	case focus == FocusTranscript:
 		hints = []hint{{"", "\u2191\u2193 scroll"}, {"", "esc composer"}, {cmdFocusNext, "chats"}}
+	case readOnly:
+		hints = []hint{{"", "\u2191 scroll back"}, {"", "esc chats"}, {cmdFocusNext, "list"}}
 	default:
 		hints = []hint{{cmdSend, "send"}, {"", newline + " newline"}, {"", "esc chats"}, {cmdFocusNext, "list"}}
 		if !typed {
@@ -1050,15 +1127,15 @@ func (a *App) hintMore(left []hint) (string, bool) {
 // flagWords says what the transcript's marks mean, for the message the cursor
 // is on. Each one leads with the mark it explains, so the line reads as a
 // legend rather than as another key to press.
-func flagWords(m proto.MessageRow) []string {
-	if m.Revoked {
+func flagWords(m *v2.MessageRow) []string {
+	if m.GetRevoked() {
 		return nil
 	}
 	var out []string
-	if m.Starred {
+	if m.GetStarred() {
 		out = append(out, "★ starred")
 	}
-	if m.Edited {
+	if m.GetEdited() {
 		out = append(out, "edited")
 	}
 	return out

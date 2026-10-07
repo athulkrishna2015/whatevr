@@ -86,10 +86,15 @@ func newTLSIdentity(r io.Reader, now time.Time) (*tlsIdentity, error) {
 		// Wildcards rather than a list: the mock hosts media and profile
 		// pictures on their own names, and a missing one fails as a TLS error
 		// rather than as anything that points at the cause.
+		// a wildcard covers one label, and real media hosts sit one deeper:
+		// media-bom2-3.cdn.whatsapp.net, media.fbom19-1.fna.whatsapp.net
 		DNSNames: []string{
 			"*.whatsapp.com",
 			"*.whatsapp.net",
+			"*.cdn.whatsapp.net",
+			"*.fna.whatsapp.net",
 			"*.fbcdn.net",
+			"*.fna.fbcdn.net",
 			"whatsapp.com",
 			"whatsapp.net",
 			"localhost",
@@ -127,7 +132,12 @@ func newTLSIdentity(r io.Reader, now time.Time) (*tlsIdentity, error) {
 //
 // This is process-global and trusts a private CA, which is exactly why the
 // whole package is behind the whatevr_mock build tag.
-func installTransport(tlsID *tlsIdentity, addr string) {
+// A replay adds the hosts its capture fetched from, which may be anything.
+func installTransport(tlsID *tlsIdentity, addr string, extraHosts []string, fault func(context.Context, string) error) {
+	extra := map[string]bool{}
+	for _, h := range extraHosts {
+		extra[strings.ToLower(h)] = true
+	}
 	base := http.DefaultTransport.(*http.Transport).Clone()
 	base.TLSClientConfig = &tls.Config{RootCAs: tlsID.pool}
 	base.ForceAttemptHTTP2 = false
@@ -137,8 +147,11 @@ func installTransport(tlsID *tlsIdentity, addr string) {
 		if err != nil {
 			host = address
 		}
-		if !isWAHost(host) && host != "127.0.0.1" && host != "localhost" && host != "::1" {
+		if !isWAHost(host) && !extra[strings.ToLower(host)] && host != "127.0.0.1" && host != "localhost" && host != "::1" {
 			return nil, fmt.Errorf("wamock: refusing to dial %s, mock mode reaches no real hosts", address)
+		}
+		if err := fault(ctx, address); err != nil {
+			return nil, err
 		}
 		return dialer.DialContext(ctx, network, addr)
 	}

@@ -3,44 +3,45 @@ package ui
 import (
 	"strings"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
+
 	"whattui/internal/proto"
+	"whattui/internal/view"
 )
 
 // A reaction is the one thing in a chat that is content without being a
 // message: it belongs under the words it is about, it is never what somebody
 // said, and a screenful of them has to stay quieter than the conversation.
 //
-// The daemon sends one row per reactor, because who reacted is a fact it has
-// and a count is not. Three thumbs are three rows and one thing to read, so
-// they are gathered by emoji here, in the order they first turned up, which is
-// what every other client shows and what makes the strip stable while people
-// pile on.
+// The daemon counts them per emoji, most first, and names at most a few of
+// the people behind them on the row. The strip draws the counts as they came;
+// the names are for the picker.
 
-// reactionGroup is one emoji and everybody who put it there.
+// reactionGroup is one emoji, how many put it there, and the ones we can name.
 type reactionGroup struct {
 	emoji string
+	count int
 	names []string
 	mine  bool
 }
 
-// groupReactions gathers a message's reactions by emoji, first seen first.
-func groupReactions(list []proto.Reaction) []reactionGroup {
-	var out []reactionGroup
-	at := map[string]int{}
-	for _, r := range list {
-		emoji := strings.TrimSpace(r.Emoji)
-		if emoji == "" {
+// reactionGroups is a message's reactions by emoji in the daemon's order,
+// named from reactors where they say who.
+func reactionGroups(counts []*v2.ReactionCount, reactors []*v2.Reaction) []reactionGroup {
+	out := make([]reactionGroup, 0, len(counts))
+	at := make(map[string]int, len(counts))
+	for _, c := range counts {
+		emoji := strings.TrimSpace(c.GetEmoji())
+		if emoji == "" || c.GetCount() == 0 {
 			continue
 		}
-		name := reactorName(r)
-		i, seen := at[emoji]
-		if !seen {
-			at[emoji] = len(out)
-			out = append(out, reactionGroup{emoji: emoji, names: []string{name}, mine: r.FromMe})
-			continue
+		at[emoji] = len(out)
+		out = append(out, reactionGroup{emoji: emoji, count: int(c.GetCount()), mine: c.GetMine()})
+	}
+	for _, r := range reactors {
+		if i, ok := at[strings.TrimSpace(r.GetEmoji())]; ok {
+			out[i].names = append(out[i].names, reactorName(r))
 		}
-		out[i].names = append(out[i].names, name)
-		out[i].mine = out[i].mine || r.FromMe
 	}
 	return out
 }
@@ -48,14 +49,17 @@ func groupReactions(list []proto.Reaction) []reactionGroup {
 // reactorName is who a reaction is from, in the words a sentence about it would
 // use. Yours is "you" because the row it lands on is a row you press to take it
 // back.
-func reactorName(r proto.Reaction) string {
+func reactorName(r *v2.Reaction) string {
+	p := r.GetSender()
 	switch {
-	case r.FromMe:
+	case p.GetSelf():
 		return "you"
-	case strings.TrimSpace(r.SenderName) != "":
-		return r.SenderName
-	case r.SenderID != "":
-		return r.SenderID
+	case strings.TrimSpace(p.GetName()) != "":
+		return p.GetName()
+	case p.GetPhone() != "":
+		return p.GetPhone()
+	case p.GetId() != "":
+		return p.GetId()
 	default:
 		return "somebody"
 	}
@@ -107,8 +111,8 @@ func (a *App) pillsFor(groups []reactionGroup, room int) ([]pill, int) {
 	used := 0
 	for i, g := range groups {
 		text := g.emoji
-		if len(g.names) > 1 {
-			text += " " + itoa(len(g.names))
+		if g.count > 1 {
+			text += " " + itoa(g.count)
 		}
 		next := pill{text: text, mine: g.mine}
 		width := a.cells(next)
@@ -139,7 +143,9 @@ func (a *App) react(messageID, emoji string) {
 	if messageID == "" {
 		return
 	}
-	a.do("message.react", proto.Params{"message_id": messageID, "emoji": emoji}, func() {
+	req := &v2.Request{}
+	req.SetMessageReact(v2.MessageReact_builder{MessageId: messageID, Emoji: emoji}.Build())
+	a.do(req, func() {
 		if emoji == "" {
 			a.toast("reaction removed")
 			return
@@ -152,8 +158,12 @@ func (a *App) react(messageID, emoji string) {
 // one or taking yours back is the shortest thing to do, and the palette after
 // it. Searching runs over the names, which is the only part of an emoji a
 // keyboard can type.
-func (a *App) reactChoices(m proto.MessageRow, query string) []modalChoice {
-	groups := groupReactions(m.Reactions)
+func (a *App) reactChoices(m *v2.MessageRow, query string) []modalChoice {
+	reactors := m.GetReactions()
+	if a.reactionsFor == m.GetId() && a.reactors != nil {
+		reactors = a.reactors
+	}
+	groups := reactionGroups(m.GetReactionCounts(), reactors)
 	out := make([]modalChoice, 0, len(groups)+len(reactionPalette))
 	on := map[string]bool{}
 	for _, g := range groups {
@@ -166,8 +176,15 @@ func (a *App) reactChoices(m proto.MessageRow, query string) []modalChoice {
 		if g.mine {
 			detail = "enter takes it back"
 		}
+		names := strings.Join(g.names, ", ")
+		if more := g.count - len(g.names); more > 0 {
+			if names != "" {
+				names += ", "
+			}
+			names += "+" + itoa(more)
+		}
 		out = append(out, modalChoice{
-			Emoji: g.emoji, Label: g.emoji + "  " + strings.Join(g.names, ", "),
+			Emoji: g.emoji, Label: g.emoji + "  " + names,
 			Detail: detail, Mine: g.mine,
 		})
 	}
@@ -181,6 +198,61 @@ func (a *App) reactChoices(m proto.MessageRow, query string) []modalChoice {
 		out = append(out, modalChoice{Emoji: e.emoji, Label: e.emoji + "  " + e.name})
 	}
 	return out
+}
+
+// reactorsPage is how many reactors the picker asks for. the row's counts stay
+// whole past it, as "+n"
+const reactorsPage = 50
+
+// followReactions keeps a reactions subscription on the message the picker is
+// open on and none otherwise, and refills the picker when it changes. outside
+// App.mu, on every paint
+func (a *App) followReactions() {
+	a.mu.Lock()
+	want := ""
+	if a.modal.kind == modalReact {
+		want = a.modal.message
+	}
+	c, sub, had, seen := a.reactions, a.reactionsSub, a.reactionsFor, a.reactionsSeen
+	a.mu.Unlock()
+
+	if want != had {
+		if sub != nil {
+			sub.Close()
+		}
+		c, sub = nil, nil
+		if want != "" {
+			c = view.NewCollection(view.Reaction)
+			sub = a.client.Subscribe(v2.Subscribe_builder{
+				Limit:     reactorsPage,
+				Reactions: v2.ReactionsView_builder{MessageId: want}.Build(),
+			}.Build(), c, proto.Hooks{})
+		}
+		a.mu.Lock()
+		a.reactions, a.reactionsSub, a.reactionsFor, a.reactionsSeen, a.reactors = c, sub, want, 0, nil
+		a.mu.Unlock()
+		return
+	}
+	if c == nil || !c.IsReady() || c.Version() == seen {
+		return
+	}
+	version := c.Version()
+	var reactors []*v2.Reaction
+	c.Read(func(items []view.Item[*v2.Reaction], _ view.State) {
+		reactors = make([]*v2.Reaction, 0, len(items))
+		for _, it := range items {
+			reactors = append(reactors, it.Value)
+		}
+	})
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.reactionsFor != want || a.modal.kind != modalReact {
+		return
+	}
+	a.reactors, a.reactionsSeen = reactors, version
+	if m, ok := a.selectedMessageLocked(); ok && m.GetId() == want {
+		a.modal.selector.Refresh(a.reactChoices(m, string(a.modal.query)), maxInt(a.modal.visible, 1))
+	}
 }
 
 // The emoji a reaction is, in practice. The first six are the ones WhatsApp

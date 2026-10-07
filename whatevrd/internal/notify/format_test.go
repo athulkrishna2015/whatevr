@@ -3,7 +3,7 @@ package notify
 import (
 	"testing"
 
-	"whatevrd/internal/app"
+	"whatevrd/internal/live"
 )
 
 func TestParseCapabilities(t *testing.T) {
@@ -13,58 +13,48 @@ func TestParseCapabilities(t *testing.T) {
 	}
 }
 
-func TestFormatDirectWithBody(t *testing.T) {
-	content := FormatMessage(Capabilities{Body: true, Actions: true}, app.Message{Text: " hello\nthere "}, app.Chat{Name: "Alice"}, Options{Preview: true})
-	if content.Summary != "Alice" || content.Body != "hello there" {
-		t.Fatalf("unexpected content: %+v", content)
+func TestFormatWithBody(t *testing.T) {
+	c := Format(Capabilities{Body: true, Actions: true}, live.Notification{Title: "Alice", Body: " hello\nthere ", Count: 1})
+	if c.Summary != "Alice" || c.Body != "hello there" {
+		t.Fatalf("unexpected content: %+v", c)
 	}
-	if len(content.Actions) == 0 {
+	if len(c.Actions) == 0 {
 		t.Fatal("expected action")
 	}
 }
 
-func TestFormatGroupWithoutBody(t *testing.T) {
-	content := FormatMessage(Capabilities{}, app.Message{SenderID: "12345@s.whatsapp.net", SenderName: "Alice", Text: "hello"}, app.Chat{Name: "Family", IsGroup: true}, Options{Preview: true})
-	if content.Summary != "Family - Alice: hello" || content.Body != "" {
-		t.Fatalf("unexpected content: %+v", content)
+func TestFormatWithoutBody(t *testing.T) {
+	c := Format(Capabilities{}, live.Notification{Title: "Family", Body: "Alice: hello", Count: 1})
+	if c.Summary != "Family: Alice: hello" || c.Body != "" {
+		t.Fatalf("unexpected content: %+v", c)
 	}
 }
 
-func TestFormatGroupUsesWhatsAppSenderName(t *testing.T) {
-	content := FormatMessage(Capabilities{Body: true}, app.Message{SenderID: "12345@s.whatsapp.net", SenderName: "~Alice", Text: "hello"}, app.Chat{Name: "Family", IsGroup: true}, Options{Preview: true})
-	if content.Body != "~Alice: hello" {
-		t.Fatalf("expected WhatsApp sender name in body, got %q", content.Body)
-	}
-}
-
-func TestFormatGroupFallsBackToSenderID(t *testing.T) {
-	content := FormatMessage(Capabilities{Body: true}, app.Message{SenderID: "12345@s.whatsapp.net", Text: "hello"}, app.Chat{Name: "Family", IsGroup: true}, Options{Preview: true})
-	if content.Body != "12345: hello" {
-		t.Fatalf("expected sender ID fallback in body, got %q", content.Body)
-	}
-}
-
-// A media message has no text of its own, so its notification body is the
-// one-line rendering the store computed for it. The notifier no longer has an
-// opinion about what a photo is called.
-func TestFormatMediaUsesStorePreview(t *testing.T) {
-	content := FormatMessage(Capabilities{Body: true}, app.Message{MediaKind: "image", MediaMimeType: "image/jpeg", Preview: "📷 Photo"}, app.Chat{Name: "Alice"}, Options{Preview: true})
-	if content.Body != "📷 Photo" {
-		t.Fatalf("expected the store preview, got %q", content.Body)
+func TestFormatCount(t *testing.T) {
+	c := Format(Capabilities{Body: true}, live.Notification{Title: "Alice", Body: "hi", Count: 3})
+	if c.Summary != "Alice (3)" {
+		t.Fatalf("expected the count in the title, got %q", c.Summary)
 	}
 }
 
 func TestFormatEscapesMarkup(t *testing.T) {
-	content := FormatMessage(Capabilities{Body: true, BodyMarkup: true}, app.Message{Text: "<hello>"}, app.Chat{Name: "Alice"}, Options{Preview: true})
-	if content.Body != "&lt;hello&gt;" {
-		t.Fatalf("expected escaped markup, got %q", content.Body)
+	c := Format(Capabilities{Body: true, BodyMarkup: true}, live.Notification{Title: "Alice", Body: "<hello>"})
+	if c.Body != "&lt;hello&gt;" {
+		t.Fatalf("expected escaped markup, got %q", c.Body)
 	}
 }
 
-func TestFormatPreviewDisabledHidesText(t *testing.T) {
-	content := FormatMessage(Capabilities{Body: true}, app.Message{Text: "secret"}, app.Chat{Name: "Alice"}, Options{Preview: false})
-	if content.Summary != "Alice" || content.Body != "New message" {
-		t.Fatalf("expected hidden preview, got %+v", content)
+func TestFormatHiddenPreview(t *testing.T) {
+	c := Format(Capabilities{Body: true}, live.Notification{Title: "Alice"})
+	if c.Summary != "Alice" || c.Body != "New message" {
+		t.Fatalf("expected hidden preview, got %+v", c)
+	}
+}
+
+func TestFormatAvatar(t *testing.T) {
+	c := Format(Capabilities{Body: true, ImagePath: true}, live.Notification{Title: "Alice", Avatar: "/a.jpg"})
+	if c.Icon != "/a.jpg" || c.Hints["image-path"] != "/a.jpg" {
+		t.Fatalf("expected the avatar, got %+v", c)
 	}
 }
 

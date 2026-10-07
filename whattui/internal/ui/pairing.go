@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
 	"rsc.io/qr"
 
@@ -45,7 +46,7 @@ func (a *App) pairing() bool {
 		return false
 	}
 	c, ok := a.conn.Value()
-	return ok && c.State == "need_login"
+	return ok && connState(c) == v2.ConnectionState_CONNECTION_STATE_NEED_LOGIN
 }
 
 // drawPairing fills pane with the code, or with why it cannot.
@@ -55,15 +56,15 @@ func (a *App) drawPairing(pane vaxis.Window) {
 	w, h := pane.Size()
 
 	const title = "link a phone"
-	if login.QR == nil || login.QR.Code == "" {
+	if login.GetQr() == "" {
 		body := []string{"waiting for whatevrd to hand over a code."}
-		if login.Detail != "" {
-			body = append(body, "", login.Detail)
+		if d := login.GetDetail(); d != "" {
+			body = append(body, "", d)
 		}
 		a.drawNotice(pane, title, a.theme.Warning, body)
 		return
 	}
-	n, dark, err := qrModules(login.QR.Code)
+	n, dark, err := qrModules(login.GetQr())
 	if err != nil {
 		a.drawNotice(pane, title, a.theme.Error, []string{
 			"the code would not encode: " + err.Error(),
@@ -89,7 +90,7 @@ func (a *App) drawPairing(pane vaxis.Window) {
 	left, qrTop := (w-n)/2, top+2
 	if a.painted() {
 		a.paintRect(pane, left, qrTop, n, rows, func(pw, ph int) paint.Spec {
-			return paint.QR{W: pw, H: ph, N: n, Dark: dark, Code: login.QR.Code}
+			return paint.QR{W: pw, H: ph, N: n, Dark: dark, Code: login.GetQr()}
 		})
 	} else {
 		a.drawQRCells(pane, left, qrTop, n, dark)

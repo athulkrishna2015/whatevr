@@ -20,12 +20,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// qrRefreshInterval is how long each ref is offered before the next one. The
-// real server hands whatsmeow a batch of refs up front and the client rotates
-// through them, so a scenario that wants to watch the QR change just has to
-// wait.
-const qrRefreshInterval = 20 * time.Second
-
 // pairedDevice is what a completed pairing produced, so a scenario can report
 // which account it ended up as.
 type pairedDevice struct {
@@ -73,7 +67,7 @@ func (s *session) startPairing(ctx context.Context) error {
 func (s *session) awaitScan(ctx context.Context) {
 	code, err := s.srv.waitForQR(ctx)
 	if err != nil {
-		s.srv.log.Printf("pairing: %v", err)
+		s.srv.log.Warn().Err(err).Msg("pairing")
 		return
 	}
 	select {
@@ -82,7 +76,7 @@ func (s *session) awaitScan(ctx context.Context) {
 		return
 	}
 	if err := s.completePairing(ctx, code); err != nil {
-		s.srv.log.Printf("pairing: %v", err)
+		s.srv.log.Warn().Err(err).Msg("pairing")
 	}
 }
 
@@ -142,9 +136,16 @@ func (s *session) completePairing(ctx context.Context, code string) error {
 	s.jid = s.srv.accountJID()
 	s.jid.Device = 1
 	s.lid = lidFor(s.jid)
+	platform := "android"
+	if r := s.srv.replay; r != nil {
+		s.jid, s.lid = r.pn, r.lid
+		if r.acct.Platform != "" {
+			platform = r.acct.Platform
+		}
+	}
 
 	details, err := proto.Marshal(&waAdv.ADVDeviceIdentity{
-		RawID:     proto.Uint32(1),
+		RawID:     proto.Uint32(uint32(s.jid.Device)),
 		Timestamp: proto.Uint64(uint64(time.Now().Unix())),
 		KeyIndex:  proto.Uint32(1),
 	})
@@ -191,7 +192,7 @@ func (s *session) completePairing(ctx context.Context, code string) error {
 			Tag: "pair-success",
 			Content: []waBinary.Node{
 				{Tag: "device", Attrs: waBinary.Attrs{"jid": s.jid, "lid": s.lid}},
-				{Tag: "platform", Attrs: waBinary.Attrs{"name": "android"}},
+				{Tag: "platform", Attrs: waBinary.Attrs{"name": platform}},
 				{Tag: "biz", Attrs: waBinary.Attrs{"name": s.srv.opts.AccountName}},
 				{Tag: "device-identity", Content: container},
 			},
@@ -210,7 +211,7 @@ func (s *session) handleIQResponse(ctx context.Context, node *waBinary.Node) err
 		return fmt.Errorf("client rejected pair-success: %s", node.String())
 	}
 	s.srv.notePaired(pairedDevice{JID: s.jid, LID: s.lid})
-	s.srv.log.Printf("paired %s", s.jid)
+	s.srv.log.Info().Stringer("jid", s.jid).Msg("paired")
 
 	// A freshly paired device has to start a new stream, and the real server
 	// says so with stream:error 515 rather than by hanging up. whatsmeow has a
@@ -227,7 +228,7 @@ func (s *session) handleIQResponse(ctx context.Context, node *waBinary.Node) err
 			Tag:   "stream:error",
 			Attrs: waBinary.Attrs{"code": "515"},
 		}); err != nil {
-			s.srv.log.Printf("send 515: %v", err)
+			s.srv.log.Warn().Err(err).Msg("send 515")
 		}
 	}()
 	return nil

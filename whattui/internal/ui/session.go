@@ -1,6 +1,6 @@
 package ui
 
-import "whattui/internal/proto"
+import v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 
 // What the daemon knows about this window: whether it is in front, and which
 // chat is open in it.
@@ -25,9 +25,10 @@ func (a *App) updateSession() {
 		return
 	}
 	a.mu.Lock()
-	params := proto.Params{"focused": a.focused, "active_chat_id": a.activeChat}
+	req := &v2.Request{}
+	req.SetSessionUpdate(v2.SessionUpdate_builder{Focused: a.focused, ActiveChatId: a.activeChat}.Build())
 	a.mu.Unlock()
-	request("session.update", params, nil)
+	request(req, nil)
 }
 
 // windowFocus records that the terminal came to the front or left it, and tells

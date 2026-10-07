@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	"whattui/internal/proto"
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 )
 
 func TestEmojiOnlyCount(t *testing.T) {
@@ -44,7 +44,7 @@ func TestBigEmojiScale(t *testing.T) {
 func TestNothingIsDrawnLargeUnlessItWasAskedFor(t *testing.T) {
 	a := stubApp(90, 26, 4, 0)
 	a.caps.TextScale = true
-	row := proto.MessageRow{ID: "m", Kind: "text", Direction: "incoming", Text: "\U0001F389"}
+	row := v2.MessageRow_builder{Id: "m", TextBody: &v2.Text{}, Text: "\U0001F389"}.Build()
 
 	if got := a.layoutMessage(row, 90).scale; got != 1 {
 		t.Errorf("a lone emoji drew at scale %d with nothing asking for it", got)

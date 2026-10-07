@@ -214,7 +214,7 @@ func (s *session) handleAppStateIQ(ctx context.Context, node *waBinary.Node) err
 		return s.sendNode(ctx, iqResult(node))
 	}
 	if err := s.srv.appState.build(ctx, s.srv.world); err != nil {
-		s.srv.log.Printf("app state: %v", err)
+		s.srv.log.Warn().Err(err).Msg("app state")
 		return s.sendNode(ctx, iqError(node, 500, "internal-server-error"))
 	}
 	names := make([]string, 0, len(sync.GetChildren()))
@@ -239,7 +239,7 @@ func (s *session) handleAppStateIQ(ctx context.Context, node *waBinary.Node) err
 		// changed, not asking what did.
 		for _, patch := range collectPatchNodes(&child) {
 			if err := s.srv.appState.accept(ctx, s.srv.world, appstate.WAPatchName(name), patch); err != nil {
-				s.srv.log.Printf("app state: %v", err)
+				s.srv.log.Warn().Err(err).Msg("app state")
 			}
 		}
 		if !hasKey {
@@ -253,7 +253,8 @@ func (s *session) handleAppStateIQ(ctx context.Context, node *waBinary.Node) err
 			})
 			continue
 		}
-		collections = append(collections, s.srv.appState.collection(name, uint64(ag.OptionalInt("version"))))
+		_, incremental := child.Attrs["version"]
+		collections = append(collections, s.srv.appState.collection(name, uint64(ag.OptionalInt("version")), incremental))
 	}
 	return s.sendNode(ctx, iqResult(node, waBinary.Node{Tag: "sync", Content: collections}))
 }
@@ -264,7 +265,7 @@ func (s *session) handleAppStateIQ(ctx context.Context, node *waBinary.Node) err
 func (s *session) handleCompanionIQ(ctx context.Context, node *waBinary.Node) error {
 	if _, ok := node.GetOptionalChildByTag("remove-companion-device"); ok {
 		s.srv.forgetPairing()
-		s.srv.log.Printf("logged out %s", s.jid)
+		s.srv.log.Info().Stringer("jid", s.jid).Msg("logged out")
 	}
 	return s.sendNode(ctx, iqResult(node))
 }

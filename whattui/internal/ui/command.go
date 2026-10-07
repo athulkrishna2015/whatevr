@@ -1,15 +1,15 @@
 package ui
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
-
-	"whattui/internal/proto"
 )
 
 type commandID string
@@ -25,12 +25,14 @@ const (
 	cmdFocusPrevious commandID = "focus.previous"
 	cmdBoxes         commandID = "transcript.boxes"
 	cmdRedraw        commandID = "app.redraw"
+	cmdStatus        commandID = "status.open"
 	cmdReply         commandID = "message.reply"
 	cmdReact         commandID = "message.react"
 	cmdForward       commandID = "message.forward"
 	cmdMenu          commandID = "message.menu"
 	cmdEditMessage   commandID = "message.edit"
 	cmdCopyMessage   commandID = "message.copy"
+	cmdExpand        commandID = "message.expand"
 	cmdStar          commandID = "message.star"
 	cmdDelete        commandID = "message.delete"
 	cmdDeleteForMe   commandID = "message.delete-for-me"
@@ -64,8 +66,10 @@ type command struct {
 	Scope       scope
 	Leader      string
 	Slash       string
-	Enabled     func(commandState) (bool, string)
-	Run         func()
+	// needs is the request arms the daemon has to offer, any one will do
+	Needs   []fmt.Stringer
+	Enabled func(commandState) (bool, string)
+	Run     func()
 }
 
 type commandRegistry struct {
@@ -74,14 +78,16 @@ type commandRegistry struct {
 }
 
 type commandState struct {
-	hasChat   bool
+	hasChat bool
+	// readOnly is a chat we cannot send to
+	readOnly  bool
 	hasDraft  bool
 	chatCount int
 	// The message the selection cursor is on, and whether there is one. The
 	// row is carried rather than fetched: whether an action applies is asked
 	// under App.mu, and asking the collection under App.mu is a deadlock.
 	hasMessage bool
-	message    proto.MessageRow
+	message    *v2.MessageRow
 }
 
 func newCommandRegistry(commands []command) commandRegistry {
@@ -99,9 +105,12 @@ func (a *App) initCommands() {
 	if a.commands.byID != nil {
 		return
 	}
-	hasChat := func(state commandState) (bool, string) {
+	canSend := func(state commandState) (bool, string) {
 		if !state.hasChat {
 			return false, "open a chat first"
+		}
+		if state.readOnly {
+			return false, readOnlyNote
 		}
 		return true, ""
 	}
@@ -119,7 +128,7 @@ func (a *App) initCommands() {
 		if ok, why := hasMessage(state); !ok {
 			return false, why
 		}
-		if state.message.Revoked {
+		if state.message.GetRevoked() {
 			return false, "that message is already deleted"
 		}
 		return true, ""
@@ -128,14 +137,14 @@ func (a *App) initCommands() {
 		{ID: cmdPalette, Title: "Command palette", Description: "Find an action or /chat", Direct: "^p", Leader: "p", Slash: "palette", Run: func() { a.openModal(modalPalette) }},
 		{ID: cmdHelp, Title: "Keyboard help", Description: "Show every command and binding", Direct: "?", Leader: "?", Slash: "help", Run: func() { a.openModal(modalHelp) }},
 		{ID: cmdSend, Title: "Send message", Description: "Send the current draft", Direct: "enter", Enabled: func(state commandState) (bool, string) {
-			if ok, why := hasChat(state); !ok {
+			if ok, why := canSend(state); !ok {
 				return false, why
 			}
 			if !state.hasDraft {
 				return false, "draft is empty"
 			}
 			return true, ""
-		}, Slash: "send", Run: a.send},
+		}, Slash: "send", Needs: needs(v2.Request_SendText_case), Run: a.send},
 		{ID: cmdOpenChat, Title: "Open selected chat", Description: "Open the highlighted chat", Direct: "enter", Leader: "o", Enabled: func(state commandState) (bool, string) {
 			if state.chatCount == 0 {
 				return false, "no chats available"
@@ -145,39 +154,60 @@ func (a *App) initCommands() {
 		{ID: cmdFocusNext, Title: "Focus next pane", Description: "Move focus clockwise", Direct: "tab", Slash: "focus-next", Run: func() { a.cycleFocus(1) }},
 		{ID: cmdFocusPrevious, Title: "Focus previous pane", Description: "Move focus anticlockwise", Direct: "s-tab", Slash: "focus-previous", Run: func() { a.cycleFocus(-1) }},
 		{ID: cmdBoxes, Title: "Toggle message boxes", Description: "Draw a panel per message instead of a rule per run", Leader: "b", Slash: "boxes", Run: a.toggleBoxes},
+		{ID: cmdStatus, Title: "Status", Description: "The connection, the sync and anything wrong, as whatevrd sees them", Slash: "status", Run: a.openStatus},
 		{ID: cmdRedraw, Title: "Redraw the screen", Description: "Throw away what the terminal is showing and draw it again", Direct: "^l", Slash: "redraw", Run: a.redraw},
-		{ID: cmdReply, Title: "Reply to message", Description: "Answer the message the cursor is on", Direct: "r", Scope: scopeMessage, Slash: "reply", Enabled: hasLiveMessage, Run: a.replySelected},
-		{ID: cmdReact, Title: "React to message", Description: "Put an emoji on the message, or take yours off", Direct: "+", Scope: scopeMessage, Slash: "react", Enabled: hasLiveMessage, Run: a.reactSelected},
-		{ID: cmdForward, Title: "Forward message", Description: "Send the message on to other chats", Direct: "f", Scope: scopeMessage, Slash: "forward", Enabled: hasLiveMessage, Run: a.forwardSelected},
+		{ID: cmdReply, Title: "Reply to message", Description: "Answer the message the cursor is on", Direct: "r", Scope: scopeMessage, Slash: "reply", Needs: needs(v2.Request_SendText_case), Enabled: func(state commandState) (bool, string) {
+			if ok, why := canSend(state); !ok {
+				return false, why
+			}
+			return hasLiveMessage(state)
+		}, Run: a.replySelected},
+		{ID: cmdReact, Title: "React to message", Description: "Put an emoji on the message, or take yours off", Direct: "+", Scope: scopeMessage, Slash: "react", Needs: needs(v2.Request_MessageReact_case), Enabled: hasLiveMessage, Run: a.reactSelected},
+		{ID: cmdForward, Title: "Forward message", Description: "Send the message on to other chats", Direct: "f", Scope: scopeMessage, Slash: "forward", Needs: needs(v2.Request_MessageForward_case), Enabled: hasLiveMessage, Run: a.forwardSelected},
 		{ID: cmdMenu, Title: "Actions on this message", Description: "Open the menu of everything the message can do", Direct: "m", Scope: scopeMessage, Slash: "menu", Enabled: hasLiveMessage, Run: a.menuSelected},
-		{ID: cmdEditMessage, Title: "Edit message", Description: "Rewrite a message you sent", Direct: "e", Scope: scopeMessage, Slash: "edit", Enabled: func(state commandState) (bool, string) {
+		{ID: cmdEditMessage, Title: "Edit message", Description: "Rewrite a message you sent", Direct: "e", Scope: scopeMessage, Slash: "edit", Needs: needs(v2.Request_MessageEdit_case), Enabled: func(state commandState) (bool, string) {
 			if ok, why := hasMessage(state); !ok {
+				return false, why
+			}
+			if ok, why := canSend(state); !ok {
 				return false, why
 			}
 			// Asked before the composer ever loads the message, so a window
 			// that has closed is an answer in the corner rather than an edit
 			// that looks like it started and then bounces off the daemon.
 			switch {
-			case !state.message.Outgoing():
+			case !state.message.GetFromMe():
 				return false, "you can only edit your own messages"
-			case state.message.Revoked:
+			case state.message.GetRevoked():
 				return false, "that message is already deleted"
-			case state.message.EditUntil == 0:
+			case state.message.GetEditUntilMs() == 0:
 				return false, "this kind of message cannot be edited"
-			case !state.message.Editable(time.Now().Unix()):
+			case !editable(state.message, time.Now().UnixMilli()):
 				return false, "too late, the edit window has closed"
 			}
 			return true, ""
 		}, Run: a.editSelected},
 		{ID: cmdCopyMessage, Title: "Copy message", Description: "Put the message on the clipboard", Direct: "y", Scope: scopeMessage, Slash: "copy", Enabled: hasLiveMessage, Run: a.copySelected},
-		{ID: cmdStar, Title: "Star message", Description: "Star the message, or take the star off", Direct: "s", Scope: scopeMessage, Slash: "star", Enabled: hasLiveMessage, Run: a.starSelected},
-		{ID: cmdDelete, Title: "Delete message", Description: "Ask which kind of delete this is", Direct: "d", Scope: scopeMessage, Slash: "delete", Enabled: hasMessage, Run: a.deleteSelected},
-		{ID: cmdDeleteForMe, Title: "Delete for me", Description: "Take the message off this device only", Slash: "delete-for-me", Enabled: hasMessage, Run: a.deleteSelectedForMe},
-		{ID: cmdRevoke, Title: "Delete for everyone", Description: "Take the message away from everybody in the chat", Slash: "delete-for-everyone", Enabled: func(state commandState) (bool, string) {
+		{ID: cmdExpand, Title: "Expand message", Description: "Show the rest of a message whatevrd cut short", Scope: scopeMessage, Slash: "expand", Needs: needs(v2.Request_MessageText_case), Enabled: func(state commandState) (bool, string) {
+			if ok, why := hasLiveMessage(state); !ok {
+				return false, why
+			}
+			if !state.message.GetTextTruncated() {
+				return false, "that message is already whole"
+			}
+			if _, ok := a.expandedOf(state.message); ok {
+				return false, "that message is already expanded"
+			}
+			return true, ""
+		}, Run: a.expandSelected},
+		{ID: cmdStar, Title: "Star message", Description: "Star the message, or take the star off", Direct: "s", Scope: scopeMessage, Slash: "star", Needs: needs(v2.Request_MessageStar_case), Enabled: hasLiveMessage, Run: a.starSelected},
+		{ID: cmdDelete, Title: "Delete message", Description: "Ask which kind of delete this is", Direct: "d", Scope: scopeMessage, Slash: "delete", Needs: needs(v2.Request_MessageDelete_case, v2.Request_MessageRevoke_case), Enabled: hasMessage, Run: a.deleteSelected},
+		{ID: cmdDeleteForMe, Title: "Delete for me", Description: "Take the message off this device only", Slash: "delete-for-me", Needs: needs(v2.Request_MessageDelete_case), Enabled: hasMessage, Run: a.deleteSelectedForMe},
+		{ID: cmdRevoke, Title: "Delete for everyone", Description: "Take the message away from everybody in the chat", Slash: "delete-for-everyone", Needs: needs(v2.Request_MessageRevoke_case), Enabled: func(state commandState) (bool, string) {
 			if ok, why := hasMessage(state); !ok {
 				return false, why
 			}
-			if !state.message.Outgoing() {
+			if !state.message.GetFromMe() {
 				return false, "you can only delete your own messages for everyone"
 			}
 			return true, ""
@@ -199,6 +229,10 @@ func (a *App) execute(id commandID) bool {
 	c := a.commands.byID[id]
 	if c == nil {
 		return false
+	}
+	if !a.offered(c) {
+		a.refuse("this whatevrd cannot " + strings.ToLower(c.Title))
+		return true
 	}
 	if c.Enabled != nil {
 		if ok, why := c.Enabled(a.commandState()); !ok {
@@ -330,7 +364,7 @@ func (a *App) commandChoicesFor(query string, slashOnly, help bool, state comman
 	}
 	var matches []ranked
 	for i, c := range a.commands.ordered {
-		if slashOnly && c.Slash == "" {
+		if slashOnly && c.Slash == "" || !a.offered(&c) {
 			continue
 		}
 		disabled := ""
@@ -384,7 +418,7 @@ func (a *App) messageChoicesLocked() []modalChoice {
 	state := a.commandStateLocked()
 	var out []modalChoice
 	for _, c := range a.commands.ordered {
-		if c.Scope != scopeMessage || c.ID == cmdMenu {
+		if c.Scope != scopeMessage || c.ID == cmdMenu || !a.offered(&c) {
 			continue
 		}
 		if c.Enabled != nil {
@@ -393,7 +427,7 @@ func (a *App) messageChoicesLocked() []modalChoice {
 			}
 		}
 		label := c.Title
-		if c.ID == cmdStar && state.message.Starred {
+		if c.ID == cmdStar && state.message.GetStarred() {
 			label = "Unstar message"
 		}
 		out = append(out, modalChoice{Command: c.ID, Label: label, Detail: c.Direct})
@@ -411,6 +445,7 @@ func (a *App) commandStateLocked() commandState {
 	message, hasMessage := a.selectedMessageLocked()
 	return commandState{
 		hasChat:    a.activeChat != "",
+		readOnly:   a.conversation != nil && a.conversation.readOnly,
 		hasDraft:   strings.TrimSpace(a.composer.String()) != "",
 		chatCount:  a.chats.Len(),
 		hasMessage: hasMessage,
@@ -423,7 +458,7 @@ func (a *App) commandStateLocked() commandState {
 func (a *App) enabled(id commandID, state commandState) bool {
 	a.initCommands()
 	c := a.commands.byID[id]
-	if c == nil {
+	if c == nil || !a.offered(c) {
 		return false
 	}
 	if c.Enabled == nil {
@@ -431,6 +466,22 @@ func (a *App) enabled(id commandID, state commandState) bool {
 	}
 	ok, _ := c.Enabled(state)
 	return ok
+}
+
+func needs(arms ...fmt.Stringer) []fmt.Stringer { return arms }
+
+// offered is whether the daemon's hello lists what c sends. client.mu is a
+// leaf, so this is fine under App.mu
+func (a *App) offered(c *command) bool {
+	if len(c.Needs) == 0 || a.offers == nil {
+		return true
+	}
+	for _, arm := range c.Needs {
+		if a.offers(arm.String()) {
+			return true
+		}
+	}
+	return false
 }
 
 func commandBindings(c command) string {

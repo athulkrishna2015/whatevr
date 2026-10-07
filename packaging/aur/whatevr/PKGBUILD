@@ -1,18 +1,15 @@
 # Maintainer: Harsh Sharma <harsh@codelif.in>
 pkgname=whatevr
-pkgver=0.11.6
+pkgver=0.9.1
 pkgrel=1
-pkgdesc="Native WhatsApp client for Linux (whatevrd daemon + whatkevr desktop and whattui terminal frontends)"
+pkgdesc="Native WhatsApp client for Linux (whatevrd daemon + whattui terminal frontend)"
 arch=('x86_64' 'aarch64')
 url="https://github.com/codelif/whatevr"
 license=('BSD-3-Clause')
-depends=('qt6-base' 'qt6-declarative' 'qt6-multimedia' 'qt6-shadertools'
-         'kcoreaddons' 'kdbusaddons' 'ki18n' 'kirigami' 'prison' 'qqc2-desktop-style' 'kirigami-addons'
-         'kquickimageeditor' 'rlottie' 'mpv' 'ffmpeg' 'sqlite' 'glibc'
-         'desktop-file-utils' 'shared-mime-info' 'xdg-utils')
-makedepends=('go' 'gcc' 'just' 'cmake' 'ninja' 'extra-cmake-modules' 'vulkan-headers' 'python')
-provides=('whatevrd' 'whatkevr' 'whattui')
+depends=('glibc' 'libjpeg-turbo')
 optdepends=('ffmpeg: video posters and voice note waveforms')
+makedepends=('go' 'gcc' 'just' 'python')
+provides=('whatevrd' 'whattui')
 conflicts=('whatevr-git' 'whatevr-bin')
 install="$pkgname.install"
 source=("$pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/$pkgname-$pkgver.tar.gz")
@@ -28,4 +25,9 @@ package() {
 	just install /usr "$pkgdir"
 	install -Dm644 "$srcdir/$pkgname-$pkgver/LICENSE" \
 		"$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+	local completions="$pkgdir/usr/share"
+	install -d "$completions/bash-completion/completions" "$completions/zsh/site-functions" "$completions/fish/vendor_completions.d"
+	"$pkgdir/usr/bin/whatevrd" completion bash >"$completions/bash-completion/completions/whatevrd"
+	"$pkgdir/usr/bin/whatevrd" completion zsh >"$completions/zsh/site-functions/_whatevrd"
+	"$pkgdir/usr/bin/whatevrd" completion fish >"$completions/fish/vendor_completions.d/whatevrd.fish"
 }

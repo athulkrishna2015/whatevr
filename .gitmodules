@@ -2,3 +2,7 @@
 	path = whattui/vaxis
 	url = https://git.sr.ht/~codelif/vaxis
 	branch = main
+[submodule "whatevrd/whatsmeow"]
+	path = whatevrd/whatsmeow
+	url = https://git.sr.ht/~codelif/whatsmeow
+	branch = main

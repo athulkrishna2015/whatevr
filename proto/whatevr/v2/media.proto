@@ -1,0 +1,91 @@
+edition = "2024";
+
+package whatevr.v2;
+
+import "whatevr/v2/people.proto";
+
+option features.field_presence = IMPLICIT;
+
+// in-flight transfers and their byte counts; removed when one ends
+message TransfersView {}
+
+message TransferRow {
+  string message_id = 1;
+  string chat_id = 2;
+  TransferDirection direction = 3;
+  uint64 done_bytes = 4;
+  uint64 total_bytes = 5;
+  // an error the transfer is retrying through
+  string error = 6;
+}
+
+enum TransferDirection {
+  TRANSFER_DIRECTION_UNSPECIFIED = 0;
+  TRANSFER_DIRECTION_DOWNLOAD = 1;
+  TRANSFER_DIRECTION_UPLOAD = 2;
+}
+
+// progress in transfers, the path lands on the message row
+message MediaDownload {
+  string message_id = 1;
+}
+
+// a loopback http range url a player can open before the download ends
+message MediaStream {
+  string message_id = 1;
+}
+
+message MediaStreamResult {
+  string stream_id = 1;
+  string url = 2;
+  string mime = 3;
+  uint64 size_bytes = 4;
+  int64 duration_ms = 5;
+}
+
+// sent once, to the connection that asked, when a stream fails late
+message MediaStreamUpdate {
+  string stream_id = 1;
+  string message_id = 2;
+  MediaStreamState state = 3;
+  // the whole file, for MEDIA_STREAM_STATE_LOCAL
+  string path = 4;
+  string error = 5;
+}
+
+enum MediaStreamState {
+  MEDIA_STREAM_STATE_UNSPECIFIED = 0;
+  // fell back to a whole download; play path instead
+  MEDIA_STREAM_STATE_LOCAL = 1;
+  MEDIA_STREAM_STATE_FAILED = 2;
+}
+
+// stops a download or stream; what landed is kept for a resume
+message MediaCancelDownload {
+  string message_id = 1;
+}
+
+// a file's bytes over the socket, for a frontend that can't open the path.
+// one chunk per request; ask again at offset + len(data) until eof
+message MediaRead {
+  // any path the daemon put on a row
+  string path = 1;
+  uint64 offset = 2;
+  // 0 for the daemon's chunk size; capped by the daemon
+  uint32 max_bytes = 3;
+}
+
+message MediaReadResult {
+  bytes data = 1;
+  uint64 size_bytes = 2;
+  bool eof = 3;
+}
+
+// full resolution, for an avatar viewer
+message MediaFetchProfilePicture {
+  Address person = 1;
+}
+
+message MediaFetchProfilePictureResult {
+  string path = 1;
+}

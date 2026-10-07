@@ -1,0 +1,95 @@
+edition = "2024";
+
+package whatevr.v2;
+
+option features.field_presence = IMPLICIT;
+
+// whatsapp's privacy settings for this account
+message PrivacyView {}
+
+message PrivacyRow {
+  PrivacyValue last_seen = 1;
+  PrivacyValue online = 2;
+  PrivacyValue profile_photo = 3;
+  PrivacyValue about = 4;
+  PrivacyValue group_add = 5;
+  PrivacyValue call_add = 6;
+  bool read_receipts = 7;
+}
+
+enum PrivacyCategory {
+  PRIVACY_CATEGORY_UNSPECIFIED = 0;
+  PRIVACY_CATEGORY_LAST_SEEN = 1;
+  PRIVACY_CATEGORY_ONLINE = 2;
+  PRIVACY_CATEGORY_PROFILE_PHOTO = 3;
+  PRIVACY_CATEGORY_ABOUT = 4;
+  PRIVACY_CATEGORY_GROUP_ADD = 5;
+  PRIVACY_CATEGORY_CALL_ADD = 6;
+  PRIVACY_CATEGORY_READ_RECEIPTS = 7;
+}
+
+enum PrivacyValue {
+  PRIVACY_VALUE_UNSPECIFIED = 0;
+  PRIVACY_VALUE_ALL = 1;
+  PRIVACY_VALUE_CONTACTS = 2;
+  PRIVACY_VALUE_CONTACTS_EXCEPT = 3;
+  PRIVACY_VALUE_NOBODY = 4;
+  // online only: the same as last seen
+  PRIVACY_VALUE_MATCH_LAST_SEEN = 5;
+  // call add only
+  PRIVACY_VALUE_KNOWN = 6;
+}
+
+message PrivacySet {
+  PrivacyCategory category = 1;
+  // read receipts take ALL for on, NOBODY for off
+  PrivacyValue value = 2;
+}
+
+// the daemon's own preferences, kept across restarts
+message PreferencesView {}
+
+message PreferencesRow {
+  Preferences preferences = 1;
+}
+
+message Preferences {
+  bool notifications = 1;
+  bool notification_sound = 2;
+  bool notification_preview = 3;
+  bool auto_download_photos = 4;
+  bool auto_download_videos = 5;
+  bool auto_download_audio = 6;
+  bool auto_download_documents = 7;
+  bool auto_download_stickers = 8;
+  uint64 auto_download_max_bytes = 9;
+  // fetch map tiles for a location's picture
+  bool auto_fetch_maps = 10;
+  // the frontend a click or link starts when none is connected. empty is
+  // whattui. set it with frontend_set_default
+  string default_frontend = 11;
+  // the terminal a terminal frontend runs in, its argv appended. empty is
+  // the platform's default
+  repeated string terminal = 12;
+}
+
+// an argv as one value, so a set can tell empty from absent
+message Argv {
+  repeated string args = 1;
+}
+
+// sets the fields that are present; the rest stay as they are
+message PreferencesSet {
+  bool notifications = 1 [features.field_presence = EXPLICIT];
+  bool notification_sound = 2 [features.field_presence = EXPLICIT];
+  bool notification_preview = 3 [features.field_presence = EXPLICIT];
+  bool auto_download_photos = 4 [features.field_presence = EXPLICIT];
+  bool auto_download_videos = 5 [features.field_presence = EXPLICIT];
+  bool auto_download_audio = 6 [features.field_presence = EXPLICIT];
+  bool auto_download_documents = 7 [features.field_presence = EXPLICIT];
+  bool auto_download_stickers = 8 [features.field_presence = EXPLICIT];
+  uint64 auto_download_max_bytes = 9 [features.field_presence = EXPLICIT];
+  bool auto_fetch_maps = 10 [features.field_presence = EXPLICIT];
+  // present and empty goes back to the platform's terminal
+  Argv terminal = 12;
+}

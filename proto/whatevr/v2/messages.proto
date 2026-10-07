@@ -1,0 +1,742 @@
+edition = "2024";
+
+package whatevr.v2;
+
+import "whatevr/v2/people.proto";
+
+option features.field_presence = IMPLICIT;
+
+// one chat's transcript
+message MessagesView {
+  string chat_id = 1;
+
+  oneof anchor {
+    // the live edge, the default
+    Latest latest = 2;
+    // around the first unread, reported back as anchor_id
+    Unread unread = 3;
+    // around one message
+    string message_id = 4;
+    // around a position: a row's sort as it came, which still works when
+    // that message is gone
+    bytes sort = 5;
+  }
+}
+
+message Latest {}
+
+message Unread {}
+
+// starred messages, across chats when chat_id is empty
+message StarredView {
+  string chat_id = 1;
+}
+
+// pinned and unexpired, removed as each runs out
+message PinnedView {
+  string chat_id = 1;
+}
+
+// one chat's media kinds, newest first
+message ChatMediaView {
+  string chat_id = 1;
+}
+
+// per-member delivered, read and played times of one message
+message ReceiptsView {
+  string message_id = 1;
+}
+
+message ReceiptRow {
+  Person person = 1;
+  int64 delivered_ms = 2;
+  int64 read_ms = 3;
+  int64 played_ms = 4;
+}
+
+// everyone who reacted to a message, id is the person; items are Reaction
+message ReactionsView {
+  string message_id = 1;
+}
+
+// every vote on a poll, id is the option index and the person
+message PollVotesView {
+  string message_id = 1;
+}
+
+message PollVoteRow {
+  uint32 option = 1;
+  Person person = 2;
+  int64 t_ms = 3;
+}
+
+// every answer to an event, id is the person; items are Responder
+message EventResponsesView {
+  string message_id = 1;
+}
+
+// live location shares running in a chat, id is the message that opened one
+message LiveLocationsView {
+  string chat_id = 1;
+}
+
+message LiveLocationRow {
+  string message_id = 1;
+  Person sender = 2;
+  int64 started_ms = 3;
+  int64 expires_ms = 4;
+  int64 updated_ms = 5;
+  Location location = 6;
+}
+
+message MessageRow {
+  // the token every message command takes
+  string id = 1;
+  string chat_id = 2;
+  // set in views that span chats (starred, search)
+  string chat_name = 3;
+  Person sender = 4;
+  bool from_me = 5;
+  int64 t_ms = 6;
+  MessageStatus status = 7;
+  // one line any frontend can draw, for a body it doesn't know (rule 5)
+  string fallback = 8;
+  // the words, or a media kind's caption; mentions already read @name
+  string text = 9;
+  repeated Mention mentions = 10;
+  Quote reply_to = 11;
+  repeated Reaction reactions = 12;
+  bool edited = 13;
+  bool revoked = 14;
+  // who revoked it, when it wasn't the sender (a group admin)
+  Person revoked_by = 15;
+  bool starred = 16;
+  bool forwarded = 17;
+  // forwarded many times, as whatsapp marks it
+  bool forwarded_many = 18;
+  int64 pinned_until_ms = 19;
+  // when whatsapp stops taking an edit, 0 for a row that can't be edited
+  int64 edit_until_ms = 20;
+  // somebody kept a disappearing message
+  bool kept = 21;
+  bool view_once = 22;
+  // the reason a send failed, for a FAILED row
+  string error = 23;
+  // text was cut to fit the row; message_text has all of it
+  bool text_truncated = 24;
+  // every reaction by emoji. reactions holds at most a few of them, the
+  // reactions view has everyone
+  repeated ReactionCount reaction_counts = 25;
+
+  oneof body {
+    Text text_body = 30;
+    Image image = 31;
+    Video video = 32;
+    Gif gif = 33;
+    Voice voice = 34;
+    Audio audio = 35;
+    Document document = 36;
+    VideoNote video_note = 37;
+    Sticker sticker = 38;
+    Location location = 39;
+    LiveLocation live_location = 40;
+    Contacts contacts = 41;
+    Poll poll = 42;
+    GroupInvite group_invite = 43;
+    ScheduledEvent event = 44;
+    Album album = 45;
+    Interactive interactive = 46;
+    Product product = 47;
+    Order order = 48;
+    Payment payment = 49;
+    StickerPackShare sticker_pack = 50;
+    CallLog call_log = 51;
+    System system = 52;
+    Waiting waiting = 53;
+    Unsupported unsupported = 54;
+  }
+}
+
+enum MessageStatus {
+  MESSAGE_STATUS_UNSPECIFIED = 0;
+  // queued here, not on the server yet
+  MESSAGE_STATUS_PENDING = 1;
+  MESSAGE_STATUS_SENT = 2;
+  MESSAGE_STATUS_DELIVERED = 3;
+  MESSAGE_STATUS_READ = 4;
+  MESSAGE_STATUS_PLAYED = 5;
+  MESSAGE_STATUS_FAILED = 6;
+}
+
+// a span of text naming someone; offsets are unicode code points
+message Mention {
+  Person person = 1;
+  uint32 start = 2;
+  uint32 end = 3;
+}
+
+message Quote {
+  string message_id = 1;
+  Person sender = 2;
+  // one line: the text, or the quoted body's fallback
+  string text = 3;
+  string thumbnail_path = 4;
+}
+
+message Reaction {
+  string emoji = 1;
+  Person sender = 2;
+  int64 t_ms = 3;
+}
+
+message ReactionCount {
+  string emoji = 1;
+  uint32 count = 2;
+  // one of them is ours
+  bool mine = 3;
+}
+
+// a file whatsapp holds; path is empty until downloaded
+message Media {
+  string mime = 1;
+  uint32 width = 2;
+  uint32 height = 3;
+  uint64 size_bytes = 4;
+  int64 duration_ms = 5;
+  string thumbnail_path = 6;
+  string path = 7;
+  bool downloading = 8;
+  string download_error = 9;
+}
+
+message Text {
+  LinkPreview link_preview = 1;
+}
+
+// the card the sender's client built for a link; nothing here is fetched
+message LinkPreview {
+  string url = 1;
+  string host = 2;
+  string title = 3;
+  string description = 4;
+  LinkPreviewType type = 5;
+  string thumbnail_path = 6;
+  uint32 thumbnail_width = 7;
+  uint32 thumbnail_height = 8;
+}
+
+enum LinkPreviewType {
+  LINK_PREVIEW_TYPE_UNSPECIFIED = 0;
+  LINK_PREVIEW_TYPE_PAGE = 1;
+  LINK_PREVIEW_TYPE_VIDEO = 2;
+  LINK_PREVIEW_TYPE_IMAGE = 3;
+  LINK_PREVIEW_TYPE_PROFILE = 4;
+  LINK_PREVIEW_TYPE_PAYMENT_LINKS = 5;
+  LINK_PREVIEW_TYPE_PLACEHOLDER = 6;
+}
+
+message Image {
+  Media media = 1;
+}
+
+message Video {
+  Media media = 1;
+}
+
+message Gif {
+  Media media = 1;
+}
+
+message Voice {
+  Media media = 1;
+  // 64 buckets of 0-100, one byte each; the bubble needs it before a download
+  bytes waveform = 2;
+  bool played = 3;
+}
+
+message Audio {
+  Media media = 1;
+}
+
+message Document {
+  Media media = 1;
+  string filename = 2;
+  uint32 page_count = 3;
+}
+
+message VideoNote {
+  Media media = 1;
+}
+
+message Sticker {
+  Media media = 1;
+  // the library's key, for sticker_favorite and send_sticker
+  string sticker_id = 2;
+  bool animated = 3;
+  bool lottie = 4;
+}
+
+message Location {
+  double lat = 1;
+  double lng = 2;
+  string name = 3;
+  string address = 4;
+  string url = 5;
+  uint32 accuracy_m = 6;
+  // the map the daemon stitched from tiles, downloaded like any media
+  Media map = 7;
+}
+
+// the bubble of a share; its moving positions are live_locations' job
+message LiveLocation {
+  Location location = 1;
+  bool active = 2;
+  int64 started_ms = 3;
+  int64 expires_ms = 4;
+  int64 updated_ms = 5;
+  double speed_mps = 6;
+  // 0 is north, so presence matters here
+  uint32 heading_deg = 7 [features.field_presence = EXPLICIT];
+  uint32 point_count = 8;
+}
+
+// one or more shared contact cards, parsed from their vcards
+message Contacts {
+  string display_name = 1;
+  repeated ContactCard cards = 2;
+}
+
+message ContactCard {
+  string display_name = 1;
+  string org = 2;
+  string title = 3;
+  string birthday = 4;
+  repeated ContactField phones = 5;
+  repeated ContactField emails = 6;
+  repeated ContactField urls = 7;
+  repeated ContactField addresses = 8;
+  // the raw card, for export
+  string vcard = 9;
+}
+
+message ContactField {
+  string label = 1;
+  string value = 2;
+  // a phone number that is on whatsapp
+  Person person = 3;
+}
+
+// the question and its tally, joined when read so a vote is one upsert
+message Poll {
+  string question = 1;
+  repeated PollOption options = 2;
+  // 1 for a radio poll
+  uint32 selectable = 3;
+  bool quiz = 4;
+  bool allow_add_option = 5;
+  int64 ends_ms = 6;
+  uint32 voters = 7;
+  bool self_voted = 8;
+}
+
+message PollOption {
+  uint32 index = 1;
+  string name = 2;
+  // at most a few; the poll_votes view has everyone
+  repeated Voter voters = 3;
+  bool self_voted = 4;
+  uint32 votes = 5;
+}
+
+message Voter {
+  Person person = 1;
+  int64 t_ms = 2;
+}
+
+message GroupInvite {
+  // the group's chat id when we're in it or know it
+  string chat_id = 1;
+  string code = 2;
+  int64 expires_ms = 3;
+  // what the sender's message said
+  string name = 4;
+  string caption = 5;
+  string thumbnail_path = 6;
+  // what whatsapp said when the daemon looked the code up
+  string subject = 7;
+  string topic = 8;
+  uint32 member_count = 9;
+  bool joined = 10;
+  string resolve_error = 11;
+}
+
+message ScheduledEvent {
+  string name = 1;
+  string description = 2;
+  int64 starts_ms = 3;
+  int64 ends_ms = 4;
+  bool canceled = 5;
+  string join_link = 6;
+  Location location = 7;
+  bool extra_guests_allowed = 8;
+  bool call = 9;
+  int64 reminder_offset_ms = 10;
+  // at most a few; the event_responses view has everyone
+  repeated Responder responders = 11;
+  // heads, guests included
+  uint32 going = 12;
+  Rsvp self_response = 13;
+  uint32 self_guests = 14;
+  // people, guests not counted
+  uint32 maybe = 15;
+  uint32 not_going = 16;
+}
+
+message Responder {
+  Person person = 1;
+  Rsvp response = 2;
+  uint32 extra_guests = 3;
+  int64 t_ms = 4;
+}
+
+enum Rsvp {
+  RSVP_UNSPECIFIED = 0;
+  RSVP_GOING = 1;
+  RSVP_NOT_GOING = 2;
+  RSVP_MAYBE = 3;
+}
+
+// pictures sent as one; the children are whole rows with their own ids
+message Album {
+  // how many the sender said were coming, may exceed len(items)
+  uint32 expected = 1;
+  repeated MessageRow items = 2;
+}
+
+// a business message, whatsapp's four shapes flattened into one card
+message Interactive {
+  InteractiveSource source = 1;
+  string title = 2;
+  string subtitle = 3;
+  string body = 4;
+  string footer = 5;
+  string thumbnail_path = 6;
+  string document_name = 7;
+  repeated InteractiveButton buttons = 8;
+  repeated InteractiveSection sections = 9;
+  string list_label = 10;
+  // a carousel's slides
+  repeated Interactive cards = 11;
+}
+
+// which wire shape it came from, for bug reports, not for drawing
+enum InteractiveSource {
+  INTERACTIVE_SOURCE_UNSPECIFIED = 0;
+  INTERACTIVE_SOURCE_BUTTONS = 1;
+  INTERACTIVE_SOURCE_LIST = 2;
+  INTERACTIVE_SOURCE_TEMPLATE = 3;
+  INTERACTIVE_SOURCE_INTERACTIVE = 4;
+  INTERACTIVE_SOURCE_CAROUSEL = 5;
+}
+
+message InteractiveButton {
+  InteractiveButtonKind kind = 1;
+  string label = 2;
+  string url = 3;
+  string phone = 4;
+  // what a copy button puts on the clipboard
+  string copy = 5;
+  string id = 6;
+  // this desktop can carry it out
+  bool live = 7;
+}
+
+enum InteractiveButtonKind {
+  INTERACTIVE_BUTTON_KIND_UNSPECIFIED = 0;
+  INTERACTIVE_BUTTON_KIND_URL = 1;
+  INTERACTIVE_BUTTON_KIND_CALL = 2;
+  INTERACTIVE_BUTTON_KIND_COPY = 3;
+  INTERACTIVE_BUTTON_KIND_REPLY = 4;
+  // a native flow this build doesn't know
+  INTERACTIVE_BUTTON_KIND_OTHER = 5;
+}
+
+message InteractiveSection {
+  string title = 1;
+  repeated InteractiveRow rows = 2;
+}
+
+message InteractiveRow {
+  string id = 1;
+  string title = 2;
+  string description = 3;
+}
+
+// money is thousandths of a unit plus an iso 4217 code, never formatted
+message Money {
+  // 1299000 is 1299.00
+  int64 thousandths = 1;
+  string currency = 2;
+}
+
+message Product {
+  string title = 1;
+  string description = 2;
+  string body = 3;
+  string footer = 4;
+  string thumbnail_path = 5;
+  Money price = 6;
+  Money sale_price = 7;
+  string product_id = 8;
+  string retailer_id = 9;
+  string url = 10;
+  uint32 image_count = 11;
+  Person seller = 12;
+}
+
+message Order {
+  string title = 1;
+  string thumbnail_path = 2;
+  string order_id = 3;
+  uint32 item_count = 4;
+  OrderStatus status = 5;
+  Money total = 6;
+  Person seller = 7;
+}
+
+enum OrderStatus {
+  ORDER_STATUS_UNSPECIFIED = 0;
+  ORDER_STATUS_INQUIRY = 1;
+  ORDER_STATUS_ACCEPTED = 2;
+  ORDER_STATUS_DECLINED = 3;
+}
+
+message Payment {
+  PaymentKind kind = 1;
+  Money amount = 2;
+  string note = 3;
+  int64 expires_ms = 4;
+  // the rail: upi, pix and so on, as whatsapp names it
+  string service = 5;
+  Person requested_from = 6;
+}
+
+enum PaymentKind {
+  PAYMENT_KIND_UNSPECIFIED = 0;
+  PAYMENT_KIND_REQUEST = 1;
+  PAYMENT_KIND_SENT = 2;
+  PAYMENT_KIND_INVITE = 3;
+}
+
+// a shared pack and what the local library says about it now
+message StickerPackShare {
+  string pack_id = 1;
+  string name = 2;
+  string publisher = 3;
+  string description = 4;
+  string caption = 5;
+  uint32 count = 6;
+  bool installable = 7;
+  bool installed = 8;
+}
+
+message CallLog {
+  bool video = 1;
+  CallOutcome outcome = 2;
+  int64 duration_ms = 3;
+  bool group = 4;
+  bool scheduled = 5;
+  bool voice_chat = 6;
+  uint32 participants = 7;
+}
+
+enum CallOutcome {
+  CALL_OUTCOME_UNSPECIFIED = 0;
+  CALL_OUTCOME_CONNECTED = 1;
+  CALL_OUTCOME_MISSED = 2;
+  CALL_OUTCOME_FAILED = 3;
+  CALL_OUTCOME_REJECTED = 4;
+  CALL_OUTCOME_ACCEPTED_ELSEWHERE = 5;
+  CALL_OUTCOME_ONGOING = 6;
+  CALL_OUTCOME_SILENCED = 7;
+}
+
+// something the chat did to itself. text is the whole sentence; the parts
+// are for a frontend that speaks another language
+message System {
+  SystemType type = 1;
+  string text = 2;
+  // nobody for a join by link
+  Person actor = 3;
+  // the first few people it named
+  repeated Person names = 4;
+  // how many more beyond names
+  uint32 overflow = 5;
+  // the new subject, description or link
+  string value = 6;
+  bool on = 7;
+  uint32 ephemeral_secs = 8;
+  // it named you; such a row counts as unread and moves the chat
+  bool about_self = 9;
+}
+
+enum SystemType {
+  SYSTEM_TYPE_UNSPECIFIED = 0;
+  SYSTEM_TYPE_GROUP_JOIN = 1;
+  SYSTEM_TYPE_GROUP_LEAVE = 2;
+  SYSTEM_TYPE_GROUP_PROMOTE = 3;
+  SYSTEM_TYPE_GROUP_DEMOTE = 4;
+  SYSTEM_TYPE_GROUP_NAME = 5;
+  SYSTEM_TYPE_GROUP_TOPIC = 6;
+  SYSTEM_TYPE_GROUP_PHOTO = 7;
+  SYSTEM_TYPE_GROUP_LOCKED = 8;
+  SYSTEM_TYPE_GROUP_ANNOUNCE = 9;
+  SYSTEM_TYPE_GROUP_APPROVAL = 10;
+  SYSTEM_TYPE_GROUP_INVITE_LINK = 11;
+  SYSTEM_TYPE_GROUP_LINK = 12;
+  SYSTEM_TYPE_GROUP_UNLINK = 13;
+  SYSTEM_TYPE_GROUP_DELETE = 14;
+  SYSTEM_TYPE_EPHEMERAL = 15;
+  SYSTEM_TYPE_IDENTITY_CHANGE = 16;
+}
+
+// a message that hasn't decrypted. a resend lands on the same id
+message Waiting {
+  int64 first_seen_ms = 1;
+  // when the daemon asks again by itself
+  int64 retry_at_ms = 2;
+  uint32 requests = 3;
+  // the phone was asked as well
+  bool asked_phone = 4;
+  // whatsapp's reason it never will decrypt here, empty while hoping
+  string never = 5;
+}
+
+// a kind this daemon can't read; draw the fallback
+message Unsupported {}
+
+message SendText {
+  string chat_id = 1;
+  string text = 2;
+  string reply_to = 3;
+  repeated Address mentions = 4;
+  // picked by the frontend, unique per send. a repeat sends nothing and
+  // answers the first one's result; the same key with other params is
+  // INVALID_PARAMS. empty is no key
+  string key = 5;
+}
+
+// the daemon copies the file before answering; the caller may delete it
+message SendMedia {
+  string chat_id = 1;
+  string path = 2;
+  string caption = 3;
+  string reply_to = 4;
+  repeated Address mentions = 5;
+  // send a picture or video as a document
+  bool as_document = 6;
+  bool view_once = 7;
+  // picked by the frontend, unique per send. a repeat sends nothing and
+  // answers the first one's result; the same key with other params is
+  // INVALID_PARAMS. empty is no key
+  string key = 8;
+}
+
+message SendSticker {
+  string chat_id = 1;
+  string sticker_id = 2;
+  string reply_to = 3;
+  // picked by the frontend, unique per send. a repeat sends nothing and
+  // answers the first one's result; the same key with other params is
+  // INVALID_PARAMS. empty is no key
+  string key = 4;
+}
+
+message SendResult {
+  string message_id = 1;
+}
+
+// "" removes our reaction
+message MessageReact {
+  string message_id = 1;
+  string emoji = 2;
+}
+
+message MessageEdit {
+  string message_id = 1;
+  string text = 2;
+}
+
+message MessageRevoke {
+  string message_id = 1;
+}
+
+// delete for me
+message MessageDelete {
+  string message_id = 1;
+}
+
+message MessageStar {
+  string message_id = 1;
+  bool starred = 2;
+}
+
+message MessagePin {
+  string message_id = 1;
+  bool pinned = 2;
+  int64 duration_ms = 3;
+}
+
+message MessageForward {
+  string message_id = 1;
+  repeated string chat_ids = 2;
+  // picked by the frontend, unique per send. a repeat sends nothing and
+  // answers the first one's result; the same key with other params is
+  // INVALID_PARAMS. empty is no key
+  string key = 3;
+}
+
+message MessageForwardResult {
+  // in chat_ids order
+  repeated string message_ids = 1;
+}
+
+message MessageMarkPlayed {
+  string message_id = 1;
+}
+
+// asks our own phone to resend a message that didn't decrypt
+message MessageRequestFromPhone {
+  string message_id = 1;
+}
+
+// the whole selection, not a change; empty withdraws every vote
+message PollVote {
+  string message_id = 1;
+  repeated uint32 option_indexes = 2;
+}
+
+// the whole text of a row that came with text_truncated
+message MessageText {
+  string message_id = 1;
+}
+
+message MessageTextResult {
+  string text = 1;
+  repeated Mention mentions = 2;
+}
+
+message EventRsvp {
+  string message_id = 1;
+  Rsvp response = 2;
+  uint32 extra_guests = 3;
+}
+
+// joins the group an invite row offers, or just says where it is
+message GroupJoinInvite {
+  string message_id = 1;
+}
+
+message GroupJoinInviteResult {
+  string chat_id = 1;
+}

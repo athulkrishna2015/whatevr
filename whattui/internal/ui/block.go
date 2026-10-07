@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
 
 	"whattui/internal/paint"
@@ -62,7 +63,7 @@ type block struct {
 	// happens, and a read message is the one thing in the gutter worth a
 	// colour of its own.
 	mark   string
-	status string
+	status v2.MessageStatus
 	// outgoing hangs the message off the rule on the right. Everything in it
 	// then lines up against that edge rather than against the left of the
 	// widest thing in it: a short answer under a long quote is part of the

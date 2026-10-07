@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+"""Break the network under a mock daemon and watch what it tells frontends.
+
+    scripts/netfault                            every fault, a fresh daemon each
+    scripts/netfault --fault stall              one fault
+    scripts/netfault --bin build/debug/whatevrd
+
+Per fault: start `whatevrd --mock busy`, wait for online, break the network
+through the mock's control socket, hold it broken, clear it, and require the
+connection view to say online again within the bound, with the client really
+logged in (a message said on the mock arrives). Every state the connection
+view showed is printed with its time.
+
+Needs a debug build (the mock tag). Never touches the real account.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import queue
+import shutil
+import socket
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+# fault: (what to apply, seconds held, seconds allowed to be online again)
+FAULTS: dict[str, tuple[list[tuple[str, int]], float, float]] = {
+    "drop": ([("drop", 0)], 0, 30),
+    "refuse": ([("refuse", 0), ("drop", 0)], 20, 90),
+    "blackhole": ([("blackhole", 0), ("drop", 0)], 20, 90),
+    "stall": ([("stall", 0), ("drop", 0)], 20, 90),
+    "silent": ([("silent", 0)], 0, 90),
+    # a resume: the socket died while the machine slept and the clock moved
+    "resume": ([("silent", 0), ("clock_jump", 15 * 60 * 1000)], 0, 30),
+}
+
+
+def log(msg: str) -> None:
+    print("netfault: " + msg, file=sys.stderr, flush=True)
+
+
+class Line:
+    """the mock's control socket, one json object a line"""
+
+    def __init__(self, path: Path, wait: float = 30) -> None:
+        deadline = time.time() + wait
+        while True:
+            try:
+                self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                self.sock.connect(str(path))
+                break
+            except OSError:
+                self.sock.close()
+                if time.time() > deadline:
+                    raise
+                time.sleep(0.1)
+        self.buf = b""
+
+    def raw(self, obj: dict[str, object]) -> None:
+        self.sock.sendall(json.dumps(obj).encode() + b"\n")
+
+    def read(self, timeout: float) -> dict[str, object] | None:
+        self.sock.settimeout(timeout)
+        while b"\n" not in self.buf:
+            try:
+                chunk = self.sock.recv(65536)
+            except (TimeoutError, socket.timeout):
+                return None
+            if not chunk:
+                return None
+            self.buf += chunk
+        line, self.buf = self.buf.split(b"\n", 1)
+        return json.loads(line)
+
+
+class Run:
+    def __init__(self, binary: Path, work: Path) -> None:
+        self.dir = work / "mock"
+        paths = json.loads(subprocess.check_output([str(binary), "paths", "--json", "--mock-dir", str(self.dir)], text=True))
+        self.control = Path(paths["ControlPath"])
+        self.logf = open(work / "whatevrd.log", "w")
+        self.proc = subprocess.Popen(
+            [str(binary), "--mock", "busy", "--mock-dir", str(self.dir), "--mock-control", str(self.control)],
+            stdout=self.logf, stderr=subprocess.STDOUT)
+        self.start = time.time()
+        self.states: list[tuple[float, dict[str, object]]] = []
+        self.ctl = Line(self.control)
+        self.watch = subprocess.Popen(
+            [str(binary), "mock", "watch", "--socket", paths["SocketPath"], "connection", "chats"],
+            stdout=subprocess.PIPE, stderr=self.logf, text=True)
+        self.rows: queue.Queue[dict[str, object]] = queue.Queue()
+        threading.Thread(target=self.read_rows, daemon=True).start()
+        self.waiting: set[str] = set()
+        self.arrived: dict[str, float] = {}
+
+    def say(self, text: str) -> None:
+        self.waiting.add(text)
+        # asha's dm: the team chat gets a scripted message at 3s, and one in
+        # the same second as this one may well sort ahead of it
+        self.ctl.raw({"cmd": "say", "chat": "917770000001@s.whatsapp.net", "from": "Asha", "text": text})
+        resp = self.ctl.read(10)
+        if not resp or not resp.get("ok"):
+            raise RuntimeError("say: %r" % (resp,))
+
+    def read_rows(self) -> None:
+        assert self.watch.stdout
+        for line in self.watch.stdout:
+            self.rows.put(json.loads(line))
+
+    def pump(self, seconds: float) -> None:
+        end = time.time() + seconds
+        while (left := end - time.time()) > 0:
+            try:
+                m = self.rows.get(timeout=min(left, 0.2))
+            except queue.Empty:
+                continue
+            item = m["item"]
+            at = time.time() - self.start
+            if m["view"] == "connection":
+                conn = dict(item["connection"])
+                conn.pop("since_ms", None)
+                conn["state"] = str(conn.get("state", "")).removeprefix("CONNECTION_STATE_").lower()
+                if not self.states or self.states[-1][1] != conn:
+                    self.states.append((at, conn))
+                    log("  %7.2fs %-12s %s" % (at, conn["state"], conn.get("detail") or ""))
+            elif m["view"] == "chats":
+                preview = json.dumps(item["chat"].get("preview", {}))
+                for text in list(self.waiting):
+                    if text in preview:
+                        self.waiting.discard(text)
+                        self.arrived[text] = at
+
+    def state(self) -> str:
+        return str(self.states[-1][1].get("state")) if self.states else ""
+
+    def until_online(self, within: float) -> float | None:
+        start = time.time()
+        while time.time() - start < within:
+            self.pump(0.2)
+            if self.state() == "online":
+                return time.time() - start
+        return None
+
+    def fault(self, name: str, ms: int) -> None:
+        self.ctl.raw({"cmd": "fault", "fault": name, "ms": ms})
+        resp = self.ctl.read(10)
+        if not resp or not resp.get("ok"):
+            raise RuntimeError("fault %s: %r" % (name, resp))
+
+    def stop(self) -> None:
+        self.watch.terminate()
+        self.proc.terminate()
+        try:
+            self.proc.wait(10)
+        except subprocess.TimeoutExpired:
+            self.proc.kill()
+        self.logf.close()
+
+
+def one(binary: Path, name: str) -> bool:
+    steps, hold, bound = FAULTS[name]
+    work = Path(tempfile.mkdtemp(prefix="wnf-"))
+    run = Run(binary, work)
+    try:
+        if run.until_online(60) is None:
+            log("%s: never online to begin with" % name)
+            return False
+        run.pump(3)
+        log("%s: breaking the network" % name)
+        broke = time.time() - run.start
+        for f, ms in steps:
+            run.fault(f, ms)
+        # said while the network is down: it arrives once the daemon is
+        # really back, whatever the connection view claims
+        text = "netfault %s %d" % (name, os.getpid())
+        run.say(text)
+        if hold:
+            run.pump(hold)
+            log("%s: network back" % name)
+            run.fault("clear", 0)
+        cleared = time.time() - run.start
+        while text not in run.arrived and time.time() - run.start - cleared < bound:
+            run.pump(0.2)
+        run.pump(2)
+        # how long the view said online while nothing could get through
+        lying = 0.0
+        end = run.arrived.get(text, time.time() - run.start)
+        for i, (at, st) in enumerate(run.states):
+            nxt = run.states[i + 1][0] if i + 1 < len(run.states) else end
+            lo, hi = max(at, broke), min(nxt, end)
+            if st.get("state") == "online" and hi > lo:
+                lying += hi - lo
+        if text not in run.arrived:
+            log("%s: STUCK, nothing arrived %ds after the network came back; the view says %r, and said online for %.1fs of the outage" % (
+                name, bound, run.state(), lying))
+            return False
+        ok = run.state() == "online"
+        log("%s: %s %.1fs after the network came back; the view said online for %.1fs while nothing got through%s" % (
+            name, "delivered", run.arrived[text] - cleared, lying, "" if ok else ", and ends on %r" % run.state()))
+        return ok
+    finally:
+        run.stop()
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def main() -> int:
+    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--fault", action="append", choices=sorted(FAULTS))
+    p.add_argument("--bin", default=str(ROOT / "build" / "debug" / "whatevrd"))
+    args = p.parse_args()
+    binary = Path(args.bin)
+    if not binary.exists():
+        log("no %s, run just build" % binary)
+        return 1
+    results = {}
+    for name in args.fault or list(FAULTS):
+        log("--- %s" % name)
+        results[name] = one(binary, name)
+    for name, ok in results.items():
+        log("%-10s %s" % (name, "recovered" if ok else "STUCK"))
+    return 0 if all(results.values()) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

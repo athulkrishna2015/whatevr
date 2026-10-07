@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+"""Build Whatevr.app: the native helper as its main program, whatevrd inside."""
+import os
+import plistlib
+import platform
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+root = Path(__file__).resolve().parents[1]
+out = Path(sys.argv[1]).resolve()
+profile = sys.argv[2] if len(sys.argv) > 2 else out.name
+arch = os.environ.get("GOARCH", "arm64" if platform.machine() == "arm64" else "amd64")
+target = ("arm64" if arch == "arm64" else "x86_64") + "-apple-macos13.0"
+cache = root / "build" / ".swift-cache"
+cache.mkdir(parents=True, exist_ok=True)
+app = out / "Whatevr.app"
+contents = app / "Contents"
+# a rebuild never keeps files an older layout left in the bundle.
+if app.exists():
+    shutil.rmtree(app)
+for name in ["MacOS", "Resources"]:
+    (contents / name).mkdir(parents=True, exist_ok=True)
+subprocess.run(["xcrun", "swiftc", "-O", "-swift-version", "5", "-target", target,
+                "-module-cache-path", str(cache), str(root / "native/macos/Notifications.swift"),
+                "-o", str(contents / "MacOS/Whatevr")], check=True)
+info = plistlib.loads((root / "native/macos/Info.plist").read_bytes())
+version = (root / "VERSION").read_text().strip()
+info["CFBundleVersion"] = version
+info["CFBundleShortVersionString"] = version
+# a dev build is its own app, so it never takes links or notification
+# permission from the installed one.
+if profile != "release":
+    info["CFBundleIdentifier"] += ".dev"
+    info["CFBundleName"] += " Dev"
+    info["CFBundleDisplayName"] += " Dev"
+    for kind in info["CFBundleURLTypes"]:
+        kind["CFBundleURLName"] += ".dev"
+        kind["CFBundleURLSchemes"] = [scheme + "-dev" for scheme in kind["CFBundleURLSchemes"]]
+(contents / "Info.plist").write_bytes(plistlib.dumps(info))
+iconset = out / "Whatevr.iconset"
+renderer = out / "render-icon"
+subprocess.run(["xcrun", "swiftc", "-module-cache-path", str(cache), str(root / "native/macos/Icon.swift"), "-o", str(renderer)], check=True)
+subprocess.run([str(renderer), str(iconset)], check=True)
+subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(contents / "Resources/Whatevr.icns")], check=True)
+# the cask has no share dir, so the bundle carries the shipped manifests
+frontends = contents / "Resources/frontends"
+frontends.mkdir(parents=True, exist_ok=True)
+for manifest in (root / "packaging/frontends").glob("*.json"):
+    shutil.copy2(manifest, frontends / manifest.name)
+daemon = contents / "MacOS/whatevrd"
+shutil.copy2(out / "whatevrd", daemon)
+# nested code is signed before the bundle that seals it.
+subprocess.run(["codesign", "--force", "--sign", "-", "--identifier", info["CFBundleIdentifier"] + ".whatevrd", str(daemon)], check=True)
+subprocess.run(["codesign", "--force", "--sign", "-", "--identifier", info["CFBundleIdentifier"], str(app)], check=True)

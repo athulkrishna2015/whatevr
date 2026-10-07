@@ -1,0 +1,74 @@
+edition = "2024";
+
+package whatevr.v2;
+
+option features.field_presence = IMPLICIT;
+
+message StickersView {
+  StickerSource source = 1;
+}
+
+enum StickerSource {
+  STICKER_SOURCE_UNSPECIFIED = 0;
+  STICKER_SOURCE_RECENT = 1;
+  STICKER_SOURCE_FAVORITE = 2;
+  STICKER_SOURCE_ALL = 3;
+}
+
+message StickerRow {
+  string id = 1;
+  // empty until downloaded
+  string path = 2;
+  string mime = 3;
+  bool animated = 4;
+  bool lottie = 5;
+  uint32 width = 6;
+  uint32 height = 7;
+  repeated string emojis = 8;
+  string accessibility_text = 9;
+  string pack_id = 10;
+  bool favorite = 11;
+  int64 last_used_ms = 12;
+}
+
+message StickerPacksView {}
+
+// one pack's stickers; they land as the fetch resolves
+message StickerPackView {
+  string pack_id = 1;
+}
+
+message StickerPackRow {
+  string id = 1;
+  string name = 2;
+  string publisher = 3;
+  string description = 4;
+  bool animated = 5;
+  bool lottie = 6;
+  string tray_path = 7;
+  uint32 count = 8;
+  bool installed = 9;
+  bool fetched = 10;
+}
+
+// a sticker is named by its id, or by a message carrying it
+message StickerFavorite {
+  oneof sticker {
+    string sticker_id = 1;
+    string message_id = 2;
+  }
+  bool favorite = 3;
+}
+
+// lands through stickers and sticker_pack upserts
+message StickerDownload {
+  string sticker_id = 1;
+}
+
+message StickerPackInstall {
+  string pack_id = 1;
+  bool installed = 2;
+}
+
+// fetches the store's packs again
+message StickerPacksRefresh {}

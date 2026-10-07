@@ -5,6 +5,7 @@ package wamock
 import (
 	"context"
 	"fmt"
+	"maps"
 	"time"
 
 	waBinary "go.mau.fi/whatsmeow/binary"
@@ -31,7 +32,7 @@ const outboxDepth = 64
 // connection over to the scenario timeline.
 func (s *session) postLogin(ctx context.Context) {
 	if err := s.srv.awaitClientKeys(ctx); err != nil {
-		s.srv.log.Printf("delivery disabled: %v", err)
+		s.srv.log.Warn().Err(err).Msg("delivery disabled")
 		return
 	}
 
@@ -39,11 +40,21 @@ func (s *session) postLogin(ctx context.Context) {
 	// daemon asks for app state as soon as it is connected, and a key that
 	// arrives after that costs a failed fetch and a re-sync.
 	if err := s.sendAppStateKey(ctx); err != nil {
-		s.srv.log.Printf("app state key: %v", err)
+		s.srv.log.Warn().Err(err).Msg("app state key")
 	}
 
 	go s.pumpOutbox(ctx)
 	s.srv.setLive(s)
+
+	// what the last connection never acked comes first, the same ciphertext
+	// again, as the real server's offline queue does, then what arrived
+	// while nothing was connected
+	for _, node := range s.srv.stillUnacked(s) {
+		s.enqueue(func(ctx context.Context) error { return s.sendNode(ctx, node) })
+	}
+	for _, m := range s.srv.takeHeld() {
+		s.enqueueMessage(m, true)
+	}
 
 	world := s.srv.world
 	if world == nil {
@@ -113,11 +124,27 @@ func (s *Server) clearLive(sess *session) {
 // already connected.
 func (s *Server) deliverLive(m *Msg) {
 	sess := s.live()
-	if sess == nil {
-		s.log.Printf("dropping %q: nothing is connected", m.Text)
+	if sess == nil || sess.isClosed() {
+		s.hold(m)
 		return
 	}
 	sess.enqueueMessage(m, false)
+}
+
+// hold keeps a message for the next login, as the server keeps what comes
+// in for an offline device.
+func (s *Server) hold(m *Msg) {
+	s.ackMu.Lock()
+	defer s.ackMu.Unlock()
+	s.held = append(s.held, m)
+}
+
+func (s *Server) takeHeld() []*Msg {
+	s.ackMu.Lock()
+	defer s.ackMu.Unlock()
+	out := s.held
+	s.held = nil
+	return out
 }
 
 // enqueue hands work to the session's single writer. Everything the server
@@ -125,17 +152,21 @@ func (s *Server) deliverLive(m *Msg) {
 // the scenario produced them. It blocks when the queue is full rather than
 // dropping: a scenario that loses a message halfway through is a mock nobody
 // can trust.
-func (s *session) enqueue(fn func(context.Context) error) {
+func (s *session) enqueue(fn func(context.Context) error) bool {
 	s.srv.quiet.addWork(1)
 	select {
 	case s.outbox <- fn:
+		return true
 	case <-s.done:
 		s.srv.quiet.addWork(-1)
+		return false
 	}
 }
 
 func (s *session) enqueueMessage(m *Msg, offline bool) {
-	s.enqueue(func(ctx context.Context) error { return s.sendMessage(ctx, m, offline) })
+	if !s.enqueue(func(ctx context.Context) error { return s.sendMessage(ctx, m, offline) }) {
+		s.srv.hold(m)
+	}
 }
 
 func (s *session) pumpOutbox(ctx context.Context) {
@@ -145,7 +176,7 @@ func (s *session) pumpOutbox(ctx context.Context) {
 			err := fn(ctx)
 			s.srv.quiet.addWork(-1)
 			if err != nil {
-				s.srv.log.Printf("deliver: %v", err)
+				s.srv.log.Warn().Err(err).Msg("deliver")
 			}
 		case <-ctx.Done():
 			return
@@ -194,16 +225,16 @@ func (s *session) sendMessage(ctx context.Context, m *Msg, offline bool) error {
 		// participant_lid is how the client learns which address to decrypt
 		// under before it has ever asked who this person is. Without it the
 		// first message from somebody new fails, and only the second works.
-		attrs["participant_lid"] = lidFor(sender)
+		attrs["participant_lid"] = s.srv.lidOf(sender)
 	case m.FromMe:
 		// A message the account sent from another device arrives addressed
 		// from the account, with the chat named as the recipient.
 		attrs["from"] = sender
 		attrs["recipient"] = m.Chat.JID
-		attrs["peer_recipient_lid"] = lidFor(m.Chat.JID)
+		attrs["peer_recipient_lid"] = s.srv.lidOf(m.Chat.JID)
 	default:
 		attrs["from"] = sender
-		attrs["sender_lid"] = lidFor(sender)
+		attrs["sender_lid"] = s.srv.lidOf(sender)
 	}
 	if !m.FromMe && m.From.Name != "" {
 		// notify is how an unsaved contact gets a name. It is the only contact
@@ -214,11 +245,61 @@ func (s *session) sendMessage(ctx context.Context, m *Msg, offline bool) error {
 		attrs["offline"] = "1"
 	}
 
-	return s.sendNode(ctx, waBinary.Node{
-		Tag:     "message",
-		Attrs:   attrs,
-		Content: []waBinary.Node{enc},
-	})
+	node := waBinary.Node{Tag: "message", Attrs: attrs, Content: []waBinary.Node{enc}}
+	s.srv.noteUnacked(node, s)
+	return s.sendNode(ctx, node)
+}
+
+type unacked struct {
+	node waBinary.Node
+	sess *session
+}
+
+func (s *Server) noteUnacked(node waBinary.Node, sess *session) {
+	s.ackMu.Lock()
+	defer s.ackMu.Unlock()
+	s.unacked = append(s.unacked, unacked{node, sess})
+}
+
+func (s *Server) acked(id string) {
+	s.ackMu.Lock()
+	defer s.ackMu.Unlock()
+	for i, u := range s.unacked {
+		if u.node.Attrs["id"] == id {
+			s.unacked = append(s.unacked[:i], s.unacked[i+1:]...)
+			return
+		}
+	}
+}
+
+// stillUnacked is what earlier sessions sent and nobody acked, now owed to
+// sess, marked offline the way a redelivery is.
+func (s *Server) stillUnacked(sess *session) []waBinary.Node {
+	s.ackMu.Lock()
+	defer s.ackMu.Unlock()
+	var out []waBinary.Node
+	for i, u := range s.unacked {
+		if u.sess == sess {
+			continue
+		}
+		attrs := maps.Clone(u.node.Attrs)
+		attrs["offline"] = "1"
+		out = append(out, waBinary.Node{Tag: u.node.Tag, Attrs: attrs, Content: u.node.Content})
+		s.unacked[i].sess = sess
+	}
+	return out
+}
+
+// orphaned hands what a dead session left unacked to the live one, if a
+// login already came and went past it; otherwise the next login takes it.
+func (s *Server) orphaned(dead *session) {
+	live := s.live()
+	if live == nil || live == dead || live.isClosed() {
+		return
+	}
+	for _, node := range s.stillUnacked(live) {
+		live.enqueue(func(ctx context.Context) error { return live.sendNode(ctx, node) })
+	}
 }
 
 // encryptionJID is the address the client will decrypt a sender under, which is
@@ -227,5 +308,5 @@ func (s *session) sendMessage(ctx context.Context, m *Msg, offline bool) error {
 // knows the mapping. The mock hands those mappings out on every stanza, so
 // there is never a window where the two sides disagree.
 func (s *Server) encryptionJID(sender types.JID) types.JID {
-	return lidFor(sender)
+	return s.lidOf(sender)
 }

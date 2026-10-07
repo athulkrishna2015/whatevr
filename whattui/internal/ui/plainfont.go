@@ -3,9 +3,8 @@ package ui
 import (
 	"strings"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 	"go.rockorager.dev/vaxis"
-
-	"whattui/internal/proto"
 )
 
 // A terminal whose font has no pictures in it draws an emoji as a hole. The
@@ -37,9 +36,15 @@ func (a *App) spelled(s string) string {
 // body is what to draw as a message's words: what somebody wrote, or the
 // daemon's line about a kind whattui does not draw itself. Only the second is
 // spelled out, because only the second is the daemon's own wording.
-func (a *App) body(m proto.MessageRow) string {
-	text := m.Body()
-	if m.Revoked || m.Centred() || m.Kind == "text" {
+func (a *App) body(m *v2.MessageRow) string {
+	text := messageBody(m, a.textOf(m))
+	if m.GetTextTruncated() && !m.GetRevoked() {
+		// cut short and not expanded: say there is more
+		if _, ok := a.expandedOf(m); !ok {
+			text += "…"
+		}
+	}
+	if m.GetRevoked() || centred(m) || plainText(m) {
 		return text
 	}
 	return a.spelled(text)

@@ -1,0 +1,6 @@
+{
+  "id": "whattui",
+  "name": "whattui",
+  "exec": ["whattui"],
+  "terminal": true
+}

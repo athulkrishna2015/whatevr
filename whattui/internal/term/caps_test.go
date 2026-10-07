@@ -5,6 +5,14 @@ import (
 	"testing"
 )
 
+// Capability override tests must not inherit terminal settings from the runner.
+func cleanCapsEnv(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{"NO_COLOR", "WHATTUI_TIER", "WHATTUI_NO_TEXT_SCALE", "WHATTUI_PLAIN_FONT"} {
+		t.Setenv(name, "")
+	}
+}
+
 func TestTierFollowsTheStrongestCapability(t *testing.T) {
 	tests := []struct {
 		name string
@@ -30,6 +38,7 @@ func TestTierFollowsTheStrongestCapability(t *testing.T) {
 }
 
 func TestNoColorForcesPlain(t *testing.T) {
+	cleanCapsEnv(t)
 	t.Setenv("NO_COLOR", "1")
 	got := applyEnv(Caps{Tier: TierShm, RGB: true, ShmGraphics: true})
 	if got.Tier != TierPlain {
@@ -41,6 +50,7 @@ func TestNoColorForcesPlain(t *testing.T) {
 }
 
 func TestTierOverrideOnlyEverDegrades(t *testing.T) {
+	cleanCapsEnv(t)
 	// Claiming a capability the terminal does not have paints garbage. The
 	// override exists to exercise degradation, not to pretend.
 	t.Setenv("WHATTUI_TIER", "3")
@@ -54,6 +64,7 @@ func TestTierOverrideOnlyEverDegrades(t *testing.T) {
 }
 
 func TestTierOverrideAcceptsNamesAndNumbers(t *testing.T) {
+	cleanCapsEnv(t)
 	for _, raw := range []string{"0", "plain", "PLAIN", " plain "} {
 		t.Run(raw, func(t *testing.T) {
 			t.Setenv("WHATTUI_TIER", raw)
@@ -65,6 +76,7 @@ func TestTierOverrideAcceptsNamesAndNumbers(t *testing.T) {
 }
 
 func TestAnUnparseableTierIsIgnoredNotFatal(t *testing.T) {
+	cleanCapsEnv(t)
 	t.Setenv("WHATTUI_TIER", "banana")
 	got := applyEnv(Caps{Tier: TierGraphics})
 	if got.Tier != TierGraphics || got.Forced {
@@ -98,6 +110,7 @@ func TestReportNamesTheTierAndEveryCapability(t *testing.T) {
 // the first without the second, and the override exists so that terminal can
 // be stood in for on a machine that has both.
 func TestTextScalingCanBeTurnedOffOnItsOwn(t *testing.T) {
+	cleanCapsEnv(t)
 	t.Setenv("WHATTUI_NO_TEXT_SCALE", "1")
 	got := applyEnv(Caps{Tier: TierShm, KittyGraphics: true, ShmGraphics: true, TextScale: true})
 	if got.TextScale {
@@ -116,6 +129,7 @@ func TestTextScalingCanBeTurnedOffOnItsOwn(t *testing.T) {
 // second is the kernel's own console, where whattui is the only chat client
 // there is.
 func TestTheConsoleFontIsItsOwnCapability(t *testing.T) {
+	cleanCapsEnv(t)
 	for _, term := range []string{"linux", "linux-16color"} {
 		if !consoleFont(term) {
 			t.Errorf("TERM=%s is the console and was not read as one", term)

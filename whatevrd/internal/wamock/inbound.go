@@ -27,6 +27,10 @@ func (s *session) handleClientMessage(ctx context.Context, node *waBinary.Node) 
 	if id == "" || to.IsEmpty() {
 		return fmt.Errorf("message with no id or recipient")
 	}
+	if ag.OptionalString("category") == "peer" {
+		s.handlePeerMessage(ctx, node)
+		return nil
+	}
 
 	message, err := s.openClientMessage(ctx, node, to)
 	if err != nil {
@@ -127,6 +131,38 @@ func (s *session) openClientMessage(ctx context.Context, node *waBinary.Node, to
 	return nil, fmt.Errorf("group message carried no skmsg")
 }
 
+// handlePeerMessage opens a message the client sent to the account's own
+// phone. A request for older history is the only one the mock answers.
+func (s *session) handlePeerMessage(ctx context.Context, node *waBinary.Node) {
+	enc, ok := node.GetOptionalChildByTag("enc")
+	content, isBytes := enc.Content.([]byte)
+	if !ok || !isBytes {
+		s.srv.log.Printf("peer message with nothing in it")
+		return
+	}
+	phone := s.srv.accountJID()
+	phone.Device = selfDevice
+	p, err := s.srv.peerFor(phone, s.srv.encryptionJID(phone))
+	if err != nil {
+		s.srv.log.Printf("peer message: %v", err)
+		return
+	}
+	plaintext, err := p.decryptDM(ctx, s.jid, enc.AttrGetter().OptionalString("type") == "pkmsg", content)
+	if err != nil {
+		s.srv.log.Printf("could not open peer message: %v", err)
+		return
+	}
+	var message waE2E.Message
+	if err := proto.Unmarshal(plaintext, &message); err != nil {
+		s.srv.log.Printf("could not read peer message: %v", err)
+		return
+	}
+	op := message.GetProtocolMessage().GetPeerDataOperationRequestMessage()
+	if op.GetPeerDataOperationRequestType() == waE2E.PeerDataOperationRequestType_HISTORY_SYNC_ON_DEMAND {
+		s.answerOlder(op.GetHistorySyncOnDemandRequest())
+	}
+}
+
 // unwrapDeviceSent peels the wrapper a client puts around its own copy of a
 // message so that its other devices see who it was for.
 func unwrapDeviceSent(message *waE2E.Message) *waE2E.Message {
@@ -213,7 +249,7 @@ func (s *Server) checkUploadedMedia(message *waE2E.Message) {
 // OnSend hooks, and starts the receipt clock.
 func (s *Server) noteClientMessage(id string, to types.JID, message *waE2E.Message) {
 	world := s.world
-	if world == nil {
+	if world == nil || s.replay != nil {
 		return
 	}
 	if message.GetProtocolMessage() != nil || message.GetReactionMessage() != nil {
@@ -246,7 +282,13 @@ func (s *Server) noteClientMessage(id string, to types.JID, message *waE2E.Messa
 		s.checkUploadedMedia(message)
 	}
 	world.remember(msg)
-	go s.runSendHooks(msg)
+	// counted, or sync calls it quiet while a delayed receipt or a reply is
+	// still to come
+	s.quiet.addWork(1)
+	go func() {
+		defer s.quiet.addWork(-1)
+		s.runSendHooks(msg)
+	}()
 }
 
 // runSendHooks paces the receipts the account's own message gets, then lets the

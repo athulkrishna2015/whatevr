@@ -195,7 +195,7 @@ func (s *Server) handleMediaUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		s.log.Printf("upload response: %v", err)
+		s.log.Warn().Err(err).Msg("upload response")
 	}
 }
 
@@ -207,7 +207,7 @@ const maxUploadBytes = 128 << 20
 func (s *Server) handleMedia(w http.ResponseWriter, r *http.Request) {
 	b, ok := s.media.get(r.URL.Path)
 	if !ok {
-		s.log.Printf("media miss %s", r.URL.Path)
+		s.log.Warn().Str("path", r.URL.Path).Msg("media miss")
 		http.NotFound(w, r)
 		return
 	}

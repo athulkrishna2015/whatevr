@@ -261,7 +261,10 @@ func (s *Server) peerFor(jid, encJID types.JID) (*peer, error) {
 }
 
 func (s *Server) peerForLocked(jid, encJID types.JID) (*peer, error) {
-	key := jid.String()
+	return s.peerByKeyLocked(jid.String(), jid, encJID)
+}
+
+func (s *Server) peerByKeyLocked(key string, jid, encJID types.JID) (*peer, error) {
 	if p, ok := s.peers[key]; ok {
 		return p, nil
 	}
@@ -273,17 +276,24 @@ func (s *Server) peerForLocked(jid, encJID types.JID) (*peer, error) {
 	if encJID.Server == types.HiddenUserServer && encJID.User == s.opts.AccountPhone {
 		identityPair = s.account
 	}
-	sig, identityPair, err := newSignalStore(s.rng, identityPair)
+	rng := s.rng
+	if s.replay != nil {
+		if s.replay.isAccount(encJID) {
+			identityPair = s.account
+		}
+		rng = newSeededRand(s.replay.peerSeed(key))
+	}
+	sig, identityPair, err := newSignalStore(rng, identityPair)
 	if err != nil {
 		return nil, err
 	}
-	signed, err := newSignedPreKey(s.rng, identityPair, 1)
+	signed, err := newSignedPreKey(rng, identityPair, 1)
 	if err != nil {
 		return nil, err
 	}
 	oneTime := make([]*keys.PreKey, 0, peerPreKeyCount)
 	for i := 0; i < peerPreKeyCount; i++ {
-		pre, err := newPreKey(s.rng, uint32(i+1))
+		pre, err := newPreKey(rng, uint32(i+1))
 		if err != nil {
 			return nil, err
 		}
@@ -351,7 +361,10 @@ func (s *Server) clientBundle(deviceID uint32) (*prekey.Bundle, error) {
 	identityKey := identity.NewKey(ecc.NewDjbECPublicKey(*s.keys.identityKey))
 
 	var oneTime *keys.PreKey
-	if len(s.keys.preKeys) > 0 {
+	// a replay opens a session per device it plays, often hundreds, and the
+	// client deletes each one-time prekey it used. the signed one alone is
+	// still a valid x3dh.
+	if len(s.keys.preKeys) > 0 && s.replay == nil {
 		if s.keys.consumed < len(s.keys.preKeys) {
 			oneTime = s.keys.preKeys[s.keys.consumed]
 			s.keys.consumed++
@@ -377,6 +390,12 @@ func (s *Server) clientBundle(deviceID uint32) (*prekey.Bundle, error) {
 // client establishes the session from its prekey bundle and comes out as a
 // pkmsg; everything after it rides the ratchet as a msg.
 func (p *peer) encrypt(ctx context.Context, srv *Server, to types.JID, plaintext []byte) (waBinary.Node, error) {
+	return p.encryptPadded(ctx, srv, to, padMessage(plaintext, srv.rng))
+}
+
+// encryptPadded takes the plaintext as it goes into the cipher, padded or
+// not, which is how a replay sends a v3 payload.
+func (p *peer) encryptPadded(ctx context.Context, srv *Server, to types.JID, padded []byte) (waBinary.Node, error) {
 	addr := to.SignalAddress()
 
 	p.mu.Lock()
@@ -394,7 +413,7 @@ func (p *peer) encrypt(ctx context.Context, srv *Server, to types.JID, plaintext
 		p.started = true
 	}
 
-	ciphertext, err := signalSession.NewCipher(builder, addr).Encrypt(ctx, padMessage(plaintext, srv.rng))
+	ciphertext, err := signalSession.NewCipher(builder, addr).Encrypt(ctx, padded)
 	if err != nil {
 		return waBinary.Node{}, fmt.Errorf("encrypt: %w", err)
 	}
@@ -554,6 +573,10 @@ func (s *Server) peerForRecipient(jid types.JID) (*peer, error) {
 	wire := jid
 	if wire.Server == types.HiddenUserServer {
 		wire.Server = types.DefaultUserServer
+	}
+	if s.replay != nil {
+		// the capture's people are whoever the client asks for
+		return s.peerFor(jid, jid)
 	}
 	world := s.world
 	if world == nil {

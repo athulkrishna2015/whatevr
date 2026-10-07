@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Whatevr
+Comment=Open WhatsApp in your Whatevr frontend
+Exec=whatevrd open %u
+Icon=whatevr
+Terminal=false
+Categories=Network;InstantMessaging;Chat;
+MimeType=x-scheme-handler/whatevr;
+StartupNotify=false

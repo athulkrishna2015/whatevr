@@ -118,7 +118,7 @@ func buildTorture(w *World) {
 		sheet.History(victim, entry.Text, at)
 		at = at.Add(step)
 	}
-	sheet.HistoryFromMe("--- forty thousand characters ---", at)
+	sheet.HistoryFromMe("--- eighty thousand characters ---", at)
 	at = at.Add(step)
 	sheet.History(witness, hugeMessage(), at)
 

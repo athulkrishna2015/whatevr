@@ -41,13 +41,15 @@ type quiescence struct {
 	mu sync.Mutex
 	// last is when anything last moved, in either direction.
 	last time.Time
-	// work is queued or executing outbox functions, http requests being served
-	// and timeline actions not yet run, all counted together because a caller
-	// only ever asks the one question.
+	// work is queued or executing outbox functions and send hooks still
+	// running; http requests being served and timeline actions not yet run
+	// count beside it, because a caller only ever asks the one question.
 	work     int
 	timeline int
 	http     int
 	loggedIn bool
+	// hold names work the counters cannot see, a replay that is not done
+	hold func() string
 }
 
 func newQuiescence() *quiescence { return &quiescence{last: time.Now()} }
@@ -78,6 +80,17 @@ func (q *quiescence) setLoggedIn() {
 
 // blockedOn names the one thing still moving, or empty when nothing is.
 func (q *quiescence) blockedOn(idle time.Duration) string {
+	if q.hold != nil {
+		if held := q.hold(); held != "" {
+			return held
+		}
+	}
+	return q.wireBlockedOn(idle)
+}
+
+// wireBlockedOn is blockedOn without the hold, what a replay waits on
+// between its own steps.
+func (q *quiescence) wireBlockedOn(idle time.Duration) string {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	switch {
@@ -104,6 +117,9 @@ type controlRequest struct {
 	Chat string `json:"chat,omitempty"`
 	From string `json:"from,omitempty"`
 	Text string `json:"text,omitempty"`
+	// fault breaks the network, see Fault. ms is how far a clock jump goes.
+	Fault string `json:"fault,omitempty"`
+	MS    int    `json:"ms,omitempty"`
 }
 
 type controlResponse struct {
@@ -116,6 +132,15 @@ type controlResponse struct {
 	Now       string   `json:"now,omitempty"`
 	Names     []string `json:"names,omitempty"`
 	ID        string   `json:"id,omitempty"`
+
+	// replay progress
+	Pos          int64 `json:"pos,omitempty"`
+	Total        int64 `json:"total,omitempty"`
+	Misses       int64 `json:"misses,omitempty"`
+	GateTimeouts int64 `json:"gate_timeouts,omitempty"`
+	Junk         int64 `json:"junk,omitempty"`
+	// IDs maps the capture's ids of sent messages to the replayed ones
+	IDs map[string]string `json:"ids,omitempty"`
 }
 
 // StartControl binds the control socket. It is only ever asked for by a test
@@ -148,7 +173,7 @@ func (s *Server) StartControl(ctx context.Context, path string) error {
 			go s.serveControl(conn)
 		}
 	}()
-	s.log.Printf("control socket on %s", path)
+	s.log.Info().Str("path", path).Msg("control socket up")
 	return nil
 }
 
@@ -196,6 +221,16 @@ func (s *Server) handleControl(req controlRequest) controlResponse {
 		return controlResponse{OK: true, Names: names}
 	case "say":
 		return s.controlSay(req)
+	case "fault":
+		if err := s.Fault(Fault(req.Fault), req.MS); err != nil {
+			return controlResponse{Error: err.Error()}
+		}
+		return controlResponse{OK: true}
+	case "replay":
+		if s.replay == nil {
+			return controlResponse{Error: "not a replay"}
+		}
+		return s.replay.status()
 	default:
 		return controlResponse{Error: fmt.Sprintf("unknown command %q", req.Cmd)}
 	}

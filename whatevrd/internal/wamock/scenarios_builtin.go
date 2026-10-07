@@ -37,6 +37,16 @@ func init() {
 		Build:       buildMedia,
 	})
 	Register(Scenario{
+		Name:        "outbox",
+		Description: "messages the phone left pending and failed in history, which must never go out from here",
+		Build:       buildOutbox,
+	})
+	Register(Scenario{
+		Name:        "history",
+		Description: "a read-only chat, a chat at its start, and one whose older history waits on the phone",
+		Build:       buildHistory,
+	})
+	Register(Scenario{
 		Name:        "busy",
 		Description: "several chats with recent traffic, for scrolling and ordering",
 		Build:       buildBusy,
@@ -238,4 +248,56 @@ func buildMedia(w *World) {
 	w.After(4*time.Second, func() {
 		group.Attach(ravi, Video("this one arrived while you were looking", 6*time.Second), time.Now())
 	})
+}
+
+// buildOutbox is the history a linked device must not act on: two messages
+// of ours the phone never got out. sending either from here would be this
+// device speaking for the phone, days late. the mock logs loudly if one of
+// them ever arrives.
+func buildOutbox(w *World) {
+	asha := w.Contact("917770000001", "Asha")
+	ravi := w.Contact("917770000002", "Ravi")
+	dm := w.DM(asha)
+	dm.History(asha, "are you coming tonight", Ago(30*time.Hour))
+	pending := dm.HistoryFromMe("typed on the phone with no signal", Ago(29*time.Hour)).Pending()
+	group := w.Group("Outbox test group", asha, ravi)
+	group.History(ravi, "photos from the trip?", Ago(28*time.Hour))
+	failed := group.HistoryFromMe("this one failed on the phone", Ago(27*time.Hour)).Failed()
+	dm.Say(asha, "say anything, it should go out; the two old ones should not", Ago(time.Minute))
+	stale := map[string]bool{pending.ID: true, failed.ID: true}
+	w.OnSend(func(m *Msg) {
+		if stale[m.ID] {
+			w.srv.log.Error().Str("id", m.ID).Str("text", m.Text).Msg("OUTBOX VIOLATION: a message history left pending or failed was sent")
+		}
+	})
+}
+
+// buildHistory is the account for everything above the oldest message: Ira's
+// chat keeps 200 of its 260 messages on the phone until the client asks,
+// Kabir's has nothing older anywhere, and the announcements nobody but the
+// admins may write to.
+func buildHistory(w *World) {
+	ira := w.Contact("917770000011", "Ira")
+	kabir := w.Contact("917770000012", "Kabir")
+	admin := w.Contact("917770000013", "Neha")
+
+	long := w.DM(ira).HoldBack(200)
+	for i := 0; i < 260; i++ {
+		at := Ago(time.Duration(260-i) * 20 * time.Minute)
+		text := fmt.Sprintf("line %d", i+1)
+		if i%3 == 0 {
+			long.HistoryFromMe(text, at)
+		} else {
+			long.History(ira, text, at)
+		}
+	}
+
+	news := w.Group("Announcements", admin).SetReadOnly(true)
+	news.History(admin, "office closed on friday", Ago(26*time.Hour))
+	news.History(admin, "the new badges are at the front desk", Ago(25*time.Hour))
+
+	old := w.DM(kabir).SetHistoryEnd(true)
+	old.History(kabir, "hey, this is my new number", Ago(30*24*time.Hour))
+	old.HistoryFromMe("saved it", Ago(30*24*time.Hour-time.Minute))
+	old.History(kabir, "see you at the reunion", Ago(29*24*time.Hour))
 }

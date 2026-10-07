@@ -13,6 +13,7 @@ import (
 	"go.mau.fi/whatsmeow/appstate"
 	waCommon "go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	waWeb "go.mau.fi/whatsmeow/proto/waWeb"
 	"go.mau.fi/whatsmeow/types"
 	"google.golang.org/protobuf/proto"
 )
@@ -148,6 +149,33 @@ type Chat struct {
 	pinOrder uint32
 	archived bool
 	muted    bool
+
+	// readOnly is a chat the account may not send to, historyEnd one the
+	// phone has nothing older for, and held how many of its oldest history
+	// messages stay on the phone until the client asks for them.
+	readOnly   bool
+	historyEnd bool
+	held       int
+}
+
+// SetReadOnly makes the chat one the account may not send to, the way an
+// announcement group or a channel arrives in history sync.
+func (c *Chat) SetReadOnly(readOnly bool) *Chat {
+	c.readOnly = readOnly
+	return c
+}
+
+// SetHistoryEnd says in history sync that the phone has nothing older.
+func (c *Chat) SetHistoryEnd(end bool) *Chat {
+	c.historyEnd = end
+	return c
+}
+
+// HoldBack keeps the chat's oldest n history messages off the initial sync.
+// They go out only as answers to the client asking for older history.
+func (c *Chat) HoldBack(n int) *Chat {
+	c.held = n
+	return c
 }
 
 // Archive puts the chat in the archived section. It arrives as an app state
@@ -247,6 +275,23 @@ type Msg struct {
 	// starred and the rest are app state the account already had, which the
 	// client can also change from a frontend.
 	starred bool
+
+	// status is what history says became of a message of ours, nil for the
+	// usual (read)
+	status *waWeb.WebMessageInfo_Status
+}
+
+// Pending marks a message of ours history carries as never sent from the
+// phone: it sat in the phone's outbox when the device was linked.
+func (m *Msg) Pending() *Msg {
+	m.status = waWeb.WebMessageInfo_PENDING.Enum()
+	return m
+}
+
+// Failed marks a message of ours history carries as failed on the phone.
+func (m *Msg) Failed() *Msg {
+	m.status = waWeb.WebMessageInfo_ERROR.Enum()
+	return m
 }
 
 // payload is what goes inside the Signal envelope.
@@ -606,7 +651,7 @@ func (c *Chat) newAttachment(from *Contact, a *Attachment, at time.Time) *Msg {
 	m := c.newMsg(from, a.text(), at)
 	media, err := c.w.srv.buildAttachment(a, m.ID)
 	if err != nil {
-		c.w.srv.log.Printf("attachment in %s: %v", c.Name, err)
+		c.w.srv.log.Warn().Err(err).Stringer("chat", c.JID).Msg("attachment")
 		return m
 	}
 	m.media = media

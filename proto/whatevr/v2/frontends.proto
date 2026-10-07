@@ -1,0 +1,52 @@
+edition = "2024";
+
+package whatevr.v2;
+
+option features.field_presence = IMPLICIT;
+
+// where the daemon found a frontend. when two share an id, user beats
+// native beats system.
+enum FrontendSource {
+  FRONTEND_SOURCE_UNSPECIFIED = 0;
+  // a manifest a package installed
+  FRONTEND_SOURCE_SYSTEM = 1;
+  // a .desktop entry, or a macOS app declaring the whatevr-frontend scheme
+  FRONTEND_SOURCE_NATIVE = 2;
+  // a manifest in the user's config dir
+  FRONTEND_SOURCE_USER = 3;
+}
+
+message Frontend {
+  string id = 1;
+  string name = 2;
+  // runs in a terminal the daemon opens for it
+  bool terminal = 3;
+  // unspecified for one that is connected but the daemon can't start
+  FrontendSource source = 4;
+  // a connection that said hello with this id is open
+  bool connected = 5;
+  // the one a click or link starts when no frontend is connected
+  bool is_default = 6;
+}
+
+message FrontendList {}
+
+message FrontendListResult {
+  repeated Frontend frontends = 1;
+}
+
+// makes id the default. it has to be one the daemon can start.
+message FrontendSetDefault {
+  string id = 1;
+}
+
+// opens a whatevr:// link: a chat by id or address, or no chat at all, which
+// brings a frontend forward. it only ever navigates, never sends.
+message LinkOpen {
+  string url = 1;
+}
+
+// someone opened whatevr itself, the app or the launcher entry, with no chat
+// in mind. a frontend that can raise its window does; one that can't
+// ignores it
+message Activate {}

@@ -137,26 +137,6 @@ func NewWithContext(parent context.Context, source Source, partPath string, clie
 	return s, nil
 }
 
-// NewForTest wraps an already-populated sparse file as a finished stream, so
-// callers can exercise everything downstream of the fetch (the range server,
-// promotion into the cache) without a CDN.
-func NewForTest(file *SparseFile) *Stream {
-	ctx, cancel := context.WithCancel(context.Background())
-	s := &Stream{
-		source:   Source{PlaintextLen: file.Size()},
-		file:     file,
-		client:   http.DefaultClient,
-		progress: func(int64, int64) {},
-		done:     func(error) {},
-		wake:     make(chan struct{}, 1),
-		ctx:      ctx,
-		cancel:   cancel,
-		finished: make(chan struct{}),
-	}
-	s.finish(nil)
-	return s
-}
-
 // Size is the full plaintext length.
 func (s *Stream) Size() int64 { return s.source.PlaintextLen }
 

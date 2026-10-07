@@ -7,13 +7,21 @@
 # the release dependency graph does not contain the package, a release binary
 # refuses --mock, and the mock build does contain it (otherwise a typo in the
 # pattern would make this pass while checking nothing).
+#
+# Captures hold every message in plaintext, so internal/capture sits behind
+# -tags whatevr_capture and gets the same three checks. A release binary also
+# has to refuse a flag it does not know: one that ignored it would start on the
+# real account. Every release binary run here gets a scratch HOME and XDG tree,
+# so a regression fails the check instead of reaching that account.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
 pkg="whatevrd/internal/wamock"
+capture_pkg="whatevrd/internal/capture"
 release_tags="sqlite_fts5"
 mock_tags="sqlite_fts5 whatevr_mock"
+capture_tags="sqlite_fts5 whatevr_capture"
 status=0
 
 fail() {
@@ -35,17 +43,46 @@ else
     fail "$pkg is missing from the mock build; this check would pass vacuously"
 fi
 
-# 3. A release binary must reject the flag rather than ignore it.
+if go -C whatevrd list -tags "$release_tags" -deps ./cmd/whatevrd | grep -qx "$capture_pkg"; then
+    fail "$capture_pkg is in the release dependency graph of cmd/whatevrd"
+else
+    printf 'ok: release build does not link %s\n' "$capture_pkg"
+fi
+if go -C whatevrd list -tags "$capture_tags" -deps ./cmd/whatevrd | grep -qx "$capture_pkg"; then
+    printf 'ok: capture build links %s\n' "$capture_pkg"
+else
+    fail "$capture_pkg is missing from the capture build; this check would pass vacuously"
+fi
+
+# 3. A release binary must reject the flags rather than ignore them.
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 CGO_ENABLED=1 go -C whatevrd build -tags "$release_tags" -o "$tmp/whatevrd" ./cmd/whatevrd
+mkdir -p "$tmp/home" "$tmp/run"
 
-if out="$("$tmp/whatevrd" --mock empty 2>&1)"; then
-    fail "release binary accepted --mock"
-elif printf '%s' "$out" | grep -q "without mock support"; then
-    printf 'ok: release binary refuses --mock\n'
-else
-    fail "release binary failed on --mock for the wrong reason: $out"
-fi
+release() {
+    env HOME="$tmp/home" XDG_RUNTIME_DIR="$tmp/run" XDG_DATA_HOME="$tmp/home/data" \
+        XDG_CACHE_HOME="$tmp/home/cache" XDG_STATE_HOME="$tmp/home/state" XDG_CONFIG_HOME="$tmp/home/config" \
+        python3 -c 'import subprocess,sys; p=subprocess.run(sys.argv[1:], timeout=10); sys.exit(p.returncode)' "$tmp/whatevrd" "$@" 2>&1
+}
+
+refuses() {
+    local want="$1"
+    shift
+    if out="$(release "$@")"; then
+        fail "release binary accepted $*"
+    elif printf '%s' "$out" | grep -q "$want"; then
+        printf 'ok: release binary refuses %s\n' "$*"
+    else
+        fail "release binary failed on $* for the wrong reason: $out"
+    fi
+}
+
+refuses "without mock support" --mock empty
+refuses "without mock support" mock snapshot --socket x
+refuses "without capture support" --capture probe
+refuses "without capture support" --send-guard
+refuses "without capture support" capture list
+refuses "flag provided but not defined" --no-such-flag
 
 exit "$status"

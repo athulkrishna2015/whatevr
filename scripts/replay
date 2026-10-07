@@ -1,0 +1,539 @@
+#!/usr/bin/env python3
+"""Play a capture back through wamock and check what the daemon makes of it.
+
+    scripts/replay NAME|PATH            every segment, compared with CAPTURE/expected
+    scripts/replay --accept NAME|PATH   write CAPTURE/expected from this replay
+    scripts/replay --self-test          capture mock scenarios, replay them, compare
+
+A segment is one daemon run of the capture. Each one runs a fresh mock daemon
+(--mock-capture, --mock-segment, the same scratch dir kept between segments),
+waits for the replay to finish, snapshots every view, stops the daemon and
+checks the databases. The self-test never touches the real account: it records
+runs of synthetic scenarios and expects their replay to log the same inputs,
+with nothing missed, held back or undecryptable, and to show the same views
+once each install's minted ids are named alike.
+
+Captures hold real messages. So does what this prints and writes.
+"""
+
+from __future__ import annotations
+
+import argparse
+import collections
+import difflib
+import gzip
+import hashlib
+import json
+import os
+import re
+import shutil
+import signal
+import socket
+import sqlite3
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+TAGS = "sqlite_fts5 whatevr_mock whatevr_capture"
+# pinned so two runs agree on "now"
+MOCK_NOW = "2026-10-01T12:00:00Z"
+
+# a first sync downloads every history blob the capture saw, which takes
+# well over an hour
+SEGMENT_WAIT_MS = 6 * 3_600_000
+
+# fields that come from the daemon's own clock or the scratch dir, not from
+# the capture
+VOLATILE = {"since_ms", "next_retry_ms", "qr_expires_ms", "retry_at_ms", "first_seen_ms"}
+
+
+class Failure(Exception):
+    pass
+
+
+def log(msg: str) -> None:
+    print("replay: " + msg, file=sys.stderr, flush=True)
+
+
+def build(out: Path) -> Path:
+    binary = out / "whatevrd"
+    log("building whatevrd (%s)" % TAGS)
+    subprocess.run(["go", "-C", str(ROOT / "whatevrd"), "build", "-tags", TAGS, "-o", str(binary), "./cmd/whatevrd"],
+                   check=True, env=dict(os.environ, CGO_ENABLED="1"))
+    return binary
+
+
+class Control:
+    def __init__(self, path: Path, wait: float = 30) -> None:
+        deadline = time.time() + wait
+        while True:
+            try:
+                self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                self.sock.connect(str(path))
+                break
+            except OSError:
+                self.sock.close()
+                if time.time() > deadline:
+                    raise Failure("no mock control socket at %s" % path)
+                time.sleep(0.1)
+        self.buf = b""
+
+    def ask(self, req: dict[str, object], timeout: float = 600) -> dict[str, object]:
+        self.sock.settimeout(timeout)
+        self.sock.sendall(json.dumps(req).encode() + b"\n")
+        while b"\n" not in self.buf:
+            chunk = self.sock.recv(65536)
+            if not chunk:
+                raise Failure("control socket closed")
+            self.buf += chunk
+        line, self.buf = self.buf.split(b"\n", 1)
+        return json.loads(line)
+
+    def close(self) -> None:
+        self.sock.close()
+
+
+class Daemon:
+    """One mock daemon run in a kept scratch dir."""
+
+    def __init__(self, binary: Path, scratch: Path, args: list[str], keep: bool) -> None:
+        self.binary = binary
+        self.scratch = scratch
+        resolved = json.loads(subprocess.check_output([str(binary), "paths", "--json", "--mock-dir", str(scratch)], text=True))
+        self.resolved_paths = resolved
+        self.control = Path(resolved["ControlPath"])
+        cmd = [str(binary), *args, "--mock-dir", str(scratch), "--mock-control", str(self.control), "--mock-now", MOCK_NOW]
+        if keep:
+            cmd.append("--mock-keep")
+        self.errlog = open(scratch.with_name(scratch.name + ".stderr"), "ab")
+        env = dict(os.environ, WHATEVRD_LOG_STDERR="error")
+        self.proc = subprocess.Popen(cmd, stdout=self.errlog, stderr=self.errlog, env=env)
+
+    @property
+    def socket_path(self) -> Path:
+        return Path(self.resolved_paths["SocketPath"])
+
+    def settle(self, timeout_ms: int) -> dict[str, object]:
+        ctl = Control(self.control)
+        try:
+            deadline = time.time() + timeout_ms / 1000
+            while True:
+                if self.proc.poll() is not None:
+                    raise Failure("daemon exited with %s, see %s" % (self.proc.returncode, self.errlog.name))
+                resp = ctl.ask({"cmd": "sync", "timeout_ms": 5000, "idle_ms": 500})
+                if resp.get("ok"):
+                    break
+                if time.time() > deadline:
+                    raise Failure("mock never settled: %s" % resp.get("blocked_on"))
+            replay = ctl.ask({"cmd": "replay"})
+            return replay if "error" not in replay else {}
+        finally:
+            ctl.close()
+
+    def stop(self) -> None:
+        if self.proc.poll() is None:
+            self.proc.send_signal(signal.SIGTERM)
+            try:
+                self.proc.wait(30)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait()
+        self.errlog.close()
+        # on darwin the sockets sit in a short dir under the user temp dir, not in scratch
+        run = self.socket_path.parent
+        if run.name.startswith("i-"):
+            shutil.rmtree(run, ignore_errors=True)
+
+
+def normalize(value: object, scratch: str) -> object:
+    if isinstance(value, dict):
+        return {k: normalize(v, scratch) for k, v in sorted(value.items()) if k not in VOLATILE}
+    if isinstance(value, list):
+        return [normalize(v, scratch) for v in value]
+    if isinstance(value, str) and scratch and scratch in value:
+        return value.replace(scratch, "$DIR")
+    return value
+
+
+# a chat or person id the daemon minted, model/ids.go: every install has its own
+MINTED = re.compile(r"(?<![a-z2-7])[a-z2-7]{16}(?![a-z2-7])")
+
+
+def minted(views: dict[str, dict[str, object]]) -> set[str]:
+    """Every minted id in views: item keys, a per-chat view's chat, and id fields."""
+    found: set[str] = set()
+
+    def walk(v: object) -> None:
+        if isinstance(v, dict):
+            for k, x in v.items():
+                if (k == "id" or k.endswith("_id")) and isinstance(x, str) and MINTED.fullmatch(x):
+                    found.add(x)
+                walk(x)
+        elif isinstance(v, list):
+            for x in v:
+                walk(x)
+
+    for name, items in views.items():
+        found.update(w for w in name.split(" ")[1:] if MINTED.fullmatch(w))
+        found.update(k for k in items if MINTED.fullmatch(k))
+        walk(items)
+    return found
+
+
+def leaves(v: object, path: str = "") -> list[str]:
+    if isinstance(v, dict):
+        return [leaf for k, x in v.items() for leaf in leaves(x, path + "." + k)]
+    if isinstance(v, list):
+        return [leaf for x in v for leaf in leaves(x, path + "[]")]
+    return ["%s=%s" % (path, v)]
+
+
+def seen_with(views: dict[str, dict[str, object]]) -> dict[str, set[str]]:
+    """What each minted id shows up with: every leaf of every item it is in,
+    and every object that names it, a sender or a member, whole; itself
+    written @ and other minted ids #."""
+    ids = minted(views)
+    out: dict[str, set[str]] = {x: set() for x in ids}
+
+    def named(v: object, into: set[str]) -> None:
+        if isinstance(v, dict):
+            if "@" in v.values():
+                into.add(json.dumps(v, sort_keys=True))
+            for x in v.values():
+                named(x, into)
+        elif isinstance(v, list):
+            for x in v:
+                named(x, into)
+
+    for name, items in views.items():
+        for key, item in items.items():
+            text = json.dumps([name, key, item], sort_keys=True)
+            for x in set(MINTED.findall(text)) & ids:
+                marked = json.loads(MINTED.sub(lambda m: m[0] if m[0] not in ids else "@" if m[0] == x else "#", text))
+                out[x].update(leaves(marked))
+                named(marked, out[x])
+    return out
+
+
+def align(want: dict[str, dict[str, object]], got: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
+    """got with each minted id renamed to the one it stands for in want. an id
+    pairs with the one that shares the most of what only it shows up with on
+    either side, a phone, an avatar, a message's address; what pairs with
+    nothing keeps its name and shows in the diff."""
+    a, b = seen_with(want), seen_with(got)
+
+    def owners(seen: dict[str, set[str]]) -> dict[str, list[str]]:
+        out: dict[str, list[str]] = collections.defaultdict(list)
+        for x, leaves in seen.items():
+            for leaf in leaves:
+                out[leaf].append(x)
+        return out
+
+    oa, ob = owners(a), owners(b)
+    votes: collections.Counter[tuple[str, str]] = collections.Counter()
+    for leaf, xs in oa.items():
+        ys = ob.get(leaf, [])
+        if len(xs) == 1 and len(ys) == 1:
+            votes[(xs[0], ys[0])] += 1
+    rename: dict[str, str] = {}
+    paired: set[str] = set()
+    for (x, y), _ in sorted(votes.items(), key=lambda kv: (-kv[1], kv[0])):
+        if x not in paired and y not in rename:
+            rename[y] = x
+            paired.add(x)
+    return json.loads(MINTED.sub(lambda m: rename.get(m[0], m[0]), json.dumps(got, sort_keys=True)))
+
+
+def snapshot(daemon: Daemon) -> dict[str, object]:
+    out = subprocess.run([str(daemon.binary), "mock", "snapshot", "--socket", str(daemon.socket_path)],
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        raise Failure("snapshot: %s" % out.stderr.strip())
+    snap = json.loads(out.stdout)
+    views = {name: ranked(normalize(items, str(daemon.scratch))) for name, items in sorted(snap["views"].items())}
+    return {"views": views, "errors": snap["errors"]}
+
+
+def ranked(items: dict[str, dict[str, object]]) -> dict[str, dict[str, object]]:
+    """items with each sort as its place in the view. a sort carries the
+    arrival order, which a replay need not repeat byte for byte."""
+    order = sorted(items, key=lambda k: (bytes.fromhex(str(items[k]["sort"])), k))
+    return {k: {**items[k], "sort": i} for i, k in enumerate(order)}
+
+
+def settled_snapshot(daemon: Daemon, wait_ms: int) -> dict[str, object]:
+    """A snapshot once looking stops changing anything: a view looked at asks
+    for avatars, which land after."""
+    snap = snapshot(daemon)
+    for _ in range(5):
+        daemon.settle(wait_ms)
+        again = snapshot(daemon)
+        if again == snap:
+            return snap
+        snap = again
+    raise Failure("views still changing after 5 snapshots")
+
+
+def check_db(scratch: Path) -> list[str]:
+    problems = []
+    data = scratch / "data" / "whatevrd"
+    for db in [data / "whatevr.db", data / "session" / "whatsmeow.db"]:
+        if not db.exists():
+            problems.append("%s missing" % db.name)
+            continue
+        try:
+            con = sqlite3.connect("file:%s?mode=ro" % db, uri=True)
+            ok = con.execute("PRAGMA integrity_check").fetchall()
+            if ok != [("ok",)]:
+                problems.append("%s integrity: %s" % (db.name, ok[:5]))
+            fk = con.execute("PRAGMA foreign_key_check").fetchall()
+            if fk:
+                problems.append("%s foreign keys: %s" % (db.name, fk[:5]))
+            if db.name == "whatevr.db":
+                failed = con.execute("SELECT seq, kind, error FROM fold_failures ORDER BY seq").fetchall()
+                if failed:
+                    problems.append("whatevr.db: %d inputs did not fold, first %s" % (len(failed), failed[:5]))
+            con.close()
+        except sqlite3.Error as err:
+            problems.append("%s: %s" % (db.name, err))
+    return problems
+
+
+def diff(expected: dict[str, object], got: dict[str, object], label: str) -> list[str]:
+    a = json.dumps(expected, indent=1, sort_keys=True).splitlines()
+    b = json.dumps(got, indent=1, sort_keys=True).splitlines()
+    lines = list(difflib.unified_diff(a, b, "expected " + label, "replay " + label, lineterm="", n=2))
+    return lines
+
+
+# what the daemon logged off the wire, one "ingest: logged" line per event.
+# it depends only on what came over the wire, so the original run and a
+# faithful replay have the same multiset whatever order the daemon processed
+# it in. the input's seq is that order, so it goes.
+EVENT_SKIP = {"time", "level", "run", "message", "input"}
+# whatsmeow makes these on a goroutine from what its store already holds,
+# which depends on how far the daemon got, not on the wire
+STORE_KINDS = {"push_name", "business_name"}
+
+
+def run_events(logdir: Path) -> collections.Counter[str]:
+    runs = sorted(logdir.glob("whatevrd-*.jsonl*"))
+    if not runs:
+        raise Failure("no run log in %s" % logdir)
+    newest = runs[-1].name.split("-")[-1].split(".")[0]
+    out: collections.Counter[str] = collections.Counter()
+    for part in runs:
+        if newest not in part.name:
+            continue
+        opener = gzip.open if part.suffix == ".gz" else open
+        with opener(part, "rt") as f:
+            for line in f:
+                rec = json.loads(line)
+                if rec.get("message") == "ingest: logged" and rec.get("kind") not in STORE_KINDS:
+                    out[json.dumps({k: v for k, v in rec.items() if k not in EVENT_SKIP}, sort_keys=True)] += 1
+    return out
+
+
+def event_diff(original: collections.Counter[str], replayed: collections.Counter[str]) -> list[str]:
+    lines = []
+    for ev, n in sorted((original - replayed).items()):
+        lines.append("only in the original (%d): %s" % (n, ev))
+    for ev, n in sorted((replayed - original).items()):
+        lines.append("only in the replay (%d): %s" % (n, ev))
+    return lines
+
+
+def capture_segments(capture: Path) -> list[int]:
+    segs = sorted(int(p.stem) for p in (capture / "segments").glob("*.jsonl"))
+    if not segs:
+        raise Failure("%s has no segments" % capture)
+    return segs
+
+
+def replay(binary: Path, capture: Path, work: Path, speed: float, scratch: Path | None = None) -> list[dict[str, object]]:
+    scratch = scratch or work / "r"
+    results = []
+    for i, seg in enumerate(capture_segments(capture)):
+        log("segment %d" % seg)
+        args = ["--mock-capture", str(capture), "--mock-segment", str(seg)]
+        if speed:
+            args += ["--mock-speed", str(speed)]
+        daemon = Daemon(binary, scratch, args, keep=i > 0)
+        try:
+            stats = daemon.settle(SEGMENT_WAIT_MS)
+            snap = settled_snapshot(daemon, SEGMENT_WAIT_MS)
+        finally:
+            daemon.stop()
+        problems = check_db(scratch)
+        snap["problems"] = problems
+        results.append({"segment": seg, "stats": stats, "snapshot": snap,
+                        "events": run_events(scratch / "state" / "whatevr" / "logs")})
+        log("segment %d: %s pushes, %s misses, %s gate timeouts, %s junk, %d problem(s)" % (
+            seg, stats.get("total"), stats.get("misses", 0), stats.get("gate_timeouts", 0), stats.get("junk", 0), len(problems)))
+        for p in problems:
+            log("  " + p)
+    return results
+
+
+def resolve(arg: str) -> Path:
+    if "/" in arg:
+        return Path(arg).resolve()
+    if os.environ.get("XDG_STATE_HOME"):
+        return Path(os.environ["XDG_STATE_HOME"]) / "whatevr" / "captures" / arg
+    if sys.platform == "darwin":
+        return Path.home() / "Library/Application Support/in.codelif.whatevr/captures" / arg
+    return Path.home() / ".local/state/whatevr/captures" / arg
+
+
+def send_text(daemon: Daemon, phone: str, text: str) -> None:
+    out = subprocess.run([str(daemon.binary), "mock", "send", "--socket", str(daemon.socket_path), "--to", phone, "--text", text],
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        raise Failure("send: %s" % out.stderr.strip())
+
+
+# scenario -> what each daemon run of the original does after it settles
+SELF_TESTS: dict[str, list[list[tuple[str, str]]]] = {
+    # app state, groups, history, offline and live traffic, one run
+    "busy": [[]],
+    # sends and their receipts and replies, across a restart
+    "echo": [
+        [("917770000001", "first run")],
+        [("917770000001", "second run")],
+    ],
+}
+
+
+def self_test(binary: Path, work: Path, scenario: str, save: Path | None) -> bool:
+    scratch = work / ("o-" + scenario)
+    runs = SELF_TESTS.get(scenario, [[]])
+    originals = []
+    for i, sends in enumerate(runs):
+        log("capturing the %s scenario, run %d" % (scenario, i + 1))
+        daemon = Daemon(binary, scratch, ["--mock", scenario, "--capture", "selftest"], keep=i > 0)
+        try:
+            daemon.settle(120_000)
+            for phone, text in sends:
+                send_text(daemon, phone, text)
+                daemon.settle(120_000)
+            originals.append(settled_snapshot(daemon, 120_000))
+        finally:
+            daemon.stop()
+        originals[-1]["events"] = run_events(scratch / "state" / "whatevr" / "logs")
+    capture = scratch / "state" / "whatevr" / "captures" / "selftest"
+    replay_dir = work / ("r-" + scenario)
+    results = replay(binary, capture, work, 0, replay_dir)
+    failed = False
+    ids: dict[str, str] = {}
+    for original, result in zip(originals, results):
+        seg = result["segment"]
+        got = result["snapshot"]
+        failed = failed or bool(got["problems"])
+        stats = result["stats"]
+        if stats.get("misses") or stats.get("gate_timeouts") or stats.get("junk"):
+            log("segment %d: the replay of a mock run should be exact: %s" % (seg, stats))
+            failed = True
+        # sent messages carry new ids in a replay, the mock says which; a
+        # later segment still shows what an earlier one sent
+        ids.update(stats.get("ids") or {})
+        mapped: collections.Counter[str] = collections.Counter()
+        for ev, n in original["events"].items():
+            for old, new in ids.items():
+                ev = ev.replace(old, new)
+            mapped[ev] += n
+        if not mapped:
+            failed = True
+            log("segment %d: the original logged nothing off the wire, so nothing was compared" % seg)
+        events = event_diff(mapped, result["events"])
+        if events:
+            failed = True
+            log("segment %d: whatsmeow events differ:" % seg)
+            print("\n".join(events))
+        for which, snap in (("original", original), ("replay", got)):
+            if snap["errors"]:
+                failed = True
+                log("segment %d: the %s's snapshot failed views: %s" % (seg, which, snap["errors"]))
+        views = json.dumps(original["views"])
+        for old, new in ids.items():
+            views = views.replace(old, new)
+        want = json.loads(views)
+        got["views"] = align(want, got["views"])
+        if save:
+            for which, snap in (("original", {**original, "views": want, "events": None}), ("replay", {**got, "events": None})):
+                (save / ("%s-%s-%04d.json" % (scenario, which, seg))).write_text(json.dumps(snap, indent=1, sort_keys=True) + "\n")
+        lines = diff(want, got["views"], "segment %d" % seg)
+        if lines:
+            failed = True
+            log("segment %d: views differ in %d diff lines" % (seg, len(lines)))
+            print("\n".join(lines))
+    log("self-test %s: %s" % (scenario, "FAIL" if failed else "pass"))
+    return not failed
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("capture", nargs="?", help="capture name (under $XDG_STATE_HOME/whatevr/captures) or path")
+    parser.add_argument("--accept", action="store_true", help="write CAPTURE/expected from this replay")
+    parser.add_argument("--self-test", action="store_true", help="capture a mock scenario and replay it")
+    parser.add_argument("--scenario", action="append", help="scenario for --self-test, repeatable (default: %s)" % ", ".join(SELF_TESTS))
+    parser.add_argument("--speed", type=float, default=0, help="replay pace, 1 is the recorded clock, 0 as fast as possible")
+    parser.add_argument("--bin", help="use this whatevrd instead of building one (needs the mock and capture tags)")
+    parser.add_argument("--keep", action="store_true", help="leave the scratch dir behind")
+    parser.add_argument("--save", help="also write each segment's snapshot into this dir, the original's too for --self-test")
+    args = parser.parse_args()
+    if args.self_test == bool(args.capture):
+        parser.error("give a capture or --self-test")
+
+    # short on purpose: the daemon's unix socket lives under it
+    work = Path(tempfile.mkdtemp(prefix="whatevr-replay-"))
+    try:
+        binary = Path(args.bin).resolve() if args.bin else build(work)
+        save = Path(args.save) if args.save else None
+        if save:
+            save.mkdir(parents=True, exist_ok=True)
+        if args.self_test:
+            ok = [self_test(binary, work, sc, save) for sc in (args.scenario or list(SELF_TESTS))]
+            return 0 if all(ok) else 1
+        capture = resolve(args.capture)
+        results = replay(binary, capture, work, args.speed)
+        if save:
+            for r in results:
+                (save / ("segment-%04d.json" % r["segment"])).write_text(json.dumps(r["snapshot"], indent=1, sort_keys=True) + "\n")
+        expected_dir = capture / "expected"
+        if args.accept:
+            expected_dir.mkdir(exist_ok=True)
+            for r in results:
+                path = expected_dir / ("segment-%04d.json" % r["segment"])
+                path.write_text(json.dumps(r["snapshot"], indent=1, sort_keys=True) + "\n")
+            log("wrote %s" % expected_dir)
+            return 0
+        failed = False
+        for r in results:
+            failed = failed or bool(r["snapshot"]["problems"]) or bool(r["snapshot"]["errors"])
+            path = expected_dir / ("segment-%04d.json" % r["segment"])
+            if not path.exists():
+                log("segment %d has no expected snapshot yet, review it and run with --accept" % r["segment"])
+                continue
+            want = json.loads(path.read_text())
+            r["snapshot"]["views"] = align(want["views"], r["snapshot"]["views"])
+            lines = diff(want, r["snapshot"], "segment %d" % r["segment"])
+            if lines:
+                failed = True
+                print("\n".join(lines))
+        log("FAIL" if failed else "pass")
+        return 1 if failed else 0
+    except Failure as err:
+        log("error: %s" % err)
+        return 1
+    finally:
+        if args.keep:
+            log("scratch kept at %s" % work)
+        else:
+            shutil.rmtree(work, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
