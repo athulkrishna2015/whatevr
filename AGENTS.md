@@ -161,28 +161,3 @@ ctest --test-dir build/debug/whatkevr --output-on-failure
 ```
 
 If the merge bumped whatsmeow, re-check the API-breakage list below.
-
-## Contribution and PR scope
-
-- Prefer small, focused pull requests. Separate daemon/protocol work, Qt/QML
-  frontend work, CI fixes, and unrelated bug fixes instead of combining them
-  into one broad feature branch.
-- Keep each PR reviewable by stating its exact scope, included features,
-  exclusions, dependencies, and verification steps in the PR description.
-- Do not add or expand generated feature logs, implementation logs, screenshot
-  inventories, or speculative documentation as part of feature work. Add only
-  concise, hand-reviewed documentation required by the change. Larger design
-  notes and feature inventories belong in the project wiki unless explicitly
-  requested.
-- Do not bump `VERSION`, package versions, release metadata, changelogs, or
-  release notes in ordinary feature PRs. Release/version changes are handled by
-  the maintainer's release scripts when a release is cut.
-- Do not commit `AGENTS.md`, `CLAUDE.md`, editor settings, local screenshots,
-  session transcripts, generated build output, or other personal development
-  fixtures unless the maintainer explicitly requests that repository-level
-  file change.
-- Do not modify `.gitignore` to accommodate local tools or personal workspace
-  files. Keep environment-specific exclusions local.
-- Before opening a PR, inspect the diff against upstream, remove unrelated
-  files, and confirm that no secrets, local paths, generated artifacts, or
-  release-only changes are included.
