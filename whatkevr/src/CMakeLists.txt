@@ -37,6 +37,10 @@ set(WHATKEVR_SOURCES
     media/videoframeprovider.h
     protocol/protocolclient.cpp
     protocol/protocolclient.h
+    protocol/v2codec.cpp
+    protocol/v2codec.h
+    protocol/v2shim.cpp
+    protocol/v2shim.h
     protocol/collectionviewmodel.cpp
     protocol/collectionviewmodel.h
     protocol/objectviewmodel.cpp

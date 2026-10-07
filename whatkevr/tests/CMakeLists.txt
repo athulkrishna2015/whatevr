@@ -6,6 +6,8 @@ qt_add_executable(tst_protocolcore
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/protocol/protocolclient.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/protocol/collectionviewmodel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/protocol/objectviewmodel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/protocol/v2codec.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/protocol/v2shim.cpp
 )
 
 target_include_directories(tst_protocolcore PRIVATE
@@ -16,6 +18,7 @@ target_link_libraries(tst_protocolcore PRIVATE
     Qt6::Core
     Qt6::Network
     Qt6::Test
+    whatevr_proto
 )
 
 add_test(NAME tst_protocolcore COMMAND tst_protocolcore)
@@ -101,6 +104,8 @@ qt_add_executable(tst_protocolcontroller
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/protocol/protocolclient.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/protocol/objectviewmodel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/protocol/collectionviewmodel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/protocol/v2codec.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/protocol/v2shim.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/models/protocolmessagemodel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/models/protocolsearchmodel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/models/emojimodel.cpp
@@ -124,6 +129,7 @@ target_link_libraries(tst_protocolcontroller PRIVATE
     Qt6::Qml
     Qt6::Test
     KF6::I18n
+    whatevr_proto
 )
 
 add_test(NAME tst_protocolcontroller COMMAND tst_protocolcontroller)

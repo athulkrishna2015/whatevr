@@ -10,7 +10,10 @@
 
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
+
+#include "whatevr/v2/frame.pb.h"
 
 QT_BEGIN_NAMESPACE
 class QLocalSocket;
@@ -21,7 +24,7 @@ namespace whatevr::proto
 {
 
 // The one wire protocol version this client speaks (PROTOCOL.md, "Hello").
-inline constexpr int kProtocolVersion = 1;
+inline constexpr int kProtocolVersion = 2;
 
 // An error envelope carried by a command/query response or a failed subscribe.
 // `code` is the stable machine-readable string (PROTOCOL.md "Errors"); an empty
@@ -100,7 +103,7 @@ public:
     // Tear down the subscription (also happens on destruction).
     void unsubscribe();
 
-    [[nodiscard]] bool isActive() const { return m_subId >= 0; }
+    [[nodiscard]] bool isActive() const { return m_subId != std::numeric_limits<quint64>::max(); }
     [[nodiscard]] const QVariantMap &meta() const { return m_meta; }
 
 Q_SIGNALS:
@@ -128,7 +131,7 @@ private:
     QJsonObject m_params;
     ViewSink *m_sink;
     QVariantMap m_meta;
-    int m_subId = -1;
+    quint64 m_subId = std::numeric_limits<quint64>::max();
     QList<PendingExtend> m_pendingExtends;
 };
 
@@ -157,7 +160,7 @@ public:
     // Send a command/query. The callback fires exactly once with either a
     // result or an error. Requests issued before the connection is ready are
     // queued and flushed after `hello`. Returns the request id.
-    int request(const QString &method, const QJsonObject &params, ResponseCallback callback = {});
+    quint64 request(const QString &method, const QJsonObject &params, ResponseCallback callback = {});
 
     // Subscribe to a view. The returned Subscription is parented to the client;
     // its sink must outlive it (or the subscription must be destroyed first).
@@ -185,6 +188,10 @@ Q_SIGNALS:
                             const QString &path,
                             const QString &error);
 
+public:
+    // No daemon-assigned subscription yet (v2 sub ids are uint64).
+    static constexpr quint64 kNoSub = std::numeric_limits<quint64>::max();
+
 private:
     friend class Subscription;
 
@@ -198,14 +205,14 @@ private:
     void onSocketConnected();
     void onSocketDisconnected();
     void onReadyRead();
-    void dispatchLine(const QByteArray &line);
-    void handleResponse(const QJsonObject &msg);
-    void handleEvent(const QJsonObject &msg);
+    void dispatchFrame(const whatevr::v2::Frame &frame);
+    void handleResponse(const whatevr::v2::Response &response);
+    void handleEvent(const whatevr::v2::Event &event);
     void noteBatched(ViewSink *sink);
     void handleHelloReply(const QJsonObject &result, const ProtocolError &error);
 
-    void sendObject(const QJsonObject &obj);
-    int sendRequest(const QString &method, const QJsonObject &params, ResponseCallback callback);
+    void sendFrame(const whatevr::v2::Request &request);
+    quint64 sendRequest(const QString &method, const QJsonObject &params, ResponseCallback callback);
     void flushPending();
     void scheduleReconnect();
     void failLater(ResponseCallback callback, const QString &code, const QString &message);
@@ -221,7 +228,7 @@ private:
         QString method;
         QJsonObject params;
         ResponseCallback callback;
-        int id;
+        quint64 id;
     };
 
     QString m_socketPath;
@@ -232,13 +239,13 @@ private:
     QTimer *m_handshakeTimer = nullptr;
     State m_state = State::Idle;
     bool m_running = false;
-    int m_nextId = 1;
+    quint64 m_nextId = 1;
     QByteArray m_readBuffer;
     QVariantMap m_serverInfo;
 
-    QHash<int, ResponseCallback> m_pending; // by request id
+    QHash<quint64, ResponseCallback> m_pending; // by request id
     QList<QueuedRequest> m_preHelloQueue; // requests made before Ready
-    QHash<int, Subscription *> m_subsBySubId; // by daemon-assigned sub id
+    QHash<quint64, Subscription *> m_subsBySubId; // by daemon-assigned sub id
     QList<Subscription *> m_subscriptions; // all live subscriptions
     // A sink with an open batch, plus the token that says whether it is still
     // alive when the drain ends.

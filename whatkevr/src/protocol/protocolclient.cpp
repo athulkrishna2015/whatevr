@@ -10,6 +10,9 @@
 
 #include <utility>
 
+#include "v2codec.h"
+#include "v2shim.h"
+
 namespace whatevr::proto
 {
 
@@ -19,9 +22,9 @@ namespace
 // process; a dropped socket usually means a restart we want to ride out fast.
 constexpr int kReconnectDelayMs = 1000;
 
-// Guard against a wedged peer flooding us with an unframed blob: a single
-// protocol object is never remotely this large.
-constexpr int kMaxLineBytes = 8 * 1024 * 1024;
+// Guard against a wedged peer flooding us with an unframed blob: framed
+// bytes past the v2 cap mean nobody is framing, same as before.
+constexpr int kMaxReadBytes = kV2MaxFrameBytes;
 
 // How long the daemon has to answer `hello`. A socket that connects and then
 // says nothing is otherwise a permanent wedge: the client sits in Handshaking,
@@ -36,14 +39,6 @@ constexpr int kHandshakeTimeoutMs = 10000;
 // without limit.
 constexpr int kMaxInFlightRequests = 4096;
 constexpr int kMaxQueuedRequests = 1024;
-
-ProtocolError errorFromResponse(const QJsonObject &err)
-{
-    return ProtocolError{
-        err.value(QStringLiteral("code")).toString(),
-        err.value(QStringLiteral("message")).toString(),
-    };
-}
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -71,7 +66,7 @@ Subscription::~Subscription()
 
 void Subscription::extend(int count, const QString &direction)
 {
-    if (m_subId < 0) {
+    if (m_subId == ProtocolClient::kNoSub) {
         // Not yet subscribed — remember it and flush once the sub id lands.
         m_pendingExtends.append(PendingExtend{count, direction});
         return;
@@ -89,7 +84,7 @@ void Subscription::unsubscribe()
     m_client->sendUnsubscribe(this);
     m_client->removeSubscription(this);
     m_client = nullptr;
-    m_subId = -1;
+    m_subId = ProtocolClient::kNoSub;
 }
 
 // ---------------------------------------------------------------------------
@@ -176,11 +171,11 @@ void ProtocolClient::onSocketConnected()
     m_handshakeTimer->start();
     // The first request on a connection must be `hello`. It rides the normal
     // request path (id-correlated); everything else waits behind it.
-    QJsonObject params{
-        {QStringLiteral("client"), m_clientName},
-        {QStringLiteral("protocol"), kProtocolVersion},
-    };
-    sendRequest(QStringLiteral("hello"), params,
+    sendRequest(QStringLiteral("hello"),
+                QJsonObject{
+                    {QStringLiteral("client"), m_clientName},
+                    {QStringLiteral("protocol"), kProtocolVersion},
+                },
                 [this](const QJsonObject &result, const ProtocolError &error) {
                     handleHelloReply(result, error);
                 });
@@ -204,7 +199,7 @@ void ProtocolClient::onSocketDisconnected()
     // Live subscriptions must discard their local copy; they will be re-issued
     // on reconnect and refilled from scratch.
     for (Subscription *sub : std::as_const(m_subscriptions)) {
-        sub->m_subId = -1;
+        sub->m_subId = ProtocolClient::kNoSub;
         if (sub->m_sink) {
             sub->m_sink->onReset();
         }
@@ -227,20 +222,24 @@ void ProtocolClient::onReadyRead()
 {
     m_readBuffer += m_socket->readAll();
     bool oversized = false;
-    int newline = m_readBuffer.indexOf('\n');
-    while (newline >= 0) {
-        if (newline > kMaxLineBytes) {
+    bool malformed = false;
+    for (;;) {
+        whatevr::v2::Frame frame;
+        const V2DecodeResult decoded = popV2Frame(m_readBuffer, &frame);
+        if (decoded == V2DecodeResult::NeedMore) {
+            break;
+        }
+        if (decoded == V2DecodeResult::Oversized) {
             oversized = true;
             break;
         }
-        const QByteArray line = m_readBuffer.left(newline);
-        m_readBuffer.remove(0, newline + 1);
-        if (!line.isEmpty()) {
-            dispatchLine(line);
+        if (decoded == V2DecodeResult::Malformed) {
+            malformed = true;
+            break;
         }
-        newline = m_readBuffer.indexOf('\n');
+        dispatchFrame(frame);
     }
-    if (!oversized && m_readBuffer.size() > kMaxLineBytes) {
+    if (!oversized && !malformed && m_readBuffer.size() > kMaxReadBytes) {
         oversized = true;
     }
     const QList<BatchedSink> touched = std::move(m_batchedSinks);
@@ -256,8 +255,9 @@ void ProtocolClient::onReadyRead()
         }
         entry.sink->onBatchEnd();
     }
-    if (oversized) {
-        Q_EMIT errorOccurred(QStringLiteral("oversized protocol frame; dropping connection"));
+    if (oversized || malformed) {
+        Q_EMIT errorOccurred(malformed ? QStringLiteral("malformed protocol frame; dropping connection")
+                                       : QStringLiteral("oversized protocol frame; dropping connection"));
         m_socket->abort();
         onSocketDisconnected();
     }
@@ -281,26 +281,24 @@ void ProtocolClient::noteBatched(ViewSink *sink)
     sink->onBatchBegin();
 }
 
-void ProtocolClient::dispatchLine(const QByteArray &line)
+void ProtocolClient::dispatchFrame(const whatevr::v2::Frame &frame)
 {
-    QJsonParseError parseError;
-    const QJsonDocument doc = QJsonDocument::fromJson(line, &parseError);
-    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
-        Q_EMIT errorOccurred(QStringLiteral("malformed message from daemon: %1").arg(parseError.errorString()));
-        return;
+    switch (frame.frame_case()) {
+    case whatevr::v2::Frame::kResponse:
+        handleResponse(frame.response());
+        break;
+    case whatevr::v2::Frame::kEvent:
+        handleEvent(frame.event());
+        break;
+    default:
+        // Requests never arrive from the daemon; rule 5 says ignore the rest.
+        break;
     }
-    const QJsonObject msg = doc.object();
-    if (msg.contains(QStringLiteral("event"))) {
-        handleEvent(msg);
-    } else if (msg.contains(QStringLiteral("id"))) {
-        handleResponse(msg);
-    }
-    // Anything else (no id, no event) is unknown; rule 5 says ignore it.
 }
 
-void ProtocolClient::handleResponse(const QJsonObject &msg)
+void ProtocolClient::handleResponse(const whatevr::v2::Response &response)
 {
-    const int id = msg.value(QStringLiteral("id")).toInt(-1);
+    const quint64 id = response.id();
     const auto it = m_pending.find(id);
     if (it == m_pending.end()) {
         return; // response to an unknown/already-completed id
@@ -311,56 +309,56 @@ void ProtocolClient::handleResponse(const QJsonObject &msg)
     if (!callback) {
         return;
     }
-    if (msg.contains(QStringLiteral("error"))) {
-        callback({}, errorFromResponse(msg.value(QStringLiteral("error")).toObject()));
+    const V2ResponseTranslation translated = translateV2Response(response);
+    if (translated.isError()) {
+        callback({}, ProtocolError{translated.errorCode, translated.errorMessage});
     } else {
-        callback(msg.value(QStringLiteral("result")).toObject(), ProtocolError{});
+        callback(translated.result, ProtocolError{});
     }
 }
 
-void ProtocolClient::handleEvent(const QJsonObject &msg)
+void ProtocolClient::handleEvent(const whatevr::v2::Event &event)
 {
-    const QString event = msg.value(QStringLiteral("event")).toString();
-
-    // Connection-directed events carry no `sub`.
-    if (!msg.contains(QStringLiteral("sub"))) {
-        if (event == QLatin1String("open_chat")) {
-            Q_EMIT openChatRequested(msg.value(QStringLiteral("chat_id")).toString());
-        } else if (event == QLatin1String("activate_window")) {
+    using whatevr::v2::Event;
+    if (event.event_case() != Event::kUpdate) {
+        // Connection-directed events carry no `sub`.
+        switch (event.event_case()) {
+        case Event::kOpenChat:
+            Q_EMIT openChatRequested(v2s(event.open_chat().chat_id()));
+            break;
+        case Event::kActivate:
             Q_EMIT activateWindowRequested();
-        } else if (event == QLatin1String("show_tray_menu")) {
-            Q_EMIT showTrayMenuRequested(msg.value(QStringLiteral("x")).toInt(),
-                                         msg.value(QStringLiteral("y")).toInt());
-        } else if (event == QLatin1String("media_stream_update")) {
-            Q_EMIT mediaStreamUpdated(msg.value(QStringLiteral("stream_id")).toString(),
-                                      msg.value(QStringLiteral("message_id")).toString(),
-                                      msg.value(QStringLiteral("state")).toString(),
-                                      msg.value(QStringLiteral("path")).toString(),
-                                      msg.value(QStringLiteral("error")).toString());
+            break;
+        case Event::kMediaStreamUpdate: {
+            const auto &update = event.media_stream_update();
+            QString state;
+            switch (update.state()) {
+            case whatevr::v2::MEDIA_STREAM_STATE_LOCAL:
+                state = QStringLiteral("local");
+                break;
+            case whatevr::v2::MEDIA_STREAM_STATE_FAILED:
+                state = QStringLiteral("failed");
+                break;
+            default:
+                break;
+            }
+            Q_EMIT mediaStreamUpdated(v2s(update.stream_id()), v2s(update.message_id()), state,
+                                      v2s(update.path()), v2s(update.error()));
+            break;
+        }
+        default:
+            break;
         }
         return;
     }
 
-    const int subId = msg.value(QStringLiteral("sub")).toInt(-1);
+    const quint64 subId = event.update().sub();
     Subscription *sub = m_subsBySubId.value(subId, nullptr);
     if (!sub || !sub->m_sink) {
         return; // event for a subscription we've torn down
     }
-    ViewSink *sink = sub->m_sink;
-
-    if (event == QLatin1String("upsert")) {
-        noteBatched(sink);
-        sink->onUpsert(msg.value(QStringLiteral("sort")).toString(),
-                       msg.value(QStringLiteral("item")).toObject());
-    } else if (event == QLatin1String("remove")) {
-        noteBatched(sink);
-        sink->onRemove(msg.value(QStringLiteral("id")).toString());
-    } else if (event == QLatin1String("ready")) {
-        const bool has = msg.contains(QStringLiteral("exhausted"));
-        sink->onReady(msg.value(QStringLiteral("exhausted")).toBool(), has);
-    } else if (event == QLatin1String("reset")) {
-        sink->onReset();
-    }
+    noteBatched(sub->m_sink);
+    applyV2ViewUpdate(event.update(), sub->m_sink);
 }
 
 void ProtocolClient::handleHelloReply(const QJsonObject &result, const ProtocolError &error)
@@ -384,7 +382,7 @@ void ProtocolClient::handleHelloReply(const QJsonObject &result, const ProtocolE
     Q_EMIT ready();
 }
 
-void ProtocolClient::sendObject(const QJsonObject &obj)
+void ProtocolClient::sendFrame(const whatevr::v2::Request &request)
 {
     const auto failWrite = [this](const QString &message) {
         Q_EMIT errorOccurred(message);
@@ -396,16 +394,19 @@ void ProtocolClient::sendObject(const QJsonObject &obj)
         failWrite(QStringLiteral("protocol write failed: socket is not connected"));
         return;
     }
-    const QByteArray payload = QJsonDocument(obj).toJson(QJsonDocument::Compact) + '\n';
+    whatevr::v2::Frame frame;
+    *frame.mutable_request() = request;
+    const QByteArray payload = encodeV2Frame(frame);
     const qint64 written = m_socket->write(payload);
     if (written < 0 || written == 0) {
         failWrite(QStringLiteral("protocol write failed: %1").arg(m_socket->errorString()));
     }
 }
 
-int ProtocolClient::sendRequest(const QString &method, const QJsonObject &params, ResponseCallback callback)
+quint64 ProtocolClient::sendRequest(const QString &method, const QJsonObject &params,
+                                    ResponseCallback callback)
 {
-    const int id = m_nextId++;
+    const quint64 id = m_nextId++;
     if (callback && m_pending.size() >= kMaxInFlightRequests) {
         // A daemon that accepts requests and answers none would otherwise have
         // us hold every callback for ever. Refuse the new one rather than drop
@@ -416,23 +417,29 @@ int ProtocolClient::sendRequest(const QString &method, const QJsonObject &params
                   QStringLiteral("too many requests are already awaiting the daemon"));
         return id;
     }
+    whatevr::v2::Request request;
+    if (!buildV2Request(id, method, params, &request)) {
+        // v1-only surface with no v2 arm: the v1 daemon would answer
+        // unknown_method, so fail the same way without touching the wire.
+        if (callback) {
+            failLater(std::move(callback), QStringLiteral("unknown_method"),
+                      QStringLiteral("method %1 is not served on protocol 2").arg(method));
+        }
+        return id;
+    }
     if (callback) {
         m_pending.insert(id, std::move(callback));
     }
-    sendObject(QJsonObject{
-        {QStringLiteral("id"), id},
-        {QStringLiteral("method"), method},
-        {QStringLiteral("params"), params},
-    });
+    sendFrame(request);
     return id;
 }
 
-int ProtocolClient::request(const QString &method, const QJsonObject &params, ResponseCallback callback)
+quint64 ProtocolClient::request(const QString &method, const QJsonObject &params, ResponseCallback callback)
 {
     if (m_state != State::Ready) {
         // Queue until hello lands. Reserve the id now so the return value is
         // stable and callers can correlate before the wire send.
-        const int id = m_nextId++;
+        const quint64 id = m_nextId++;
         if (m_preHelloQueue.size() >= kMaxQueuedRequests) {
             // The daemon has been unreachable long enough that the queue is
             // full. The oldest entry is the least likely to still matter (a
@@ -461,11 +468,17 @@ void ProtocolClient::flushPending()
         }
     }
     for (const QueuedRequest &req : queue) {
-        sendObject(QJsonObject{
-            {QStringLiteral("id"), req.id},
-            {QStringLiteral("method"), req.method},
-            {QStringLiteral("params"), req.params},
-        });
+        whatevr::v2::Request request;
+        if (!buildV2Request(req.id, req.method, req.params, &request)) {
+            m_pending.remove(req.id);
+            if (req.callback) {
+                req.callback({}, ProtocolError{QStringLiteral("unknown_method"),
+                                               QStringLiteral("method %1 is not served on protocol 2")
+                                                   .arg(req.method)});
+            }
+            continue;
+        }
+        sendFrame(request);
         if (m_state != State::Ready) {
             break;
         }
@@ -487,7 +500,7 @@ void ProtocolClient::failLater(ResponseCallback callback, const QString &code, c
 
 void ProtocolClient::failAllPending(const QString &code, const QString &message)
 {
-    const QHash<int, ResponseCallback> pending = std::move(m_pending);
+    const QHash<quint64, ResponseCallback> pending = std::move(m_pending);
     m_pending.clear();
     const ProtocolError error{code, message};
     for (const ResponseCallback &callback : pending) {
@@ -517,69 +530,80 @@ Subscription *ProtocolClient::subscribe(const QString &view, const QJsonObject &
 
 void ProtocolClient::sendSubscribe(Subscription *sub)
 {
-    QJsonObject params = sub->m_params;
-    params.insert(QStringLiteral("view"), sub->m_view);
     const QPointer<Subscription> guardedSub(sub);
-    sendRequest(QStringLiteral("subscribe"), params,
-                [this, guardedSub](const QJsonObject &result, const ProtocolError &error) {
-                    // A replaced subscription can be allocated at the same raw
-                    // address. QPointer tracks the original QObject identity.
-                    if (!guardedSub) {
-                        const int staleSubId = result.value(QStringLiteral("sub")).toInt(-1);
-                        if (!error.isError() && staleSubId >= 0) {
-                            sendRequest(QStringLiteral("unsubscribe"),
-                                        QJsonObject{{QStringLiteral("sub"), staleSubId}}, {});
-                        }
-                        return;
-                    }
-                    Subscription *sub = guardedSub.data();
-                    if (error.isError()) {
-                        Q_EMIT sub->failed(error.code, error.message);
-                        return;
-                    }
-                    sub->m_subId = result.value(QStringLiteral("sub")).toInt(-1);
-                    QVariantMap meta = result.toVariantMap();
-                    meta.remove(QStringLiteral("sub"));
-                    sub->m_meta = meta;
-                    if (sub->m_subId >= 0) {
-                        m_subsBySubId.insert(sub->m_subId, sub);
-                    }
-                    // Flush any extends issued before the sub id was known.
-                    const auto pending = sub->m_pendingExtends;
-                    sub->m_pendingExtends.clear();
-                    for (const auto &ext : pending) {
-                        sendExtend(sub, ext.count, ext.direction);
-                    }
-                    Q_EMIT sub->subscribed(meta);
-                });
+    // The v2 subscribe carries the split view/params; buildV2Request only
+    // knows the flat v1 `subscribe` method, so build it directly here.
+    const quint64 id = m_nextId++;
+    whatevr::v2::Request request;
+    if (!buildV2Subscribe(id, sub->m_view, sub->m_params, &request)) {
+        failLater([guardedSub](const QJsonObject &, const ProtocolError &) {
+            if (guardedSub) {
+                Q_EMIT guardedSub->failed(QStringLiteral("unknown_method"),
+                                          QStringLiteral("view is not served on protocol 2"));
+            }
+        }, QStringLiteral("unknown_method"), QStringLiteral("view is not served on protocol 2"));
+        return;
+    }
+    m_pending.insert(id, [this, guardedSub](const QJsonObject &result, const ProtocolError &error) {
+        // A replaced subscription can be allocated at the same raw
+        // address. QPointer tracks the original QObject identity.
+        if (!guardedSub) {
+            const quint64 staleSubId = result.value(QStringLiteral("sub")).toString().toULongLong();
+            if (!error.isError() && !result.value(QStringLiteral("sub")).toString().isEmpty()) {
+                whatevr::v2::Request cleanup;
+                buildV2Unsubscribe(m_nextId++, staleSubId, &cleanup);
+                sendFrame(cleanup);
+            }
+            return;
+        }
+        Subscription *sub = guardedSub.data();
+        if (error.isError()) {
+            Q_EMIT sub->failed(error.code, error.message);
+            return;
+        }
+        sub->m_subId = result.value(QStringLiteral("sub")).toString().toULongLong();
+        QVariantMap meta = result.toVariantMap();
+        meta.remove(QStringLiteral("sub"));
+        sub->m_meta = meta;
+        if (sub->m_subId != ProtocolClient::kNoSub) {
+            m_subsBySubId.insert(sub->m_subId, sub);
+        }
+        // Flush any extends issued before the sub id was known.
+        const auto pending = sub->m_pendingExtends;
+        sub->m_pendingExtends.clear();
+        for (const auto &ext : pending) {
+            sendExtend(sub, ext.count, ext.direction);
+        }
+        Q_EMIT sub->subscribed(meta);
+    });
+    sendFrame(request);
 }
 
 void ProtocolClient::sendExtend(Subscription *sub, int count, const QString &direction)
 {
-    if (m_state != State::Ready || !sub || sub->m_subId < 0) {
+    if (m_state != State::Ready || !sub || sub->m_subId == ProtocolClient::kNoSub) {
         return;
     }
     const QPointer<Subscription> guardedSub(sub);
-    sendRequest(QStringLiteral("extend"),
-                 QJsonObject{
-                     {QStringLiteral("sub"), sub->m_subId},
-                     {QStringLiteral("count"), count},
-                     {QStringLiteral("direction"), direction},
-                 },
-                 [guardedSub](const QJsonObject &, const ProtocolError &error) {
-                     if (error.isError() && guardedSub) {
-                         Q_EMIT guardedSub->extendFailed(error.code, error.message);
-                     }
-                 });
+    const quint64 id = m_nextId++;
+    whatevr::v2::Request request;
+    buildV2Extend(id, sub->m_subId, count, direction, &request);
+    m_pending.insert(id, [guardedSub](const QJsonObject &, const ProtocolError &error) {
+        if (error.isError() && guardedSub) {
+            Q_EMIT guardedSub->extendFailed(error.code, error.message);
+        }
+    });
+    sendFrame(request);
 }
 
 void ProtocolClient::sendUnsubscribe(Subscription *sub)
 {
-    if (m_state == State::Ready && sub->m_subId >= 0) {
-        sendRequest(QStringLiteral("unsubscribe"),
-                    QJsonObject{{QStringLiteral("sub"), sub->m_subId}}, {});
+    if (m_state == State::Ready && sub->m_subId != ProtocolClient::kNoSub) {
+        whatevr::v2::Request request;
+        buildV2Unsubscribe(m_nextId++, sub->m_subId, &request);
+        sendFrame(request);
     }
-    if (sub->m_subId >= 0) {
+    if (sub->m_subId != ProtocolClient::kNoSub) {
         m_subsBySubId.remove(sub->m_subId);
     }
 }
@@ -587,10 +611,10 @@ void ProtocolClient::sendUnsubscribe(Subscription *sub)
 void ProtocolClient::removeSubscription(Subscription *sub)
 {
     m_subscriptions.removeAll(sub);
-    if (sub->m_subId >= 0) {
+    if (sub->m_subId != ProtocolClient::kNoSub) {
         m_subsBySubId.remove(sub->m_subId);
     }
-    sub->m_subId = -1;
+    sub->m_subId = ProtocolClient::kNoSub;
 }
 
 } // namespace whatevr::proto

@@ -1,7 +1,7 @@
 // Unit tests for the whatevr protocol client core (D1): the ProtocolClient
 // transport/dispatcher and the generic collection/object view models, exercised
-// end-to-end against an in-process fake daemon speaking real NDJSON over a real
-// Unix socket. No GUI, no gRPC, no daemon binary.
+// end-to-end against an in-process fake daemon speaking real v2 frames over a
+// real Unix socket. No GUI, no daemon binary.
 
 #include <QCoreApplication>
 #include <QJsonArray>
@@ -21,6 +21,8 @@
 #include "collectionviewmodel.h"
 #include "objectviewmodel.h"
 #include "protocolclient.h"
+#include "v2codec.h"
+#include "whatevr/v2/frame.pb.h"
 
 using namespace whatevr::proto;
 
@@ -46,73 +48,81 @@ public:
         });
     }
 
-    void sendEvent(int sub, const QJsonObject &event)
+    void sendUpdate(int sub, const whatevr::v2::ViewUpdate &update)
     {
-        QJsonObject obj = event;
-        obj.insert(QStringLiteral("sub"), sub);
-        writeObject(obj);
+        whatevr::v2::Frame frame;
+        auto *out = frame.mutable_event()->mutable_update();
+        *out = update;
+        out->set_sub(static_cast<std::uint64_t>(sub));
+        writeFrame(frame);
     }
 
     void sendUpsert(int sub, const QString &sort, const QJsonObject &item)
     {
-        sendEvent(sub, QJsonObject{
-                           {QStringLiteral("event"), QStringLiteral("upsert")},
-                           {QStringLiteral("sort"), sort},
-                           {QStringLiteral("item"), item},
-                       });
+        whatevr::v2::ViewUpdate update;
+        auto *upsert = update.add_changes()->mutable_upsert();
+        upsert->set_id(item.value(QStringLiteral("id")).toString().toStdString());
+        upsert->set_sort(sort.toUtf8().toStdString());
+        auto *chat = upsert->mutable_chat();
+        chat->set_id(item.value(QStringLiteral("id")).toString().toStdString());
+        chat->set_name(item.value(QStringLiteral("name")).toString().toStdString());
+        sendUpdate(sub, update);
     }
 
     void sendRemove(int sub, const QString &id)
     {
-        sendEvent(sub, QJsonObject{
-                           {QStringLiteral("event"), QStringLiteral("remove")},
-                           {QStringLiteral("id"), id},
-                       });
+        whatevr::v2::ViewUpdate update;
+        update.add_changes()->mutable_remove()->set_id(id.toStdString());
+        sendUpdate(sub, update);
     }
 
     void sendReady(int sub, bool exhausted, bool includeFlag = true)
     {
-        QJsonObject ev{{QStringLiteral("event"), QStringLiteral("ready")}};
-        if (includeFlag) {
-            ev.insert(QStringLiteral("exhausted"), exhausted);
-        }
-        sendEvent(sub, ev);
+        Q_UNUSED(includeFlag);
+        whatevr::v2::ViewUpdate update;
+        update.mutable_ready()->set_exhausted(exhausted);
+        sendUpdate(sub, update);
     }
 
     // Several frames in one write, so the client sees them as a single drain.
     // Two separate writes usually coalesce, but "usually" is not a test.
-    void writeTogether(const QList<QJsonObject> &objs)
+    void writeTogether(const QList<QByteArray> &frames)
     {
         QByteArray payload;
-        for (const QJsonObject &obj : objs) {
-            payload += QJsonDocument(obj).toJson(QJsonDocument::Compact) + '\n';
+        for (const QByteArray &frame : frames) {
+            payload += frame;
         }
         if (m_conn && m_conn->state() == QLocalSocket::ConnectedState) {
             m_conn->write(payload);
         }
     }
 
-    static QJsonObject upsertFrame(int sub, const QString &sort, const QJsonObject &item)
+    static QByteArray upsertFrame(int sub, const QString &sort, const QJsonObject &item)
     {
-        return QJsonObject{
-            {QStringLiteral("sub"), sub},
-            {QStringLiteral("event"), QStringLiteral("upsert")},
-            {QStringLiteral("sort"), sort},
-            {QStringLiteral("item"), item},
-        };
+        whatevr::v2::Frame frame;
+        auto *update = frame.mutable_event()->mutable_update();
+        update->set_sub(static_cast<std::uint64_t>(sub));
+        auto *upsert = update->add_changes()->mutable_upsert();
+        upsert->set_id(item.value(QStringLiteral("id")).toString().toStdString());
+        upsert->set_sort(sort.toUtf8().toStdString());
+        auto *chat = upsert->mutable_chat();
+        chat->set_id(item.value(QStringLiteral("id")).toString().toStdString());
+        chat->set_name(item.value(QStringLiteral("name")).toString().toStdString());
+        return encodeV2Frame(frame);
     }
 
     void sendReset(int sub)
     {
-        sendEvent(sub, QJsonObject{{QStringLiteral("event"), QStringLiteral("reset")}});
+        whatevr::v2::ViewUpdate update;
+        update.set_reset(true);
+        sendUpdate(sub, update);
     }
 
     void sendOpenChat(const QString &chatId)
     {
-        writeObject(QJsonObject{
-            {QStringLiteral("event"), QStringLiteral("open_chat")},
-            {QStringLiteral("chat_id"), chatId},
-        });
+        whatevr::v2::Frame frame;
+        frame.mutable_event()->mutable_open_chat()->set_chat_id(chatId.toStdString());
+        writeFrame(frame);
     }
 
     // Subscribe metadata the fake returns for the next subscribe.
@@ -133,14 +143,68 @@ public:
 
     void releaseHeldSubscribe()
     {
-        if (m_heldSubscribeId < 0) {
+        if (m_heldSubscribeId == 0) {
             return;
         }
         const int sub = ++subscribeCount;
-        QJsonObject result = nextSubscribeMeta;
-        result.insert(QStringLiteral("sub"), sub);
-        reply(std::exchange(m_heldSubscribeId, -1), result);
+        whatevr::v2::Response response;
+        response.set_id(std::exchange(m_heldSubscribeId, quint64(0)));
+        auto *result = response.mutable_subscribe();
+        result->set_sub(static_cast<std::uint64_t>(sub));
+        if (nextSubscribeMeta.contains(QStringLiteral("anchor_id"))) {
+            result->set_anchor_id(nextSubscribeMeta.value(QStringLiteral("anchor_id"))
+                                      .toString()
+                                      .toStdString());
+        }
+        writeResponse(response);
         Q_EMIT subscribed(sub);
+    }
+
+    void replyHello(quint64 id)
+    {
+        whatevr::v2::Response response;
+        response.set_id(id);
+        auto *hello = response.mutable_hello();
+        hello->set_daemon("whatevrd");
+        hello->set_version("0.7.0");
+        hello->set_protocol(2);
+        writeResponse(response);
+    }
+
+    void reply(quint64 id)
+    {
+        whatevr::v2::Response response;
+        response.set_id(id);
+        response.mutable_done();
+        writeResponse(response);
+    }
+
+    void error(quint64 id, const QString &code, const QString &message)
+    {
+        whatevr::v2::Response response;
+        response.set_id(id);
+        auto *error = response.mutable_error();
+        if (code == QLatin1String("invalid_params")) {
+            error->set_code(whatevr::v2::ERROR_CODE_INVALID_PARAMS);
+        } else {
+            error->set_code(whatevr::v2::ERROR_CODE_INTERNAL);
+        }
+        error->set_message(message.toStdString());
+        writeResponse(response);
+    }
+
+    void writeResponse(const whatevr::v2::Response &response)
+    {
+        whatevr::v2::Frame frame;
+        *frame.mutable_response() = response;
+        writeFrame(frame);
+    }
+
+    void writeFrame(const whatevr::v2::Frame &frame)
+    {
+        if (m_conn && m_conn->state() == QLocalSocket::ConnectedState) {
+            m_conn->write(encodeV2Frame(frame));
+        }
     }
 
 Q_SIGNALS:
@@ -153,90 +217,109 @@ private:
     void onReadyRead()
     {
         m_buf += m_conn->readAll();
-        int nl = m_buf.indexOf('\n');
-        while (nl >= 0) {
-            const QByteArray line = m_buf.left(nl);
-            m_buf.remove(0, nl + 1);
-            handleLine(line);
-            nl = m_buf.indexOf('\n');
+        for (;;) {
+            whatevr::v2::Frame frame;
+            const V2DecodeResult decoded = popV2Frame(m_buf, &frame);
+            if (decoded != V2DecodeResult::Frame) {
+                break;
+            }
+            if (frame.has_request()) {
+                handleRequest(frame.request());
+            }
         }
     }
 
-    void handleLine(const QByteArray &line)
+    void handleRequest(const whatevr::v2::Request &request)
     {
-        const QJsonObject msg = QJsonDocument::fromJson(line).object();
-        const int id = msg.value(QStringLiteral("id")).toInt();
-        const QString method = msg.value(QStringLiteral("method")).toString();
-        const QJsonObject params = msg.value(QStringLiteral("params")).toObject();
-        lastMethod = method;
-
-        if (method == QLatin1String("hello")) {
+        using Method = whatevr::v2::Request::MethodCase;
+        const quint64 id = request.id();
+        switch (request.method_case()) {
+        case Method::kHello:
+            lastMethod = QStringLiteral("hello");
             if (swallowHello) {
                 Q_EMIT helloSwallowed();
                 return;
             }
-            reply(id, QJsonObject{
-                          {QStringLiteral("daemon"), QStringLiteral("whatevrd")},
-                          {QStringLiteral("version"), QStringLiteral("0.7.0")},
-                          {QStringLiteral("protocol"), 1},
-                          {QStringLiteral("state"), QStringLiteral("online")},
-                      });
-        } else if (method == QLatin1String("subscribe")) {
-            lastSubscribeParams = params;
+            replyHello(id);
+            return;
+        case Method::kSubscribe: {
+            const auto &subscribe = request.subscribe();
+            lastMethod = QStringLiteral("subscribe");
+            lastSubscribeParams = subscribeParamsJson(subscribe);
             if (std::exchange(holdNextSubscribe, false)) {
                 m_heldSubscribeId = id;
                 Q_EMIT subscribeHeld();
                 return;
             }
             const int sub = ++subscribeCount;
-            QJsonObject result = nextSubscribeMeta;
-            result.insert(QStringLiteral("sub"), sub);
-            reply(id, result);
+            whatevr::v2::Response response;
+            response.set_id(id);
+            auto *result = response.mutable_subscribe();
+            result->set_sub(static_cast<std::uint64_t>(sub));
+            if (nextSubscribeMeta.contains(QStringLiteral("anchor_id"))) {
+                result->set_anchor_id(nextSubscribeMeta.value(QStringLiteral("anchor_id"))
+                                          .toString()
+                                          .toStdString());
+            }
+            writeResponse(response);
             Q_EMIT subscribed(sub);
-        } else if (method == QLatin1String("extend")) {
-            lastExtendCount = params.value(QStringLiteral("count")).toInt();
-            lastExtendDirection = params.value(QStringLiteral("direction")).toString();
+            return;
+        }
+        case Method::kExtend: {
+            const auto &extend = request.extend();
+            lastMethod = QStringLiteral("extend");
+            lastExtendCount = static_cast<int>(extend.count());
+            lastExtendDirection = extend.direction() == whatevr::v2::DIRECTION_NEWER
+                ? QStringLiteral("newer")
+                : QStringLiteral("older");
             if (std::exchange(rejectNextExtend, false)) {
-                writeObject(QJsonObject{
-                    {QStringLiteral("id"), id},
-                    {QStringLiteral("error"), QJsonObject{
-                         {QStringLiteral("code"), QStringLiteral("invalid_params")},
-                         {QStringLiteral("message"), QStringLiteral("bad direction")},
-                     }},
-                });
+                error(id, QStringLiteral("invalid_params"), QStringLiteral("bad direction"));
             } else {
-                reply(id, QJsonObject{});
+                reply(id);
             }
             Q_EMIT extended();
-        } else if (swallowOthers) {
             return;
-        } else if (method == QLatin1String("unsubscribe")) {
+        }
+        case Method::kUnsubscribe:
+            lastMethod = QStringLiteral("unsubscribe");
             ++unsubscribeCount;
-            reply(id, QJsonObject{});
-        } else {
-            reply(id, QJsonObject{});
+            reply(id);
+            return;
+        default:
+            break;
         }
+        if (swallowOthers) {
+            return;
+        }
+        lastMethod = QStringLiteral("other");
+        reply(id);
     }
 
-    void reply(int id, const QJsonObject &result)
+    // The v2 subscribe back to the v1 params the assertions read.
+    static QJsonObject subscribeParamsJson(const whatevr::v2::Subscribe &subscribe)
     {
-        writeObject(QJsonObject{
-            {QStringLiteral("id"), id},
-            {QStringLiteral("result"), result},
-        });
-    }
-
-    void writeObject(const QJsonObject &obj)
-    {
-        if (m_conn && m_conn->state() == QLocalSocket::ConnectedState) {
-            m_conn->write(QJsonDocument(obj).toJson(QJsonDocument::Compact) + '\n');
+        QJsonObject params;
+        params.insert(QStringLiteral("limit"), static_cast<qint64>(subscribe.limit()));
+        using View = whatevr::v2::Subscribe::ViewCase;
+        switch (subscribe.view_case()) {
+        case View::kChats:
+            params.insert(QStringLiteral("view"), QStringLiteral("chats"));
+            params.insert(QStringLiteral("archived"), subscribe.chats().archived());
+            break;
+        case View::kMessages:
+            params.insert(QStringLiteral("view"), QStringLiteral("messages"));
+            break;
+        default:
+            params.insert(QStringLiteral("view"), QStringLiteral("other"));
+            break;
         }
+        return params;
     }
 
     QLocalServer *m_server;
     QLocalSocket *m_conn = nullptr;
     QByteArray m_buf;
-    int m_heldSubscribeId = -1;
+    quint64 m_heldSubscribeId = 0;
 };
 
 // What the eviction test below watches. It outlives the sink it describes, so a
@@ -759,8 +842,8 @@ private Q_SLOTS:
         m_client->start();
         QVERIFY(readySpy.wait());
 
-        Subscription *survivorSub = m_client->subscribe(QStringLiteral("a"), QJsonObject{}, &survivor);
-        Subscription *victimSub = m_client->subscribe(QStringLiteral("b"), QJsonObject{}, victim.get());
+        Subscription *survivorSub = m_client->subscribe(QStringLiteral("chats"), QJsonObject{}, &survivor);
+        Subscription *victimSub = m_client->subscribe(QStringLiteral("messages"), QJsonObject{}, victim.get());
         QVERIFY(survivorSub);
         QVERIFY(victimSub);
         QTRY_COMPARE(m_daemon->subscribeCount, 2);
@@ -834,7 +917,7 @@ private Q_SLOTS:
         const int overflow = 40;
         const int total = 1024 + overflow;
         for (int i = 0; i < total; ++i) {
-            m_client->request(QStringLiteral("noop"), QJsonObject{},
+            m_client->request(QStringLiteral("daemon.reconnect"), QJsonObject{},
                               [&answered, &failed](const QJsonObject &, const ProtocolError &error) {
                                   ++answered;
                                   if (error.isError()) {
@@ -867,12 +950,12 @@ private Q_SLOTS:
         };
         // Fill the in-flight set; the daemon answers none of these.
         for (int i = 0; i < 4096; ++i) {
-            m_client->request(QStringLiteral("noop"), QJsonObject{}, note);
+            m_client->request(QStringLiteral("daemon.reconnect"), QJsonObject{}, note);
         }
         QCOMPARE(answered, 0);
 
         // One past the ceiling is refused, and the refusal reaches its caller.
-        m_client->request(QStringLiteral("noop"), QJsonObject{}, note);
+        m_client->request(QStringLiteral("daemon.reconnect"), QJsonObject{}, note);
         QTRY_COMPARE(answered, 1);
         QCOMPARE(failed, 1);
     }

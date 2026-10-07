@@ -132,6 +132,62 @@ bool buildV2Subscribe(std::uint64_t id, const QString &view, const QJsonObject &
         subscribe->mutable_privacy();
     } else if (view == QLatin1String("blocklist")) {
         subscribe->mutable_blocklist();
+    } else if (view == QLatin1String("chat")) {
+        subscribe->mutable_chat()->set_chat_id(
+            params.value(QStringLiteral("chat_id")).toString().toStdString());
+    } else if (view == QLatin1String("messages")) {
+        auto *messages = subscribe->mutable_messages();
+        messages->set_chat_id(params.value(QStringLiteral("chat_id")).toString().toStdString());
+        const QString anchor = params.value(QStringLiteral("anchor")).toString();
+        if (anchor.isEmpty() || anchor == QLatin1String("latest")) {
+            messages->mutable_latest();
+        } else if (anchor == QLatin1String("unread")) {
+            messages->mutable_unread();
+        } else {
+            messages->set_message_id(anchor.toStdString());
+        }
+    } else if (view == QLatin1String("self")) {
+        subscribe->mutable_self();
+    } else if (view == QLatin1String("contact")) {
+        subscribe->mutable_contact()->mutable_person()->set_id(
+            params.value(QStringLiteral("jid")).toString().toStdString());
+    } else if (view == QLatin1String("group")) {
+        subscribe->mutable_group()->set_chat_id(
+            params.value(QStringLiteral("chat_id")).toString().toStdString());
+    } else if (view == QLatin1String("group_members")) {
+        subscribe->mutable_group_members()->set_chat_id(
+            params.value(QStringLiteral("chat_id")).toString().toStdString());
+    } else if (view == QLatin1String("presence")) {
+        subscribe->mutable_presence()->set_chat_id(
+            params.value(QStringLiteral("chat_id")).toString().toStdString());
+    } else if (view == QLatin1String("receipts")) {
+        subscribe->mutable_receipts()->set_message_id(
+            params.value(QStringLiteral("message_id")).toString().toStdString());
+    } else if (view == QLatin1String("starred")) {
+        subscribe->mutable_starred()->set_chat_id(
+            params.value(QStringLiteral("chat_id")).toString().toStdString());
+    } else if (view == QLatin1String("pinned")) {
+        subscribe->mutable_pinned()->set_chat_id(
+            params.value(QStringLiteral("chat_id")).toString().toStdString());
+    } else if (view == QLatin1String("live_locations")) {
+        subscribe->mutable_live_locations()->set_chat_id(
+            params.value(QStringLiteral("chat_id")).toString().toStdString());
+    } else if (view == QLatin1String("chat_media")) {
+        subscribe->mutable_chat_media()->set_chat_id(
+            params.value(QStringLiteral("chat_id")).toString().toStdString());
+    } else if (view == QLatin1String("stickers")) {
+        const QString source = params.value(QStringLiteral("source")).toString();
+        if (source == QLatin1String("recent")) {
+            subscribe->mutable_stickers()->set_source(whatevr::v2::STICKER_SOURCE_RECENT);
+        } else if (source == QLatin1String("favorite")) {
+            subscribe->mutable_stickers()->set_source(whatevr::v2::STICKER_SOURCE_FAVORITE);
+        } else if (source == QLatin1String("all")) {
+            subscribe->mutable_stickers()->set_source(whatevr::v2::STICKER_SOURCE_ALL);
+        } else {
+            return false;
+        }
+    } else if (view == QLatin1String("sticker_packs")) {
+        subscribe->mutable_sticker_packs();
     } else {
         // messages/chat/group/presence/... land here as their translators do.
         return false;
@@ -179,6 +235,22 @@ V2ResponseTranslation translateV2Response(const whatevr::v2::Response &response)
             result.insert(QStringLiteral("anchor_id"),
                           v2s(response.subscribe().anchor_id()));
         }
+        out.result = result;
+        break;
+    }
+    case whatevr::v2::Response::kHello: {
+        QJsonObject result;
+        const auto &hello = response.hello();
+        result.insert(QStringLiteral("daemon"), v2s(hello.daemon()));
+        result.insert(QStringLiteral("version"), v2s(hello.version()));
+        result.insert(QStringLiteral("protocol"), static_cast<qint64>(hello.protocol()));
+        QJsonArray features;
+        for (const auto &feature : hello.features()) {
+            features.append(v2s(feature));
+        }
+        result.insert(QStringLiteral("features"), features);
+        result.insert(QStringLiteral("data_dir"), v2s(hello.data_dir()));
+        result.insert(QStringLiteral("cache_dir"), v2s(hello.cache_dir()));
         out.result = result;
         break;
     }
@@ -293,6 +365,9 @@ V2ResponseTranslation translateV2Response(const whatevr::v2::Response &response)
 
 namespace
 {
+
+// Forward declaration: defined with the other body translators below.
+QPair<QString, QJsonObject> translateV2MessageBody(const whatevr::v2::MessageRow &row);
 
 QString v2ConnectionState(whatevr::v2::ConnectionState state)
 {
@@ -448,6 +523,9 @@ QJsonObject translateV2MessageRow(const whatevr::v2::MessageRow &row)
     if (!row.text().empty()) {
         item.insert(QStringLiteral("text"), v2s(row.text()));
     }
+    if (!row.chat_name().empty()) {
+        item.insert(QStringLiteral("chat_name"), v2s(row.chat_name()));
+    }
     if (row.edited()) {
         item.insert(QStringLiteral("edited"), true);
     }
@@ -462,6 +540,48 @@ QJsonObject translateV2MessageRow(const whatevr::v2::MessageRow &row)
     }
     if (row.kept()) {
         item.insert(QStringLiteral("kept"), true);
+    }
+    if (row.has_reply_to()) {
+        QJsonObject reply;
+        reply.insert(QStringLiteral("message_id"), v2s(row.reply_to().message_id()));
+        reply.insert(QStringLiteral("sender_id"), v2s(row.reply_to().sender().id()));
+        reply.insert(QStringLiteral("sender_name"), v2s(row.reply_to().sender().name()));
+        reply.insert(QStringLiteral("text"), v2s(row.reply_to().text()));
+        item.insert(QStringLiteral("reply_to"), reply);
+    }
+    if (!row.mentions().empty()) {
+        QJsonArray mentions;
+        for (const auto &mention : row.mentions()) {
+            QJsonObject entry;
+            entry.insert(QStringLiteral("jid"), v2s(mention.person().id()));
+            if (!mention.person().name().empty()) {
+                entry.insert(QStringLiteral("name"), v2s(mention.person().name()));
+            }
+            mentions.append(entry);
+        }
+        item.insert(QStringLiteral("mentions"), mentions);
+    }
+    if (!row.reactions().empty()) {
+        QJsonArray reactions;
+        for (const auto &reaction : row.reactions()) {
+            QJsonObject entry;
+            entry.insert(QStringLiteral("emoji"), v2s(reaction.emoji()));
+            entry.insert(QStringLiteral("sender_id"), v2s(reaction.sender().id()));
+            entry.insert(QStringLiteral("sender_name"), v2s(reaction.sender().name()));
+            if (reaction.t_ms() > 0) {
+                entry.insert(QStringLiteral("timestamp"),
+                             static_cast<qint64>(reaction.t_ms() / 1000));
+            }
+            reactions.append(entry);
+        }
+        item.insert(QStringLiteral("reactions"), reactions);
+    }
+    const auto [kind, body] = translateV2MessageBody(row);
+    if (!kind.isEmpty()) {
+        item.insert(QStringLiteral("kind"), kind);
+        for (auto it = body.constBegin(); it != body.constEnd(); ++it) {
+            item.insert(it.key(), it.value());
+        }
     }
     return item;
 }
@@ -481,6 +601,50 @@ QJsonObject translateV2Item(const whatevr::v2::Upsert &upsert)
         return translateV2LoginRow(upsert.login());
     case whatevr::v2::Upsert::kChat:
         return translateV2ChatRow(upsert.chat());
+    case whatevr::v2::Upsert::kMessage:
+        return translateV2MessageRow(upsert.message());
+    case whatevr::v2::Upsert::kSync:
+        return translateV2SyncRow(upsert.sync());
+    case whatevr::v2::Upsert::kTyping:
+        return translateV2TypingRow(upsert.typing());
+    case whatevr::v2::Upsert::kPresence:
+        return translateV2PresenceRow(upsert.presence());
+    case whatevr::v2::Upsert::kReceipt:
+        return translateV2ReceiptRow(upsert.receipt());
+    case whatevr::v2::Upsert::kSelf:
+        return translateV2SelfRow(upsert.self());
+    case whatevr::v2::Upsert::kContact:
+        return translateV2ContactRow(upsert.contact());
+    case whatevr::v2::Upsert::kGroup:
+        return translateV2GroupRow(upsert.group());
+    case whatevr::v2::Upsert::kGroupMember:
+        return translateV2GroupMemberRow(upsert.group_member());
+    case whatevr::v2::Upsert::kPrivacy:
+        return translateV2PrivacyRow(upsert.privacy());
+    case whatevr::v2::Upsert::kPreferences:
+        return translateV2Preferences(upsert.preferences().preferences());
+    case whatevr::v2::Upsert::kBlocked: {
+        QJsonObject item;
+        item.insert(QStringLiteral("id"), v2s(upsert.blocked().person().id()));
+        item.insert(QStringLiteral("jid"), v2s(upsert.blocked().person().id()));
+        item.insert(QStringLiteral("name"), v2s(upsert.blocked().person().name()));
+        if (!upsert.blocked().person().phone().empty()) {
+            item.insert(QStringLiteral("phone"), v2s(upsert.blocked().person().phone()));
+        }
+        if (!upsert.blocked().person().avatar_path().empty()) {
+            item.insert(QStringLiteral("avatar_path"),
+                        v2s(upsert.blocked().person().avatar_path()));
+        }
+        return item;
+    }
+    case whatevr::v2::Upsert::kLiveLocation:
+        return translateV2LiveLocationRow(upsert.live_location(), {});
+    case whatevr::v2::Upsert::kSticker:
+        return translateV2StickerRow(upsert.sticker());
+    case whatevr::v2::Upsert::kStickerPack:
+        return translateV2StickerPackRow(upsert.sticker_pack());
+    case whatevr::v2::Upsert::kTransfer:
+        return translateV2TransferRow(upsert.transfer());
     default:
         return {};
     }
@@ -488,7 +652,8 @@ QJsonObject translateV2Item(const whatevr::v2::Upsert &upsert)
 
 } // namespace
 
-void applyV2ViewUpdate(const whatevr::v2::ViewUpdate &update, ViewSink *sink)
+void applyV2ViewUpdate(const whatevr::v2::ViewUpdate &update, ViewSink *sink,
+                       const QJsonObject &extraFields)
 {
     if (!sink) {
         return;
@@ -500,7 +665,13 @@ void applyV2ViewUpdate(const whatevr::v2::ViewUpdate &update, ViewSink *sink)
         switch (change.change_case()) {
         case whatevr::v2::Change::kUpsert: {
             const auto &upsert = change.upsert();
-            sink->onUpsert(v2SortKey(upsert.sort()), translateV2Item(upsert));
+            QJsonObject item = translateV2Item(upsert);
+            for (auto it = extraFields.constBegin(); it != extraFields.constEnd(); ++it) {
+                if (!item.contains(it.key())) {
+                    item.insert(it.key(), it.value());
+                }
+            }
+            sink->onUpsert(v2SortKey(upsert.sort()), item);
             break;
         }
         case whatevr::v2::Change::kRemove:
@@ -539,6 +710,13 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
     const auto get = [&](const char *key) { return params.value(QLatin1StringView(key)); };
     auto *request = out;
     request->set_id(id);
+
+    if (method == QLatin1String("hello")) {
+        auto *hello = request->mutable_hello();
+        hello->set_client(get("client").toString().toStdString());
+        hello->set_protocol(static_cast<std::uint32_t>(get("protocol").toInt(2)));
+        return true;
+    }
 
     // Session and account.
     if (method == QLatin1String("session.update")) {
@@ -866,6 +1044,715 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
 
     Q_UNUSED(methodName);
     return false;
+}
+
+namespace
+{
+
+QJsonObject translateV2Person(const whatevr::v2::Person &person)
+{
+    QJsonObject sender;
+    sender.insert(QStringLiteral("id"), v2s(person.id()));
+    sender.insert(QStringLiteral("name"), v2s(person.name()));
+    if (!person.avatar_path().empty()) {
+        sender.insert(QStringLiteral("avatar_path"), v2s(person.avatar_path()));
+    }
+    return sender;
+}
+
+QJsonObject translateV2MediaBody(const whatevr::v2::Media &media)
+{
+    QJsonObject out;
+    if (!media.mime().empty()) {
+        out.insert(QStringLiteral("mime"), v2s(media.mime()));
+    }
+    if (media.width() > 0) {
+        out.insert(QStringLiteral("width"), static_cast<qint64>(media.width()));
+    }
+    if (media.height() > 0) {
+        out.insert(QStringLiteral("height"), static_cast<qint64>(media.height()));
+    }
+    if (!media.thumbnail_path().empty()) {
+        out.insert(QStringLiteral("thumbnail_path"), v2s(media.thumbnail_path()));
+    }
+    if (!media.path().empty()) {
+        out.insert(QStringLiteral("path"), v2s(media.path()));
+    }
+    if (!media.download_error().empty()) {
+        out.insert(QStringLiteral("download_error"), v2s(media.download_error()));
+    }
+    if (media.downloading()) {
+        out.insert(QStringLiteral("downloading"), true);
+    }
+    if (media.size_bytes() > 0) {
+        out.insert(QStringLiteral("size_bytes"), static_cast<qint64>(media.size_bytes()));
+    }
+    if (media.duration_ms() > 0) {
+        out.insert(QStringLiteral("duration_secs"),
+                   static_cast<qint64>(media.duration_ms() / 1000));
+    }
+    return out;
+}
+
+QJsonObject translateV2LocationBody(const whatevr::v2::Location &location)
+{
+    QJsonObject out;
+    out.insert(QStringLiteral("lat"), location.lat());
+    out.insert(QStringLiteral("lng"), location.lng());
+    if (!location.name().empty()) {
+        out.insert(QStringLiteral("name"), v2s(location.name()));
+    }
+    if (!location.address().empty()) {
+        out.insert(QStringLiteral("address"), v2s(location.address()));
+    }
+    if (!location.url().empty()) {
+        out.insert(QStringLiteral("url"), v2s(location.url()));
+    }
+    return out;
+}
+
+QJsonObject translateV2PollBody(const whatevr::v2::Poll &poll)
+{
+    QJsonObject out;
+    if (!poll.question().empty()) {
+        out.insert(QStringLiteral("question"), v2s(poll.question()));
+    }
+    if (poll.selectable() > 0) {
+        out.insert(QStringLiteral("selectable_count"), static_cast<qint64>(poll.selectable()));
+    }
+    if (poll.quiz()) {
+        out.insert(QStringLiteral("quiz"), true);
+    }
+    if (poll.allow_add_option()) {
+        out.insert(QStringLiteral("allow_add_option"), true);
+    }
+    if (poll.ends_ms() > 0) {
+        out.insert(QStringLiteral("ends_at"), static_cast<qint64>(poll.ends_ms() / 1000));
+    }
+    QJsonArray options;
+    for (const auto &option : poll.options()) {
+        QJsonObject opt;
+        opt.insert(QStringLiteral("index"), static_cast<qint64>(option.index()));
+        opt.insert(QStringLiteral("name"), v2s(option.name()));
+        if (option.self_voted()) {
+            opt.insert(QStringLiteral("self_voted"), true);
+        }
+        QJsonArray voters;
+        for (const auto &voter : option.voters()) {
+            QJsonObject vote;
+            vote.insert(QStringLiteral("name"), v2s(voter.person().name()));
+            vote.insert(QStringLiteral("timestamp"),
+                       static_cast<qint64>(voter.t_ms() / 1000));
+            voters.append(vote);
+        }
+        if (!voters.isEmpty()) {
+            opt.insert(QStringLiteral("voters"), voters);
+        }
+        options.append(opt);
+    }
+    out.insert(QStringLiteral("options"), options);
+    if (poll.voters() > 0) {
+        out.insert(QStringLiteral("total_voters"), static_cast<qint64>(poll.voters()));
+    }
+    if (poll.self_voted()) {
+        out.insert(QStringLiteral("self_voted"), true);
+    }
+    return out;
+}
+
+QJsonObject translateV2ContactsBody(const whatevr::v2::Contacts &contacts)
+{
+    QJsonObject out;
+    if (!contacts.display_name().empty()) {
+        out.insert(QStringLiteral("display_name"), v2s(contacts.display_name()));
+    }
+    QJsonArray cards;
+    for (const auto &card : contacts.cards()) {
+        QJsonObject entry;
+        entry.insert(QStringLiteral("display_name"), v2s(card.display_name()));
+        if (!card.org().empty()) {
+            entry.insert(QStringLiteral("org"), v2s(card.org()));
+        }
+        QJsonArray phones;
+        for (const auto &phone : card.phones()) {
+            QJsonObject field;
+            field.insert(QStringLiteral("label"), v2s(phone.label()));
+            field.insert(QStringLiteral("value"), v2s(phone.value()));
+            phones.append(field);
+        }
+        if (!phones.isEmpty()) {
+            entry.insert(QStringLiteral("phones"), phones);
+        }
+        if (!card.vcard().empty()) {
+            entry.insert(QStringLiteral("vcard"), v2s(card.vcard()));
+        }
+        cards.append(entry);
+    }
+    out.insert(QStringLiteral("cards"), cards);
+    return out;
+}
+
+QJsonObject translateV2EventBody(const whatevr::v2::ScheduledEvent &event)
+{
+    QJsonObject out;
+    if (!event.name().empty()) {
+        out.insert(QStringLiteral("name"), v2s(event.name()));
+    }
+    if (!event.description().empty()) {
+        out.insert(QStringLiteral("description"), v2s(event.description()));
+    }
+    if (event.starts_ms() > 0) {
+        out.insert(QStringLiteral("starts_at"), static_cast<qint64>(event.starts_ms() / 1000));
+    }
+    if (event.ends_ms() > 0) {
+        out.insert(QStringLiteral("ends_at"), static_cast<qint64>(event.ends_ms() / 1000));
+    }
+    if (event.canceled()) {
+        out.insert(QStringLiteral("canceled"), true);
+    }
+    if (!event.join_link().empty()) {
+        out.insert(QStringLiteral("join_link"), v2s(event.join_link()));
+    }
+    if (event.has_location()) {
+        out.insert(QStringLiteral("location"), translateV2LocationBody(event.location()));
+    }
+    return out;
+}
+
+QJsonObject translateV2GroupInviteBody(const whatevr::v2::GroupInvite &invite)
+{
+    QJsonObject out;
+    if (!invite.chat_id().empty()) {
+        out.insert(QStringLiteral("group_jid"), v2s(invite.chat_id()));
+    }
+    if (!invite.code().empty()) {
+        out.insert(QStringLiteral("code"), v2s(invite.code()));
+    }
+    if (invite.expires_ms() > 0) {
+        out.insert(QStringLiteral("expires_at"),
+                   static_cast<qint64>(invite.expires_ms() / 1000));
+    }
+    if (!invite.name().empty()) {
+        out.insert(QStringLiteral("name"), v2s(invite.name()));
+    }
+    if (!invite.caption().empty()) {
+        out.insert(QStringLiteral("caption"), v2s(invite.caption()));
+    }
+    return out;
+}
+
+// Message body arm to (v1 kind, v1 body object). Kinds without a v1
+// counterpart keep an empty kind so the row renders its fallback.
+QPair<QString, QJsonObject> translateV2MessageBody(const whatevr::v2::MessageRow &row)
+{
+    using Body = whatevr::v2::MessageRow::BodyCase;
+    switch (row.body_case()) {
+    case Body::kTextBody: {
+        if (row.text_body().has_link_preview()) {
+            const auto &preview = row.text_body().link_preview();
+            QJsonObject card;
+            card.insert(QStringLiteral("url"), v2s(preview.url()));
+            if (!preview.title().empty()) {
+                card.insert(QStringLiteral("title"), v2s(preview.title()));
+            }
+            if (!preview.description().empty()) {
+                card.insert(QStringLiteral("description"), v2s(preview.description()));
+            }
+            QJsonObject body;
+            body.insert(QStringLiteral("link_preview"), card);
+            return {QStringLiteral("text"), body};
+        }
+        return {QStringLiteral("text"), QJsonObject{}};
+    }
+    case Body::kImage: {
+        QJsonObject wrap;
+        wrap.insert(QStringLiteral("media"), translateV2MediaBody(row.image().media()));
+        return {QStringLiteral("image"), wrap};
+    }
+    case Body::kVideo: {
+        QJsonObject wrap;
+        wrap.insert(QStringLiteral("media"), translateV2MediaBody(row.video().media()));
+        return {QStringLiteral("video"), wrap};
+    }
+    case Body::kGif: {
+        QJsonObject wrap;
+        wrap.insert(QStringLiteral("media"), translateV2MediaBody(row.gif().media()));
+        return {QStringLiteral("gif"), wrap};
+    }
+    case Body::kVoice: {
+        QJsonObject media = translateV2MediaBody(row.voice().media());
+        if (!row.voice().waveform().empty()) {
+            QJsonArray waveform;
+            for (const unsigned char bucket : row.voice().waveform()) {
+                waveform.append(static_cast<int>(bucket));
+            }
+            media.insert(QStringLiteral("waveform"), waveform);
+        }
+        if (row.voice().played()) {
+            media.insert(QStringLiteral("played"), true);
+        }
+        QJsonObject wrap;
+        wrap.insert(QStringLiteral("media"), media);
+        return {QStringLiteral("voice"), wrap};
+    }
+    case Body::kAudio: {
+        QJsonObject wrap;
+        wrap.insert(QStringLiteral("media"), translateV2MediaBody(row.audio().media()));
+        return {QStringLiteral("audio"), wrap};
+    }
+    case Body::kDocument: {
+        QJsonObject media = translateV2MediaBody(row.document().media());
+        if (!row.document().filename().empty()) {
+            media.insert(QStringLiteral("filename"), v2s(row.document().filename()));
+        }
+        if (row.document().page_count() > 0) {
+            media.insert(QStringLiteral("page_count"),
+                         static_cast<qint64>(row.document().page_count()));
+        }
+        QJsonObject wrap;
+        wrap.insert(QStringLiteral("media"), media);
+        return {QStringLiteral("document"), wrap};
+    }
+    case Body::kVideoNote: {
+        QJsonObject wrap;
+        wrap.insert(QStringLiteral("media"), translateV2MediaBody(row.video_note().media()));
+        return {QStringLiteral("video_note"), wrap};
+    }
+    case Body::kSticker: {
+        QJsonObject sticker;
+        sticker.insert(QStringLiteral("cache_key"), v2s(row.sticker().sticker_id()));
+        if (row.sticker().has_media() && !row.sticker().media().path().empty()) {
+            sticker.insert(QStringLiteral("path"), v2s(row.sticker().media().path()));
+        }
+        if (row.sticker().animated() || row.sticker().lottie()) {
+            sticker.insert(QStringLiteral("is_animated"), true);
+        }
+        QJsonObject wrap;
+        wrap.insert(QStringLiteral("sticker"), sticker);
+        return {QStringLiteral("sticker"), wrap};
+    }
+    case Body::kLocation: {
+        QJsonObject wrap;
+        wrap.insert(QStringLiteral("location"), translateV2LocationBody(row.location()));
+        return {QStringLiteral("location"), wrap};
+    }
+    case Body::kLiveLocation: {
+        QJsonObject wrap;
+        wrap.insert(QStringLiteral("location"), translateV2LocationBody(row.live_location().location()));
+        return {QStringLiteral("live_location"), wrap};
+    }
+    case Body::kContacts: {
+        QJsonObject wrap;
+        wrap.insert(QStringLiteral("contacts"), translateV2ContactsBody(row.contacts()));
+        return {QStringLiteral("contacts"), wrap};
+    }
+    case Body::kPoll: {
+        QJsonObject wrap;
+        wrap.insert(QStringLiteral("poll"), translateV2PollBody(row.poll()));
+        return {QStringLiteral("poll"), wrap};
+    }
+    case Body::kGroupInvite: {
+        QJsonObject wrap;
+        wrap.insert(QStringLiteral("invite"), translateV2GroupInviteBody(row.group_invite()));
+        return {QStringLiteral("invite"), wrap};
+    }
+    case Body::kEvent: {
+        QJsonObject wrap;
+        wrap.insert(QStringLiteral("event"), translateV2EventBody(row.event()));
+        return {QStringLiteral("event"), wrap};
+    }
+    case Body::kAlbum: {
+        QJsonArray items;
+        for (const auto &child : row.album().items()) {
+            items.append(translateV2MessageRow(child));
+        }
+        QJsonObject album;
+        album.insert(QStringLiteral("items"), items);
+        QJsonObject wrap;
+        wrap.insert(QStringLiteral("album"), album);
+        return {QStringLiteral("album"), wrap};
+    }
+    case Body::kCallLog:
+        return {QStringLiteral("call_log"), {}};
+    case Body::kSystem:
+        return {QStringLiteral("system"), {}};
+    case Body::kWaiting:
+        return {QStringLiteral("waiting"), {}};
+    case Body::kUnsupported:
+        return {QStringLiteral("unsupported"), {}};
+    default:
+        return {{}, {}};
+    }
+}
+
+} // namespace
+
+QJsonObject translateV2SelfRow(const whatevr::v2::SelfRow &row)
+{
+    QJsonObject item;
+    item.insert(QStringLiteral("id"), v2s(row.id()));
+    item.insert(QStringLiteral("jid"), v2s(row.id()));
+    if (!row.phone().empty()) {
+        item.insert(QStringLiteral("phone"), v2s(row.phone()));
+    }
+    if (!row.push_name().empty()) {
+        item.insert(QStringLiteral("push_name"), v2s(row.push_name()));
+    }
+    if (!row.about().empty()) {
+        item.insert(QStringLiteral("about"), v2s(row.about()));
+    }
+    if (!row.avatar_path().empty()) {
+        item.insert(QStringLiteral("avatar_path"), v2s(row.avatar_path()));
+    }
+    return item;
+}
+
+QJsonObject translateV2ContactRow(const whatevr::v2::ContactRow &row)
+{
+    QJsonObject item;
+    item.insert(QStringLiteral("id"), v2s(row.id()));
+    item.insert(QStringLiteral("jid"), v2s(row.id()));
+    if (!row.phone().empty()) {
+        item.insert(QStringLiteral("phone"), v2s(row.phone()));
+    }
+    if (!row.saved_name().empty()) {
+        item.insert(QStringLiteral("saved_name"), v2s(row.saved_name()));
+    }
+    if (!row.push_name().empty()) {
+        item.insert(QStringLiteral("push_name"), v2s(row.push_name()));
+    }
+    if (!row.business_name().empty()) {
+        item.insert(QStringLiteral("business_name"), v2s(row.business_name()));
+    }
+    if (row.business()) {
+        item.insert(QStringLiteral("is_business"), true);
+    }
+    if (!row.about().empty()) {
+        item.insert(QStringLiteral("about"), v2s(row.about()));
+    }
+    if (!row.avatar_path().empty()) {
+        item.insert(QStringLiteral("avatar_path"), v2s(row.avatar_path()));
+    }
+    return item;
+}
+
+QJsonObject translateV2GroupRow(const whatevr::v2::GroupRow &row)
+{
+    QJsonObject item;
+    item.insert(QStringLiteral("id"), v2s(row.chat_id()));
+    if (!row.subject().empty()) {
+        item.insert(QStringLiteral("subject"), v2s(row.subject()));
+    }
+    if (!row.description().empty()) {
+        item.insert(QStringLiteral("description"), v2s(row.description()));
+    }
+    if (!row.avatar_path().empty()) {
+        item.insert(QStringLiteral("avatar_path"), v2s(row.avatar_path()));
+    }
+    if (row.created_ms() > 0) {
+        item.insert(QStringLiteral("created_unix"), static_cast<qint64>(row.created_ms() / 1000));
+    }
+    if (row.has_owner()) {
+        item.insert(QStringLiteral("owner"), v2s(row.owner().id()));
+    }
+    item.insert(QStringLiteral("member_count"), static_cast<qint64>(row.member_count()));
+    switch (row.my_role()) {
+    case whatevr::v2::GROUP_ROLE_ADMIN:
+        item.insert(QStringLiteral("my_role"), QStringLiteral("admin"));
+        break;
+    case whatevr::v2::GROUP_ROLE_SUPERADMIN:
+        item.insert(QStringLiteral("my_role"), QStringLiteral("superadmin"));
+        break;
+    case whatevr::v2::GROUP_ROLE_MEMBER:
+        item.insert(QStringLiteral("my_role"), QStringLiteral("member"));
+        break;
+    default:
+        break;
+    }
+    if (row.announce()) {
+        item.insert(QStringLiteral("announce"), true);
+    }
+    if (row.locked()) {
+        item.insert(QStringLiteral("locked"), true);
+    }
+    return item;
+}
+
+QJsonObject translateV2GroupMemberRow(const whatevr::v2::GroupMemberRow &row)
+{
+    QJsonObject item;
+    item.insert(QStringLiteral("id"), v2s(row.person().id()));
+    item.insert(QStringLiteral("jid"), v2s(row.person().id()));
+    if (!row.person().name().empty()) {
+        item.insert(QStringLiteral("display_name"), v2s(row.person().name()));
+    }
+    if (!row.person().phone().empty()) {
+        item.insert(QStringLiteral("phone"), v2s(row.person().phone()));
+    }
+    if (!row.person().avatar_path().empty()) {
+        item.insert(QStringLiteral("avatar_path"), v2s(row.person().avatar_path()));
+    }
+    switch (row.role()) {
+    case whatevr::v2::GROUP_ROLE_ADMIN:
+        item.insert(QStringLiteral("role"), QStringLiteral("admin"));
+        break;
+    case whatevr::v2::GROUP_ROLE_SUPERADMIN:
+        item.insert(QStringLiteral("role"), QStringLiteral("superadmin"));
+        break;
+    case whatevr::v2::GROUP_ROLE_LEFT:
+        item.insert(QStringLiteral("role"), QStringLiteral("left"));
+        break;
+    case whatevr::v2::GROUP_ROLE_MEMBER:
+    case whatevr::v2::GROUP_ROLE_UNSPECIFIED:
+    default:
+        item.insert(QStringLiteral("role"), QStringLiteral("member"));
+        break;
+    }
+    return item;
+}
+
+QJsonObject translateV2PresenceRow(const whatevr::v2::PresenceRow &row)
+{
+    QJsonObject item;
+    item.insert(QStringLiteral("id"), v2s(row.person().id()));
+    switch (row.availability()) {
+    case whatevr::v2::AVAILABILITY_ONLINE:
+        item.insert(QStringLiteral("availability"), QStringLiteral("online"));
+        break;
+    case whatevr::v2::AVAILABILITY_OFFLINE:
+        item.insert(QStringLiteral("availability"), QStringLiteral("offline"));
+        break;
+    default:
+        item.insert(QStringLiteral("availability"), QStringLiteral("unknown"));
+        break;
+    }
+    if (row.last_seen_ms() > 0) {
+        item.insert(QStringLiteral("last_seen_unix"),
+                    static_cast<qint64>(row.last_seen_ms() / 1000));
+    }
+    return item;
+}
+
+QJsonObject translateV2ReceiptRow(const whatevr::v2::ReceiptRow &row)
+{
+    QJsonObject item;
+    item.insert(QStringLiteral("id"), v2s(row.person().id()));
+    item.insert(QStringLiteral("name"), v2s(row.person().name()));
+    if (!row.person().avatar_path().empty()) {
+        item.insert(QStringLiteral("avatar_path"), v2s(row.person().avatar_path()));
+    }
+    if (row.delivered_ms() > 0) {
+        item.insert(QStringLiteral("delivered_ts_unix"),
+                    static_cast<qint64>(row.delivered_ms() / 1000));
+    }
+    if (row.read_ms() > 0) {
+        item.insert(QStringLiteral("read_ts_unix"), static_cast<qint64>(row.read_ms() / 1000));
+    }
+    if (row.played_ms() > 0) {
+        item.insert(QStringLiteral("played_ts_unix"),
+                    static_cast<qint64>(row.played_ms() / 1000));
+    }
+    return item;
+}
+
+namespace
+{
+
+QString v2PrivacyValue(whatevr::v2::PrivacyValue value)
+{
+    switch (value) {
+    case whatevr::v2::PRIVACY_VALUE_ALL:
+        return QStringLiteral("all");
+    case whatevr::v2::PRIVACY_VALUE_CONTACTS:
+        return QStringLiteral("contacts");
+    case whatevr::v2::PRIVACY_VALUE_CONTACTS_EXCEPT:
+        return QStringLiteral("contact_blacklist");
+    case whatevr::v2::PRIVACY_VALUE_NOBODY:
+        return QStringLiteral("nobody");
+    case whatevr::v2::PRIVACY_VALUE_MATCH_LAST_SEEN:
+        return QStringLiteral("match_last_seen");
+    case whatevr::v2::PRIVACY_VALUE_KNOWN:
+        return QStringLiteral("known");
+    default:
+        return {};
+    }
+}
+
+} // namespace
+
+QJsonObject translateV2PrivacyRow(const whatevr::v2::PrivacyRow &row)
+{
+    QJsonObject item;
+    item.insert(QStringLiteral("id"), QStringLiteral("self"));
+    item.insert(QStringLiteral("last_seen"), v2PrivacyValue(row.last_seen()));
+    item.insert(QStringLiteral("online"), v2PrivacyValue(row.online()));
+    item.insert(QStringLiteral("profile_photo"), v2PrivacyValue(row.profile_photo()));
+    item.insert(QStringLiteral("about"), v2PrivacyValue(row.about()));
+    // group_add/call_add cross as their v2 enums; the settings page reads the
+    // same vocabulary it sends.
+    item.insert(QStringLiteral("read_receipts"), row.read_receipts());
+    return item;
+}
+
+QJsonObject translateV2Preferences(const whatevr::v2::Preferences &prefs)
+{
+    QJsonObject item;
+    item.insert(QStringLiteral("id"), QStringLiteral("self"));
+    item.insert(QStringLiteral("notifications_enabled"), prefs.notifications());
+    item.insert(QStringLiteral("notification_sound"), prefs.notification_sound());
+    item.insert(QStringLiteral("notification_preview"), prefs.notification_preview());
+    item.insert(QStringLiteral("auto_download_photos"), prefs.auto_download_photos());
+    item.insert(QStringLiteral("auto_download_videos"), prefs.auto_download_videos());
+    item.insert(QStringLiteral("auto_download_audio"), prefs.auto_download_audio());
+    item.insert(QStringLiteral("auto_download_documents"), prefs.auto_download_documents());
+    item.insert(QStringLiteral("auto_download_stickers"), prefs.auto_download_stickers());
+    item.insert(QStringLiteral("auto_download_max_bytes"),
+                static_cast<qint64>(prefs.auto_download_max_bytes()));
+    item.insert(QStringLiteral("auto_fetch_maps"), prefs.auto_fetch_maps());
+    // mute_archived_chats / anti_delete / typing indicators have no v2 field
+    // yet; they read back absent (off) until the daemon grows them.
+    return item;
+}
+
+QJsonObject translateV2BlocklistRow(const whatevr::v2::ContactRow &row)
+{
+    QJsonObject item = translateV2ContactRow(row);
+    item.insert(QStringLiteral("name"), v2s(row.saved_name().empty() ? row.push_name()
+                                                                      : row.saved_name()));
+    return item;
+}
+
+QJsonObject translateV2SyncRow(const whatevr::v2::SyncRow &row)
+{
+    QJsonObject item;
+    item.insert(QStringLiteral("id"), QStringLiteral("sync"));
+    item.insert(QStringLiteral("type"),
+                v2s(whatevr::v2::SyncType_Name(row.type())).remove(QStringLiteral("SYNC_TYPE_")).toLower());
+    item.insert(QStringLiteral("phase"),
+                v2s(whatevr::v2::SyncPhase_Name(row.phase())).remove(QStringLiteral("SYNC_PHASE_")).toLower());
+    item.insert(QStringLiteral("progress_percent"), static_cast<qint64>(row.percent()));
+    item.insert(QStringLiteral("chunk_order"), static_cast<qint64>(row.chunk()));
+    item.insert(QStringLiteral("conversations_in_chunk"), static_cast<qint64>(row.chunk_chats()));
+    item.insert(QStringLiteral("messages_in_chunk"), static_cast<qint64>(row.chunk_messages()));
+    item.insert(QStringLiteral("processed_conversations"), static_cast<qint64>(row.done_chats()));
+    item.insert(QStringLiteral("processed_messages"), static_cast<qint64>(row.done_messages()));
+    return item;
+}
+
+QJsonObject translateV2TypingRow(const whatevr::v2::TypingRow &row)
+{
+    QJsonObject item;
+    item.insert(QStringLiteral("id"), v2s(row.chat_id()));
+    QJsonArray senders;
+    for (const auto &typist : row.typists()) {
+        QJsonObject sender;
+        sender.insert(QStringLiteral("jid"), v2s(typist.person().id()));
+        if (!typist.person().name().empty()) {
+            sender.insert(QStringLiteral("name"), v2s(typist.person().name()));
+        }
+        senders.append(sender);
+    }
+    item.insert(QStringLiteral("senders"), senders);
+    return item;
+}
+
+QJsonObject translateV2TransferRow(const whatevr::v2::TransferRow &row)
+{
+    QJsonObject item;
+    item.insert(QStringLiteral("id"), v2s(row.message_id()));
+    item.insert(QStringLiteral("message_id"), v2s(row.message_id()));
+    if (!row.chat_id().empty()) {
+        item.insert(QStringLiteral("chat_id"), v2s(row.chat_id()));
+    }
+    switch (row.direction()) {
+    case whatevr::v2::TRANSFER_DIRECTION_DOWNLOAD:
+        item.insert(QStringLiteral("direction"), QStringLiteral("download"));
+        break;
+    case whatevr::v2::TRANSFER_DIRECTION_UPLOAD:
+        item.insert(QStringLiteral("direction"), QStringLiteral("upload"));
+        break;
+    default:
+        break;
+    }
+    item.insert(QStringLiteral("received_bytes"), static_cast<qint64>(row.done_bytes()));
+    item.insert(QStringLiteral("total_bytes"), static_cast<qint64>(row.total_bytes()));
+    if (!row.error().empty()) {
+        item.insert(QStringLiteral("error"), v2s(row.error()));
+    }
+    return item;
+}
+
+QJsonObject translateV2StickerRow(const whatevr::v2::StickerRow &row)
+{
+    QJsonObject item;
+    item.insert(QStringLiteral("id"), v2s(row.id()));
+    item.insert(QStringLiteral("cache_key"), v2s(row.id()));
+    if (!row.path().empty()) {
+        item.insert(QStringLiteral("local_path"), v2s(row.path()));
+    }
+    if (!row.mime().empty()) {
+        item.insert(QStringLiteral("mime_type"), v2s(row.mime()));
+    }
+    if (row.animated() || row.lottie()) {
+        item.insert(QStringLiteral("is_animated"), true);
+    }
+    if (row.width() > 0) {
+        item.insert(QStringLiteral("width"), static_cast<qint64>(row.width()));
+    }
+    if (row.height() > 0) {
+        item.insert(QStringLiteral("height"), static_cast<qint64>(row.height()));
+    }
+    return item;
+}
+
+QJsonObject translateV2StickerPackRow(const whatevr::v2::StickerPackRow &row)
+{
+    QJsonObject item;
+    item.insert(QStringLiteral("id"), v2s(row.id()));
+    if (!row.name().empty()) {
+        item.insert(QStringLiteral("name"), v2s(row.name()));
+    }
+    if (!row.publisher().empty()) {
+        item.insert(QStringLiteral("publisher"), v2s(row.publisher()));
+    }
+    if (!row.description().empty()) {
+        item.insert(QStringLiteral("description"), v2s(row.description()));
+    }
+    if (row.animated() || row.lottie()) {
+        item.insert(QStringLiteral("animated"), true);
+    }
+    if (row.lottie()) {
+        item.insert(QStringLiteral("lottie"), true);
+    }
+    if (!row.tray_path().empty()) {
+        item.insert(QStringLiteral("tray_local_path"), v2s(row.tray_path()));
+    }
+    item.insert(QStringLiteral("sticker_count"), static_cast<qint64>(row.count()));
+    item.insert(QStringLiteral("installed"), row.installed());
+    item.insert(QStringLiteral("contents_fetched"), row.fetched());
+    return item;
+}
+
+QJsonObject translateV2LiveLocationRow(const whatevr::v2::LiveLocationRow &row, const QString &chatId)
+{
+    QJsonObject item;
+    item.insert(QStringLiteral("id"), v2s(row.message_id()));
+    if (!chatId.isEmpty()) {
+        item.insert(QStringLiteral("chat_id"), chatId);
+    }
+    QJsonObject sender = translateV2Person(row.sender());
+    item.insert(QStringLiteral("sender"), sender);
+    item.insert(QStringLiteral("started_at"), static_cast<qint64>(row.started_ms() / 1000));
+    if (row.expires_ms() > 0) {
+        item.insert(QStringLiteral("expires_at"), static_cast<qint64>(row.expires_ms() / 1000));
+    }
+    if (row.updated_ms() > 0) {
+        item.insert(QStringLiteral("updated_at"), static_cast<qint64>(row.updated_ms() / 1000));
+    }
+    if (row.has_location()) {
+        item.insert(QStringLiteral("location"), translateV2LocationBody(row.location()));
+    }
+    return item;
 }
 
 } // namespace whatevr::proto

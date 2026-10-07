@@ -65,7 +65,9 @@ struct V2ResponseTranslation {
 
 // Apply a v2 `ViewUpdate` (reset, upserts, removes, ready) to a v1 sink.
 // Sort bytes become order-preserving hex; rows become v1-shaped JSON.
-void applyV2ViewUpdate(const whatevr::v2::ViewUpdate &update, ViewSink *sink);
+// `extraFields` (e.g. the subscribing chat_id) are merged into every upsert.
+void applyV2ViewUpdate(const whatevr::v2::ViewUpdate &update, ViewSink *sink,
+                       const QJsonObject &extraFields = {});
 
 // Row translators to v1 JSON shapes. Unknown item arms produce an empty
 // object, which sinks treat like an unknown row, never a crash.
@@ -76,6 +78,22 @@ void applyV2ViewUpdate(const whatevr::v2::ViewUpdate &update, ViewSink *sink);
 // (media, polls, location, ...) gain translators with the views that need
 // them; every row carries a fallback either way.
 [[nodiscard]] QJsonObject translateV2MessageRow(const whatevr::v2::MessageRow &row);
+// Remaining row translators to v1 JSON shapes.
+[[nodiscard]] QJsonObject translateV2SelfRow(const whatevr::v2::SelfRow &row);
+[[nodiscard]] QJsonObject translateV2ContactRow(const whatevr::v2::ContactRow &row);
+[[nodiscard]] QJsonObject translateV2GroupRow(const whatevr::v2::GroupRow &row);
+[[nodiscard]] QJsonObject translateV2GroupMemberRow(const whatevr::v2::GroupMemberRow &row);
+[[nodiscard]] QJsonObject translateV2PresenceRow(const whatevr::v2::PresenceRow &row);
+[[nodiscard]] QJsonObject translateV2ReceiptRow(const whatevr::v2::ReceiptRow &row);
+[[nodiscard]] QJsonObject translateV2PrivacyRow(const whatevr::v2::PrivacyRow &row);
+[[nodiscard]] QJsonObject translateV2Preferences(const whatevr::v2::Preferences &prefs);
+[[nodiscard]] QJsonObject translateV2SyncRow(const whatevr::v2::SyncRow &row);
+[[nodiscard]] QJsonObject translateV2TypingRow(const whatevr::v2::TypingRow &row);
+[[nodiscard]] QJsonObject translateV2TransferRow(const whatevr::v2::TransferRow &row);
+[[nodiscard]] QJsonObject translateV2StickerRow(const whatevr::v2::StickerRow &row);
+[[nodiscard]] QJsonObject translateV2StickerPackRow(const whatevr::v2::StickerPackRow &row);
+[[nodiscard]] QJsonObject translateV2LiveLocationRow(const whatevr::v2::LiveLocationRow &row,
+                                                      const QString &chatId);
 
 // Opaque sort bytes to an order-preserving string for the keyed models.
 [[nodiscard]] QString v2SortKey(std::string_view sort);

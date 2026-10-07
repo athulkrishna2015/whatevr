@@ -110,10 +110,33 @@ private Q_SLOTS:
     {
         whatevr::v2::Request request;
         QVERIFY(!buildV2Subscribe(1, QStringLiteral("chat_folders"), {}, &request));
-        QVERIFY(!buildV2Subscribe(1, QStringLiteral("messages"), {}, &request));
+        QVERIFY(!buildV2Subscribe(1, QStringLiteral("status"), {}, &request));
         QVERIFY(!buildV2Subscribe(1, QStringLiteral("chats"),
                                    QJsonObject{{QStringLiteral("filter"), QStringLiteral("unread")}},
                                    &request));
+    }
+
+    void subscribeMessagesAnchor()
+    {
+        whatevr::v2::Request latest;
+        QVERIFY(buildV2Subscribe(1, QStringLiteral("messages"),
+                                 QJsonObject{{QStringLiteral("chat_id"), QStringLiteral("c")}},
+                                 &latest));
+        QVERIFY(latest.subscribe().messages().has_latest());
+
+        whatevr::v2::Request unread;
+        QVERIFY(buildV2Subscribe(2, QStringLiteral("messages"),
+                                 QJsonObject{{QStringLiteral("chat_id"), QStringLiteral("c")},
+                                             {QStringLiteral("anchor"), QStringLiteral("unread")}},
+                                 &unread));
+        QVERIFY(unread.subscribe().messages().has_unread());
+
+        whatevr::v2::Request atMessage;
+        QVERIFY(buildV2Subscribe(3, QStringLiteral("messages"),
+                                 QJsonObject{{QStringLiteral("chat_id"), QStringLiteral("c")},
+                                             {QStringLiteral("anchor"), QStringLiteral("m9")}},
+                                 &atMessage));
+        QCOMPARE(v2s(atMessage.subscribe().messages().message_id()), QStringLiteral("m9"));
     }
 
     void extendUnsubscribe()
