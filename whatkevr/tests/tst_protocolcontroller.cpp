@@ -2400,6 +2400,7 @@ private Q_SLOTS:
         daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
         daemon.setActiveChats({chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000")),
                                chatRow(QStringLiteral("b@s"), QStringLiteral("Bob"), QStringLiteral("2-000"))});
+        daemon.setArchivedChats({chatRow(QStringLiteral("z@s"), QStringLiteral("Zed"), QStringLiteral("3-000"))});
 
         ProtocolController ctrl(m_path, nullptr);
         ctrl.start();
@@ -2407,20 +2408,27 @@ private Q_SLOTS:
         const int chatsSubsBefore = daemon.subscribeCountByView.value(QStringLiteral("chats"));
 
         ctrl.openForwardTargets();
-        QTRY_COMPARE(daemon.subscribeCountByView.value(QStringLiteral("chats")), chatsSubsBefore + 1);
-        // Its own params: every chat, not whatever the sidebar filter shows.
+        QTRY_COMPARE(daemon.subscribeCountByView.value(QStringLiteral("chats")), chatsSubsBefore + 2);
+        // Its own params: every chat, active and archived, not whatever the
+        // sidebar filter shows. The archived subscribe lands second, so the
+        // last params carry archived:true.
         QCOMPARE(daemon.lastParamsByView.value(QStringLiteral("chats"))
                      .value(QStringLiteral("filter")).toString(),
                  QStringLiteral("all"));
         QCOMPARE(daemon.lastParamsByView.value(QStringLiteral("chats"))
                      .value(QStringLiteral("archived")).toBool(),
-                 false);
-        QTRY_COMPARE(ctrl.forwardChatTargets(QString()).size(), 2);
+                 true);
+        QTRY_COMPARE(ctrl.forwardChatTargets(QString()).size(), 3);
         QCOMPARE(ctrl.forwardChatTargets(QStringLiteral("bo")).size(), 1);
         QCOMPARE(ctrl.forwardChatTargets(QStringLiteral("bo")).first().toMap()
                      .value(QStringLiteral("id")).toString(),
                  QStringLiteral("b@s"));
         QCOMPARE(ctrl.forwardChatTargets(QStringLiteral("nobody")).size(), 0);
+        // The archived chat is offered too, after the active ones.
+        QCOMPARE(ctrl.forwardChatTargets(QStringLiteral("zed")).size(), 1);
+        QCOMPARE(ctrl.forwardChatTargets(QStringLiteral("zed")).first().toMap()
+                     .value(QStringLiteral("id")).toString(),
+                 QStringLiteral("z@s"));
 
         // Two source messages to two chats: one report for the batch.
         QSignalSpy forwardedSpy(&ctrl, &ProtocolController::messageForwarded);

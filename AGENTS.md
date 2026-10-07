@@ -82,6 +82,27 @@ session: `rm -rf build/release/whatkevr` and install again.
 `whatevrd.socket` stays active after a stop, so the daemon also
 socket-activates on the next UI launch.
 
+### Qt frontend from CI artifacts (no local build)
+
+The `qt` CI job (`Qt frontend (Arch)`) configures `whatkevr` with tests,
+builds it, runs `ctest` offscreen, then uploads the `DESTDIR` install tree
+as artifact `whatkevr-<sha>` (7-day retention). Install from it instead of
+compiling on the laptop:
+
+```sh
+gh run download <run-id> --repo athulkrishna2015/whatevr -n whatkevr-<sha> -D /tmp/opencode/qt-root
+cp -r /tmp/opencode/qt-root/usr/. /home/admin/.local/
+```
+
+The artifact is a debug build: fine for testing, not for keeping. The Arch
+container usually carries newer Qt/KF libraries than the laptop; if the
+binary refuses to start over missing `.so` versions, fall back to a local
+release build of `whatkevr` only.
+
+Never `just install` a v2-only daemon over a live v1 session: the Qt app
+still speaks protocol v1, so replacing the daemon breaks the running
+frontend. Install the Qt binary only and restart just the UI.
+
 ## Updating the whatsmeow dependency
 
 WhatsMeow (`go.mau.fi/whatsmeow`) has no tagged releases; the daemon pins to a
