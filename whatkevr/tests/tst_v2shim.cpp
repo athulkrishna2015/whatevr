@@ -3,6 +3,7 @@
 
 #include <QByteArray>
 #include <QDateTime>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QTest>
 
@@ -164,8 +165,7 @@ private Q_SLOTS:
     }
 
     void viewUpdateApplies()
-    {
-        whatevr::v2::ViewUpdate update;
+    {        whatevr::v2::ViewUpdate update;
         update.set_reset(true);
         auto *upsert = update.add_changes()->mutable_upsert();
         upsert->set_id("a@s");
@@ -185,6 +185,97 @@ private Q_SLOTS:
         QCOMPARE(sink.removed, QList<QString>{QStringLiteral("gone")});
         QCOMPARE(sink.readies.size(), 1);
         QVERIFY(sink.readies.first().first);
+    }
+
+    void requestUnknownMethod()
+    {
+        whatevr::v2::Request request;
+        QVERIFY(!buildV2Request(1, QStringLiteral("chat_folder.create"), {}, &request));
+        QVERIFY(!buildV2Request(1, QStringLiteral("status.post"), {}, &request));
+        QVERIFY(!buildV2Request(1, QStringLiteral("daemon.shutdown"), {}, &request));
+    }
+
+    void requestSendText()
+    {
+        whatevr::v2::Request request;
+        QVERIFY(buildV2Request(4, QStringLiteral("send.text"),
+                               QJsonObject{{QStringLiteral("chat_id"), QStringLiteral("c")},
+                                           {QStringLiteral("text"), QStringLiteral("hi")},
+                                           {QStringLiteral("reply_to"), QStringLiteral("m1")},
+                                           {QStringLiteral("mentions"),
+                                            QJsonArray{QStringLiteral("j@s")}}
+                                           },
+                               &request));
+        QVERIFY(request.has_send_text());
+        QCOMPARE(v2s(request.send_text().chat_id()), QStringLiteral("c"));
+        QCOMPARE(v2s(request.send_text().text()), QStringLiteral("hi"));
+        QCOMPARE(request.send_text().mentions_size(), 1);
+        QCOMPARE(v2s(request.send_text().mentions(0).id()), QStringLiteral("j@s"));
+    }
+
+    void requestMuteConvertsToMillis()
+    {
+        whatevr::v2::Request request;
+        QVERIFY(buildV2Request(5, QStringLiteral("chat.mute"),
+                               QJsonObject{{QStringLiteral("chat_id"), QStringLiteral("c")},
+                                           {QStringLiteral("muted"), true},
+                                           {QStringLiteral("duration_secs"), 60}},
+                               &request));
+        QCOMPARE(request.chat_mute().duration_ms(), std::int64_t(60000));
+    }
+
+    void requestPrivacyMapping()
+    {
+        whatevr::v2::Request request;
+        QVERIFY(buildV2Request(6, QStringLiteral("privacy.set"),
+                               QJsonObject{{QStringLiteral("category"), QStringLiteral("about")},
+                                           {QStringLiteral("value"), QStringLiteral("contacts")}},
+                               &request));
+        QCOMPARE(request.privacy_set().category(), whatevr::v2::PRIVACY_CATEGORY_ABOUT);
+        QCOMPARE(request.privacy_set().value(), whatevr::v2::PRIVACY_VALUE_CONTACTS);
+
+        whatevr::v2::Request receipts;
+        QVERIFY(buildV2Request(7, QStringLiteral("privacy.set"),
+                               QJsonObject{{QStringLiteral("category"),
+                                            QStringLiteral("read_receipts")},
+                                           {QStringLiteral("value"), false}},
+                               &receipts));
+        QCOMPARE(receipts.privacy_set().value(), whatevr::v2::PRIVACY_VALUE_NOBODY);
+
+        whatevr::v2::Request bad;
+        QVERIFY(!buildV2Request(8, QStringLiteral("privacy.set"),
+                                QJsonObject{{QStringLiteral("category"), QStringLiteral("nope")},
+                                            {QStringLiteral("value"), QStringLiteral("all")}},
+                                &bad));
+    }
+
+    void requestPreferencesPresence()
+    {
+        whatevr::v2::Request request;
+        QVERIFY(buildV2Request(9, QStringLiteral("preferences.set"),
+                               QJsonObject{{QStringLiteral("notifications_enabled"), false}},
+                               &request));
+        QVERIFY(request.preferences_set().has_notifications());
+        QVERIFY(!request.preferences_set().notifications());
+        QVERIFY(!request.preferences_set().has_notification_sound());
+    }
+
+    void responseResults()
+    {
+        whatevr::v2::Response older;
+        older.set_id(3);
+        older.mutable_chat_request_older()->set_requested(true);
+        const V2ResponseTranslation translated = translateV2Response(older);
+        QVERIFY(!translated.isError());
+        QVERIFY(translated.result.value(QStringLiteral("requested")).toBool());
+
+        whatevr::v2::Response failed;
+        failed.set_id(4);
+        failed.mutable_error()->set_code(whatevr::v2::ERROR_CODE_NOT_FOUND);
+        failed.mutable_error()->set_message("nope");
+        const V2ResponseTranslation problem = translateV2Response(failed);
+        QVERIFY(problem.isError());
+        QCOMPARE(problem.errorCode, QStringLiteral("not_found"));
     }
 };
 

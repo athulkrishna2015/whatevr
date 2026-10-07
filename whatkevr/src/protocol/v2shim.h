@@ -6,6 +6,7 @@
 #include <QVariantMap>
 
 #include <cstdint>
+#include <string_view>
 
 #include "whatevr/v2/frame.pb.h"
 
@@ -25,6 +26,9 @@ class ViewSink;
 // at `backup/pre-upstream-merge`): field names, state strings, and the
 // RFC3339 expiry format the QML countdown parses.
 
+// Protobuf v36 string getters return string_view.
+[[nodiscard]] QString v2s(std::string_view view);
+
 // v2 `ErrorCode` to the v1 stable machine-readable code.
 [[nodiscard]] QString v2ErrorCode(whatevr::v2::ErrorCode code);
 
@@ -40,6 +44,11 @@ void buildV2Hello(std::uint64_t id, const QString &clientName, whatevr::v2::Requ
 // `unknown_method` exactly as a daemon that never served the view would.
 bool buildV2Subscribe(std::uint64_t id, const QString &view, const QJsonObject &params,
                       whatevr::v2::Request *out);
+// A v1 `(method, params)` command to a v2 `Request`. False for v1-only
+// surface with no v2 arm (folders, schedules, status, calls, channels,
+// groups, backups, ...): same `unknown_method` contract as above.
+bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &params,
+                    whatevr::v2::Request *out);
 // `extend`/`unsubscribe` carry only the daemon-assigned sub id.
 void buildV2Extend(std::uint64_t id, std::uint64_t sub, int count, const QString &direction,
                    whatevr::v2::Request *out);
@@ -63,8 +72,20 @@ void applyV2ViewUpdate(const whatevr::v2::ViewUpdate &update, ViewSink *sink);
 [[nodiscard]] QJsonObject translateV2ConnectionRow(const whatevr::v2::ConnectionRow &row);
 [[nodiscard]] QJsonObject translateV2LoginRow(const whatevr::v2::LoginRow &row);
 [[nodiscard]] QJsonObject translateV2ChatRow(const whatevr::v2::ChatRow &row);
+// Message rows: top-level scalars plus sender/fallback/text. Rich bodies
+// (media, polls, location, ...) gain translators with the views that need
+// them; every row carries a fallback either way.
+[[nodiscard]] QJsonObject translateV2MessageRow(const whatevr::v2::MessageRow &row);
 
 // Opaque sort bytes to an order-preserving string for the keyed models.
 [[nodiscard]] QString v2SortKey(std::string_view sort);
+
+// Message status enum to the v1 lowercase string.
+[[nodiscard]] inline QString v2MessageStatus(whatevr::v2::MessageStatus status)
+{
+    return v2s(whatevr::v2::MessageStatus_Name(status))
+        .remove(QStringLiteral("MESSAGE_STATUS_"))
+        .toLower();
+}
 
 } // namespace whatevr::proto
