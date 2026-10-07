@@ -105,6 +105,7 @@ protobuf_generate(TARGET whatevr_proto
     IMPORT_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/../proto"
     PROTOC_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 target_include_directories(whatevr_proto PUBLIC ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(whatevr_proto PUBLIC protobuf::libprotobuf)
 
 ecm_find_qmlmodule(org.kde.ki18n REQUIRED)
 ecm_find_qmlmodule(org.kde.desktop REQUIRED)

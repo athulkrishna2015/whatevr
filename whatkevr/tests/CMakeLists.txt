@@ -20,6 +20,26 @@ target_link_libraries(tst_protocolcore PRIVATE
 
 add_test(NAME tst_protocolcore COMMAND tst_protocolcore)
 
+# Protocol v2 wire codec: varint-delimited Frame encode/decode. Links the
+# generated bindings; needs only Core and Test.
+qt_add_executable(tst_v2codec
+    tst_v2codec.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/protocol/v2codec.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/protocol/v2codec.h
+)
+
+target_include_directories(tst_v2codec PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/protocol
+)
+
+target_link_libraries(tst_v2codec PRIVATE
+    Qt6::Core
+    Qt6::Test
+    whatevr_proto
+)
+
+add_test(NAME tst_v2codec COMMAND tst_v2codec)
+
 qt_add_executable(tst_protocolmessagemodel
     tst_protocolmessagemodel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/models/protocolmessagemodel.cpp
