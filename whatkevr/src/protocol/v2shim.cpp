@@ -691,15 +691,30 @@ void applyV2ViewUpdate(const whatevr::v2::ViewUpdate &update, ViewSink *sink,
 namespace
 {
 
+QString v2PrivacyValue(whatevr::v2::PrivacyValue value)
+{
+    switch (value) {
+    case whatevr::v2::PRIVACY_VALUE_ALL:
+        return QStringLiteral("all");
+    case whatevr::v2::PRIVACY_VALUE_CONTACTS:
+        return QStringLiteral("contacts");
+    case whatevr::v2::PRIVACY_VALUE_CONTACTS_EXCEPT:
+        return QStringLiteral("contact_blacklist");
+    case whatevr::v2::PRIVACY_VALUE_NOBODY:
+        return QStringLiteral("nobody");
+    case whatevr::v2::PRIVACY_VALUE_MATCH_LAST_SEEN:
+        return QStringLiteral("match_last_seen");
+    case whatevr::v2::PRIVACY_VALUE_KNOWN:
+        return QStringLiteral("known");
+    default:
+        return {};
+    }
+}
+
 // v1 `chat_id`/`jid` params to a v2 person address.
 void setAddressId(whatevr::v2::Address *address, const QJsonObject &params, const char *key)
 {
     address->set_id(params.value(QLatin1StringView(key)).toString().toStdString());
-}
-
-QStringView methodName(const QString &method)
-{
-    return QStringView(method);
 }
 
 } // namespace
@@ -1042,8 +1057,795 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
         return true;
     }
 
-    Q_UNUSED(methodName);
     return false;
+}
+
+whatevr::v2::ErrorCode v2ErrorCodeFromV1(const QString &code)
+{
+    if (code == QLatin1String("invalid_request")) {
+        return whatevr::v2::ERROR_CODE_INVALID_REQUEST;
+    }
+    if (code == QLatin1String("unknown_method")) {
+        return whatevr::v2::ERROR_CODE_UNKNOWN_METHOD;
+    }
+    if (code == QLatin1String("invalid_params")) {
+        return whatevr::v2::ERROR_CODE_INVALID_PARAMS;
+    }
+    if (code == QLatin1String("not_found")) {
+        return whatevr::v2::ERROR_CODE_NOT_FOUND;
+    }
+    if (code == QLatin1String("not_logged_in")) {
+        return whatevr::v2::ERROR_CODE_NOT_LOGGED_IN;
+    }
+    if (code == QLatin1String("not_connected")) {
+        return whatevr::v2::ERROR_CODE_NOT_CONNECTED;
+    }
+    if (code == QLatin1String("already_exists")) {
+        return whatevr::v2::ERROR_CODE_ALREADY_EXISTS;
+    }
+    if (code == QLatin1String("expired")) {
+        return whatevr::v2::ERROR_CODE_EXPIRED;
+    }
+    if (code == QLatin1String("rejected")) {
+        return whatevr::v2::ERROR_CODE_REJECTED;
+    }
+    if (code == QLatin1String("io")) {
+        return whatevr::v2::ERROR_CODE_IO;
+    }
+    return whatevr::v2::ERROR_CODE_INTERNAL;
+}
+
+void v2ErrorResponse(std::uint64_t id, const QString &code, const QString &message,
+                     whatevr::v2::Response *out)
+{
+    out->set_id(id);
+    auto *error = out->mutable_error();
+    error->set_code(v2ErrorCodeFromV1(code));
+    error->set_message(message.toStdString());
+}
+
+bool v2ResponseFromV1(const QString &method, std::uint64_t id, const QJsonObject &result,
+                      whatevr::v2::Response *out)
+{
+    out->set_id(id);
+    const auto str = [&](const char *key) {
+        return result.value(QLatin1StringView(key)).toString().toStdString();
+    };
+    if (method == QLatin1String("subscribe")) {
+        auto *subscribe = out->mutable_subscribe();
+        subscribe->set_sub(result.value(QStringLiteral("sub")).toString().toULongLong());
+        if (result.contains(QStringLiteral("anchor_id"))) {
+            subscribe->set_anchor_id(str("anchor_id"));
+        }
+        return true;
+    }
+    if (method == QLatin1String("chat.request_older")) {
+        out->mutable_chat_request_older()->set_requested(
+            result.value(QStringLiteral("requested")).toBool());
+        return true;
+    }
+    if (method == QLatin1String("chat.ensure_direct")
+        || method == QLatin1String("group.join_invite")
+        || method == QLatin1String("group.create")) {
+        // v1 answers all three with `{chat_id}`; v2 has a per-method arm.
+        if (method == QLatin1String("chat.ensure_direct")) {
+            out->mutable_chat_ensure_direct()->set_chat_id(str("chat_id"));
+        } else {
+            out->mutable_group_join_invite()->set_chat_id(str("chat_id"));
+        }
+        return true;
+    }
+    if (method == QLatin1String("message.forward")) {
+        auto *forward = out->mutable_message_forward();
+        for (const QJsonValue &messageId : result.value(QStringLiteral("message_ids")).toArray()) {
+            forward->add_message_ids(messageId.toString().toStdString());
+        }
+        return true;
+    }
+    if (method == QLatin1String("message.text")) {
+        out->mutable_message_text()->set_text(str("text"));
+        return true;
+    }
+    if (method == QLatin1String("media.stream")) {
+        auto *stream = out->mutable_media_stream();
+        stream->set_url(str("url"));
+        stream->set_stream_id(str("stream_id"));
+        return true;
+    }
+    if (method == QLatin1String("media.fetch_profile_picture")) {
+        out->mutable_media_fetch_profile_picture()->set_path(str("path"));
+        return true;
+    }
+    if (method == QLatin1String("search.chats")) {
+        auto *search = out->mutable_search_chats();
+        for (const QJsonValue &row : result.value(QStringLiteral("chats")).toArray()) {
+            whatevr::v2::ChatRow chat;
+            if (v2ChatRowFromJson(row.toObject(), &chat)) {
+                *search->add_chats() = chat;
+            }
+        }
+        return true;
+    }
+    if (method == QLatin1String("search.messages")) {
+        auto *search = out->mutable_search_messages();
+        for (const QJsonValue &row : result.value(QStringLiteral("messages")).toArray()) {
+            whatevr::v2::MessageRow message;
+            if (v2MessageRowFromJson(row.toObject(), &message)) {
+                *search->add_messages() = message;
+            }
+        }
+        return true;
+    }
+    if (method == QLatin1String("search.stickers")) {
+        auto *search = out->mutable_search_stickers();
+        for (const QJsonValue &row : result.value(QStringLiteral("stickers")).toArray()) {
+            auto *sticker = search->add_stickers();
+            const QJsonObject item = row.toObject();
+            sticker->set_id(item.value(QStringLiteral("cache_key")).toString().toStdString());
+            sticker->set_path(item.value(QStringLiteral("path")).toString().toStdString());
+            sticker->set_mime(item.value(QStringLiteral("mime")).toString().toStdString());
+        }
+        return true;
+    }
+    if (method == QLatin1String("contacts.check_phone")) {
+        auto *phone = out->mutable_contact_check_phone();
+        phone->set_registered(result.value(QStringLiteral("registered")).toBool());
+        phone->set_person_id(str("jid"));
+        phone->set_name(str("display_name"));
+        phone->set_phone(str("phone"));
+        return true;
+    }
+    if (method == QLatin1String("send.text") || method == QLatin1String("send.media")
+        || method == QLatin1String("send.sticker") || method == QLatin1String("send.media_batch")) {
+        // v1 answers sends with `{message_id}` (batch answers lists, which the
+        // controller only reads for failures; fakes answer the single shape).
+        if (result.contains(QStringLiteral("message_id"))) {
+            out->mutable_send()->set_message_id(str("message_id"));
+        } else {
+            out->mutable_done();
+        }
+        return true;
+    }
+    // Ack-only commands complete with Done.
+    out->mutable_done();
+    return true;
+}
+
+bool v2ChatRowFromJson(const QJsonObject &item, whatevr::v2::ChatRow *out)
+{
+    if (!item.contains(QStringLiteral("id"))) {
+        return false;
+    }
+    const auto str = [&](const char *key) {
+        return item.value(QLatin1StringView(key)).toString().toStdString();
+    };
+    out->set_id(str("id"));
+    out->set_name(str("name"));
+    out->set_type(item.value(QStringLiteral("is_group")).toBool()
+                      ? whatevr::v2::CHAT_TYPE_GROUP
+                      : whatevr::v2::CHAT_TYPE_DIRECT);
+    out->mutable_preview()->set_text(str("preview"));
+    out->set_last_ms(static_cast<std::int64_t>(item.value(QStringLiteral("last_message_time"))
+                                                   .toVariant()
+                                                   .toLongLong())
+                     * 1000);
+    out->set_unread(static_cast<std::uint32_t>(item.value(QStringLiteral("unread")).toInt()));
+    out->set_pinned(item.value(QStringLiteral("pinned")).toBool());
+    out->set_archived(item.value(QStringLiteral("archived")).toBool());
+    out->set_muted(item.value(QStringLiteral("muted")).toBool());
+    out->set_history_exhausted(item.value(QStringLiteral("history_exhausted")).toBool());
+    out->set_avatar_path(str("avatar_path"));
+    return true;
+}
+
+namespace
+{
+
+void v2MediaFromJson(const QJsonObject &media, whatevr::v2::Media *out)
+{
+    const auto str = [&](const QJsonObject &obj, const char *key) {
+        return obj.value(QLatin1StringView(key)).toString().toStdString();
+    };
+    out->set_mime(str(media, "mime"));
+    out->set_width(static_cast<std::uint32_t>(media.value(QStringLiteral("width")).toInt()));
+    out->set_height(static_cast<std::uint32_t>(media.value(QStringLiteral("height")).toInt()));
+    out->set_thumbnail_path(str(media, "thumbnail_path"));
+    out->set_path(str(media, "path"));
+    out->set_download_error(str(media, "download_error"));
+    out->set_downloading(media.value(QStringLiteral("downloading")).toBool());
+    out->set_size_bytes(
+        static_cast<std::uint64_t>(media.value(QStringLiteral("size_bytes")).toVariant().toULongLong()));
+    out->set_duration_ms(static_cast<std::int64_t>(media.value(QStringLiteral("duration_secs")).toInt())
+                         * 1000);
+}
+
+} // namespace
+
+bool v2MessageRowFromJson(const QJsonObject &item, whatevr::v2::MessageRow *out)
+{
+    if (!item.contains(QStringLiteral("id"))) {
+        return false;
+    }
+    const auto str = [&](const char *key) {
+        return item.value(QLatin1StringView(key)).toString().toStdString();
+    };
+    out->set_id(str("id"));
+    out->set_chat_id(str("chat_id"));
+    out->set_chat_name(str("chat_name"));
+    const QJsonObject sender = item.value(QStringLiteral("sender")).toObject();
+    out->mutable_sender()->set_id(sender.value(QStringLiteral("id")).toString().toStdString());
+    out->mutable_sender()->set_name(sender.value(QStringLiteral("name")).toString().toStdString());
+    out->mutable_sender()->set_avatar_path(
+        sender.value(QStringLiteral("avatar_path")).toString().toStdString());
+    out->set_from_me(item.value(QStringLiteral("direction")).toString()
+                     == QLatin1String("outgoing"));
+    out->set_t_ms(static_cast<std::int64_t>(item.value(QStringLiteral("timestamp")).toVariant().toLongLong())
+                  * 1000);
+    out->set_fallback(str("fallback"));
+    out->set_text(str("text"));
+    out->set_edited(item.value(QStringLiteral("edited")).toBool());
+    out->set_revoked(item.value(QStringLiteral("revoked")).toBool());
+    out->set_starred(item.value(QStringLiteral("starred")).toBool());
+    out->set_forwarded(item.value(QStringLiteral("forwarded")).toBool());
+    out->set_kept(item.value(QStringLiteral("kept")).toBool());
+    if (item.contains(QStringLiteral("reply_to"))) {
+        const QJsonObject reply = item.value(QStringLiteral("reply_to")).toObject();
+        auto *quote = out->mutable_reply_to();
+        quote->set_message_id(reply.value(QStringLiteral("message_id")).toString().toStdString());
+        quote->set_text(reply.value(QStringLiteral("text")).toString().toStdString());
+    }
+    for (const QJsonValue &entry : item.value(QStringLiteral("mentions")).toArray()) {
+        const QJsonObject mention = entry.toObject();
+        auto *target = out->add_mentions();
+        // Fixtures name the field `jid`; the wire carries a person id.
+        const QString jid = mention.value(QStringLiteral("jid")).toString();
+        target->mutable_person()->set_id(
+            (jid.isEmpty() ? mention.value(QStringLiteral("id")).toString() : jid).toStdString());
+        target->mutable_person()->set_name(
+            mention.value(QStringLiteral("name")).toString().toStdString());
+    }
+    for (const QJsonValue &entry : item.value(QStringLiteral("reactions")).toArray()) {
+        const QJsonObject reaction = entry.toObject();
+        auto *target = out->add_reactions();
+        target->set_emoji(reaction.value(QStringLiteral("emoji")).toString().toStdString());
+        target->mutable_sender()->set_id(
+            reaction.value(QStringLiteral("sender_id")).toString().toStdString());
+        target->mutable_sender()->set_name(
+            reaction.value(QStringLiteral("sender_name")).toString().toStdString());
+    }
+    const QString kind = item.value(QStringLiteral("kind")).toString();
+    if (kind == QLatin1String("image") || kind == QLatin1String("video")
+        || kind == QLatin1String("gif") || kind == QLatin1String("voice")
+        || kind == QLatin1String("audio") || kind == QLatin1String("document")) {
+        v2MediaFromJson(item.value(QStringLiteral("media")).toObject(),
+                        out->mutable_image()->mutable_media());
+        if (kind != QLatin1String("image")) {
+            // The arm names the kind; image is the structural stand-in only
+            // when the fixture names one of its siblings, so move it over.
+            whatevr::v2::Image image = out->image();
+            out->clear_image();
+            if (kind == QLatin1String("video")) {
+                *out->mutable_video()->mutable_media() = image.media();
+            } else if (kind == QLatin1String("gif")) {
+                *out->mutable_gif()->mutable_media() = image.media();
+            } else if (kind == QLatin1String("voice")) {
+                *out->mutable_voice()->mutable_media() = image.media();
+            } else if (kind == QLatin1String("audio")) {
+                *out->mutable_audio()->mutable_media() = image.media();
+            } else if (kind == QLatin1String("document")) {
+                *out->mutable_document()->mutable_media() = image.media();
+            }
+        }
+    } else if (kind == QLatin1String("location") && item.contains(QStringLiteral("location"))) {
+        const QJsonObject location = item.value(QStringLiteral("location")).toObject();
+        auto *target = out->mutable_location();
+        target->set_lat(location.value(QStringLiteral("lat")).toDouble());
+        target->set_lng(location.value(QStringLiteral("lng")).toDouble());
+        target->set_name(location.value(QStringLiteral("name")).toString().toStdString());
+        target->set_address(location.value(QStringLiteral("address")).toString().toStdString());
+    } else if (kind == QLatin1String("poll") && item.contains(QStringLiteral("poll"))) {
+        const QJsonObject poll = item.value(QStringLiteral("poll")).toObject();
+        auto *target = out->mutable_poll();
+        target->set_question(poll.value(QStringLiteral("question")).toString().toStdString());
+        target->set_selectable(static_cast<std::uint32_t>(
+            poll.value(QStringLiteral("selectable_count")).toInt()));
+        for (const QJsonValue &entry : poll.value(QStringLiteral("options")).toArray()) {
+            const QJsonObject option = entry.toObject();
+            auto *targetOption = target->add_options();
+            targetOption->set_index(static_cast<std::uint32_t>(option.value(QStringLiteral("index")).toInt()));
+            targetOption->set_name(option.value(QStringLiteral("name")).toString().toStdString());
+        }
+    } else {
+        out->mutable_text_body();
+    }
+    return true;
+}
+
+// The reverse direction, for test doubles: the fake daemon keeps its JSON
+// core and only translates at the wire.
+namespace
+{
+
+void setJsonAddress(QJsonObject &params, const char *key, const whatevr::v2::Address &address)
+{
+    // Person/chat ids round-trip through `id`; phone lookups through `phone`.
+    if (!address.id().empty()) {
+        params.insert(QLatin1StringView(key), v2s(address.id()));
+    } else if (!address.phone().empty()) {
+        params.insert(QLatin1StringView(key), v2s(address.phone()));
+    }
+}
+
+} // namespace
+
+bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
+{
+    using Method = whatevr::v2::Request::MethodCase;
+    QJsonObject params;
+    switch (request.method_case()) {
+    case Method::kHello:
+        out->method = QStringLiteral("hello");
+        params.insert(QStringLiteral("client"), v2s(request.hello().client()));
+        params.insert(QStringLiteral("protocol"), static_cast<qint64>(request.hello().protocol()));
+        break;
+    case Method::kSubscribe: {
+        out->method = QStringLiteral("subscribe");
+        const auto &subscribe = request.subscribe();
+        if (subscribe.limit() > 0) {
+            params.insert(QStringLiteral("limit"), static_cast<qint64>(subscribe.limit()));
+        }
+        using View = whatevr::v2::Subscribe::ViewCase;
+        switch (subscribe.view_case()) {
+        case View::kConnection:
+            params.insert(QStringLiteral("view"), QStringLiteral("connection"));
+            break;
+        case View::kLogin:
+            params.insert(QStringLiteral("view"), QStringLiteral("login"));
+            break;
+        case View::kSync:
+            params.insert(QStringLiteral("view"), QStringLiteral("sync"));
+            break;
+        case View::kChats:
+            params.insert(QStringLiteral("view"), QStringLiteral("chats"));
+            switch (subscribe.chats().filter()) {
+            case whatevr::v2::CHAT_FILTER_DIRECT:
+                params.insert(QStringLiteral("filter"), QStringLiteral("direct"));
+                break;
+            case whatevr::v2::CHAT_FILTER_GROUPS:
+                params.insert(QStringLiteral("filter"), QStringLiteral("groups"));
+                break;
+            default:
+                params.insert(QStringLiteral("filter"), QStringLiteral("all"));
+                break;
+            }
+            params.insert(QStringLiteral("archived"), subscribe.chats().archived());
+            break;
+        case View::kChat:
+            params.insert(QStringLiteral("view"), QStringLiteral("chat"));
+            params.insert(QStringLiteral("chat_id"), v2s(subscribe.chat().chat_id()));
+            break;
+        case View::kMessages: {
+            params.insert(QStringLiteral("view"), QStringLiteral("messages"));
+            params.insert(QStringLiteral("chat_id"), v2s(subscribe.messages().chat_id()));
+            using Anchor = whatevr::v2::MessagesView::AnchorCase;
+            switch (subscribe.messages().anchor_case()) {
+            case Anchor::kUnread:
+                params.insert(QStringLiteral("anchor"), QStringLiteral("unread"));
+                break;
+            case Anchor::kMessageId:
+                params.insert(QStringLiteral("anchor"), v2s(subscribe.messages().message_id()));
+                break;
+            default:
+                break;
+            }
+            break;
+        }
+        case View::kTyping:
+            params.insert(QStringLiteral("view"), QStringLiteral("typing"));
+            break;
+        case View::kPresence:
+            params.insert(QStringLiteral("view"), QStringLiteral("presence"));
+            params.insert(QStringLiteral("chat_id"), v2s(subscribe.presence().chat_id()));
+            break;
+        case View::kReceipts:
+            params.insert(QStringLiteral("view"), QStringLiteral("receipts"));
+            params.insert(QStringLiteral("message_id"), v2s(subscribe.receipts().message_id()));
+            break;
+        case View::kSelf:
+            params.insert(QStringLiteral("view"), QStringLiteral("self"));
+            break;
+        case View::kContact:
+            params.insert(QStringLiteral("view"), QStringLiteral("contact"));
+            setJsonAddress(params, "jid", subscribe.contact().person());
+            break;
+        case View::kGroup:
+            params.insert(QStringLiteral("view"), QStringLiteral("group"));
+            params.insert(QStringLiteral("chat_id"), v2s(subscribe.group().chat_id()));
+            break;
+        case View::kGroupMembers:
+            params.insert(QStringLiteral("view"), QStringLiteral("group_members"));
+            params.insert(QStringLiteral("chat_id"), v2s(subscribe.group_members().chat_id()));
+            break;
+        case View::kPrivacy:
+            params.insert(QStringLiteral("view"), QStringLiteral("privacy"));
+            break;
+        case View::kPreferences:
+            params.insert(QStringLiteral("view"), QStringLiteral("preferences"));
+            break;
+        case View::kBlocklist:
+            params.insert(QStringLiteral("view"), QStringLiteral("blocklist"));
+            break;
+        case View::kStarred:
+            params.insert(QStringLiteral("view"), QStringLiteral("starred"));
+            if (!subscribe.starred().chat_id().empty()) {
+                params.insert(QStringLiteral("chat_id"), v2s(subscribe.starred().chat_id()));
+            }
+            break;
+        case View::kPinned:
+            params.insert(QStringLiteral("view"), QStringLiteral("pinned"));
+            params.insert(QStringLiteral("chat_id"), v2s(subscribe.pinned().chat_id()));
+            break;
+        case View::kLiveLocations:
+            params.insert(QStringLiteral("view"), QStringLiteral("live_locations"));
+            params.insert(QStringLiteral("chat_id"), v2s(subscribe.live_locations().chat_id()));
+            break;
+        case View::kChatMedia:
+            params.insert(QStringLiteral("view"), QStringLiteral("chat_media"));
+            params.insert(QStringLiteral("chat_id"), v2s(subscribe.chat_media().chat_id()));
+            break;
+        case View::kStickers:
+            params.insert(QStringLiteral("view"), QStringLiteral("stickers"));
+            switch (subscribe.stickers().source()) {
+            case whatevr::v2::STICKER_SOURCE_RECENT:
+                params.insert(QStringLiteral("source"), QStringLiteral("recent"));
+                break;
+            case whatevr::v2::STICKER_SOURCE_FAVORITE:
+                params.insert(QStringLiteral("source"), QStringLiteral("favorite"));
+                break;
+            default:
+                params.insert(QStringLiteral("source"), QStringLiteral("all"));
+                break;
+            }
+            break;
+        case View::kStickerPacks:
+            params.insert(QStringLiteral("view"), QStringLiteral("sticker_packs"));
+            break;
+        case View::kTransfers:
+            params.insert(QStringLiteral("view"), QStringLiteral("transfers"));
+            break;
+        default:
+            return false;
+        }
+        break;
+    }
+    case Method::kExtend: {
+        out->method = QStringLiteral("extend");
+        params.insert(QStringLiteral("sub"), QString::number(request.extend().sub()));
+        params.insert(QStringLiteral("count"), static_cast<qint64>(request.extend().count()));
+        params.insert(QStringLiteral("direction"),
+                      request.extend().direction() == whatevr::v2::DIRECTION_NEWER
+                          ? QStringLiteral("newer")
+                          : QStringLiteral("older"));
+        break;
+    }
+    case Method::kUnsubscribe:
+        out->method = QStringLiteral("unsubscribe");
+        params.insert(QStringLiteral("sub"), QString::number(request.unsubscribe().sub()));
+        break;
+    case Method::kSessionUpdate:
+        out->method = QStringLiteral("session.update");
+        params.insert(QStringLiteral("focused"), request.session_update().focused());
+        params.insert(QStringLiteral("active_chat_id"),
+                      v2s(request.session_update().active_chat_id()));
+        break;
+    case Method::kDaemonReconnect:
+        out->method = QStringLiteral("daemon.reconnect");
+        break;
+    case Method::kAccountLogout:
+        out->method = QStringLiteral("account.logout");
+        break;
+    case Method::kChatMarkRead: {
+        out->method = QStringLiteral("chat.mark_read");
+        const auto &mark = request.chat_mark_read();
+        params.insert(QStringLiteral("chat_id"), v2s(mark.chat_id()));
+        params.insert(QStringLiteral("up_to_message_id"), v2s(mark.up_to_message_id()));
+        break;
+    }
+    case Method::kChatPin:
+        out->method = QStringLiteral("chat.pin");
+        params.insert(QStringLiteral("chat_id"), v2s(request.chat_pin().chat_id()));
+        params.insert(QStringLiteral("pinned"), request.chat_pin().pinned());
+        break;
+    case Method::kChatArchive:
+        out->method = QStringLiteral("chat.archive");
+        params.insert(QStringLiteral("chat_id"), v2s(request.chat_archive().chat_id()));
+        params.insert(QStringLiteral("archived"), request.chat_archive().archived());
+        break;
+    case Method::kChatMute:
+        out->method = QStringLiteral("chat.mute");
+        params.insert(QStringLiteral("chat_id"), v2s(request.chat_mute().chat_id()));
+        params.insert(QStringLiteral("muted"), request.chat_mute().muted());
+        params.insert(QStringLiteral("duration_secs"),
+                      static_cast<qint64>(request.chat_mute().duration_ms() / 1000));
+        break;
+    case Method::kChatTyping:
+        out->method = QStringLiteral("chat.typing");
+        params.insert(QStringLiteral("chat_id"), v2s(request.chat_typing().chat_id()));
+        params.insert(QStringLiteral("composing"), request.chat_typing().composing());
+        break;
+    case Method::kChatRequestOlder:
+        out->method = QStringLiteral("chat.request_older");
+        params.insert(QStringLiteral("chat_id"), v2s(request.chat_request_older().chat_id()));
+        break;
+    case Method::kChatEnsureDirect:
+        out->method = QStringLiteral("chat.ensure_direct");
+        setJsonAddress(params, "jid", request.chat_ensure_direct().person());
+        break;
+    case Method::kSendText: {
+        out->method = QStringLiteral("send.text");
+        const auto &send = request.send_text();
+        params.insert(QStringLiteral("chat_id"), v2s(send.chat_id()));
+        params.insert(QStringLiteral("text"), v2s(send.text()));
+        if (!send.reply_to().empty()) {
+            params.insert(QStringLiteral("reply_to"), v2s(send.reply_to()));
+        }
+        if (!send.mentions().empty()) {
+            QJsonArray mentions;
+            for (const auto &mention : send.mentions()) {
+                mentions.append(v2s(mention.id()));
+            }
+            params.insert(QStringLiteral("mentions"), mentions);
+        }
+        break;
+    }
+    case Method::kSendMedia: {
+        out->method = QStringLiteral("send.media");
+        const auto &send = request.send_media();
+        params.insert(QStringLiteral("chat_id"), v2s(send.chat_id()));
+        params.insert(QStringLiteral("path"), v2s(send.path()));
+        params.insert(QStringLiteral("caption"), v2s(send.caption()));
+        if (send.as_document()) {
+            params.insert(QStringLiteral("kind"), QStringLiteral("document"));
+        }
+        if (send.view_once()) {
+            params.insert(QStringLiteral("view_once"), true);
+        }
+        break;
+    }
+    case Method::kSendSticker:
+        out->method = QStringLiteral("send.sticker");
+        params.insert(QStringLiteral("chat_id"), v2s(request.send_sticker().chat_id()));
+        params.insert(QStringLiteral("cache_key"), v2s(request.send_sticker().sticker_id()));
+        if (!request.send_sticker().reply_to().empty()) {
+            params.insert(QStringLiteral("reply_to"), v2s(request.send_sticker().reply_to()));
+        }
+        break;
+    case Method::kMessageReact:
+        out->method = QStringLiteral("message.react");
+        params.insert(QStringLiteral("message_id"), v2s(request.message_react().message_id()));
+        params.insert(QStringLiteral("emoji"), v2s(request.message_react().emoji()));
+        break;
+    case Method::kMessageEdit:
+        out->method = QStringLiteral("message.edit");
+        params.insert(QStringLiteral("message_id"), v2s(request.message_edit().message_id()));
+        params.insert(QStringLiteral("text"), v2s(request.message_edit().text()));
+        break;
+    case Method::kMessageRevoke:
+        out->method = QStringLiteral("message.revoke");
+        params.insert(QStringLiteral("message_id"), v2s(request.message_revoke().message_id()));
+        break;
+    case Method::kMessageDelete:
+        out->method = QStringLiteral("message.delete");
+        params.insert(QStringLiteral("message_id"), v2s(request.message_delete().message_id()));
+        break;
+    case Method::kMessageStar:
+        out->method = QStringLiteral("message.star");
+        params.insert(QStringLiteral("message_id"), v2s(request.message_star().message_id()));
+        params.insert(QStringLiteral("starred"), request.message_star().starred());
+        break;
+    case Method::kMessagePin:
+        out->method = QStringLiteral("message.pin");
+        params.insert(QStringLiteral("message_id"), v2s(request.message_pin().message_id()));
+        params.insert(QStringLiteral("pinned"), request.message_pin().pinned());
+        if (request.message_pin().duration_ms() > 0) {
+            params.insert(QStringLiteral("duration_secs"),
+                          static_cast<qint64>(request.message_pin().duration_ms() / 1000));
+        }
+        break;
+    case Method::kMessageForward: {
+        out->method = QStringLiteral("message.forward");
+        params.insert(QStringLiteral("message_id"), v2s(request.message_forward().message_id()));
+        QJsonArray chats;
+        for (const auto &chatId : request.message_forward().chat_ids()) {
+            chats.append(v2s(chatId));
+        }
+        params.insert(QStringLiteral("chat_ids"), chats);
+        break;
+    }
+    case Method::kMessageMarkPlayed:
+        out->method = QStringLiteral("message.mark_played");
+        params.insert(QStringLiteral("message_id"), v2s(request.message_mark_played().message_id()));
+        break;
+    case Method::kMessageRequestFromPhone:
+        out->method = QStringLiteral("message.request_from_phone");
+        params.insert(QStringLiteral("message_id"),
+                      v2s(request.message_request_from_phone().message_id()));
+        break;
+    case Method::kPollVote: {
+        out->method = QStringLiteral("poll.vote");
+        params.insert(QStringLiteral("message_id"), v2s(request.poll_vote().message_id()));
+        QJsonArray options;
+        for (const auto option : request.poll_vote().option_indexes()) {
+            options.append(static_cast<qint64>(option));
+        }
+        params.insert(QStringLiteral("option_ids"), options);
+        break;
+    }
+    case Method::kEventRsvp: {
+        out->method = QStringLiteral("event.rsvp");
+        params.insert(QStringLiteral("message_id"), v2s(request.event_rsvp().message_id()));
+        switch (request.event_rsvp().response()) {
+        case whatevr::v2::RSVP_GOING:
+            params.insert(QStringLiteral("response"), QStringLiteral("going"));
+            break;
+        case whatevr::v2::RSVP_NOT_GOING:
+            params.insert(QStringLiteral("response"), QStringLiteral("not_going"));
+            break;
+        case whatevr::v2::RSVP_MAYBE:
+            params.insert(QStringLiteral("response"), QStringLiteral("maybe"));
+            break;
+        default:
+            break;
+        }
+        params.insert(QStringLiteral("extra_guests"),
+                      static_cast<qint64>(request.event_rsvp().extra_guests()));
+        break;
+    }
+    case Method::kGroupJoinInvite:
+        out->method = QStringLiteral("group.join_invite");
+        params.insert(QStringLiteral("message_id"), v2s(request.group_join_invite().message_id()));
+        break;
+    case Method::kMediaDownload:
+        out->method = QStringLiteral("media.download");
+        params.insert(QStringLiteral("message_id"), v2s(request.media_download().message_id()));
+        break;
+    case Method::kMediaCancelDownload:
+        out->method = QStringLiteral("media.cancel_download");
+        params.insert(QStringLiteral("message_id"),
+                      v2s(request.media_cancel_download().message_id()));
+        break;
+    case Method::kMediaStream:
+        out->method = QStringLiteral("media.stream");
+        params.insert(QStringLiteral("message_id"), v2s(request.media_stream().message_id()));
+        break;
+    case Method::kMediaFetchProfilePicture:
+        out->method = QStringLiteral("media.fetch_profile_picture");
+        setJsonAddress(params, "jid", request.media_fetch_profile_picture().person());
+        break;
+    case Method::kContactBlock:
+        out->method = QStringLiteral("contact.block");
+        setJsonAddress(params, "jid", request.contact_block().person());
+        params.insert(QStringLiteral("blocked"), request.contact_block().blocked());
+        break;
+    case Method::kSelfSetAbout:
+        out->method = QStringLiteral("self.set_about");
+        params.insert(QStringLiteral("text"), v2s(request.self_set_about().text()));
+        break;
+    case Method::kPrivacySet: {
+        out->method = QStringLiteral("privacy.set");
+        switch (request.privacy_set().category()) {
+        case whatevr::v2::PRIVACY_CATEGORY_LAST_SEEN:
+            params.insert(QStringLiteral("category"), QStringLiteral("last_seen"));
+            break;
+        case whatevr::v2::PRIVACY_CATEGORY_ONLINE:
+            params.insert(QStringLiteral("category"), QStringLiteral("online"));
+            break;
+        case whatevr::v2::PRIVACY_CATEGORY_PROFILE_PHOTO:
+            params.insert(QStringLiteral("category"), QStringLiteral("profile_photo"));
+            break;
+        case whatevr::v2::PRIVACY_CATEGORY_ABOUT:
+            params.insert(QStringLiteral("category"), QStringLiteral("about"));
+            break;
+        case whatevr::v2::PRIVACY_CATEGORY_GROUP_ADD:
+            params.insert(QStringLiteral("category"), QStringLiteral("group_add"));
+            break;
+        case whatevr::v2::PRIVACY_CATEGORY_CALL_ADD:
+            params.insert(QStringLiteral("category"), QStringLiteral("call_add"));
+            break;
+        case whatevr::v2::PRIVACY_CATEGORY_READ_RECEIPTS:
+            params.insert(QStringLiteral("category"), QStringLiteral("read_receipts"));
+            break;
+        default:
+            return false;
+        }
+        params.insert(QStringLiteral("value"), v2PrivacyValue(request.privacy_set().value()));
+        break;
+    }
+    case Method::kPreferencesSet: {
+        out->method = QStringLiteral("preferences.set");
+        const auto &set = request.preferences_set();
+        if (set.has_notifications()) {
+            params.insert(QStringLiteral("notifications_enabled"), set.notifications());
+        }
+        if (set.has_notification_sound()) {
+            params.insert(QStringLiteral("notification_sound"), set.notification_sound());
+        }
+        if (set.has_notification_preview()) {
+            params.insert(QStringLiteral("notification_preview"), set.notification_preview());
+        }
+        if (set.has_auto_download_photos()) {
+            params.insert(QStringLiteral("auto_download_photos"), set.auto_download_photos());
+        }
+        if (set.has_auto_download_videos()) {
+            params.insert(QStringLiteral("auto_download_videos"), set.auto_download_videos());
+        }
+        if (set.has_auto_download_audio()) {
+            params.insert(QStringLiteral("auto_download_audio"), set.auto_download_audio());
+        }
+        if (set.has_auto_download_documents()) {
+            params.insert(QStringLiteral("auto_download_documents"), set.auto_download_documents());
+        }
+        if (set.has_auto_download_stickers()) {
+            params.insert(QStringLiteral("auto_download_stickers"), set.auto_download_stickers());
+        }
+        if (set.has_auto_download_max_bytes()) {
+            params.insert(QStringLiteral("auto_download_max_bytes"),
+                          static_cast<qint64>(set.auto_download_max_bytes()));
+        }
+        break;
+    }
+    case Method::kSearchChats:
+        out->method = QStringLiteral("search.chats");
+        params.insert(QStringLiteral("query"), v2s(request.search_chats().query()));
+        break;
+    case Method::kSearchMessages:
+        out->method = QStringLiteral("search.messages");
+        params.insert(QStringLiteral("query"), v2s(request.search_messages().query()));
+        if (!request.search_messages().chat_id().empty()) {
+            params.insert(QStringLiteral("chat_id"), v2s(request.search_messages().chat_id()));
+        }
+        if (request.search_messages().limit() > 0) {
+            params.insert(QStringLiteral("limit"),
+                          static_cast<qint64>(request.search_messages().limit()));
+        }
+        break;
+    case Method::kSearchStickers:
+        out->method = QStringLiteral("search.stickers");
+        params.insert(QStringLiteral("query"), v2s(request.search_stickers().query()));
+        if (request.search_stickers().limit() > 0) {
+            params.insert(QStringLiteral("limit"),
+                          static_cast<qint64>(request.search_stickers().limit()));
+        }
+        break;
+    case Method::kContactCheckPhone:
+        out->method = QStringLiteral("contacts.check_phone");
+        params.insert(QStringLiteral("phone"), v2s(request.contact_check_phone().phone()));
+        break;
+    case Method::kStickerFavorite: {
+        out->method = QStringLiteral("sticker.favorite");
+        const auto &favorite = request.sticker_favorite();
+        if (favorite.has_sticker_id()) {
+            params.insert(QStringLiteral("cache_key"), v2s(favorite.sticker_id()));
+        } else if (favorite.has_message_id()) {
+            params.insert(QStringLiteral("message_id"), v2s(favorite.message_id()));
+        }
+        params.insert(QStringLiteral("favorite"), favorite.favorite());
+        break;
+    }
+    case Method::kStickerDownload:
+        out->method = QStringLiteral("sticker.download");
+        params.insert(QStringLiteral("cache_key"), v2s(request.sticker_download().sticker_id()));
+        break;
+    case Method::kStickerPackInstall:
+        out->method = QStringLiteral("sticker_pack.install");
+        params.insert(QStringLiteral("pack_id"), v2s(request.sticker_pack_install().pack_id()));
+        params.insert(QStringLiteral("installed"), request.sticker_pack_install().installed());
+        break;
+    default:
+        return false;
+    }
+    out->params = params;
+    return true;
 }
 
 namespace
@@ -1554,31 +2356,6 @@ QJsonObject translateV2ReceiptRow(const whatevr::v2::ReceiptRow &row)
     }
     return item;
 }
-
-namespace
-{
-
-QString v2PrivacyValue(whatevr::v2::PrivacyValue value)
-{
-    switch (value) {
-    case whatevr::v2::PRIVACY_VALUE_ALL:
-        return QStringLiteral("all");
-    case whatevr::v2::PRIVACY_VALUE_CONTACTS:
-        return QStringLiteral("contacts");
-    case whatevr::v2::PRIVACY_VALUE_CONTACTS_EXCEPT:
-        return QStringLiteral("contact_blacklist");
-    case whatevr::v2::PRIVACY_VALUE_NOBODY:
-        return QStringLiteral("nobody");
-    case whatevr::v2::PRIVACY_VALUE_MATCH_LAST_SEEN:
-        return QStringLiteral("match_last_seen");
-    case whatevr::v2::PRIVACY_VALUE_KNOWN:
-        return QStringLiteral("known");
-    default:
-        return {};
-    }
-}
-
-} // namespace
 
 QJsonObject translateV2PrivacyRow(const whatevr::v2::PrivacyRow &row)
 {

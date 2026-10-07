@@ -49,6 +49,25 @@ bool buildV2Subscribe(std::uint64_t id, const QString &view, const QJsonObject &
 // groups, backups, ...): same `unknown_method` contract as above.
 bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &params,
                     whatevr::v2::Request *out);
+// The reverse direction, for test doubles: a v2 `Request` back to the v1
+// `(method, params)` the frontend's JSON core speaks. False for arms the
+// frontend never sends (responses never appear here).
+struct V2RequestV1 {
+    QString method;
+    QJsonObject params;
+};
+bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out);
+// Result builder for test doubles: a v1 result object to the v2 `Response`
+// the method answers. False for methods with no v2 result arm (the client
+// never sends them, so a fake never answers them either).
+bool v2ResponseFromV1(const QString &method, std::uint64_t id, const QJsonObject &result,
+                      whatevr::v2::Response *out);
+// Error builder for test doubles.
+void v2ErrorResponse(std::uint64_t id, const QString &code, const QString &message,
+                     whatevr::v2::Response *out);
+// Fixture rows to v2 rows, for test doubles serving v1 JSON fixtures.
+bool v2ChatRowFromJson(const QJsonObject &item, whatevr::v2::ChatRow *out);
+bool v2MessageRowFromJson(const QJsonObject &item, whatevr::v2::MessageRow *out);
 // `extend`/`unsubscribe` carry only the daemon-assigned sub id.
 void buildV2Extend(std::uint64_t id, std::uint64_t sub, int count, const QString &direction,
                    whatevr::v2::Request *out);
