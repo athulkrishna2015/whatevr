@@ -315,6 +315,9 @@ jobs:
     runs-on: ubuntu-latest
     container: archlinux:latest
     timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: write
     needs: changes
     if: ${{ needs.changes.outputs.qt == 'true' }}
     steps:
@@ -385,6 +388,16 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: ctest --test-dir build/debug/whatkevr --output-on-failure
+
+      - name: Stage install tree
+        run: DESTDIR="$RUNNER_TEMP/qt-root" cmake --install build/debug/whatkevr --prefix /usr
+
+      - name: Upload install tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: whatkevr-${{ github.sha }}
+          path: ${{ runner.temp }}/qt-root
+          retention-days: 7
 
   macos:
     name: Native macOS (${{ matrix.os }})
