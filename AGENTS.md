@@ -103,6 +103,18 @@ Never `just install` a v2-only daemon over a live v1 session: the Qt app
 still speaks protocol v1, so replacing the daemon breaks the running
 frontend. Install the Qt binary only and restart just the UI.
 
+### Watching CI to completion
+
+Poll the branch's latest run in the background instead of local waiting;
+`gh` prints one line per check and the per-job table at the end:
+
+```sh
+bash -lc 'for i in $(seq 1 45); do st=$(gh run list --repo athulkrishna2015/whatevr --branch main --limit 1 --json status,conclusion | jq -r ".[0] | [.status, .conclusion] | @tsv"); printf "check %s: %s\n" "$i" "$st"; case "$st" in completed*) break;; esac; sleep 120; done; gh run view $(gh run list --repo athulkrishna2015/whatevr --branch main --limit 1 --json databaseId --jq ".[0].databaseId") --repo athulkrishna2015/whatevr --json jobs,conclusion,url | jq -r ".url, ([.jobs[] | [.name, .conclusion, .status] | @tsv])[]"'
+```
+
+Only `origin` (`athulkrishna2015/whatevr`) is watched and pushed to; release
+tags and releases are never published to `upstream`.
+
 ## Updating the whatsmeow dependency
 
 WhatsMeow (`go.mau.fi/whatsmeow`) has no tagged releases; the daemon pins to a
