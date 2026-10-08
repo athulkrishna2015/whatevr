@@ -548,7 +548,7 @@ void ProtocolClient::sendSubscribe(Subscription *sub)
         // A replaced subscription can be allocated at the same raw
         // address. QPointer tracks the original QObject identity.
         if (!guardedSub) {
-            const quint64 staleSubId = result.value(QStringLiteral("sub")).toString().toULongLong();
+            const quint64 staleSubId = v2UInt64(result.value(QStringLiteral("sub")));
             if (!error.isError() && !result.value(QStringLiteral("sub")).toString().isEmpty()) {
                 whatevr::v2::Request cleanup;
                 buildV2Unsubscribe(m_nextId++, staleSubId, &cleanup);
@@ -561,7 +561,7 @@ void ProtocolClient::sendSubscribe(Subscription *sub)
             Q_EMIT sub->failed(error.code, error.message);
             return;
         }
-        sub->m_subId = result.value(QStringLiteral("sub")).toString().toULongLong();
+        sub->m_subId = v2UInt64(result.value(QStringLiteral("sub")));
         QVariantMap meta = result.toVariantMap();
         meta.remove(QStringLiteral("sub"));
         sub->m_meta = meta;

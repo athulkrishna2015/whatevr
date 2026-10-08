@@ -1288,6 +1288,20 @@ private:
     // Composer send state (D4a).
     bool m_sendInFlight = false;
     QString m_composerErrorText;
+    // Multi-file batch state: protocol v2 sends one file per `send.media`
+    // request, so a batch walks its files sequentially behind the single
+    // in-flight guard instead of one `send.media_batch` request.
+    struct MediaBatch {
+        QString chatId;
+        QList<QPair<QString, QString>> files; // (path, caption)
+        QString replyTo;
+        QString kind;
+        bool viewOnce = false;
+        int index = 0;
+        int failures = 0;
+    };
+    MediaBatch m_mediaBatch;
+    void sendNextMediaBatchFile();
     // Scheduled-messages viewer session (one-shot list, refreshed per open).
     QVariantList m_scheduledMessages;
     // The chat a local "composing" was last sent true for, so a stop is only

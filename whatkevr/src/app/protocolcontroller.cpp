@@ -2183,15 +2183,20 @@ bool ProtocolController::sendMedia(const QString &fileUrl, const QString &captio
     return true;
 }
 
-// Batch twin of sendMedia: the daemon serializes the files, so a multi-pick
-// (or a multi-file drop) goes out as one request instead of N racing ones
-// that the single in-flight guard would drop after the first.
+// Batch twin of sendMedia: protocol v2 has no batch request, so a multi-pick
+// (or a multi-file drop) walks its files through sequential `send.media`
+// requests behind the single in-flight guard instead of racing N requests
+// that the guard would drop after the first.
 void ProtocolController::sendMediaBatch(const QVariantList &fileUrls, const QString &caption, const QString &replyToMessageId, const QString &kind, bool viewOnce, const QString &quality)
 {
     if (m_selectedChatId.isEmpty() || fileUrls.isEmpty() || m_sendInFlight || !selectedChatCanSend()) {
         return;
     }
-    QJsonArray files;
+    MediaBatch batch;
+    batch.chatId = m_selectedChatId;
+    batch.replyTo = replyToMessageId.trimmed();
+    batch.kind = kind.trimmed();
+    batch.viewOnce = viewOnce;
     bool first = true;
     for (const QVariant &entry : fileUrls) {
         const QUrl url(entry.toString());
@@ -2199,51 +2204,58 @@ void ProtocolController::sendMediaBatch(const QVariantList &fileUrls, const QStr
         if (filePath.isEmpty()) {
             continue;
         }
-        QJsonObject file;
-        file.insert(QStringLiteral("path"), filePath);
         // The shared caption rides on the first file only.
-        file.insert(QStringLiteral("caption"), first ? plainTextFromQtRichText(caption).trimmed() : QString());
-        files.append(file);
+        batch.files.append({filePath, first ? plainTextFromQtRichText(caption).trimmed() : QString()});
         first = false;
     }
-    if (files.isEmpty()) {
+    if (batch.files.isEmpty()) {
         return;
     }
+    // `quality` (hd/sd) has no v2 field; the per-file requests carry the
+    // same files the batch would have.
+    Q_UNUSED(quality);
 
     setSelectedChatComposing(false);
     dismissUnreadAnchor();
     Q_EMIT messageSent();
 
-    QJsonObject params{{QStringLiteral("chat_id"), m_selectedChatId},
-                       {QStringLiteral("files"), files}};
-    if (const QString reply = replyToMessageId.trimmed(); !reply.isEmpty()) {
-        params.insert(QStringLiteral("reply_to"), reply);
-    }
-    if (!kind.trimmed().isEmpty()) {
-        params.insert(QStringLiteral("kind"), kind.trimmed());
-    }
-    if (viewOnce) {
-        params.insert(QStringLiteral("view_once"), true);
-    }
-    if (const QString q = quality.trimmed(); !q.isEmpty()) {
-        params.insert(QStringLiteral("quality"), q);
-    }
-
+    m_mediaBatch = batch;
     m_sendInFlight = true;
     m_composerErrorText.clear();
     Q_EMIT composerChanged();
+    sendNextMediaBatchFile();
+}
 
-    m_client->request(QStringLiteral("send.media_batch"), params, [this](const QJsonObject &result, const ProtocolError &error) {
+void ProtocolController::sendNextMediaBatchFile()
+{
+    if (m_mediaBatch.index >= m_mediaBatch.files.size()) {
         m_sendInFlight = false;
-        if (error.isError()) {
-            m_composerErrorText = error.message.isEmpty() ? i18nc("@info", "Unable to send media") : error.message;
-        } else {
-            const QVariantList failures = result.value(QStringLiteral("errors")).toArray().toVariantList();
-            if (!failures.isEmpty()) {
-                m_composerErrorText = i18nc("@info", "Some files could not be sent");
-            }
+        if (m_mediaBatch.failures > 0) {
+            m_composerErrorText = i18nc("@info", "Some files could not be sent");
         }
+        m_mediaBatch = MediaBatch{};
         Q_EMIT composerChanged();
+        return;
+    }
+    const auto [path, caption] = m_mediaBatch.files.at(m_mediaBatch.index);
+    QJsonObject params{{QStringLiteral("chat_id"), m_mediaBatch.chatId},
+                       {QStringLiteral("path"), path},
+                       {QStringLiteral("caption"), caption}};
+    if (!m_mediaBatch.replyTo.isEmpty()) {
+        params.insert(QStringLiteral("reply_to"), m_mediaBatch.replyTo);
+    }
+    if (!m_mediaBatch.kind.isEmpty()) {
+        params.insert(QStringLiteral("kind"), m_mediaBatch.kind);
+    }
+    if (m_mediaBatch.viewOnce) {
+        params.insert(QStringLiteral("view_once"), true);
+    }
+    m_client->request(QStringLiteral("send.media"), params, [this](const QJsonObject &, const ProtocolError &error) {
+        if (error.isError()) {
+            ++m_mediaBatch.failures;
+        }
+        ++m_mediaBatch.index;
+        sendNextMediaBatchFile();
     });
 }
 

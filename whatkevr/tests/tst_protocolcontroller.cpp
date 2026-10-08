@@ -23,8 +23,13 @@
 #include "protocolcontroller.h"
 #include "protocolmessagemodel.h"
 #include "protocolstickercontroller.h"
+#include "v2codec.h"
+#include "v2shim.h"
+#include "whatevr/v2/frame.pb.h"
 
 using whatevr::proto::CollectionViewModel;
+using whatevr::proto::V2RequestV1;
+using namespace whatevr::proto;
 
 namespace
 {
@@ -60,7 +65,7 @@ public:
         m_items.insert(view, item);
         const int sub = m_subByView.value(view, -1);
         if (sub >= 0) {
-            sendUpsert(sub, item);
+            sendUpsert(sub, view, item);
         }
     }
 
@@ -119,8 +124,9 @@ public:
 
     void sendOpenChat(const QString &chatId)
     {
-        writeObject(QJsonObject{{QStringLiteral("event"), QStringLiteral("open_chat")},
-                                {QStringLiteral("chat_id"), chatId}});
+        whatevr::v2::Frame frame;
+        frame.mutable_event()->mutable_open_chat()->set_chat_id(chatId.toStdString());
+        writeFrame(frame);
     }
 
     void sendMediaStreamUpdate(const QString &streamId,
@@ -129,27 +135,34 @@ public:
                                const QString &path = {},
                                const QString &error = {})
     {
-        writeObject(QJsonObject{{QStringLiteral("event"), QStringLiteral("media_stream_update")},
-                                {QStringLiteral("stream_id"), streamId},
-                                {QStringLiteral("message_id"), messageId},
-                                {QStringLiteral("state"), state},
-                                {QStringLiteral("path"), path},
-                                {QStringLiteral("error"), error}});
+        whatevr::v2::Frame frame;
+        auto *update = frame.mutable_event()->mutable_media_stream_update();
+        update->set_stream_id(streamId.toStdString());
+        update->set_message_id(messageId.toStdString());
+        if (state == QLatin1String("local")) {
+            update->set_state(whatevr::v2::MEDIA_STREAM_STATE_LOCAL);
+        } else if (state == QLatin1String("failed")) {
+            update->set_state(whatevr::v2::MEDIA_STREAM_STATE_FAILED);
+        }
+        update->set_path(path.toStdString());
+        update->set_error(error.toStdString());
+        writeFrame(frame);
     }
 
     void resetMessages()
     {
         const int sub = m_subByView.value(QStringLiteral("messages"), -1);
         if (sub >= 0) {
-            writeObject(QJsonObject{{QStringLiteral("sub"), sub},
-                                    {QStringLiteral("event"), QStringLiteral("reset")}});
+            whatevr::v2::ViewUpdate update;
+            update.set_reset(true);
+            sendUpdate(sub, update);
         }
     }
     void pushMessage(const QJsonObject &item, const QString &sort)
     {
         const int sub = m_subByView.value(QStringLiteral("messages"), -1);
         if (sub >= 0) {
-            sendUpsert(sub, item, sort);
+            sendUpsert(sub, QStringLiteral("messages"), item, sort);
         }
     }
     // Both chat lists are the same view, so m_subByView only remembers the
@@ -157,7 +170,8 @@ public:
     void pushActiveChat(const QJsonObject &item)
     {
         if (m_activeChatsSub >= 0) {
-            sendUpsert(m_activeChatsSub, item, item.value(QStringLiteral("sort")).toString());
+            sendUpsert(m_activeChatsSub, QStringLiteral("chats"), item,
+                       item.value(QStringLiteral("sort")).toString());
         }
     }
     void readyMessages(bool exhausted)
@@ -179,16 +193,16 @@ public:
     {
         const int sub = m_subByView.value(view, -1);
         if (sub >= 0) {
-            sendUpsert(sub, item, sort);
+            sendUpsert(sub, view, item, sort);
         }
     }
     void pushRemove(const QString &view, const QString &id)
     {
         const int sub = m_subByView.value(view, -1);
         if (sub >= 0) {
-            writeObject(QJsonObject{{QStringLiteral("sub"), sub},
-                                    {QStringLiteral("event"), QStringLiteral("remove")},
-                                    {QStringLiteral("id"), id}});
+            whatevr::v2::ViewUpdate update;
+            update.add_changes()->mutable_remove()->set_id(id.toStdString());
+            sendUpdate(sub, update);
         }
     }
     void readyThenSetItem(const QString &view, const QJsonObject &item)
@@ -197,7 +211,7 @@ public:
         const int sub = m_subByView.value(view, -1);
         if (sub >= 0) {
             sendReady(sub);
-            sendUpsert(sub, item);
+            sendUpsert(sub, view, item);
         }
     }
 
@@ -255,22 +269,35 @@ private:
     void onReadyRead()
     {
         m_buf += m_conn->readAll();
-        int nl = m_buf.indexOf('\n');
-        while (nl >= 0) {
-            const QByteArray line = m_buf.left(nl);
-            m_buf.remove(0, nl + 1);
-            handleLine(line);
-            nl = m_buf.indexOf('\n');
+        for (;;) {
+            whatevr::v2::Frame frame;
+            if (popV2Frame(m_buf, &frame) != V2DecodeResult::Frame) {
+                break;
+            }
+            if (frame.has_request()) {
+                handleRequest(frame.request());
+            }
         }
     }
 
-    void handleLine(const QByteArray &line)
+    void handleRequest(const whatevr::v2::Request &request)
     {
-        const QJsonObject msg = QJsonDocument::fromJson(line).object();
-        const int id = msg.value(QStringLiteral("id")).toInt();
-        const QString method = msg.value(QStringLiteral("method")).toString();
-        const QJsonObject params = msg.value(QStringLiteral("params")).toObject();
+        V2RequestV1 decoded;
+        if (!v2RequestToV1(request, &decoded)) {
+            // An arm the v1 core does not know: answer like the daemon would.
+            whatevr::v2::Response response;
+            v2ErrorResponse(request.id(), QStringLiteral("unknown_method"),
+                            QStringLiteral("unknown method"), &response);
+            writeResponse(response);
+            return;
+        }
+        const quint64 id = request.id();
+        handleLine(decoded.method, decoded.params, id);
+    }
 
+    void handleLine(const QString &method, const QJsonObject &params, quint64 id)
+    {
+        m_currentMethod = method;
         if (method == QLatin1String("hello")) {
             reply(id, QJsonObject{
                           {QStringLiteral("daemon"), QStringLiteral("whatevrd")},
@@ -314,13 +341,13 @@ private:
             }
             reply(id, result);
             if (m_items.contains(view)) {
-                sendUpsert(sub, m_items.value(view));
+                sendUpsert(sub, view, m_items.value(view));
             } else if (view == QLatin1String("chat")) {
                 const QString chatId = params.value(QStringLiteral("chat_id")).toString();
                 const auto sendMatchingChat = [this, sub, &chatId](const QList<QJsonObject> &rows) {
                     for (const QJsonObject &row : rows) {
                         if (row.value(QStringLiteral("id")).toString() == chatId) {
-                            sendUpsert(sub, row);
+                            sendUpsert(sub, QStringLiteral("chat"), row);
                             return true;
                         }
                     }
@@ -351,7 +378,7 @@ private:
                     const QJsonObject &row = rows.at(i);
                     const QString sort = row.value(QStringLiteral("sort")).toString(
                         QStringLiteral("%1").arg(i, 4, 10, QLatin1Char('0')));
-                    sendUpsert(sub, row, sort);
+                    sendUpsert(sub, view, row, sort);
                 }
             }
             if ((view != QLatin1String("messages") || !m_holdMessagesReady)
@@ -540,52 +567,71 @@ private:
         }
     }
 
-    void sendUpsert(int sub, const QJsonObject &item, const QString &sort = QStringLiteral("0"))
+    void sendUpsert(int sub, const QString &view, const QJsonObject &item,
+                    const QString &sort = QStringLiteral("0"))
     {
-        writeObject(QJsonObject{
-            {QStringLiteral("sub"), sub},
-            {QStringLiteral("event"), QStringLiteral("upsert")},
-            {QStringLiteral("sort"), sort},
-            {QStringLiteral("item"), item},
-        });
+        whatevr::v2::ViewUpdate update;
+        auto *upsert = update.add_changes()->mutable_upsert();
+        upsert->set_id(item.value(QStringLiteral("id")).toString().toStdString());
+        upsert->set_sort(sort.toUtf8().toStdString());
+        if (!v2UpsertRowFromJson(view, item, upsert)) {
+            return;
+        }
+        sendUpdate(sub, update);
+    }
+
+    void sendUpdate(int sub, const whatevr::v2::ViewUpdate &update)
+    {
+        whatevr::v2::Frame frame;
+        auto *out = frame.mutable_event()->mutable_update();
+        *out = update;
+        out->set_sub(static_cast<std::uint64_t>(sub));
+        writeFrame(frame);
     }
 
     void sendReady(int sub, bool includeExhausted = false, bool exhausted = false)
     {
-        QJsonObject ready{
-            {QStringLiteral("sub"), sub},
-            {QStringLiteral("event"), QStringLiteral("ready")},
-        };
-        if (includeExhausted) {
-            ready.insert(QStringLiteral("exhausted"), exhausted);
+        Q_UNUSED(includeExhausted);
+        whatevr::v2::ViewUpdate update;
+        update.mutable_ready()->set_exhausted(exhausted);
+        sendUpdate(sub, update);
+    }
+
+    void reply(quint64 id, const QJsonObject &result)
+    {
+        whatevr::v2::Response response;
+        if (!v2ResponseFromV1(m_currentMethod, id, result, &response)) {
+            response.set_id(id);
+            response.mutable_done();
         }
-        writeObject(ready);
+        writeResponse(response);
     }
 
-    void reply(int id, const QJsonObject &result)
+    void error(quint64 id, const QString &code, const QString &message)
     {
-        writeObject(QJsonObject{{QStringLiteral("id"), id}, {QStringLiteral("result"), result}});
+        whatevr::v2::Response response;
+        v2ErrorResponse(id, code, message, &response);
+        writeResponse(response);
     }
 
-    void error(int id, const QString &code, const QString &message)
+    void writeResponse(const whatevr::v2::Response &response)
     {
-        writeObject(QJsonObject{{QStringLiteral("id"), id},
-                                {QStringLiteral("error"), QJsonObject{
-                                     {QStringLiteral("code"), code},
-                                     {QStringLiteral("message"), message},
-                                 }}});
+        whatevr::v2::Frame frame;
+        *frame.mutable_response() = response;
+        writeFrame(frame);
     }
 
-    void writeObject(const QJsonObject &obj)
+    void writeFrame(const whatevr::v2::Frame &frame)
     {
         if (m_conn && m_conn->state() == QLocalSocket::ConnectedState) {
-            m_conn->write(QJsonDocument(obj).toJson(QJsonDocument::Compact) + '\n');
+            m_conn->write(encodeV2Frame(frame));
         }
     }
 
     QLocalServer *m_server;
     QLocalSocket *m_conn = nullptr;
     QByteArray m_buf;
+    QString m_currentMethod;
     int m_subCount = 0;
     QHash<QString, int> m_subByView;
     QHash<int, QString> m_viewBySub;
@@ -2045,11 +2091,9 @@ private Q_SLOTS:
         QVERIFY(!ctrl.sendInFlight());
     }
 
-    // The send dialog's Standard/HD choice reaches the daemon on the batch, and
-    // stays off the wire entirely when nobody picked anything — the daemon
-    // treats a missing quality as standard, so an empty key would be a second
-    // spelling of the same answer.
-    void sendMediaBatchCarriesQuality()
+    // Protocol v2 has no batch request: the controller walks the files
+    // through sequential `send.media` requests behind the in-flight guard.
+    void sendMediaBatchSendsSequentially()
     {
         FakeDaemon daemon(m_path);
         daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
@@ -2062,19 +2106,15 @@ private Q_SLOTS:
 
         QSignalSpy commandSpy(&daemon, &FakeDaemon::commandReceived);
 
-        ctrl.sendMediaBatch({QStringLiteral("file:///tmp/a.jpg")}, QString(), QString(), {}, false, QStringLiteral("hd"));
-        QVERIFY(commandSpy.wait());
-        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("send.media_batch"));
-        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("quality")).toString(), QStringLiteral("hd"));
-        // The daemon has the request but the controller has not been told yet,
-        // and it only ever holds one send: a second one here would be dropped
-        // for being in flight rather than for anything to do with quality.
-        QTRY_VERIFY(!ctrl.sendInFlight());
-
-        commandSpy.clear();
-        ctrl.sendMediaBatch({QStringLiteral("file:///tmp/a.jpg")}, QString(), QString());
-        QVERIFY(commandSpy.wait());
-        QVERIFY(!daemon.lastCommandParams.contains(QStringLiteral("quality")));
+        ctrl.sendMediaBatch({QStringLiteral("file:///tmp/a.jpg"), QStringLiteral("file:///tmp/b.jpg")},
+                            QStringLiteral("caption"), QString(), {}, false, QStringLiteral("hd"));
+        QTRY_COMPARE(commandSpy.count(), 2);
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("send.media"));
+        // The shared caption rides on the first file only; quality has no v2
+        // field and is dropped.
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("caption")).toString(), QString());
+        QVERIFY(!ctrl.sendInFlight());
+        QVERIFY(ctrl.composerErrorText().isEmpty());
     }
 
     // The composing indicator maps to `chat.typing`; a stop is only sent for
@@ -2850,30 +2890,24 @@ private Q_SLOTS:
     // Creating a group lands you in it the same way a join invite does: the new
     // chat id exists only in the ack, so the controller selects it and asks the
     // shell to surface it.
-    void createGroupOpensTheNewChat()
+    // Protocol v2 has no group management: creation fails the way an
+    // unserved method does, surfaced as the action failure.
+    void createGroupFailsWithoutAGroupApi()
     {
         FakeDaemon daemon(m_path);
         daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
         daemon.setActiveChats({chatRow(QStringLiteral("130@g.us"), QStringLiteral("Trip"),
                                        QStringLiteral("1-000"))});
-        daemon.setGroupCreateChatId(QStringLiteral("130@g.us"));
 
         ProtocolController ctrl(m_path, nullptr);
         ctrl.start();
         QTRY_VERIFY(!ctrl.chatsLoading());
 
-        QSignalSpy openSpy(&ctrl, &ProtocolController::openChatRequested);
+        QSignalSpy failedSpy(&ctrl, &ProtocolController::messageActionFailed);
         ctrl.createGroup(QStringLiteral("Trip"), {QStringLiteral("a@s"), QStringLiteral("b@s")});
-        QVERIFY(openSpy.wait());
-        QCOMPARE(openSpy.first().first().toString(), QStringLiteral("130@g.us"));
-        QCOMPARE(ctrl.selectedChatId(), QStringLiteral("130@g.us"));
-        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("group.create"));
-        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("name")).toString(),
-                 QStringLiteral("Trip"));
-        const QJsonArray members = daemon.lastCommandParams.value(QStringLiteral("members")).toArray();
-        QCOMPARE(members.size(), 2);
-        QCOMPARE(members.at(0).toString(), QStringLiteral("a@s"));
-        QCOMPARE(members.at(1).toString(), QStringLiteral("b@s"));
+        QVERIFY(failedSpy.wait());
+        QVERIFY(failedSpy.first().first().toString().contains(QStringLiteral("not served")));
+        QVERIFY(ctrl.selectedChatId().isEmpty());
     }
 
     // An announce-only group closes the composer to everyone but admins, and the
@@ -2967,7 +3001,9 @@ private Q_SLOTS:
         QCOMPARE(daemon.lastCommandMethod, QStringLiteral("privacy.set"));
         QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("category")).toString(),
                  QStringLiteral("last_seen"));
-        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("value")).toString(), QStringLiteral("none"));
+        // v2 canonicalizes the v1 "none" synonym to "nobody" on the wire.
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("value")).toString(),
+                 QStringLiteral("nobody"));
         // Ack did not mutate the row; the daemon still owns its current value.
         QCOMPARE(ctrl.privacySettings().value(QStringLiteral("last_seen")).toString(),
                  QStringLiteral("contacts"));

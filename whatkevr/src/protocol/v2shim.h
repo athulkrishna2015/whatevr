@@ -29,6 +29,13 @@ class ViewSink;
 // Protobuf v36 string getters return string_view.
 [[nodiscard]] QString v2s(std::string_view view);
 
+// QJsonValue::toString() only returns strings as-is (numbers become ""): use
+// this for ids and counts that may arrive as JSON numbers.
+[[nodiscard]] inline std::uint64_t v2UInt64(const QJsonValue &value)
+{
+    return value.toVariant().toULongLong();
+}
+
 // v2 `ErrorCode` to the v1 stable machine-readable code.
 [[nodiscard]] QString v2ErrorCode(whatevr::v2::ErrorCode code);
 
@@ -68,6 +75,9 @@ void v2ErrorResponse(std::uint64_t id, const QString &code, const QString &messa
 // Fixture rows to v2 rows, for test doubles serving v1 JSON fixtures.
 bool v2ChatRowFromJson(const QJsonObject &item, whatevr::v2::ChatRow *out);
 bool v2MessageRowFromJson(const QJsonObject &item, whatevr::v2::MessageRow *out);
+// A fixture item for `view` to its v2 upsert row. False for views the fake
+// never serves (v1-only views fail at subscribe time instead).
+bool v2UpsertRowFromJson(const QString &view, const QJsonObject &item, whatevr::v2::Upsert *out);
 // `extend`/`unsubscribe` carry only the daemon-assigned sub id.
 void buildV2Extend(std::uint64_t id, std::uint64_t sub, int count, const QString &direction,
                    whatevr::v2::Request *out);

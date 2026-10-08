@@ -84,6 +84,7 @@ target_link_libraries(tst_protocolmessagemodel PRIVATE
     Qt6::Network
     Qt6::Test
     KF6::I18n
+    whatevr_proto
 )
 
 add_test(NAME tst_protocolmessagemodel COMMAND tst_protocolmessagemodel)
