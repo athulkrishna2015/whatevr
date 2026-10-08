@@ -11,6 +11,10 @@ laptop. Local builds are for quick iteration only.
 Every local build and test run is capped at **2 parallel jobs**
 (`GOMAXPROCS=2` for Go, `-- -j2` for Ninja). Never let these run unbounded.
 
+Never run two builds at once on this machine (e.g. a debug and a release
+Qt build side by side): they thrash each other and both slow to a crawl.
+Finish or kill one before starting the next.
+
 ### Daemon (Go)
 
 ```sh
