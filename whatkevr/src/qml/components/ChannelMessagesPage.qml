@@ -174,16 +174,37 @@ Kirigami.ScrollablePage {
                     visible: (msgDelegate.item.text || "").length > 0
                 }
 
-                QQC2.Label {
+                // Channel posts are full message rows, so photos and videos
+                // render from the same media fields a chat photo would: the
+                // file when fetched, the thumbnail while it is not, and a
+                // load button when neither is on disk yet.
+                Image {
+                    id: statusMedia
                     Layout.fillWidth: true
-                    text: {
-                        const mk = msgDelegate.item.media_kind || ""
-                        if (mk === "") return ""
-                        return "[" + mk + "]"
+                    Layout.maximumHeight: Kirigami.Units.gridUnit * 16
+                    fillMode: Image.PreserveAspectFit
+                    asynchronous: true
+                    source: {
+                        const media = msgDelegate.item.media || {}
+                        if (media.path) {
+                            return "file://" + media.path
+                        }
+                        if (media.thumbnail_path) {
+                            return "file://" + media.thumbnail_path
+                        }
+                        return ""
                     }
-                    color: Kirigami.Theme.disabledTextColor
-                    font.italic: true
-                    visible: (msgDelegate.item.media_kind || "").length > 0
+                    visible: statusMedia.source !== ""
+                }
+
+                QQC2.Button {
+                    Layout.alignment: Qt.AlignHCenter
+                    icon.name: "document-save-symbolic"
+                    text: Whatevr.I18n.i18nc("@action:button load channel media", "Load image")
+                    visible: (msgDelegate.item.media !== undefined
+                              && !(msgDelegate.item.media.path || "")
+                              && !(msgDelegate.item.media.thumbnail_path || ""))
+                    onClicked: Whatevr.ProtocolController.downloadMessageMedia(msgDelegate.item.id || "")
                 }
             }
 
