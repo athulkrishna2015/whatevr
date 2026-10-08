@@ -19,6 +19,28 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.11.7" date="2026-10-08">
+      <description>
+        <p><em>Added</em></p>
+        <ul>
+          <li>Merge upstream: new v2 core daemon (core/model/ingest/live/views/server), protocol 2 protobuf framing, frontend registry with default-frontend and terminal setting, macOS app and Homebrew packaging.</li>
+          <li>Qt frontend ported to protocol 2 behind a JSON-compatibility shim: same UI, same suites — Go 17/17 packages and Qt 11/11 tests pass, including new v2 frame-codec and shim unit tests.</li>
+          <li>Frontend-owned tray icon (StatusNotifierItem) with toggle, menu, and quit; the v2 daemon exports no tray of its own.</li>
+          <li>Forward-to picker now lists archived chats alongside active ones.</li>
+          <li>CI gains a Qt frontend job (Arch build, offscreen tests, install-tree artifact); AGENTS.md documents the CI-first build policy and artifact install flow.</li>
+        </ul>
+        <p><em>Changed</em></p>
+        <ul>
+          <li>Multi-file sends go out as sequential <code>send.media</code> requests; protocol 2 has no batch command and no quality field.</li>
+          <li>Group creation and other v1-only surface (folders, status, calls, channels, logs, chat links, schedules, backups, disappearing-timer default) report <code>unknown_method</code> until the daemon grows those APIs.</li>
+          <li><code>privacy.set</code> value <code>none</code> canonicalizes to <code>nobody</code> on the wire.</li>
+        </ul>
+        <p><em>Migration</em></p>
+        <ul>
+          <li>The v2 daemon keeps its WhatsApp session in a new store: scan the QR to re-pair after upgrading from a v1 daemon; the old login does not transfer.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.11.6" date="2026-10-03">
       <description>
         <p><em>Added</em></p>
