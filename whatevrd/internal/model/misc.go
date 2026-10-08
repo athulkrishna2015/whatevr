@@ -9,7 +9,7 @@ import (
 // calls and channels.
 var accountDomain = core.Domain{
 	Name:    "account",
-	Version: 1,
+	Version: 2,
 	Tables:  []string{"block", "block_floor", "privacy", "picture", "id_change", "call", "newsletter"},
 	Schema: []string{
 		// blocklist changes carry no time of their own: receive time orders them
