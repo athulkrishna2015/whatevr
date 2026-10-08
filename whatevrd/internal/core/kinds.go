@@ -38,6 +38,8 @@ const (
 	KindPrefs  = "prefs"
 	// a chat the user favorited on this device
 	KindFavorite = "favorite"
+	// a text the daemon sends later, see ScheduleHead
+	KindSchedule = "schedule"
 	// what this daemon fetched or did for the sticker picker
 	KindSticker = "sticker"
 	// the id this daemon gave an address the first time it showed it. read
@@ -416,4 +418,15 @@ type PrefsHead struct {
 type FavoriteHead struct {
 	Chat string `json:"chat"`
 	On   bool   `json:"on"`
+}
+
+// ScheduleHead is one scheduled-message change. Op is add, sent or cancel;
+// add carries the chat, text and send_at, sent and cancel name the schedule
+// by the input seq the add was logged under.
+type ScheduleHead struct {
+	Op     string `json:"op"`
+	Chat   string `json:"chat,omitempty"`
+	Text   string `json:"text,omitempty"`
+	SendAt int64  `json:"send_at,omitempty"`
+	ID     int64  `json:"id,omitempty"`
 }

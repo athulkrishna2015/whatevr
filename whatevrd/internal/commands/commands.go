@@ -114,6 +114,9 @@ func Register(o Options) *Opener {
 		arm(v2.Request_SendContact_case):         x.sendContact,
 		arm(v2.Request_SendLocation_case):        x.sendLocation,
 		arm(v2.Request_SendCancel_case):          x.sendCancel,
+		arm(v2.Request_ScheduleText_case):        x.scheduleText,
+		arm(v2.Request_ScheduleList_case):        x.scheduleList,
+		arm(v2.Request_ScheduleCancel_case):      x.scheduleCancel,
 		arm(v2.Request_PreferencesSet_case):      x.prefs,
 		arm(v2.Request_NotificationDismiss_case): x.dismiss,
 	}
@@ -466,6 +469,55 @@ func (x *commands) sendLocation(ctx context.Context, s *server.Session, req *v2.
 	}
 	d.Once = once(p)
 	return sent(x.c.SendLocation(ctx, d, p.GetLat(), p.GetLng(), p.GetName(), p.GetAddress()))
+}
+
+func (x *commands) scheduleText(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetScheduleText()
+	key, err := x.chat(ctx, p.GetChatId())
+	if err != nil {
+		return nil, err
+	}
+	id, err := x.c.ScheduleText(ctx, key, p.GetText(), time.Unix(p.GetSendAt(), 0))
+	if err != nil {
+		return nil, wire(err)
+	}
+	resp := &v2.Response{}
+	resp.SetScheduleText(v2.ScheduleTextResult_builder{ScheduledId: id}.Build())
+	return resp, nil
+}
+
+func (x *commands) scheduleList(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	chat := strings.TrimSpace(req.GetScheduleList().GetChatId())
+	key := ""
+	if chat != "" {
+		var err error
+		if key, err = x.chat(ctx, chat); err != nil {
+			return nil, err
+		}
+	}
+	rows, err := x.c.Scheduled(ctx, key)
+	if err != nil {
+		return nil, wire(err)
+	}
+	res := v2.ScheduleListResult_builder{}.Build()
+	for _, sc := range rows {
+		id, err := x.id(ctx, sc.Chat)
+		if err != nil {
+			return nil, err
+		}
+		m := v2.ScheduledMessage_builder{Id: sc.ID, ChatId: id, Text: sc.Text, SendAt: sc.SendAt}.Build()
+		res.SetMessages(append(res.GetMessages(), m))
+	}
+	resp := &v2.Response{}
+	resp.SetScheduleList(res)
+	return resp, nil
+}
+
+func (x *commands) scheduleCancel(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	if req.GetScheduleCancel().GetId() <= 0 {
+		return nil, invalid("id is required")
+	}
+	return nil, wire(x.c.CancelScheduled(ctx, req.GetScheduleCancel().GetId()))
 }
 
 func (x *commands) sendCancel(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {

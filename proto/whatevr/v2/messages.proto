@@ -701,6 +701,38 @@ message SendCancel {
   string message_id = 1;
 }
 
+// a text the daemon sends later; the input seq it is logged under is the id
+message ScheduleText {
+  string chat_id = 1;
+  string text = 2;
+  // unix seconds, must be in the future
+  int64 send_at = 3;
+}
+
+message ScheduleTextResult {
+  int64 scheduled_id = 1;
+}
+
+// pending scheduled texts, soonest first
+message ScheduleList {
+  string chat_id = 1;
+}
+
+message ScheduleListResult {
+  repeated ScheduledMessage messages = 1;
+}
+
+message ScheduledMessage {
+  int64 id = 1;
+  string chat_id = 2;
+  string text = 3;
+  int64 send_at = 4;
+}
+
+message ScheduleCancel {
+  int64 id = 1;
+}
+
 message SendResult {
   string message_id = 1;
 }

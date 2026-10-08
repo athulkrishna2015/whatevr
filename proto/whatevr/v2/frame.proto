@@ -65,6 +65,9 @@ message Request {
     SendContact send_contact = 54;
     SendLocation send_location = 55;
     SendCancel send_cancel = 56;
+    ScheduleText schedule_text = 57;
+    ScheduleList schedule_list = 58;
+    ScheduleCancel schedule_cancel = 59;
 
     // 60-89: messages
     MessageReact message_react = 60;
@@ -128,6 +131,8 @@ message Response {
     ChatExportResult chat_export = 39;
 
     SendResult send = 50;
+    ScheduleTextResult schedule_text = 57;
+    ScheduleListResult schedule_list = 58;
 
     MessageForwardResult message_forward = 66;
     GroupJoinInviteResult group_join_invite = 71;

@@ -224,6 +224,14 @@ func (db *DB) setup(ctx context.Context) error {
 		)`,
 		// Local display flags need no rebuild to appear: this table is
 		// created on every open, and the favorite fold fills it.
+		// Scheduled texts, filled by the schedule fold; like chat_favorite
+		// this table needs no rebuild to appear.
+		`CREATE TABLE IF NOT EXISTS scheduled (
+			seq      INTEGER PRIMARY KEY,
+			chat     TEXT NOT NULL,
+			text     TEXT NOT NULL,
+			send_at  INTEGER NOT NULL
+		)`,
 		`CREATE TABLE IF NOT EXISTS chat_favorite (
 			key      TEXT PRIMARY KEY,
 			on_flag  INTEGER NOT NULL DEFAULT 0,

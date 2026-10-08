@@ -563,6 +563,25 @@ private:
             ++reconnectCount;
             reply(id, QJsonObject{});
             Q_EMIT reconnectRequested();
+        } else if (method == QLatin1String("schedule.text")) {
+            lastCommandMethod = method;
+            lastCommandParams = params;
+            reply(id, QJsonObject{{QStringLiteral("scheduled_id"), 7}});
+            Q_EMIT commandReceived();
+        } else if (method == QLatin1String("schedule.list")) {
+            lastCommandMethod = method;
+            lastCommandParams = params;
+            reply(id, QJsonObject{{QStringLiteral("messages"),
+                                    QJsonArray{QJsonObject{{QStringLiteral("id"), 7},
+                                                            {QStringLiteral("chat_id"), QStringLiteral("a@s")},
+                                                            {QStringLiteral("text"), QStringLiteral("later")},
+                                                            {QStringLiteral("send_at"), 1900000000}}}}});
+            Q_EMIT commandReceived();
+        } else if (method == QLatin1String("schedule.cancel")) {
+            lastCommandMethod = method;
+            lastCommandParams = params;
+            reply(id, QJsonObject{});
+            Q_EMIT commandReceived();
         } else if (method.startsWith(QLatin1String("chat."))) {
             lastCommandMethod = method;
             lastCommandParams = params;
@@ -1060,6 +1079,52 @@ private Q_SLOTS:
                  QStringLiteral("a@s"));
         QTRY_COMPARE(exportedSpy.count(), 1);
         QCOMPARE(exportedSpy.first().first().toString(), QStringLiteral("/tmp/opencode/export-test.txt"));
+    }
+
+    // Scheduling sends `schedule.text`; the list parses rows and cancel is
+    // acknowledged quietly before the list refreshes.
+    void scheduleTextListCancel()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats(
+            {chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_COMPARE(daemon.chatsSubscribeCount, 2);
+        QTRY_VERIFY(!ctrl.chatsLoading());
+        ctrl.selectChat(QStringLiteral("a@s"));
+
+        QSignalSpy commandSpy(&daemon, &FakeDaemon::commandReceived);
+        ctrl.scheduleText(QStringLiteral("later"), 1900000000);
+        QVERIFY(commandSpy.wait());
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("schedule.text"));
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("text")).toString(),
+                 QStringLiteral("later"));
+
+        QSignalSpy scheduledSpy(&ctrl, &ProtocolController::scheduledMessagesChanged);
+        ctrl.refreshScheduledMessages(QStringLiteral("a@s"));
+        QVERIFY(scheduledSpy.wait());
+        QCOMPARE(ctrl.scheduledMessages().size(), 1);
+        QCOMPARE(ctrl.scheduledMessages().first().toMap().value(QStringLiteral("text")).toString(),
+                 QStringLiteral("later"));
+
+        QStringList methods;
+        int cancelledId = 0;
+        QObject::connect(&daemon, &FakeDaemon::commandReceived, &ctrl, [&] {
+            methods.append(daemon.lastCommandMethod);
+            if (daemon.lastCommandMethod == QLatin1String("schedule.cancel")) {
+                cancelledId = daemon.lastCommandParams.value(QStringLiteral("id")).toInt();
+            }
+        });
+        const int seen = commandSpy.count();
+        ctrl.cancelScheduledMessage(7, QStringLiteral("a@s"));
+        // Cancel is followed by its own list refresh.
+        QTRY_COMPARE(commandSpy.count(), seen + 2);
+        QCOMPARE(methods, (QStringList{QStringLiteral("schedule.cancel"),
+                                        QStringLiteral("schedule.list")}));
+        QCOMPARE(cancelledId, 7);
     }
 
     // `privacy.set_default_timer` carries the seconds through.

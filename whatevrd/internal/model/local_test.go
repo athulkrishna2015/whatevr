@@ -91,7 +91,8 @@ func TestAvatarsCountTheFailuresSinceTheLastAnswer(t *testing.T) {
 	})
 }
 
-func TestPrefsKeepTheNewest(t *testing.T) {	ins := []core.Input{
+func TestPrefsKeepTheNewest(t *testing.T) {
+	ins := []core.Input{
 		in(core.KindPrefs, core.PrefsHead{Prefs: json.RawMessage(`{"a":1}`)}, nil, at(1)),
 		in(core.KindPrefs, core.PrefsHead{Prefs: json.RawMessage(`{"a":2}`)}, nil, at(2)),
 	}
@@ -144,4 +145,33 @@ func TestFavoriteFlagsChatsAndFiltersThem(t *testing.T) {
 			t.Fatalf("favorite filter: %+v", only)
 		}
 	})
+}
+
+func TestScheduledTextsListDueAndCancel(t *testing.T) {
+	sched := func(op, chat, text string, sendAt, id int64, sec int) core.Input {
+		return in(core.KindSchedule, core.ScheduleHead{Op: op, Chat: chat, Text: text, SendAt: sendAt, ID: id}, nil, at(sec))
+	}
+	db := openModel(t)
+	ctx := context.Background()
+	feed(t, db, []core.Input{
+		sched("add", "a", "one", 100, 0, 1),
+		sched("add", "b", "two", 200, 0, 2),
+	})
+	r := NewReader(db.Read())
+	all, err := r.Scheduled(ctx, "", 0)
+	if err != nil || len(all) != 2 || all[0].Text != "one" || all[1].Text != "two" {
+		t.Fatalf("listed %+v %v", all, err)
+	}
+	due, err := r.DueScheduled(ctx, 150, 0)
+	if err != nil || len(due) != 1 || due[0].Text != "one" {
+		t.Fatalf("due %+v %v", due, err)
+	}
+	only, err := r.Scheduled(ctx, "b", 0)
+	if err != nil || len(only) != 1 || only[0].Text != "two" {
+		t.Fatalf("chat filter %+v %v", only, err)
+	}
+	feed(t, db, []core.Input{sched("cancel", "", "", 0, all[0].ID, 3)})
+	if rest, err := r.Scheduled(ctx, "", 0); err != nil || len(rest) != 1 || rest[0].Text != "two" {
+		t.Fatalf("after cancel %+v %v", rest, err)
+	}
 }

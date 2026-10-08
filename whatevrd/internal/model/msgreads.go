@@ -466,7 +466,8 @@ func (r *Reader) Pinned(ctx context.Context, addrs []string) ([]Message, error) 
 }
 
 // Media is a chat's messages of the given field kinds, newest first.
-func (r *Reader) Media(ctx context.Context, addrs []string, kinds []string, from Cursor, limit int) ([]Message, error) {	if from == (Cursor{}) {
+func (r *Reader) Media(ctx context.Context, addrs []string, kinds []string, from Cursor, limit int) ([]Message, error) {
+	if from == (Cursor{}) {
 		from = Cursor{T: tMax}
 	}
 	// a proven delete already made the row a tombstone, which no kind or

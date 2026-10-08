@@ -9113,6 +9113,423 @@ func (b0 SendCancel_builder) Build() *SendCancel {
 	return m0
 }
 
+// a text the daemon sends later; the input seq it is logged under is the id
+type ScheduleText struct {
+	state             protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ChatId string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId"`
+	xxx_hidden_Text   string                 `protobuf:"bytes,2,opt,name=text"`
+	xxx_hidden_SendAt int64                  `protobuf:"varint,3,opt,name=send_at,json=sendAt"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *ScheduleText) Reset() {
+	*x = ScheduleText{}
+	mi := &file_whatevr_v2_messages_proto_msgTypes[63]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScheduleText) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScheduleText) ProtoMessage() {}
+
+func (x *ScheduleText) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_messages_proto_msgTypes[63]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ScheduleText) GetChatId() string {
+	if x != nil {
+		return x.xxx_hidden_ChatId
+	}
+	return ""
+}
+
+func (x *ScheduleText) GetText() string {
+	if x != nil {
+		return x.xxx_hidden_Text
+	}
+	return ""
+}
+
+func (x *ScheduleText) GetSendAt() int64 {
+	if x != nil {
+		return x.xxx_hidden_SendAt
+	}
+	return 0
+}
+
+func (x *ScheduleText) SetChatId(v string) {
+	x.xxx_hidden_ChatId = v
+}
+
+func (x *ScheduleText) SetText(v string) {
+	x.xxx_hidden_Text = v
+}
+
+func (x *ScheduleText) SetSendAt(v int64) {
+	x.xxx_hidden_SendAt = v
+}
+
+type ScheduleText_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ChatId string
+	Text   string
+	// unix seconds, must be in the future
+	SendAt int64
+}
+
+func (b0 ScheduleText_builder) Build() *ScheduleText {
+	m0 := &ScheduleText{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_ChatId = b.ChatId
+	x.xxx_hidden_Text = b.Text
+	x.xxx_hidden_SendAt = b.SendAt
+	return m0
+}
+
+type ScheduleTextResult struct {
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ScheduledId int64                  `protobuf:"varint,1,opt,name=scheduled_id,json=scheduledId"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *ScheduleTextResult) Reset() {
+	*x = ScheduleTextResult{}
+	mi := &file_whatevr_v2_messages_proto_msgTypes[64]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScheduleTextResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScheduleTextResult) ProtoMessage() {}
+
+func (x *ScheduleTextResult) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_messages_proto_msgTypes[64]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ScheduleTextResult) GetScheduledId() int64 {
+	if x != nil {
+		return x.xxx_hidden_ScheduledId
+	}
+	return 0
+}
+
+func (x *ScheduleTextResult) SetScheduledId(v int64) {
+	x.xxx_hidden_ScheduledId = v
+}
+
+type ScheduleTextResult_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ScheduledId int64
+}
+
+func (b0 ScheduleTextResult_builder) Build() *ScheduleTextResult {
+	m0 := &ScheduleTextResult{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_ScheduledId = b.ScheduledId
+	return m0
+}
+
+// pending scheduled texts, soonest first
+type ScheduleList struct {
+	state             protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ChatId string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *ScheduleList) Reset() {
+	*x = ScheduleList{}
+	mi := &file_whatevr_v2_messages_proto_msgTypes[65]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScheduleList) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScheduleList) ProtoMessage() {}
+
+func (x *ScheduleList) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_messages_proto_msgTypes[65]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ScheduleList) GetChatId() string {
+	if x != nil {
+		return x.xxx_hidden_ChatId
+	}
+	return ""
+}
+
+func (x *ScheduleList) SetChatId(v string) {
+	x.xxx_hidden_ChatId = v
+}
+
+type ScheduleList_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ChatId string
+}
+
+func (b0 ScheduleList_builder) Build() *ScheduleList {
+	m0 := &ScheduleList{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_ChatId = b.ChatId
+	return m0
+}
+
+type ScheduleListResult struct {
+	state               protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Messages *[]*ScheduledMessage   `protobuf:"bytes,1,rep,name=messages"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *ScheduleListResult) Reset() {
+	*x = ScheduleListResult{}
+	mi := &file_whatevr_v2_messages_proto_msgTypes[66]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScheduleListResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScheduleListResult) ProtoMessage() {}
+
+func (x *ScheduleListResult) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_messages_proto_msgTypes[66]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ScheduleListResult) GetMessages() []*ScheduledMessage {
+	if x != nil {
+		if x.xxx_hidden_Messages != nil {
+			return *x.xxx_hidden_Messages
+		}
+	}
+	return nil
+}
+
+func (x *ScheduleListResult) SetMessages(v []*ScheduledMessage) {
+	x.xxx_hidden_Messages = &v
+}
+
+type ScheduleListResult_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Messages []*ScheduledMessage
+}
+
+func (b0 ScheduleListResult_builder) Build() *ScheduleListResult {
+	m0 := &ScheduleListResult{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Messages = &b.Messages
+	return m0
+}
+
+type ScheduledMessage struct {
+	state             protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Id     int64                  `protobuf:"varint,1,opt,name=id"`
+	xxx_hidden_ChatId string                 `protobuf:"bytes,2,opt,name=chat_id,json=chatId"`
+	xxx_hidden_Text   string                 `protobuf:"bytes,3,opt,name=text"`
+	xxx_hidden_SendAt int64                  `protobuf:"varint,4,opt,name=send_at,json=sendAt"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *ScheduledMessage) Reset() {
+	*x = ScheduledMessage{}
+	mi := &file_whatevr_v2_messages_proto_msgTypes[67]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScheduledMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScheduledMessage) ProtoMessage() {}
+
+func (x *ScheduledMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_messages_proto_msgTypes[67]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ScheduledMessage) GetId() int64 {
+	if x != nil {
+		return x.xxx_hidden_Id
+	}
+	return 0
+}
+
+func (x *ScheduledMessage) GetChatId() string {
+	if x != nil {
+		return x.xxx_hidden_ChatId
+	}
+	return ""
+}
+
+func (x *ScheduledMessage) GetText() string {
+	if x != nil {
+		return x.xxx_hidden_Text
+	}
+	return ""
+}
+
+func (x *ScheduledMessage) GetSendAt() int64 {
+	if x != nil {
+		return x.xxx_hidden_SendAt
+	}
+	return 0
+}
+
+func (x *ScheduledMessage) SetId(v int64) {
+	x.xxx_hidden_Id = v
+}
+
+func (x *ScheduledMessage) SetChatId(v string) {
+	x.xxx_hidden_ChatId = v
+}
+
+func (x *ScheduledMessage) SetText(v string) {
+	x.xxx_hidden_Text = v
+}
+
+func (x *ScheduledMessage) SetSendAt(v int64) {
+	x.xxx_hidden_SendAt = v
+}
+
+type ScheduledMessage_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Id     int64
+	ChatId string
+	Text   string
+	SendAt int64
+}
+
+func (b0 ScheduledMessage_builder) Build() *ScheduledMessage {
+	m0 := &ScheduledMessage{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Id = b.Id
+	x.xxx_hidden_ChatId = b.ChatId
+	x.xxx_hidden_Text = b.Text
+	x.xxx_hidden_SendAt = b.SendAt
+	return m0
+}
+
+type ScheduleCancel struct {
+	state         protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Id int64                  `protobuf:"varint,1,opt,name=id"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ScheduleCancel) Reset() {
+	*x = ScheduleCancel{}
+	mi := &file_whatevr_v2_messages_proto_msgTypes[68]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ScheduleCancel) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ScheduleCancel) ProtoMessage() {}
+
+func (x *ScheduleCancel) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_messages_proto_msgTypes[68]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ScheduleCancel) GetId() int64 {
+	if x != nil {
+		return x.xxx_hidden_Id
+	}
+	return 0
+}
+
+func (x *ScheduleCancel) SetId(v int64) {
+	x.xxx_hidden_Id = v
+}
+
+type ScheduleCancel_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Id int64
+}
+
+func (b0 ScheduleCancel_builder) Build() *ScheduleCancel {
+	m0 := &ScheduleCancel{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Id = b.Id
+	return m0
+}
+
 type SendResult struct {
 	state                protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_MessageId string                 `protobuf:"bytes,1,opt,name=message_id,json=messageId"`
@@ -9122,7 +9539,7 @@ type SendResult struct {
 
 func (x *SendResult) Reset() {
 	*x = SendResult{}
-	mi := &file_whatevr_v2_messages_proto_msgTypes[63]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[69]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9134,7 +9551,7 @@ func (x *SendResult) String() string {
 func (*SendResult) ProtoMessage() {}
 
 func (x *SendResult) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_messages_proto_msgTypes[63]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[69]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9181,7 +9598,7 @@ type MessageReact struct {
 
 func (x *MessageReact) Reset() {
 	*x = MessageReact{}
-	mi := &file_whatevr_v2_messages_proto_msgTypes[64]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[70]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9193,7 +9610,7 @@ func (x *MessageReact) String() string {
 func (*MessageReact) ProtoMessage() {}
 
 func (x *MessageReact) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_messages_proto_msgTypes[64]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[70]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9252,7 +9669,7 @@ type MessageEdit struct {
 
 func (x *MessageEdit) Reset() {
 	*x = MessageEdit{}
-	mi := &file_whatevr_v2_messages_proto_msgTypes[65]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[71]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9264,7 +9681,7 @@ func (x *MessageEdit) String() string {
 func (*MessageEdit) ProtoMessage() {}
 
 func (x *MessageEdit) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_messages_proto_msgTypes[65]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[71]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9322,7 +9739,7 @@ type MessageRevoke struct {
 
 func (x *MessageRevoke) Reset() {
 	*x = MessageRevoke{}
-	mi := &file_whatevr_v2_messages_proto_msgTypes[66]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[72]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9334,7 +9751,7 @@ func (x *MessageRevoke) String() string {
 func (*MessageRevoke) ProtoMessage() {}
 
 func (x *MessageRevoke) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_messages_proto_msgTypes[66]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[72]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9380,7 +9797,7 @@ type MessageDelete struct {
 
 func (x *MessageDelete) Reset() {
 	*x = MessageDelete{}
-	mi := &file_whatevr_v2_messages_proto_msgTypes[67]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[73]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9392,7 +9809,7 @@ func (x *MessageDelete) String() string {
 func (*MessageDelete) ProtoMessage() {}
 
 func (x *MessageDelete) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_messages_proto_msgTypes[67]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[73]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9438,7 +9855,7 @@ type MessageStar struct {
 
 func (x *MessageStar) Reset() {
 	*x = MessageStar{}
-	mi := &file_whatevr_v2_messages_proto_msgTypes[68]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[74]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9450,7 +9867,7 @@ func (x *MessageStar) String() string {
 func (*MessageStar) ProtoMessage() {}
 
 func (x *MessageStar) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_messages_proto_msgTypes[68]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[74]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9510,7 +9927,7 @@ type MessagePin struct {
 
 func (x *MessagePin) Reset() {
 	*x = MessagePin{}
-	mi := &file_whatevr_v2_messages_proto_msgTypes[69]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[75]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9522,7 +9939,7 @@ func (x *MessagePin) String() string {
 func (*MessagePin) ProtoMessage() {}
 
 func (x *MessagePin) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_messages_proto_msgTypes[69]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[75]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9595,7 +10012,7 @@ type MessageForward struct {
 
 func (x *MessageForward) Reset() {
 	*x = MessageForward{}
-	mi := &file_whatevr_v2_messages_proto_msgTypes[70]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[76]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9607,7 +10024,7 @@ func (x *MessageForward) String() string {
 func (*MessageForward) ProtoMessage() {}
 
 func (x *MessageForward) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_messages_proto_msgTypes[70]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[76]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9681,7 +10098,7 @@ type MessageForwardResult struct {
 
 func (x *MessageForwardResult) Reset() {
 	*x = MessageForwardResult{}
-	mi := &file_whatevr_v2_messages_proto_msgTypes[71]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[77]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9693,7 +10110,7 @@ func (x *MessageForwardResult) String() string {
 func (*MessageForwardResult) ProtoMessage() {}
 
 func (x *MessageForwardResult) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_messages_proto_msgTypes[71]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[77]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9739,7 +10156,7 @@ type MessageMarkPlayed struct {
 
 func (x *MessageMarkPlayed) Reset() {
 	*x = MessageMarkPlayed{}
-	mi := &file_whatevr_v2_messages_proto_msgTypes[72]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[78]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9751,7 +10168,7 @@ func (x *MessageMarkPlayed) String() string {
 func (*MessageMarkPlayed) ProtoMessage() {}
 
 func (x *MessageMarkPlayed) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_messages_proto_msgTypes[72]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[78]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9797,7 +10214,7 @@ type MessageRequestFromPhone struct {
 
 func (x *MessageRequestFromPhone) Reset() {
 	*x = MessageRequestFromPhone{}
-	mi := &file_whatevr_v2_messages_proto_msgTypes[73]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[79]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9809,7 +10226,7 @@ func (x *MessageRequestFromPhone) String() string {
 func (*MessageRequestFromPhone) ProtoMessage() {}
 
 func (x *MessageRequestFromPhone) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_messages_proto_msgTypes[73]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[79]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9856,7 +10273,7 @@ type PollVote struct {
 
 func (x *PollVote) Reset() {
 	*x = PollVote{}
-	mi := &file_whatevr_v2_messages_proto_msgTypes[74]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[80]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9868,7 +10285,7 @@ func (x *PollVote) String() string {
 func (*PollVote) ProtoMessage() {}
 
 func (x *PollVote) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_messages_proto_msgTypes[74]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[80]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9927,7 +10344,7 @@ type MessageText struct {
 
 func (x *MessageText) Reset() {
 	*x = MessageText{}
-	mi := &file_whatevr_v2_messages_proto_msgTypes[75]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[81]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9939,7 +10356,7 @@ func (x *MessageText) String() string {
 func (*MessageText) ProtoMessage() {}
 
 func (x *MessageText) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_messages_proto_msgTypes[75]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[81]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -9985,7 +10402,7 @@ type MessageTextResult struct {
 
 func (x *MessageTextResult) Reset() {
 	*x = MessageTextResult{}
-	mi := &file_whatevr_v2_messages_proto_msgTypes[76]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[82]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -9997,7 +10414,7 @@ func (x *MessageTextResult) String() string {
 func (*MessageTextResult) ProtoMessage() {}
 
 func (x *MessageTextResult) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_messages_proto_msgTypes[76]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[82]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10059,7 +10476,7 @@ type EventRsvp struct {
 
 func (x *EventRsvp) Reset() {
 	*x = EventRsvp{}
-	mi := &file_whatevr_v2_messages_proto_msgTypes[77]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[83]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10071,7 +10488,7 @@ func (x *EventRsvp) String() string {
 func (*EventRsvp) ProtoMessage() {}
 
 func (x *EventRsvp) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_messages_proto_msgTypes[77]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[83]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10143,7 +10560,7 @@ type GroupJoinInvite struct {
 
 func (x *GroupJoinInvite) Reset() {
 	*x = GroupJoinInvite{}
-	mi := &file_whatevr_v2_messages_proto_msgTypes[78]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[84]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10155,7 +10572,7 @@ func (x *GroupJoinInvite) String() string {
 func (*GroupJoinInvite) ProtoMessage() {}
 
 func (x *GroupJoinInvite) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_messages_proto_msgTypes[78]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[84]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10200,7 +10617,7 @@ type GroupJoinInviteResult struct {
 
 func (x *GroupJoinInviteResult) Reset() {
 	*x = GroupJoinInviteResult{}
-	mi := &file_whatevr_v2_messages_proto_msgTypes[79]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[85]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -10212,7 +10629,7 @@ func (x *GroupJoinInviteResult) String() string {
 func (*GroupJoinInviteResult) ProtoMessage() {}
 
 func (x *GroupJoinInviteResult) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_messages_proto_msgTypes[79]
+	mi := &file_whatevr_v2_messages_proto_msgTypes[85]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -10687,7 +11104,24 @@ const file_whatevr_v2_messages_proto_rawDesc = "" +
 	"\n" +
 	"SendCancel\x12\x1d\n" +
 	"\n" +
-	"message_id\x18\x01 \x01(\tR\tmessageId\"+\n" +
+	"message_id\x18\x01 \x01(\tR\tmessageId\"T\n" +
+	"\fScheduleText\x12\x17\n" +
+	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x12\n" +
+	"\x04text\x18\x02 \x01(\tR\x04text\x12\x17\n" +
+	"\asend_at\x18\x03 \x01(\x03R\x06sendAt\"7\n" +
+	"\x12ScheduleTextResult\x12!\n" +
+	"\fscheduled_id\x18\x01 \x01(\x03R\vscheduledId\"'\n" +
+	"\fScheduleList\x12\x17\n" +
+	"\achat_id\x18\x01 \x01(\tR\x06chatId\"N\n" +
+	"\x12ScheduleListResult\x128\n" +
+	"\bmessages\x18\x01 \x03(\v2\x1c.whatevr.v2.ScheduledMessageR\bmessages\"h\n" +
+	"\x10ScheduledMessage\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x17\n" +
+	"\achat_id\x18\x02 \x01(\tR\x06chatId\x12\x12\n" +
+	"\x04text\x18\x03 \x01(\tR\x04text\x12\x17\n" +
+	"\asend_at\x18\x04 \x01(\x03R\x06sendAt\" \n" +
+	"\x0eScheduleCancel\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\"+\n" +
 	"\n" +
 	"SendResult\x12\x1d\n" +
 	"\n" +
@@ -10832,7 +11266,7 @@ const file_whatevr_v2_messages_proto_rawDesc = "" +
 	"Whatevr\\V2\xe2\x02\x16Whatevr\\V2\\GPBMetadata\xea\x02\vWhatevr::V2\x92\x03\x02\b\x02b\beditionsp\xe9\a"
 
 var file_whatevr_v2_messages_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
-var file_whatevr_v2_messages_proto_msgTypes = make([]protoimpl.MessageInfo, 80)
+var file_whatevr_v2_messages_proto_msgTypes = make([]protoimpl.MessageInfo, 86)
 var file_whatevr_v2_messages_proto_goTypes = []any{
 	(MessageStatus)(0),              // 0: whatevr.v2.MessageStatus
 	(LinkPreviewType)(0),            // 1: whatevr.v2.LinkPreviewType
@@ -10906,39 +11340,45 @@ var file_whatevr_v2_messages_proto_goTypes = []any{
 	(*SendContact)(nil),             // 69: whatevr.v2.SendContact
 	(*SendLocation)(nil),            // 70: whatevr.v2.SendLocation
 	(*SendCancel)(nil),              // 71: whatevr.v2.SendCancel
-	(*SendResult)(nil),              // 72: whatevr.v2.SendResult
-	(*MessageReact)(nil),            // 73: whatevr.v2.MessageReact
-	(*MessageEdit)(nil),             // 74: whatevr.v2.MessageEdit
-	(*MessageRevoke)(nil),           // 75: whatevr.v2.MessageRevoke
-	(*MessageDelete)(nil),           // 76: whatevr.v2.MessageDelete
-	(*MessageStar)(nil),             // 77: whatevr.v2.MessageStar
-	(*MessagePin)(nil),              // 78: whatevr.v2.MessagePin
-	(*MessageForward)(nil),          // 79: whatevr.v2.MessageForward
-	(*MessageForwardResult)(nil),    // 80: whatevr.v2.MessageForwardResult
-	(*MessageMarkPlayed)(nil),       // 81: whatevr.v2.MessageMarkPlayed
-	(*MessageRequestFromPhone)(nil), // 82: whatevr.v2.MessageRequestFromPhone
-	(*PollVote)(nil),                // 83: whatevr.v2.PollVote
-	(*MessageText)(nil),             // 84: whatevr.v2.MessageText
-	(*MessageTextResult)(nil),       // 85: whatevr.v2.MessageTextResult
-	(*EventRsvp)(nil),               // 86: whatevr.v2.EventRsvp
-	(*GroupJoinInvite)(nil),         // 87: whatevr.v2.GroupJoinInvite
-	(*GroupJoinInviteResult)(nil),   // 88: whatevr.v2.GroupJoinInviteResult
-	(*Person)(nil),                  // 89: whatevr.v2.Person
-	(*Address)(nil),                 // 90: whatevr.v2.Address
+	(*ScheduleText)(nil),            // 72: whatevr.v2.ScheduleText
+	(*ScheduleTextResult)(nil),      // 73: whatevr.v2.ScheduleTextResult
+	(*ScheduleList)(nil),            // 74: whatevr.v2.ScheduleList
+	(*ScheduleListResult)(nil),      // 75: whatevr.v2.ScheduleListResult
+	(*ScheduledMessage)(nil),        // 76: whatevr.v2.ScheduledMessage
+	(*ScheduleCancel)(nil),          // 77: whatevr.v2.ScheduleCancel
+	(*SendResult)(nil),              // 78: whatevr.v2.SendResult
+	(*MessageReact)(nil),            // 79: whatevr.v2.MessageReact
+	(*MessageEdit)(nil),             // 80: whatevr.v2.MessageEdit
+	(*MessageRevoke)(nil),           // 81: whatevr.v2.MessageRevoke
+	(*MessageDelete)(nil),           // 82: whatevr.v2.MessageDelete
+	(*MessageStar)(nil),             // 83: whatevr.v2.MessageStar
+	(*MessagePin)(nil),              // 84: whatevr.v2.MessagePin
+	(*MessageForward)(nil),          // 85: whatevr.v2.MessageForward
+	(*MessageForwardResult)(nil),    // 86: whatevr.v2.MessageForwardResult
+	(*MessageMarkPlayed)(nil),       // 87: whatevr.v2.MessageMarkPlayed
+	(*MessageRequestFromPhone)(nil), // 88: whatevr.v2.MessageRequestFromPhone
+	(*PollVote)(nil),                // 89: whatevr.v2.PollVote
+	(*MessageText)(nil),             // 90: whatevr.v2.MessageText
+	(*MessageTextResult)(nil),       // 91: whatevr.v2.MessageTextResult
+	(*EventRsvp)(nil),               // 92: whatevr.v2.EventRsvp
+	(*GroupJoinInvite)(nil),         // 93: whatevr.v2.GroupJoinInvite
+	(*GroupJoinInviteResult)(nil),   // 94: whatevr.v2.GroupJoinInviteResult
+	(*Person)(nil),                  // 95: whatevr.v2.Person
+	(*Address)(nil),                 // 96: whatevr.v2.Address
 }
 var file_whatevr_v2_messages_proto_depIdxs = []int32{
 	10, // 0: whatevr.v2.MessagesView.latest:type_name -> whatevr.v2.Latest
 	11, // 1: whatevr.v2.MessagesView.unread:type_name -> whatevr.v2.Unread
-	89, // 2: whatevr.v2.ReceiptRow.person:type_name -> whatevr.v2.Person
-	89, // 3: whatevr.v2.PollVoteRow.person:type_name -> whatevr.v2.Person
-	89, // 4: whatevr.v2.LiveLocationRow.sender:type_name -> whatevr.v2.Person
+	95, // 2: whatevr.v2.ReceiptRow.person:type_name -> whatevr.v2.Person
+	95, // 3: whatevr.v2.PollVoteRow.person:type_name -> whatevr.v2.Person
+	95, // 4: whatevr.v2.LiveLocationRow.sender:type_name -> whatevr.v2.Person
 	40, // 5: whatevr.v2.LiveLocationRow.location:type_name -> whatevr.v2.Location
-	89, // 6: whatevr.v2.MessageRow.sender:type_name -> whatevr.v2.Person
+	95, // 6: whatevr.v2.MessageRow.sender:type_name -> whatevr.v2.Person
 	0,  // 7: whatevr.v2.MessageRow.status:type_name -> whatevr.v2.MessageStatus
 	25, // 8: whatevr.v2.MessageRow.mentions:type_name -> whatevr.v2.Mention
 	26, // 9: whatevr.v2.MessageRow.reply_to:type_name -> whatevr.v2.Quote
 	27, // 10: whatevr.v2.MessageRow.reactions:type_name -> whatevr.v2.Reaction
-	89, // 11: whatevr.v2.MessageRow.revoked_by:type_name -> whatevr.v2.Person
+	95, // 11: whatevr.v2.MessageRow.revoked_by:type_name -> whatevr.v2.Person
 	28, // 12: whatevr.v2.MessageRow.reaction_counts:type_name -> whatevr.v2.ReactionCount
 	30, // 13: whatevr.v2.MessageRow.text_body:type_name -> whatevr.v2.Text
 	32, // 14: whatevr.v2.MessageRow.image:type_name -> whatevr.v2.Image
@@ -10965,9 +11405,9 @@ var file_whatevr_v2_messages_proto_depIdxs = []int32{
 	62, // 35: whatevr.v2.MessageRow.system:type_name -> whatevr.v2.System
 	63, // 36: whatevr.v2.MessageRow.waiting:type_name -> whatevr.v2.Waiting
 	64, // 37: whatevr.v2.MessageRow.unsupported:type_name -> whatevr.v2.Unsupported
-	89, // 38: whatevr.v2.Mention.person:type_name -> whatevr.v2.Person
-	89, // 39: whatevr.v2.Quote.sender:type_name -> whatevr.v2.Person
-	89, // 40: whatevr.v2.Reaction.sender:type_name -> whatevr.v2.Person
+	95, // 38: whatevr.v2.Mention.person:type_name -> whatevr.v2.Person
+	95, // 39: whatevr.v2.Quote.sender:type_name -> whatevr.v2.Person
+	95, // 40: whatevr.v2.Reaction.sender:type_name -> whatevr.v2.Person
 	31, // 41: whatevr.v2.Text.link_preview:type_name -> whatevr.v2.LinkPreview
 	1,  // 42: whatevr.v2.LinkPreview.type:type_name -> whatevr.v2.LinkPreviewType
 	29, // 43: whatevr.v2.Image.media:type_name -> whatevr.v2.Media
@@ -10985,14 +11425,14 @@ var file_whatevr_v2_messages_proto_depIdxs = []int32{
 	44, // 55: whatevr.v2.ContactCard.emails:type_name -> whatevr.v2.ContactField
 	44, // 56: whatevr.v2.ContactCard.urls:type_name -> whatevr.v2.ContactField
 	44, // 57: whatevr.v2.ContactCard.addresses:type_name -> whatevr.v2.ContactField
-	89, // 58: whatevr.v2.ContactField.person:type_name -> whatevr.v2.Person
+	95, // 58: whatevr.v2.ContactField.person:type_name -> whatevr.v2.Person
 	46, // 59: whatevr.v2.Poll.options:type_name -> whatevr.v2.PollOption
 	47, // 60: whatevr.v2.PollOption.voters:type_name -> whatevr.v2.Voter
-	89, // 61: whatevr.v2.Voter.person:type_name -> whatevr.v2.Person
+	95, // 61: whatevr.v2.Voter.person:type_name -> whatevr.v2.Person
 	40, // 62: whatevr.v2.ScheduledEvent.location:type_name -> whatevr.v2.Location
 	50, // 63: whatevr.v2.ScheduledEvent.responders:type_name -> whatevr.v2.Responder
 	2,  // 64: whatevr.v2.ScheduledEvent.self_response:type_name -> whatevr.v2.Rsvp
-	89, // 65: whatevr.v2.Responder.person:type_name -> whatevr.v2.Person
+	95, // 65: whatevr.v2.Responder.person:type_name -> whatevr.v2.Person
 	2,  // 66: whatevr.v2.Responder.response:type_name -> whatevr.v2.Rsvp
 	24, // 67: whatevr.v2.Album.items:type_name -> whatevr.v2.MessageRow
 	3,  // 68: whatevr.v2.Interactive.source:type_name -> whatevr.v2.InteractiveSource
@@ -11003,26 +11443,27 @@ var file_whatevr_v2_messages_proto_depIdxs = []int32{
 	55, // 73: whatevr.v2.InteractiveSection.rows:type_name -> whatevr.v2.InteractiveRow
 	56, // 74: whatevr.v2.Product.price:type_name -> whatevr.v2.Money
 	56, // 75: whatevr.v2.Product.sale_price:type_name -> whatevr.v2.Money
-	89, // 76: whatevr.v2.Product.seller:type_name -> whatevr.v2.Person
+	95, // 76: whatevr.v2.Product.seller:type_name -> whatevr.v2.Person
 	5,  // 77: whatevr.v2.Order.status:type_name -> whatevr.v2.OrderStatus
 	56, // 78: whatevr.v2.Order.total:type_name -> whatevr.v2.Money
-	89, // 79: whatevr.v2.Order.seller:type_name -> whatevr.v2.Person
+	95, // 79: whatevr.v2.Order.seller:type_name -> whatevr.v2.Person
 	6,  // 80: whatevr.v2.Payment.kind:type_name -> whatevr.v2.PaymentKind
 	56, // 81: whatevr.v2.Payment.amount:type_name -> whatevr.v2.Money
-	89, // 82: whatevr.v2.Payment.requested_from:type_name -> whatevr.v2.Person
+	95, // 82: whatevr.v2.Payment.requested_from:type_name -> whatevr.v2.Person
 	7,  // 83: whatevr.v2.CallLog.outcome:type_name -> whatevr.v2.CallOutcome
 	8,  // 84: whatevr.v2.System.type:type_name -> whatevr.v2.SystemType
-	89, // 85: whatevr.v2.System.actor:type_name -> whatevr.v2.Person
-	89, // 86: whatevr.v2.System.names:type_name -> whatevr.v2.Person
-	90, // 87: whatevr.v2.SendText.mentions:type_name -> whatevr.v2.Address
-	90, // 88: whatevr.v2.SendMedia.mentions:type_name -> whatevr.v2.Address
-	25, // 89: whatevr.v2.MessageTextResult.mentions:type_name -> whatevr.v2.Mention
-	2,  // 90: whatevr.v2.EventRsvp.response:type_name -> whatevr.v2.Rsvp
-	91, // [91:91] is the sub-list for method output_type
-	91, // [91:91] is the sub-list for method input_type
-	91, // [91:91] is the sub-list for extension type_name
-	91, // [91:91] is the sub-list for extension extendee
-	0,  // [0:91] is the sub-list for field type_name
+	95, // 85: whatevr.v2.System.actor:type_name -> whatevr.v2.Person
+	95, // 86: whatevr.v2.System.names:type_name -> whatevr.v2.Person
+	96, // 87: whatevr.v2.SendText.mentions:type_name -> whatevr.v2.Address
+	96, // 88: whatevr.v2.SendMedia.mentions:type_name -> whatevr.v2.Address
+	76, // 89: whatevr.v2.ScheduleListResult.messages:type_name -> whatevr.v2.ScheduledMessage
+	25, // 90: whatevr.v2.MessageTextResult.mentions:type_name -> whatevr.v2.Mention
+	2,  // 91: whatevr.v2.EventRsvp.response:type_name -> whatevr.v2.Rsvp
+	92, // [92:92] is the sub-list for method output_type
+	92, // [92:92] is the sub-list for method input_type
+	92, // [92:92] is the sub-list for extension type_name
+	92, // [92:92] is the sub-list for extension extendee
+	0,  // [0:92] is the sub-list for field type_name
 }
 
 func init() { file_whatevr_v2_messages_proto_init() }
@@ -11070,7 +11511,7 @@ func file_whatevr_v2_messages_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_whatevr_v2_messages_proto_rawDesc), len(file_whatevr_v2_messages_proto_rawDesc)),
 			NumEnums:      9,
-			NumMessages:   80,
+			NumMessages:   86,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

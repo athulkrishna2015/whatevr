@@ -218,6 +218,7 @@ func (c *Client) startAccount(parent context.Context) {
 	c.acct = a
 	c.mu.Unlock()
 	a.spawn(c.runSender)
+	a.spawn(c.runScheduled)
 	a.spawn(c.media.run)
 	a.spawn(c.avatars.run)
 	a.spawn(c.stickers.run)

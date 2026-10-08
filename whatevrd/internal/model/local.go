@@ -47,6 +47,7 @@ var localDomain = core.Domain{
 		core.KindAvatar:   foldAvatar,
 		core.KindPrefs:    foldPrefs,
 		core.KindFavorite: foldFavorite,
+		core.KindSchedule: foldSchedule,
 	},
 }
 
@@ -256,6 +257,63 @@ func (r *Reader) Prefs(ctx context.Context) (json.RawMessage, error) {
 	return v, err
 }
 
+// Scheduled is a text waiting to go out.
+type Scheduled struct {
+	ID     int64
+	Chat   string
+	Text   string
+	SendAt int64
+}
+
+// ScheduledLists pending scheduled texts, soonest first. An empty chat
+// lists every chat; otherwise only that chat's rows.
+func (r *Reader) Scheduled(ctx context.Context, chat string, limit int) ([]Scheduled, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+	q := `SELECT seq, chat, text, send_at FROM scheduled ORDER BY send_at, seq LIMIT ?`
+	args := []any{limit}
+	if chat != "" {
+		q = `SELECT seq, chat, text, send_at FROM scheduled WHERE chat = ? ORDER BY send_at, seq LIMIT ?`
+		args = []any{chat, limit}
+	}
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Scheduled
+	for rows.Next() {
+		var sc Scheduled
+		if err := rows.Scan(&sc.ID, &sc.Chat, &sc.Text, &sc.SendAt); err != nil {
+			return nil, err
+		}
+		out = append(out, sc)
+	}
+	return out, rows.Err()
+}
+
+// DueScheduled is the scheduled texts whose time came, soonest first.
+func (r *Reader) DueScheduled(ctx context.Context, now int64, limit int) ([]Scheduled, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT seq, chat, text, send_at FROM scheduled WHERE send_at <= ? ORDER BY send_at, seq LIMIT ?`, now, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Scheduled
+	for rows.Next() {
+		var sc Scheduled
+		if err := rows.Scan(&sc.ID, &sc.Chat, &sc.Text, &sc.SendAt); err != nil {
+			return nil, err
+		}
+		out = append(out, sc)
+	}
+	return out, rows.Err()
+}
+
 // AvatarPaths is every picture file an avatar row names.
 func (r *Reader) AvatarPaths(ctx context.Context) (map[string]bool, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT DISTINCT path FROM avatar_try WHERE path != ''`)
@@ -272,4 +330,34 @@ func (r *Reader) AvatarPaths(ctx context.Context) (map[string]bool, error) {
 		out[p] = true
 	}
 	return out, rows.Err()
+}
+
+// foldSchedule tracks scheduled texts. The add's input seq is the schedule
+// id: seqs never repeat, so a sent or cancelled id names exactly one row.
+func foldSchedule(tx *core.Tx, in core.Input) error {
+	h, err := head[core.ScheduleHead](in)
+	if err != nil {
+		return err
+	}
+	switch h.Op {
+	case "add":
+		if h.Chat == "" || h.Text == "" || h.SendAt <= 0 {
+			return nil
+		}
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO scheduled (seq, chat, text, send_at) VALUES (?, ?, ?, ?)`,
+			in.Seq, h.Chat, h.Text, h.SendAt); err != nil {
+			return err
+		}
+	case "sent", "cancel":
+		if h.ID <= 0 {
+			return nil
+		}
+		if _, err := tx.Exec(`DELETE FROM scheduled WHERE seq = ?`, h.ID); err != nil {
+			return err
+		}
+	default:
+		return nil
+	}
+	tx.Touch("scheduled", "")
+	return nil
 }

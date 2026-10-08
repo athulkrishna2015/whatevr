@@ -1043,6 +1043,52 @@ class SendCancel(_message.Message):
     message_id: str
     def __init__(self, message_id: _Optional[str] = ...) -> None: ...
 
+class ScheduleText(_message.Message):
+    __slots__ = ("chat_id", "text", "send_at")
+    CHAT_ID_FIELD_NUMBER: _ClassVar[int]
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    SEND_AT_FIELD_NUMBER: _ClassVar[int]
+    chat_id: str
+    text: str
+    send_at: int
+    def __init__(self, chat_id: _Optional[str] = ..., text: _Optional[str] = ..., send_at: _Optional[int] = ...) -> None: ...
+
+class ScheduleTextResult(_message.Message):
+    __slots__ = ("scheduled_id",)
+    SCHEDULED_ID_FIELD_NUMBER: _ClassVar[int]
+    scheduled_id: int
+    def __init__(self, scheduled_id: _Optional[int] = ...) -> None: ...
+
+class ScheduleList(_message.Message):
+    __slots__ = ("chat_id",)
+    CHAT_ID_FIELD_NUMBER: _ClassVar[int]
+    chat_id: str
+    def __init__(self, chat_id: _Optional[str] = ...) -> None: ...
+
+class ScheduleListResult(_message.Message):
+    __slots__ = ("messages",)
+    MESSAGES_FIELD_NUMBER: _ClassVar[int]
+    messages: _containers.RepeatedCompositeFieldContainer[ScheduledMessage]
+    def __init__(self, messages: _Optional[_Iterable[_Union[ScheduledMessage, _Mapping]]] = ...) -> None: ...
+
+class ScheduledMessage(_message.Message):
+    __slots__ = ("id", "chat_id", "text", "send_at")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    CHAT_ID_FIELD_NUMBER: _ClassVar[int]
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    SEND_AT_FIELD_NUMBER: _ClassVar[int]
+    id: int
+    chat_id: str
+    text: str
+    send_at: int
+    def __init__(self, id: _Optional[int] = ..., chat_id: _Optional[str] = ..., text: _Optional[str] = ..., send_at: _Optional[int] = ...) -> None: ...
+
+class ScheduleCancel(_message.Message):
+    __slots__ = ("id",)
+    ID_FIELD_NUMBER: _ClassVar[int]
+    id: int
+    def __init__(self, id: _Optional[int] = ...) -> None: ...
+
 class SendResult(_message.Message):
     __slots__ = ("message_id",)
     MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]

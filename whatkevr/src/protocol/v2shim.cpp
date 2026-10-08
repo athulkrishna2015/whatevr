@@ -289,6 +289,28 @@ V2ResponseTranslation translateV2Response(const whatevr::v2::Response &response)
         out.result = result;
         break;
     }
+    case whatevr::v2::Response::kScheduleText: {
+        QJsonObject result;
+        result.insert(QStringLiteral("scheduled_id"),
+                      static_cast<qint64>(response.schedule_text().scheduled_id()));
+        out.result = result;
+        break;
+    }
+    case whatevr::v2::Response::kScheduleList: {
+        QJsonArray messages;
+        for (const auto &message : response.schedule_list().messages()) {
+            QJsonObject item;
+            item.insert(QStringLiteral("id"), static_cast<qint64>(message.id()));
+            item.insert(QStringLiteral("chat_id"), v2s(message.chat_id()));
+            item.insert(QStringLiteral("text"), v2s(message.text()));
+            item.insert(QStringLiteral("send_at"), static_cast<qint64>(message.send_at()));
+            messages.append(item);
+        }
+        QJsonObject result;
+        result.insert(QStringLiteral("messages"), messages);
+        out.result = result;
+        break;
+    }
     case whatevr::v2::Response::kChatExport: {
         QJsonObject result;
         result.insert(QStringLiteral("path"), v2s(response.chat_export().path()));
@@ -917,6 +939,22 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
             get("message_id").toString().toStdString());
         return true;
     }
+    if (method == QLatin1String("schedule.text")) {
+        auto *schedule = request->mutable_schedule_text();
+        schedule->set_chat_id(get("chat_id").toString().toStdString());
+        schedule->set_text(get("text").toString().toStdString());
+        schedule->set_send_at(get("send_at").toInteger());
+        return true;
+    }
+    if (method == QLatin1String("schedule.list")) {
+        request->mutable_schedule_list()->set_chat_id(
+            get("chat_id").toString().toStdString());
+        return true;
+    }
+    if (method == QLatin1String("schedule.cancel")) {
+        request->mutable_schedule_cancel()->set_id(get("id").toInteger());
+        return true;
+    }
 
     // Messages.
     if (method == QLatin1String("message.react")) {
@@ -1253,6 +1291,24 @@ bool v2ResponseFromV1(const QString &method, std::uint64_t id, const QJsonObject
     }
     if (method == QLatin1String("chat.export")) {
         out->mutable_chat_export()->set_path(str("path"));
+        return true;
+    }
+    if (method == QLatin1String("schedule.text")) {
+        out->mutable_schedule_text()->set_scheduled_id(
+            static_cast<std::int64_t>(result.value(QStringLiteral("scheduled_id")).toInteger()));
+        return true;
+    }
+    if (method == QLatin1String("schedule.list")) {
+        auto *list = out->mutable_schedule_list();
+        for (const QJsonValue &row : result.value(QStringLiteral("messages")).toArray()) {
+            const QJsonObject item = row.toObject();
+            whatevr::v2::ScheduledMessage message;
+            message.set_id(static_cast<std::int64_t>(item.value(QStringLiteral("id")).toInteger()));
+            message.set_chat_id(item.value(QStringLiteral("chat_id")).toString().toStdString());
+            message.set_text(item.value(QStringLiteral("text")).toString().toStdString());
+            message.set_send_at(static_cast<std::int64_t>(item.value(QStringLiteral("send_at")).toInteger()));
+            *list->add_messages() = message;
+        }
         return true;
     }
     if (method == QLatin1String("chat.ensure_direct")
@@ -1832,6 +1888,22 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
     case Method::kSendCancel:
         out->method = QStringLiteral("send.cancel");
         params.insert(QStringLiteral("message_id"), v2s(request.send_cancel().message_id()));
+        break;
+    case Method::kScheduleText:
+        out->method = QStringLiteral("schedule.text");
+        params.insert(QStringLiteral("chat_id"), v2s(request.schedule_text().chat_id()));
+        params.insert(QStringLiteral("text"), v2s(request.schedule_text().text()));
+        params.insert(QStringLiteral("send_at"),
+                      static_cast<qint64>(request.schedule_text().send_at()));
+        break;
+    case Method::kScheduleList:
+        out->method = QStringLiteral("schedule.list");
+        params.insert(QStringLiteral("chat_id"), v2s(request.schedule_list().chat_id()));
+        break;
+    case Method::kScheduleCancel:
+        out->method = QStringLiteral("schedule.cancel");
+        params.insert(QStringLiteral("id"),
+                      static_cast<qint64>(request.schedule_cancel().id()));
         break;
     case Method::kMessageReact:
         out->method = QStringLiteral("message.react");
