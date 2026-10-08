@@ -315,3 +315,29 @@ func TestChannelsListDirectoryAndLeave(t *testing.T) {
 		t.Fatalf("directory %+v", channels[0])
 	}
 }
+
+func TestNewsletterAddressesAreNoChats(t *testing.T) {
+	db := openModel(t)
+	ctx := context.Background()
+	feed(t, db, []core.Input{
+		msgIn("N1", "1@newsletter", "1@newsletter", "", false, 10, text("broadcast")),
+		msgIn("M1", ashaL, ashaL, ashaPN, false, 11, text("hi")),
+	})
+	r := NewReader(db.Read())
+	w, err := r.World(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chats, err := r.ChatsIn(ctx, w, ChatFilter{Any: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range chats {
+		if c.Key == "1@newsletter" {
+			t.Fatalf("newsletter listed as chat: %+v", c)
+		}
+	}
+	if _, ok, err := r.ChatIn(ctx, w, "1@newsletter"); err != nil || ok {
+		t.Fatalf("newsletter opens as chat: %v %v", ok, err)
+	}
+}

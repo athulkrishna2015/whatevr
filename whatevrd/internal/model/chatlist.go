@@ -404,7 +404,9 @@ func assemble(w *World, states map[string]*chatState) []Chat {
 	byKey := map[string]*Chat{}
 	var order []string
 	for addr, s := range states {
-		if addr == "status@broadcast" || addr == "" {
+		// Newsletters live in the channels directory and statuses in the
+		// status feed; neither may materialize as chat rows.
+		if addr == "status@broadcast" || addr == "" || server(addr) == types.NewsletterServer {
 			continue
 		}
 		key := w.Key(addr, s.last)

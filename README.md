@@ -238,10 +238,10 @@ Now with that, here is the current feature map for whatevrd.
 | Archive chats | ✅ | |
 | Mute chats | ✅ | |
 | Pinned messages | ✅ | |
-| Group management | ❌ | No create/invite/admin UI |
-| Community management | ❌ |  |
+| Group management | ✅ | Create, invite links, members, photo, announce/locked flags |
+| Community management | ✅ | Link/unlink groups |
 | Calls | ❌ | Voice/video calls unsupported |
-| Status/stories | ❌ | |
+| Status/stories | ✅ | Feed, post text/media, viewed flags, mutes, replies, viewers, delete |
 | Settings UI | ✅ | |
 | Account/profile editing | ✅ | Includes privacy settings |
 | Import/export backups | ❌ | |
@@ -251,14 +251,14 @@ Now with that, here is the current feature map for whatevrd.
 | Forward-to picker with archived chats | ✅ | |
 | Unread-only chat filter | ✅ | Local proxy over the `all` subscription (no v2 filter API) |
 | Typing-indicator preference | ✅ | Frontend-local (no v2 preference field) |
-| Chat folders/lists | ❌ | No v2 API; UI hidden until the daemon serves it |
-| Favorites filter and per-chat favorite | ❌ | No v2 row or command; UI hidden |
-| Status/stories tab | ❌ | No v2 API; UI hidden |
-| Calls tab and call history | ❌ | No v2 API; UI hidden |
-| Channels tab | ❌ | No v2 API; UI hidden |
-| Daemon logs viewer | ⚠️ | Shows "not available on protocol 2" (no v2 API) |
+| Chat folders/lists | ✅ | Served by the `chat_folders` view and `chat_folder.*` commands |
+| Favorites filter and per-chat favorite | ✅ | `CHAT_FILTER_FAVORITE` plus `chat.favorite` |
+| Status/stories tab | ✅ | Served by the `status` and `status.muted` views |
+| Calls tab and call history | ✅ | Ringing set from the call log plus `call_history` and `call.reject` |
+| Channels tab | ✅ | Served by the `channels`/`channel_messages` views and `channel.*` commands |
+| Daemon logs viewer | ✅ | Served by the `logs` view over the run log |
 | Chat media links tab | ✅ | Served by the new `chat_links` view |
-| Keep-archived / anti-delete / archived-mute prefs | ❌ | No v2 preference fields; toggles disabled with notes |
+| Keep-archived / anti-delete / archived-mute prefs | ✅ | Native v2 preference fields |
   
 </details>
 

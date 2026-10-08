@@ -233,7 +233,7 @@ func (r *Reader) naiveAssemble(w *World, states map[string]*chatState) []Chat {
 	byKey := map[string]*Chat{}
 	var order []string
 	for addr, s := range states {
-		if addr == "status@broadcast" || addr == "" {
+		if addr == "status@broadcast" || addr == "" || server(addr) == types.NewsletterServer {
 			continue
 		}
 		key := w.Key(addr, s.last)

@@ -667,9 +667,10 @@ func (r *Reader) Chat(ctx context.Context, addr string) (Chat, bool, error) {
 
 // ChatIn is Chat as w has it. a chat with nothing in it yet is still a chat,
 // with every address it could hear from; one the phone deleted is not.
+// Newsletters are not chats: they live in the channels directory.
 func (r *Reader) ChatIn(ctx context.Context, w *World, addr string) (Chat, bool, error) {
 	key := w.Now(user(addr))
-	if key == "" {
+	if key == "" || server(key) == types.NewsletterServer {
 		return Chat{}, false, nil
 	}
 	c, err := scanRow(r.db.QueryRowContext(ctx, `SELECT `+rowCols+` FROM chat_row WHERE key = ?`, key))
