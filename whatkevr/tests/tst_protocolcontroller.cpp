@@ -1322,12 +1322,7 @@ private Q_SLOTS:
                           {QStringLiteral("muted"), false}}});
         daemon.setCollection(
             QStringLiteral("channel_messages"),
-            {QJsonObject{{QStringLiteral("server_id"), 9},
-                          {QStringLiteral("channel_id"), QStringLiteral("1@newsletter")},
-                          {QStringLiteral("timestamp"), 1700000000},
-                          {QStringLiteral("text"), QStringLiteral("hello")},
-                          {QStringLiteral("fallback"), QStringLiteral("hello")},
-                          {QStringLiteral("views"), 3}}});
+            {messageRow(QStringLiteral("1@newsletter/c9"), QStringLiteral("0009"))});
 
         ProtocolController ctrl(m_path, nullptr);
         ctrl.start();

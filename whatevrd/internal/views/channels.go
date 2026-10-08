@@ -2,14 +2,12 @@ package views
 
 import (
 	"context"
-	"fmt"
-	"strconv"
 
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 
 	"whatevrd/internal/core"
+	"whatevrd/internal/model"
 	"whatevrd/internal/server"
-	"whatevrd/internal/whatsapp"
 )
 
 // channelsView lists followed channels by name, from the directory table
@@ -39,66 +37,33 @@ func (rs *Reads) channelsView(ctx context.Context, s *server.Session, req *v2.Su
 	return w, nil, nil
 }
 
-// channelMessagesPageSize is one live fetch of a channel's posts.
-const channelMessagesPageSize = 30
-
-// channelMessagesView is one channel's recent posts, newest first, fetched
-// live on every fill and never stored. Extend re-fills with a bigger max;
-// the window pages older by server id.
+// channelMessagesView is one channel's posts, newest first, over the
+// channel's own message rows. Channels are never chats, so the address
+// resolves straight to rows instead of through a chat id.
 func (rs *Reads) channelMessagesView(ctx context.Context, s *server.Session, req *v2.Subscribe) (server.Window, *v2.SubscribeResult, error) {
 	p := req.GetChannelMessages()
 	if p.GetChannelId() == "" {
 		return nil, nil, invalid("channel_messages needs a channel_id")
 	}
-	if rs.channelPosts == nil {
-		return nil, nil, invalid("channel messages unavailable")
-	}
-	st := &channelWindow{channel: p.GetChannelId()}
+	channel := p.GetChannelId()
 	w := &win{params: req}
 	w.items = func(ctx context.Context, max int) ([]*v2.Upsert, error) {
-		for !st.ended && len(st.msgs) < max {
-			before := int64(0)
-			if len(st.msgs) > 0 {
-				before = st.msgs[len(st.msgs)-1].ServerID
-			}
-			msgs, err := rs.channelPosts(ctx, st.channel, channelMessagesPageSize, before)
-			if err != nil {
-				return nil, err
-			}
-			if len(msgs) == 0 {
-				st.ended = true
-				break
-			}
-			st.msgs = append(st.msgs, msgs...)
-			if len(msgs) < channelMessagesPageSize {
-				st.ended = true
+		c, err := rs.begin(ctx)
+		if err != nil {
+			return nil, err
+		}
+		ms, err := rs.r.Messages(ctx, []string{channel}, model.Cursor{}, all(max), false)
+		if err != nil {
+			return nil, err
+		}
+		var out []*v2.Upsert
+		for _, m := range ms {
+			for _, it := range c.messageItems(chatCtx{}, []model.Message{m}) {
+				out = append(out, it)
 			}
 		}
-		msgs := st.msgs
-		if len(msgs) > max {
-			msgs = msgs[:max]
-		}
-		out := make([]*v2.Upsert, 0, len(msgs))
-		for i, m := range msgs {
-			row := v2.ChannelMessageRow_builder{
-				ServerId: m.ServerID, ChannelId: st.channel, TMs: m.T * 1000,
-				Text: m.Text, Fallback: m.Fallback, Views: m.Views,
-			}.Build()
-			it := &v2.Upsert{}
-			it.SetId(fmt.Sprintf("%d", m.ServerID))
-			it.SetSort([]byte(fmt.Sprintf("%020d\x00", len(msgs)-i) + strconv.FormatInt(m.ServerID, 10)))
-			it.SetChannelMessage(row)
-			out = append(out, it)
-		}
-		return out, nil
+		return limited(out, max), c.finish()
 	}
-	w.wake = func(c core.Change) bool { return touches(c, "channels") }
+	w.wake = func(cc core.Change) bool { return touches(cc, "message", "person", "chat", "local") }
 	return w, nil, nil
-}
-
-// channelWindow pages a channel's posts by server id across fills.
-type channelWindow struct {
-	channel string
-	msgs    []whatsapp.ChannelMessage
-	ended   bool
 }

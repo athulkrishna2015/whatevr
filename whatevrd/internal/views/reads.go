@@ -18,7 +18,6 @@ import (
 
 	"whatevrd/internal/core"
 	"whatevrd/internal/live"
-	"whatevrd/internal/whatsapp"
 	"whatevrd/internal/model"
 	"whatevrd/internal/server"
 	"whatevrd/internal/status"
@@ -47,9 +46,6 @@ type Options struct {
 	// Shown hears every person and chat key a row was built with, for
 	// fetching what the rows want, avatars first
 	Shown func(keys []string)
-	// ChannelPosts fetches a channel's recent posts live, for the channel
-	// messages view; channels are never stored
-	ChannelPosts func(ctx context.Context, channel string, count int, before int64) ([]whatsapp.ChannelMessage, error)
 }
 
 type Reads struct {
@@ -61,8 +57,6 @@ type Reads struct {
 	media string
 	log   zerolog.Logger
 	login func()
-	// channelPosts fetches a channel's recent posts live, see Options
-	channelPosts func(ctx context.Context, channel string, count int, before int64) ([]whatsapp.ChannelMessage, error)
 	// runLog is the current run's log file, tailed by the logs view
 	runLog string
 	seen   func(keys []string)
@@ -81,7 +75,7 @@ type Reads struct {
 
 func New(o Options) *Reads {
 	return &Reads{core: o.Core, r: model.NewReader(o.Core.Read()), ids: o.IDs, live: o.Live, board: o.Board,
-		media: o.MediaDir, log: o.Log, login: o.Login, runLog: o.RunLog, seen: o.Shown, channelPosts: o.ChannelPosts, previews: newPreviews(), queue: make(chan core.Change, 1024)}
+		media: o.MediaDir, log: o.Log, login: o.Login, runLog: o.RunLog, seen: o.Shown, previews: newPreviews(), queue: make(chan core.Change, 1024)}
 }
 
 // Reader is the model reader the views use.
