@@ -10,7 +10,10 @@ talk over a documented protocol on a unix socket, and writing one is a fun weeke
 
 ## Frontends
 
-`whattui` is the terminal frontend, and the one frontend for now.
+`whattui` is the terminal frontend, and `whatkevr` is the graphical Qt/Kirigami
+frontend for Linux desktops (chat list, conversation timeline, media gallery,
+calls/status pages where the daemon serves them, settings, tray icon). Both
+are thin: all state lives in the daemon.
 
 The daemon knows which frontends are installed, so it can start one when
 nothing is open. Each says who it is in a small manifest; add your own, or pick
@@ -69,7 +72,20 @@ vaxis, both carried as git submodules, so clone with `git clone --recursive`, or
 
 **Daemon:** Go 1.26+, just, a C compiler, SQLite and libjpeg-turbo dev files, pkg-config.
 **Terminal frontend:** the same Go toolchain, nothing else.
+**Graphical frontend (`whatkevr`):** Qt 6.10+ (Core, Gui, Multimedia, Network,
+OpenGL, Qml, Quick, QuickControls2, ShaderTools, Widgets), KDE Frameworks 6
+(ColorScheme, CoreAddons, DBusAddons, I18n, Kirigami, Prison, QQC2DesktopStyle),
+Kirigami Addons, KQuickImageEditor, rlottie, mpv, protobuf, CMake, Ninja,
+extra-cmake-modules.
 **Optional at runtime:** ffmpeg, for video posters and voice note waveforms.
+
+```sh
+# Arch (daemon + terminal + graphical)
+sudo pacman -S --needed base-devel go just sqlite libjpeg-turbo pkgconf \
+  cmake ninja extra-cmake-modules qt6-base qt6-declarative qt6-multimedia \
+  qt6-shadertools mpv ffmpeg kcoreaddons kdbusaddons ki18n kirigami \
+  kirigami-addons prison qqc2-desktop-style kquickimageeditor protobuf
+# rlottie comes from the AUR: yay -S rlottie
 
 ```sh
 # Arch
@@ -90,6 +106,20 @@ just build-release                    # optimized release build
 just install "$HOME/.local"           # user-local release install
 # or system-wide:
 sudo just install /usr
+```
+
+Build and install the graphical frontend separately with CMake (it is not
+part of `just build`):
+
+```sh
+cmake -S whatkevr -B build/release/whatkevr -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DWHATEVR_VERSION_FULL="$(scripts/version.py full)" \
+  -DWHATEVR_VERSION="$(scripts/version.py numeric)"
+cmake --build build/release/whatkevr
+cmake --install build/release/whatkevr --prefix "$HOME/.local"
+# with tests: -DWHATEVR_BUILD_TESTS=ON, then
+# QT_QPA_PLATFORM=offscreen ctest --test-dir build/debug/whatkevr
 ```
 
 `just install` places the `whatevrd` and `whattui` binaries and the systemd user
@@ -217,6 +247,18 @@ Now with that, here is the current feature map for whatevrd.
 | Import/export backups | ❌ | |
 | DB encryption and keyring integration | ❌ | |
 | Daemon SNI (Tray) | ❌ | |
+| Graphical Qt frontend (`whatkevr`) | ✅ | Chat list, timeline, media gallery, settings, tray icon, notifications mute |
+| Forward-to picker with archived chats | ✅ | |
+| Unread-only chat filter | ✅ | Local proxy over the `all` subscription (no v2 filter API) |
+| Typing-indicator preference | ✅ | Frontend-local (no v2 preference field) |
+| Chat folders/lists | ❌ | No v2 API; UI hidden until the daemon serves it |
+| Favorites filter and per-chat favorite | ❌ | No v2 row or command; UI hidden |
+| Status/stories tab | ❌ | No v2 API; UI hidden |
+| Calls tab and call history | ❌ | No v2 API; UI hidden |
+| Channels tab | ❌ | No v2 API; UI hidden |
+| Daemon logs viewer | ⚠️ | Shows "not available on protocol 2" (no v2 API) |
+| Chat media links tab | ❌ | No v2 API; UI hidden |
+| Keep-archived / anti-delete / archived-mute prefs | ❌ | No v2 preference fields; toggles disabled with notes |
   
 </details>
 
@@ -231,7 +273,8 @@ same daemon, and each sees the same rows in the same order because the daemon
 computed that order.
 
 The daemon is Go (`whatevrd/`); the terminal frontend is `whattui`, in Go on a
-fork of vaxis (`whattui/`). A scriptable CLI is wanted and
+fork of vaxis (`whattui/`); the graphical frontend is `whatkevr`, in C++/QML
+on Qt 6 and Kirigami (`whatkevr/`). A scriptable CLI is wanted and
 unclaimed; that work needs no changes to the daemon.
 
 Whatevr will be Linux-first for now until its stable. I am open to contributions for porting functionality to other platforms as long as they don't affect existing performance and Linux functionality significantly. 
