@@ -389,12 +389,6 @@ Kirigami.ApplicationWindow {
         LoginPage {}
     }
 
-    Component {
-        id: statusPageComponent
-
-        StatusPage {}
-    }
-
     // Neutral loading page for the brief initial connect, so cold start never
     // flashes the daemon-status page before the chat shell appears.
     Component {
@@ -652,7 +646,10 @@ Kirigami.ApplicationWindow {
             resetToPage(nextMode, loginPageComponent)
             break
         case "status":
-            resetToPage(nextMode, statusPageComponent)
+            // The pre-shell window is a neutral splash, not the stories
+            // StatusPage: showing stories here made every reconnect look
+            // like the app defaulting to the Status tab.
+            resetToPage(nextMode, splashPageComponent)
             break
         case "chat":
             clearTransientPage()
