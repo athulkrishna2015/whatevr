@@ -103,6 +103,16 @@ Never `just install` a v2-only daemon over a live v1 session: the Qt app
 still speaks protocol v1, so replacing the daemon breaks the running
 frontend. Install the Qt binary only and restart just the UI.
 
+### v1 to v2 daemon migration needs a re-pair
+
+The v2 core keeps its WhatsApp session in its own store: it does not pick
+up the v1 daemon's login. After installing the v2 daemon, the frontend shows
+the QR pairing page (verified working: QR renders, expiry countdown ticks).
+Scan it with the phone to pair; the old session cannot transfer. If the
+migration ever needs reverting, pre-migration binaries live at
+`/tmp/opencode/whatkevr.v1` and `/tmp/opencode/whatevrd.v1` (copy back over
+`~/.local/bin` and restart the service).
+
 ### Watching CI to completion
 
 Poll the branch's latest run in the background instead of local waiting;
