@@ -109,6 +109,12 @@ message Request {
     StatusViewers status_viewers = 97;
     StatusDelete status_delete = 98;
     CallReject call_reject = 99;
+    ChannelsRefresh channels_refresh = 115;
+    ChannelFollow channel_follow = 116;
+    ChannelUnfollow channel_unfollow = 117;
+    ChannelMute channel_mute = 118;
+    ChannelMarkViewed channel_mark_viewed = 119;
+    ChannelReact channel_react = 125;
     MessageText message_text = 72;
 
     // 90-99: media
@@ -170,6 +176,7 @@ message Response {
     GroupInviteLinkResult group_invite_link = 78;
     StatusPostResult status_post = 87;
     StatusViewersResult status_viewers = 97;
+    ChannelsRefreshResult channels_refresh = 115;
     MessageTextResult message_text = 72;
 
     MediaStreamResult media_stream = 91;
@@ -297,6 +304,8 @@ message Upsert {
     ChatFolderRow chat_folder = 35;
     StatusMutedRow status_muted = 36;
     CallRow call = 37;
+    ChannelRow channel = 38;
+    ChannelMessageRow channel_message = 39;
   }
 }
 
@@ -359,6 +368,8 @@ message Subscribe {
     StatusMutedView status_muted = 43;
     CallsView calls = 44;
     CallHistoryView call_history = 45;
+    ChannelsView channels = 46;
+    ChannelMessagesView channel_messages = 47;
   }
 }
 

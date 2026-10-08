@@ -86,6 +86,12 @@ func Register(o Options) *Opener {
 		arm(v2.Request_PollVote_case):                  x.vote,
 		arm(v2.Request_EventRsvp_case):                 x.rsvp,
 		arm(v2.Request_CallReject_case):               x.callReject,
+		arm(v2.Request_ChannelsRefresh_case):          x.channelsRefresh,
+		arm(v2.Request_ChannelFollow_case):            x.channelFollow,
+		arm(v2.Request_ChannelUnfollow_case):          x.channelUnfollow,
+		arm(v2.Request_ChannelMute_case):              x.channelMute,
+		arm(v2.Request_ChannelMarkViewed_case):        x.channelViewed,
+		arm(v2.Request_ChannelReact_case):             x.channelReact,
 		arm(v2.Request_GroupJoinInvite_case):           x.joinInvite,
 		arm(v2.Request_GroupCreate_case):               x.groupCreate,
 		arm(v2.Request_GroupLeave_case):                x.groupLeave,
@@ -1023,6 +1029,65 @@ func (x *commands) callReject(ctx context.Context, s *server.Session, req *v2.Re
 		return nil, err
 	}
 	return nil, wire(x.c.RejectCall(ctx, key))
+}
+
+func (x *commands) channelsRefresh(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	channels, err := x.c.RefreshChannels(ctx)
+	if err != nil {
+		return nil, wire(err)
+	}
+	res := v2.ChannelsRefreshResult_builder{}.Build()
+	for _, ch := range channels {
+		res.SetChannels(append(res.GetChannels(), v2.ChannelRow_builder{
+			Id: ch.JID, Name: ch.Name, Description: ch.Description,
+			Followers: ch.Followers, Verified: ch.Verified, Muted: ch.Muted,
+		}.Build()))
+	}
+	resp := &v2.Response{}
+	resp.SetChannelsRefresh(res)
+	return resp, nil
+}
+
+func (x *commands) channelFollow(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetChannelFollow()
+	if strings.TrimSpace(p.GetInvite()) != "" {
+		return nil, wire(x.c.FollowChannelLink(ctx, p.GetInvite()))
+	}
+	if strings.TrimSpace(p.GetJid()) == "" {
+		return nil, invalid("jid or invite is required")
+	}
+	return nil, wire(x.c.FollowChannel(ctx, p.GetJid()))
+}
+
+func (x *commands) channelUnfollow(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	if strings.TrimSpace(req.GetChannelUnfollow().GetJid()) == "" {
+		return nil, invalid("jid is required")
+	}
+	return nil, wire(x.c.UnfollowChannel(ctx, req.GetChannelUnfollow().GetJid()))
+}
+
+func (x *commands) channelMute(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetChannelMute()
+	if strings.TrimSpace(p.GetJid()) == "" {
+		return nil, invalid("jid is required")
+	}
+	return nil, wire(x.c.SetChannelMuted(ctx, p.GetJid(), p.GetMuted()))
+}
+
+func (x *commands) channelViewed(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetChannelMarkViewed()
+	if strings.TrimSpace(p.GetChannelId()) == "" {
+		return nil, invalid("channel_id is required")
+	}
+	return nil, wire(x.c.MarkChannelViewed(ctx, p.GetChannelId(), p.GetServerIds()))
+}
+
+func (x *commands) channelReact(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetChannelReact()
+	if strings.TrimSpace(p.GetChannelId()) == "" || p.GetServerId() <= 0 {
+		return nil, invalid("channel_id and server_id are required")
+	}
+	return nil, wire(x.c.ReactToChannelMessage(ctx, p.GetChannelId(), p.GetServerId(), p.GetEmoji()))
 }
 
 func (x *commands) joinInvite(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {

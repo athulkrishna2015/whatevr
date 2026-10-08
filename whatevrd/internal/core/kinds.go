@@ -309,6 +309,11 @@ type NewsletterHead struct {
 	Role  string `json:"role,omitempty"`
 	Mute  string `json:"mute,omitempty"`
 	Name  string `json:"name,omitempty"`
+	// Directory carries a channel directory listing; only Event
+	// "directory" sets these, events carry names and mutes alone.
+	Followers   int64  `json:"followers,omitempty"`
+	Description string `json:"description,omitempty"`
+	Verified    bool   `json:"verified,omitempty"`
 }
 
 // OutboxHead is one step of a send this daemon queued: Op is queue, cancel

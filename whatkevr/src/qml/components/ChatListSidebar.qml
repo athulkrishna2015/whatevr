@@ -278,9 +278,6 @@ Item {
         }
 
         QQC2.ToolButton {
-            // Channels need the v2-missing `channels` views: hidden until the
-            // daemon grows them rather than a permanently loading page.
-            visible: false
             Layout.alignment: Qt.AlignHCenter
             icon.name: "rss-symbolic"
             display: QQC2.AbstractButton.IconOnly

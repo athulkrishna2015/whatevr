@@ -295,3 +295,23 @@ func TestRingingListsOffersWithoutAnEnd(t *testing.T) {
 		t.Fatalf("ringing %+v %v", ringing, err)
 	}
 }
+
+func TestChannelsListDirectoryAndLeave(t *testing.T) {
+	db := openModel(t)
+	ctx := context.Background()
+	feed(t, db, []core.Input{
+		in(core.KindNewsletter, core.NewsletterHead{JID: "1@newsletter", Event: "join", Name: "News"}, nil, at(1)),
+		in(core.KindNewsletter, core.NewsletterHead{JID: "1@newsletter", Event: "directory", Name: "News",
+			Description: "Daily", Followers: 10, Verified: true}, nil, at(2)),
+		in(core.KindNewsletter, core.NewsletterHead{JID: "2@newsletter", Event: "join", Name: "Gone"}, nil, at(3)),
+		in(core.KindNewsletter, core.NewsletterHead{JID: "2@newsletter", Event: "leave"}, nil, at(4)),
+	})
+	r := NewReader(db.Read())
+	channels, err := r.Channels(ctx)
+	if err != nil || len(channels) != 1 {
+		t.Fatalf("channels %+v %v", channels, err)
+	}
+	if channels[0].Description != "Daily" || channels[0].Followers != 10 || !channels[0].Verified {
+		t.Fatalf("directory %+v", channels[0])
+	}
+}

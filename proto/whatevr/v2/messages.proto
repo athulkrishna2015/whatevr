@@ -815,6 +815,65 @@ message CallReject {
   string chat_id = 1;
 }
 
+// followed channels, by name
+message ChannelsView {}
+
+// one channel's recent posts, newest first, fetched live on every fill
+message ChannelMessagesView {
+  string channel_id = 1;
+}
+
+message ChannelRow {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  int64 followers = 4;
+  bool verified = 5;
+  bool muted = 6;
+}
+
+message ChannelMessageRow {
+  // the server id channel commands take
+  int64 server_id = 1;
+  string channel_id = 2;
+  int64 t_ms = 3;
+  string text = 4;
+  string fallback = 5;
+  int64 views = 6;
+}
+
+message ChannelsRefresh {}
+
+message ChannelsRefreshResult {
+  repeated ChannelRow channels = 1;
+}
+
+message ChannelFollow {
+  // exactly one of the two
+  string jid = 1;
+  string invite = 2;
+}
+
+message ChannelUnfollow {
+  string jid = 1;
+}
+
+message ChannelMute {
+  string jid = 1;
+  bool muted = 2;
+}
+
+message ChannelMarkViewed {
+  string channel_id = 1;
+  repeated int64 server_ids = 2;
+}
+
+message ChannelReact {
+  string channel_id = 1;
+  int64 server_id = 2;
+  string emoji = 3;
+}
+
 message SendResult {
   string message_id = 1;
 }

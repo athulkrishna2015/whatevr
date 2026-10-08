@@ -134,6 +134,11 @@ bool buildV2Subscribe(std::uint64_t id, const QString &view, const QJsonObject &
         subscribe->mutable_calls();
     } else if (view == QLatin1String("call_history")) {
         subscribe->mutable_call_history();
+    } else if (view == QLatin1String("channels")) {
+        subscribe->mutable_channels();
+    } else if (view == QLatin1String("channel_messages")) {
+        subscribe->mutable_channel_messages()->set_channel_id(
+            params.value(QStringLiteral("channel")).toString().toStdString());
     } else if (view == QLatin1String("typing")) {
         subscribe->mutable_typing();
     } else if (view == QLatin1String("transfers")) {
@@ -386,6 +391,24 @@ V2ResponseTranslation translateV2Response(const whatevr::v2::Response &response)
         }
         QJsonObject result;
         result.insert(QStringLiteral("viewers"), viewers);
+        out.result = result;
+        break;
+    }
+    case whatevr::v2::Response::kChannelsRefresh: {
+        QJsonArray channels;
+        for (const auto &channel : response.channels_refresh().channels()) {
+            QJsonObject item;
+            item.insert(QStringLiteral("id"), v2s(channel.id()));
+            item.insert(QStringLiteral("jid"), v2s(channel.id()));
+            item.insert(QStringLiteral("name"), v2s(channel.name()));
+            item.insert(QStringLiteral("description"), v2s(channel.description()));
+            item.insert(QStringLiteral("followers"), static_cast<qint64>(channel.followers()));
+            item.insert(QStringLiteral("verified"), channel.verified());
+            item.insert(QStringLiteral("muted"), channel.muted());
+            channels.append(item);
+        }
+        QJsonObject result;
+        result.insert(QStringLiteral("channels"), channels);
         out.result = result;
         break;
     }
@@ -776,6 +799,30 @@ QJsonObject translateV2Item(const whatevr::v2::Upsert &upsert)
         return translateV2StickerRow(upsert.sticker());
     case whatevr::v2::Upsert::kStickerPack:
         return translateV2StickerPackRow(upsert.sticker_pack());
+    case whatevr::v2::Upsert::kChannel: {
+        QJsonObject item;
+        item.insert(QStringLiteral("id"), v2s(upsert.channel().id()));
+        item.insert(QStringLiteral("jid"), v2s(upsert.channel().id()));
+        item.insert(QStringLiteral("name"), v2s(upsert.channel().name()));
+        item.insert(QStringLiteral("description"), v2s(upsert.channel().description()));
+        item.insert(QStringLiteral("followers"), static_cast<qint64>(upsert.channel().followers()));
+        item.insert(QStringLiteral("verified"), upsert.channel().verified());
+        item.insert(QStringLiteral("muted"), upsert.channel().muted());
+        return item;
+    }
+    case whatevr::v2::Upsert::kChannelMessage: {
+        QJsonObject item;
+        item.insert(QStringLiteral("id"), QString::number(upsert.channel_message().server_id()));
+        item.insert(QStringLiteral("server_id"),
+                    static_cast<qint64>(upsert.channel_message().server_id()));
+        item.insert(QStringLiteral("channel_id"), v2s(upsert.channel_message().channel_id()));
+        item.insert(QStringLiteral("timestamp"),
+                    static_cast<qint64>(upsert.channel_message().t_ms() / 1000));
+        item.insert(QStringLiteral("text"), v2s(upsert.channel_message().text()));
+        item.insert(QStringLiteral("fallback"), v2s(upsert.channel_message().fallback()));
+        item.insert(QStringLiteral("views"), static_cast<qint64>(upsert.channel_message().views()));
+        return item;
+    }
     case whatevr::v2::Upsert::kCall: {
         QJsonObject item;
         item.insert(QStringLiteral("id"), v2s(upsert.call().id()));
@@ -1221,6 +1268,42 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
             get("chat_id").toString().toStdString());
         return true;
     }
+    if (method == QLatin1String("channels.refresh")) {
+        request->mutable_channels_refresh();
+        return true;
+    }
+    if (method == QLatin1String("channel.follow")) {
+        auto *follow = request->mutable_channel_follow();
+        follow->set_jid(get("jid").toString().toStdString());
+        follow->set_invite(get("invite").toString().toStdString());
+        return true;
+    }
+    if (method == QLatin1String("channel.unfollow")) {
+        request->mutable_channel_unfollow()->set_jid(
+            get("jid").toString().toStdString());
+        return true;
+    }
+    if (method == QLatin1String("channel.mute")) {
+        auto *mute = request->mutable_channel_mute();
+        mute->set_jid(get("jid").toString().toStdString());
+        mute->set_muted(get("muted").toBool());
+        return true;
+    }
+    if (method == QLatin1String("channel.mark_viewed")) {
+        auto *viewed = request->mutable_channel_mark_viewed();
+        viewed->set_channel_id(get("channel_id").toString().toStdString());
+        for (const QJsonValue &id : get("server_ids").toArray()) {
+            viewed->add_server_ids(static_cast<std::int64_t>(id.toInteger()));
+        }
+        return true;
+    }
+    if (method == QLatin1String("channel.react")) {
+        auto *react = request->mutable_channel_react();
+        react->set_channel_id(get("channel_id").toString().toStdString());
+        react->set_server_id(get("server_id").toInteger());
+        react->set_emoji(get("emoji").toString().toStdString());
+        return true;
+    }
     if (method == QLatin1String("message.react")) {
         auto *react = request->mutable_message_react();
         react->set_message_id(get("message_id").toString().toStdString());
@@ -1641,6 +1724,21 @@ bool v2ResponseFromV1(const QString &method, std::uint64_t id, const QJsonObject
         }
         return true;
     }
+    if (method == QLatin1String("channels.refresh")) {
+        auto *refresh = out->mutable_channels_refresh();
+        for (const QJsonValue &row : result.value(QStringLiteral("channels")).toArray()) {
+            const QJsonObject item = row.toObject();
+            whatevr::v2::ChannelRow channel;
+            channel.set_id(item.value(QStringLiteral("id")).toString().toStdString());
+            channel.set_name(item.value(QStringLiteral("name")).toString().toStdString());
+            channel.set_description(item.value(QStringLiteral("description")).toString().toStdString());
+            channel.set_followers(static_cast<std::int64_t>(item.value(QStringLiteral("followers")).toInteger()));
+            channel.set_verified(item.value(QStringLiteral("verified")).toBool());
+            channel.set_muted(item.value(QStringLiteral("muted")).toBool());
+            *refresh->add_channels() = channel;
+        }
+        return true;
+    }
     if (method == QLatin1String("message.forward")) {
         auto *forward = out->mutable_message_forward();
         for (const QJsonValue &messageId : result.value(QStringLiteral("message_ids")).toArray()) {
@@ -2033,6 +2131,13 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
         case View::kCallHistory:
             params.insert(QStringLiteral("view"), QStringLiteral("call_history"));
             break;
+        case View::kChannels:
+            params.insert(QStringLiteral("view"), QStringLiteral("channels"));
+            break;
+        case View::kChannelMessages:
+            params.insert(QStringLiteral("view"), QStringLiteral("channel_messages"));
+            params.insert(QStringLiteral("channel"), v2s(subscribe.channel_messages().channel_id()));
+            break;
         case View::kStickers:
             params.insert(QStringLiteral("view"), QStringLiteral("stickers"));
             switch (subscribe.stickers().source()) {
@@ -2395,6 +2500,41 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
     case Method::kCallReject:
         out->method = QStringLiteral("call.reject");
         params.insert(QStringLiteral("chat_id"), v2s(request.call_reject().chat_id()));
+        break;
+    case Method::kChannelsRefresh:
+        out->method = QStringLiteral("channels.refresh");
+        break;
+    case Method::kChannelFollow:
+        out->method = QStringLiteral("channel.follow");
+        params.insert(QStringLiteral("jid"), v2s(request.channel_follow().jid()));
+        params.insert(QStringLiteral("invite"), v2s(request.channel_follow().invite()));
+        break;
+    case Method::kChannelUnfollow:
+        out->method = QStringLiteral("channel.unfollow");
+        params.insert(QStringLiteral("jid"), v2s(request.channel_unfollow().jid()));
+        break;
+    case Method::kChannelMute:
+        out->method = QStringLiteral("channel.mute");
+        params.insert(QStringLiteral("jid"), v2s(request.channel_mute().jid()));
+        params.insert(QStringLiteral("muted"), request.channel_mute().muted());
+        break;
+    case Method::kChannelMarkViewed: {
+        out->method = QStringLiteral("channel.mark_viewed");
+        const auto &viewed = request.channel_mark_viewed();
+        params.insert(QStringLiteral("channel_id"), v2s(viewed.channel_id()));
+        QJsonArray ids;
+        for (const auto serverId : viewed.server_ids()) {
+            ids.append(static_cast<qint64>(serverId));
+        }
+        params.insert(QStringLiteral("server_ids"), ids);
+        break;
+    }
+    case Method::kChannelReact:
+        out->method = QStringLiteral("channel.react");
+        params.insert(QStringLiteral("channel_id"), v2s(request.channel_react().channel_id()));
+        params.insert(QStringLiteral("server_id"),
+                      static_cast<qint64>(request.channel_react().server_id()));
+        params.insert(QStringLiteral("emoji"), v2s(request.channel_react().emoji()));
         break;
     case Method::kMessageReact:
         out->method = QStringLiteral("message.react");
@@ -3437,6 +3577,26 @@ bool v2UpsertRowFromJson(const QString &view, const QJsonObject &item, whatevr::
     if (view == QLatin1String("status.muted")) {
         auto *row = out->mutable_status_muted();
         row->set_sender_id(str("id"));
+        return true;
+    }
+    if (view == QLatin1String("channels")) {
+        auto *row = out->mutable_channel();
+        row->set_id(str("id"));
+        row->set_name(str("name"));
+        row->set_description(str("description"));
+        row->set_followers(static_cast<std::int64_t>(item.value(QStringLiteral("followers")).toInteger()));
+        row->set_verified(item.value(QStringLiteral("verified")).toBool());
+        row->set_muted(item.value(QStringLiteral("muted")).toBool());
+        return true;
+    }
+    if (view == QLatin1String("channel_messages")) {
+        auto *row = out->mutable_channel_message();
+        row->set_server_id(static_cast<std::int64_t>(item.value(QStringLiteral("server_id")).toInteger()));
+        row->set_channel_id(str("channel_id"));
+        row->set_t_ms(static_cast<std::int64_t>(item.value(QStringLiteral("timestamp")).toInteger()) * 1000);
+        row->set_text(str("text"));
+        row->set_fallback(str("fallback"));
+        row->set_views(static_cast<std::int64_t>(item.value(QStringLiteral("views")).toInteger()));
         return true;
     }
     if (view == QLatin1String("call_history")) {

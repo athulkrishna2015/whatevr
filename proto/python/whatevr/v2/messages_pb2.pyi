@@ -1209,6 +1209,98 @@ class CallReject(_message.Message):
     chat_id: str
     def __init__(self, chat_id: _Optional[str] = ...) -> None: ...
 
+class ChannelsView(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class ChannelMessagesView(_message.Message):
+    __slots__ = ("channel_id",)
+    CHANNEL_ID_FIELD_NUMBER: _ClassVar[int]
+    channel_id: str
+    def __init__(self, channel_id: _Optional[str] = ...) -> None: ...
+
+class ChannelRow(_message.Message):
+    __slots__ = ("id", "name", "description", "followers", "verified", "muted")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
+    FOLLOWERS_FIELD_NUMBER: _ClassVar[int]
+    VERIFIED_FIELD_NUMBER: _ClassVar[int]
+    MUTED_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    name: str
+    description: str
+    followers: int
+    verified: bool
+    muted: bool
+    def __init__(self, id: _Optional[str] = ..., name: _Optional[str] = ..., description: _Optional[str] = ..., followers: _Optional[int] = ..., verified: _Optional[bool] = ..., muted: _Optional[bool] = ...) -> None: ...
+
+class ChannelMessageRow(_message.Message):
+    __slots__ = ("server_id", "channel_id", "t_ms", "text", "fallback", "views")
+    SERVER_ID_FIELD_NUMBER: _ClassVar[int]
+    CHANNEL_ID_FIELD_NUMBER: _ClassVar[int]
+    T_MS_FIELD_NUMBER: _ClassVar[int]
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    FALLBACK_FIELD_NUMBER: _ClassVar[int]
+    VIEWS_FIELD_NUMBER: _ClassVar[int]
+    server_id: int
+    channel_id: str
+    t_ms: int
+    text: str
+    fallback: str
+    views: int
+    def __init__(self, server_id: _Optional[int] = ..., channel_id: _Optional[str] = ..., t_ms: _Optional[int] = ..., text: _Optional[str] = ..., fallback: _Optional[str] = ..., views: _Optional[int] = ...) -> None: ...
+
+class ChannelsRefresh(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class ChannelsRefreshResult(_message.Message):
+    __slots__ = ("channels",)
+    CHANNELS_FIELD_NUMBER: _ClassVar[int]
+    channels: _containers.RepeatedCompositeFieldContainer[ChannelRow]
+    def __init__(self, channels: _Optional[_Iterable[_Union[ChannelRow, _Mapping]]] = ...) -> None: ...
+
+class ChannelFollow(_message.Message):
+    __slots__ = ("jid", "invite")
+    JID_FIELD_NUMBER: _ClassVar[int]
+    INVITE_FIELD_NUMBER: _ClassVar[int]
+    jid: str
+    invite: str
+    def __init__(self, jid: _Optional[str] = ..., invite: _Optional[str] = ...) -> None: ...
+
+class ChannelUnfollow(_message.Message):
+    __slots__ = ("jid",)
+    JID_FIELD_NUMBER: _ClassVar[int]
+    jid: str
+    def __init__(self, jid: _Optional[str] = ...) -> None: ...
+
+class ChannelMute(_message.Message):
+    __slots__ = ("jid", "muted")
+    JID_FIELD_NUMBER: _ClassVar[int]
+    MUTED_FIELD_NUMBER: _ClassVar[int]
+    jid: str
+    muted: bool
+    def __init__(self, jid: _Optional[str] = ..., muted: _Optional[bool] = ...) -> None: ...
+
+class ChannelMarkViewed(_message.Message):
+    __slots__ = ("channel_id", "server_ids")
+    CHANNEL_ID_FIELD_NUMBER: _ClassVar[int]
+    SERVER_IDS_FIELD_NUMBER: _ClassVar[int]
+    channel_id: str
+    server_ids: _containers.RepeatedScalarFieldContainer[int]
+    def __init__(self, channel_id: _Optional[str] = ..., server_ids: _Optional[_Iterable[int]] = ...) -> None: ...
+
+class ChannelReact(_message.Message):
+    __slots__ = ("channel_id", "server_id", "emoji")
+    CHANNEL_ID_FIELD_NUMBER: _ClassVar[int]
+    SERVER_ID_FIELD_NUMBER: _ClassVar[int]
+    EMOJI_FIELD_NUMBER: _ClassVar[int]
+    channel_id: str
+    server_id: int
+    emoji: str
+    def __init__(self, channel_id: _Optional[str] = ..., server_id: _Optional[int] = ..., emoji: _Optional[str] = ...) -> None: ...
+
 class SendResult(_message.Message):
     __slots__ = ("message_id",)
     MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]

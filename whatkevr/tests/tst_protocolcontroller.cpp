@@ -596,6 +596,24 @@ private:
             lastCommandParams = params;
             reply(id, QJsonObject{});
             Q_EMIT commandReceived();
+        } else if (method == QLatin1String("channels.refresh")) {
+            lastCommandMethod = method;
+            lastCommandParams = params;
+            reply(id, QJsonObject{{QStringLiteral("channels"),
+                                    QJsonArray{QJsonObject{{QStringLiteral("id"),
+                                                             QStringLiteral("1@newsletter")},
+                                                            {QStringLiteral("name"),
+                                                             QStringLiteral("News")}}}}});
+            Q_EMIT commandReceived();
+        } else if (method == QLatin1String("channel.follow")
+                   || method == QLatin1String("channel.unfollow")
+                   || method == QLatin1String("channel.mute")
+                   || method == QLatin1String("channel.mark_viewed")
+                   || method == QLatin1String("channel.react")) {
+            lastCommandMethod = method;
+            lastCommandParams = params;
+            reply(id, QJsonObject{});
+            Q_EMIT commandReceived();
         } else if (method == QLatin1String("call.reject")) {
             lastCommandMethod = method;
             lastCommandParams = params;
@@ -1285,6 +1303,58 @@ private Q_SLOTS:
         QCOMPARE(daemon.lastCommandMethod, QStringLiteral("community.link"));
         QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("community_id")).toString(),
                  QStringLiteral("c@g.us"));
+    }
+
+    // Channels list the directory and page posts; follow/mute go quietly.
+    void channelsListFollowMute()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats(
+            {chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});
+        daemon.setCollection(
+            QStringLiteral("channels"),
+            {QJsonObject{{QStringLiteral("id"), QStringLiteral("1@newsletter")},
+                          {QStringLiteral("name"), QStringLiteral("News")},
+                          {QStringLiteral("description"), QStringLiteral("Daily")},
+                          {QStringLiteral("followers"), 10},
+                          {QStringLiteral("verified"), true},
+                          {QStringLiteral("muted"), false}}});
+        daemon.setCollection(
+            QStringLiteral("channel_messages"),
+            {QJsonObject{{QStringLiteral("server_id"), 9},
+                          {QStringLiteral("channel_id"), QStringLiteral("1@newsletter")},
+                          {QStringLiteral("timestamp"), 1700000000},
+                          {QStringLiteral("text"), QStringLiteral("hello")},
+                          {QStringLiteral("fallback"), QStringLiteral("hello")},
+                          {QStringLiteral("views"), 3}}});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_COMPARE(daemon.chatsSubscribeCount, 2);
+
+        ctrl.openChannels();
+        auto *channels = qobject_cast<QAbstractItemModel *>(ctrl.channelsModel());
+        QVERIFY(channels);
+        QTRY_COMPARE(channels->rowCount(), 1);
+
+        ctrl.openChannelMessages(QStringLiteral("1@newsletter"), QStringLiteral("News"));
+        auto *posts = qobject_cast<QAbstractItemModel *>(ctrl.channelMessagesModel());
+        QVERIFY(posts);
+        QTRY_COMPARE(posts->rowCount(), 1);
+
+        QSignalSpy commandSpy(&daemon, &FakeDaemon::commandReceived);
+        ctrl.followChannel(QStringLiteral("1@newsletter"));
+        QVERIFY(commandSpy.wait());
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("channel.follow"));
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("jid")).toString(),
+                 QStringLiteral("1@newsletter"));
+
+        const int mutes = commandSpy.count();
+        ctrl.muteChannel(QStringLiteral("1@newsletter"), true);
+        QTRY_COMPARE(commandSpy.count(), mutes + 1);
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("channel.mute"));
+        QVERIFY(daemon.lastCommandParams.value(QStringLiteral("muted")).toBool());
     }
 
     // The calls tab lists the ringing set, and history pages call-log rows.

@@ -51,12 +51,15 @@ var accountDomain = core.Domain{
 			PRIMARY KEY (id, event)
 		)`,
 		`CREATE TABLE newsletter (
-			jid  TEXT PRIMARY KEY,
-			t    INTEGER NOT NULL,
-			event TEXT NOT NULL,
-			role TEXT NOT NULL DEFAULT '',
-			mute TEXT NOT NULL DEFAULT '',
-			name TEXT NOT NULL DEFAULT ''
+			jid         TEXT PRIMARY KEY,
+			t           INTEGER NOT NULL,
+			event        TEXT NOT NULL,
+			role        TEXT NOT NULL DEFAULT '',
+			mute        TEXT NOT NULL DEFAULT '',
+			name        TEXT NOT NULL DEFAULT '',
+			followers   INTEGER NOT NULL DEFAULT 0,
+			description TEXT NOT NULL DEFAULT '',
+			verified    INTEGER NOT NULL DEFAULT 0
 		)`,
 	},
 	Folds: map[string]core.FoldFunc{
@@ -186,13 +189,18 @@ func foldNewsletter(tx *core.Tx, in core.Input) error {
 	if j == "" {
 		return nil
 	}
-	if _, err := tx.Exec(`INSERT INTO newsletter (jid, t, event, role, mute, name) VALUES (?, ?, ?, ?, ?, ?)
+	if _, err := tx.Exec(`INSERT INTO newsletter (jid, t, event, role, mute, name, followers, description, verified)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (jid) DO UPDATE SET t = excluded.t, event = excluded.event, role = excluded.role, mute = excluded.mute,
-			name = CASE WHEN excluded.name != '' THEN excluded.name ELSE newsletter.name END
+			name = CASE WHEN excluded.name != '' THEN excluded.name ELSE newsletter.name END,
+			followers = CASE WHEN excluded.event = 'directory' THEN excluded.followers ELSE newsletter.followers END,
+			description = CASE WHEN excluded.event = 'directory' THEN excluded.description ELSE newsletter.description END,
+			verified = CASE WHEN excluded.event = 'directory' THEN excluded.verified ELSE newsletter.verified END
 		WHERE (excluded.t, excluded.event) > (newsletter.t, newsletter.event)`,
-		j, in.At.UnixMilli(), h.Event, h.Role, h.Mute, h.Name); err != nil {
+		j, in.At.UnixMilli(), h.Event, h.Role, h.Mute, h.Name, h.Followers, h.Description, h.Verified); err != nil {
 		return err
 	}
 	tx.Touch("chat", j)
+	tx.Touch("channels", "")
 	return nil
 }

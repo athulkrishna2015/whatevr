@@ -221,6 +221,9 @@ func runDaemon(mockFlagSet *mockFlagSet, captureFlagSet *captureFlagSet) {
 		RunLog:   run.Path,
 		Login:    func() { client.WantLogin() },
 		Shown:    func(keys []string) { client.WantAvatars(keys) },
+		ChannelPosts: func(ctx context.Context, channel string, count int, before int64) ([]whatsapp.ChannelMessage, error) {
+			return client.ChannelMessages(ctx, channel, count, before)
+		},
 	})
 	client, err = whatsapp.New(ctx, whatsapp.Options{
 		Paths:     paths,
