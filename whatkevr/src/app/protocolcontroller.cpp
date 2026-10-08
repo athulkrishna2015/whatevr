@@ -3565,6 +3565,16 @@ void ProtocolController::openStatus()
     QJsonObject params{{QStringLiteral("limit"), kStatusPageSize}};
     m_statusSub = m_client->subscribe(QStringLiteral("status"), params, m_statusModel);
     m_mutedStatusSub = m_client->subscribe(QStringLiteral("status.muted"), {}, m_mutedStatusModel);
+    // No v2 arms: settle ready-empty instead of spinning if the daemon ever
+    // fails these (entry points are hidden until the API exists).
+    connect(m_statusSub, &Subscription::failed, this, [this](const QString &, const QString &) {
+        m_statusModel->onReady(false, true);
+        Q_EMIT statusChanged();
+    });
+    connect(m_mutedStatusSub, &Subscription::failed, this, [this](const QString &, const QString &) {
+        m_mutedStatusModel->onReady(false, true);
+        Q_EMIT statusChanged();
+    });
     Q_EMIT statusChanged();
 }
 
@@ -3839,6 +3849,10 @@ void ProtocolController::openCalls()
     m_callsModel->onReset();
 
     m_callsSub = m_client->subscribe(QStringLiteral("calls"), {}, m_callsModel);
+    connect(m_callsSub, &Subscription::failed, this, [this](const QString &, const QString &) {
+        m_callsModel->onReady(false, true);
+        Q_EMIT callsChanged();
+    });
     Q_EMIT callsChanged();
 }
 
@@ -3877,6 +3891,10 @@ void ProtocolController::openCallHistory()
     m_callHistorySub = m_client->subscribe(QStringLiteral("call_history"),
                                            QJsonObject{{QStringLiteral("limit"), kCallHistoryPageSize}},
                                            m_callHistoryModel);
+    connect(m_callHistorySub, &Subscription::failed, this, [this](const QString &, const QString &) {
+        m_callHistoryModel->onReady(false, true);
+        Q_EMIT callHistoryChanged();
+    });
     Q_EMIT callHistoryChanged();
 }
 
@@ -4006,6 +4024,10 @@ void ProtocolController::openChannels()
     m_channelsModel->onReset();
 
     m_channelsSub = m_client->subscribe(QStringLiteral("channels"), {}, m_channelsModel);
+    connect(m_channelsSub, &Subscription::failed, this, [this](const QString &, const QString &) {
+        m_channelsModel->onReady(false, true);
+        Q_EMIT channelsChanged();
+    });
     // The directory is server state: refresh on every open so follows made on
     // the phone (or in another window) appear. The view refreshes off the
     // ChannelsChanged event the command publishes.
@@ -4035,6 +4057,10 @@ void ProtocolController::openChannelMessages(const QString &jid, const QString &
         QStringLiteral("channel_messages"),
         {{QStringLiteral("channel"), jid}},
         m_channelMessagesModel);
+    connect(m_channelMessagesSub, &Subscription::failed, this, [this](const QString &, const QString &) {
+        m_channelMessagesModel->onReady(false, true);
+        Q_EMIT channelMessagesChanged();
+    });
 }
 
 void ProtocolController::closeChannelMessages()
@@ -4356,6 +4382,10 @@ void ProtocolController::openChatLinks(const QString &chatId)
         QStringLiteral("chat_links"),
         {{QStringLiteral("chat_id"), chatId}, {QStringLiteral("limit"), kChatMediaPageSize}},
         m_chatLinksModel);
+    connect(m_chatLinksSub, &Subscription::failed, this, [this](const QString &, const QString &) {
+        m_chatLinksModel->onReady(false, true);
+        Q_EMIT chatLinksChanged();
+    });
     Q_EMIT chatLinksChanged();
 }
 
