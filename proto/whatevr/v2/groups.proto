@@ -49,3 +49,70 @@ enum GroupRole {
   // not in the group any more
   GROUP_ROLE_LEFT = 4;
 }
+
+// creates a group with an optional member list and photo; answers the chat
+message GroupCreate {
+  string name = 1;
+  repeated string members = 2;
+  string photo_path = 3;
+}
+
+message GroupCreateResult {
+  string chat_id = 1;
+}
+
+message GroupLeave {
+  string chat_id = 1;
+}
+
+message GroupSetName {
+  string chat_id = 1;
+  string name = 2;
+}
+
+message GroupSetTopic {
+  string chat_id = 1;
+  string description = 2;
+}
+
+message GroupSetPhoto {
+  string chat_id = 1;
+  // empty clears the photo, otherwise a local file to upload
+  string path = 2;
+}
+
+message GroupInviteLink {
+  string chat_id = 1;
+  bool reset = 2;
+}
+
+message GroupInviteLinkResult {
+  string link = 1;
+}
+
+message GroupMembers {
+  string chat_id = 1;
+  // one of add, remove, promote, demote
+  string action = 2;
+  repeated string members = 3;
+}
+
+message GroupSetAnnounce {
+  string chat_id = 1;
+  bool enabled = 2;
+}
+
+message GroupSetLocked {
+  string chat_id = 1;
+  bool enabled = 2;
+}
+
+message CommunityLink {
+  string community_id = 1;
+  string group_id = 2;
+}
+
+message CommunityUnlink {
+  string community_id = 1;
+  string group_id = 2;
+}

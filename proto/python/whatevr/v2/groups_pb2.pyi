@@ -1,8 +1,9 @@
 from whatevr.v2 import people_pb2 as _people_pb2
+from google.protobuf.internal import containers as _containers
 from google.protobuf.internal import enum_type_wrapper as _enum_type_wrapper
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
-from collections.abc import Mapping as _Mapping
+from collections.abc import Iterable as _Iterable, Mapping as _Mapping
 from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
@@ -69,3 +70,105 @@ class GroupMemberRow(_message.Message):
     person: _people_pb2.Person
     role: GroupRole
     def __init__(self, person: _Optional[_Union[_people_pb2.Person, _Mapping]] = ..., role: _Optional[_Union[GroupRole, str]] = ...) -> None: ...
+
+class GroupCreate(_message.Message):
+    __slots__ = ("name", "members", "photo_path")
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    MEMBERS_FIELD_NUMBER: _ClassVar[int]
+    PHOTO_PATH_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    members: _containers.RepeatedScalarFieldContainer[str]
+    photo_path: str
+    def __init__(self, name: _Optional[str] = ..., members: _Optional[_Iterable[str]] = ..., photo_path: _Optional[str] = ...) -> None: ...
+
+class GroupCreateResult(_message.Message):
+    __slots__ = ("chat_id",)
+    CHAT_ID_FIELD_NUMBER: _ClassVar[int]
+    chat_id: str
+    def __init__(self, chat_id: _Optional[str] = ...) -> None: ...
+
+class GroupLeave(_message.Message):
+    __slots__ = ("chat_id",)
+    CHAT_ID_FIELD_NUMBER: _ClassVar[int]
+    chat_id: str
+    def __init__(self, chat_id: _Optional[str] = ...) -> None: ...
+
+class GroupSetName(_message.Message):
+    __slots__ = ("chat_id", "name")
+    CHAT_ID_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    chat_id: str
+    name: str
+    def __init__(self, chat_id: _Optional[str] = ..., name: _Optional[str] = ...) -> None: ...
+
+class GroupSetTopic(_message.Message):
+    __slots__ = ("chat_id", "description")
+    CHAT_ID_FIELD_NUMBER: _ClassVar[int]
+    DESCRIPTION_FIELD_NUMBER: _ClassVar[int]
+    chat_id: str
+    description: str
+    def __init__(self, chat_id: _Optional[str] = ..., description: _Optional[str] = ...) -> None: ...
+
+class GroupSetPhoto(_message.Message):
+    __slots__ = ("chat_id", "path")
+    CHAT_ID_FIELD_NUMBER: _ClassVar[int]
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    chat_id: str
+    path: str
+    def __init__(self, chat_id: _Optional[str] = ..., path: _Optional[str] = ...) -> None: ...
+
+class GroupInviteLink(_message.Message):
+    __slots__ = ("chat_id", "reset")
+    CHAT_ID_FIELD_NUMBER: _ClassVar[int]
+    RESET_FIELD_NUMBER: _ClassVar[int]
+    chat_id: str
+    reset: bool
+    def __init__(self, chat_id: _Optional[str] = ..., reset: _Optional[bool] = ...) -> None: ...
+
+class GroupInviteLinkResult(_message.Message):
+    __slots__ = ("link",)
+    LINK_FIELD_NUMBER: _ClassVar[int]
+    link: str
+    def __init__(self, link: _Optional[str] = ...) -> None: ...
+
+class GroupMembers(_message.Message):
+    __slots__ = ("chat_id", "action", "members")
+    CHAT_ID_FIELD_NUMBER: _ClassVar[int]
+    ACTION_FIELD_NUMBER: _ClassVar[int]
+    MEMBERS_FIELD_NUMBER: _ClassVar[int]
+    chat_id: str
+    action: str
+    members: _containers.RepeatedScalarFieldContainer[str]
+    def __init__(self, chat_id: _Optional[str] = ..., action: _Optional[str] = ..., members: _Optional[_Iterable[str]] = ...) -> None: ...
+
+class GroupSetAnnounce(_message.Message):
+    __slots__ = ("chat_id", "enabled")
+    CHAT_ID_FIELD_NUMBER: _ClassVar[int]
+    ENABLED_FIELD_NUMBER: _ClassVar[int]
+    chat_id: str
+    enabled: bool
+    def __init__(self, chat_id: _Optional[str] = ..., enabled: _Optional[bool] = ...) -> None: ...
+
+class GroupSetLocked(_message.Message):
+    __slots__ = ("chat_id", "enabled")
+    CHAT_ID_FIELD_NUMBER: _ClassVar[int]
+    ENABLED_FIELD_NUMBER: _ClassVar[int]
+    chat_id: str
+    enabled: bool
+    def __init__(self, chat_id: _Optional[str] = ..., enabled: _Optional[bool] = ...) -> None: ...
+
+class CommunityLink(_message.Message):
+    __slots__ = ("community_id", "group_id")
+    COMMUNITY_ID_FIELD_NUMBER: _ClassVar[int]
+    GROUP_ID_FIELD_NUMBER: _ClassVar[int]
+    community_id: str
+    group_id: str
+    def __init__(self, community_id: _Optional[str] = ..., group_id: _Optional[str] = ...) -> None: ...
+
+class CommunityUnlink(_message.Message):
+    __slots__ = ("community_id", "group_id")
+    COMMUNITY_ID_FIELD_NUMBER: _ClassVar[int]
+    GROUP_ID_FIELD_NUMBER: _ClassVar[int]
+    community_id: str
+    group_id: str
+    def __init__(self, community_id: _Optional[str] = ..., group_id: _Optional[str] = ...) -> None: ...

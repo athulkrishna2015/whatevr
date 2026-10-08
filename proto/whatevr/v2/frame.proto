@@ -86,6 +86,17 @@ message Request {
     PollVote poll_vote = 69;
     EventRsvp event_rsvp = 70;
     GroupJoinInvite group_join_invite = 71;
+    GroupCreate group_create = 73;
+    GroupLeave group_leave = 74;
+    GroupSetName group_set_name = 75;
+    GroupSetTopic group_set_topic = 76;
+    GroupSetPhoto group_set_photo = 77;
+    GroupInviteLink group_invite_link = 78;
+    GroupMembers group_members = 80;
+    GroupSetAnnounce group_set_announce = 81;
+    GroupSetLocked group_set_locked = 82;
+    CommunityLink community_link = 84;
+    CommunityUnlink community_unlink = 85;
     MessageText message_text = 72;
 
     // 90-99: media
@@ -141,6 +152,8 @@ message Response {
 
     MessageForwardResult message_forward = 66;
     GroupJoinInviteResult group_join_invite = 71;
+    GroupCreateResult group_create = 73;
+    GroupInviteLinkResult group_invite_link = 78;
     MessageTextResult message_text = 72;
 
     MediaStreamResult media_stream = 91;

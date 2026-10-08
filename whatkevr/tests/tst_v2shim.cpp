@@ -109,7 +109,8 @@ private Q_SLOTS:
     void subscribeUnknownView()
     {
         whatevr::v2::Request request;
-        QVERIFY(!buildV2Subscribe(1, QStringLiteral("chat_folders"), {}, &request));
+        QVERIFY(buildV2Subscribe(1, QStringLiteral("chat_folders"), {}, &request));
+        QVERIFY(request.subscribe().has_chat_folders());
         QVERIFY(!buildV2Subscribe(1, QStringLiteral("status"), {}, &request));
         QVERIFY(!buildV2Subscribe(1, QStringLiteral("chats"),
                                    QJsonObject{{QStringLiteral("filter"), QStringLiteral("unread")}},
@@ -213,7 +214,10 @@ private Q_SLOTS:
     void requestUnknownMethod()
     {
         whatevr::v2::Request request;
-        QVERIFY(!buildV2Request(1, QStringLiteral("chat_folder.create"), {}, &request));
+        QVERIFY(buildV2Request(1, QStringLiteral("chat_folder.create"),
+                               QJsonObject{{QStringLiteral("name"), QStringLiteral("Work")}},
+                               &request));
+        QVERIFY(request.has_chat_folder_create());
         QVERIFY(!buildV2Request(1, QStringLiteral("status.post"), {}, &request));
         QVERIFY(!buildV2Request(1, QStringLiteral("daemon.shutdown"), {}, &request));
     }
@@ -280,6 +284,39 @@ private Q_SLOTS:
         QVERIFY(v2RequestToV1(location, &decoded));
         QCOMPARE(decoded.method, QStringLiteral("send.location"));
         QCOMPARE(decoded.params.value(QStringLiteral("long")).toDouble(), 77.5);
+    }
+
+    void requestGroupCreateAndInviteLink()
+    {
+        whatevr::v2::Request create;
+        QVERIFY(buildV2Request(14, QStringLiteral("group.create"),
+                               QJsonObject{{QStringLiteral("name"), QStringLiteral("Club")},
+                                           {QStringLiteral("members"),
+                                            QJsonArray{QStringLiteral("b@s")}},
+                                           {QStringLiteral("photo_path"), QStringLiteral("")}},
+                               &create));
+        QVERIFY(create.has_group_create());
+        QCOMPARE(v2s(create.group_create().name()), QStringLiteral("Club"));
+        QCOMPARE(create.group_create().members_size(), 1);
+
+        V2RequestV1 decoded;
+        QVERIFY(v2RequestToV1(create, &decoded));
+        QCOMPARE(decoded.method, QStringLiteral("group.create"));
+
+        // The invite ack carries the clipboard text.
+        whatevr::v2::Response response;
+        QVERIFY(v2ResponseFromV1(QStringLiteral("group.invite_link"), 15,
+                                 QJsonObject{{QStringLiteral("link"),
+                                               QStringLiteral("https://chat.whatsapp.com/test")}},
+                                 &response));
+        QVERIFY(response.has_group_invite_link());
+        QCOMPARE(v2s(response.group_invite_link().link()),
+                 QStringLiteral("https://chat.whatsapp.com/test"));
+
+        const V2ResponseTranslation back = translateV2Response(response);
+        QVERIFY(!back.isError());
+        QCOMPARE(back.result.value(QStringLiteral("link")).toString(),
+                 QStringLiteral("https://chat.whatsapp.com/test"));
     }
 
     void requestMuteConvertsToMillis()

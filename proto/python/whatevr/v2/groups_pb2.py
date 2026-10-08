@@ -25,7 +25,7 @@ _sym_db = _symbol_database.Default()
 from whatevr.v2 import people_pb2 as whatevr_dot_v2_dot_people__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x17whatevr/v2/groups.proto\x12\nwhatevr.v2\x1a\x17whatevr/v2/people.proto\"$\n\tGroupView\x12\x17\n\x07\x63hat_id\x18\x01 \x01(\tR\x06\x63hatId\"\xa5\x03\n\x08GroupRow\x12\x17\n\x07\x63hat_id\x18\x01 \x01(\tR\x06\x63hatId\x12\x18\n\x07subject\x18\x02 \x01(\tR\x07subject\x12 \n\x0b\x64\x65scription\x18\x03 \x01(\tR\x0b\x64\x65scription\x12\x1f\n\x0b\x61vatar_path\x18\x04 \x01(\tR\navatarPath\x12\x1d\n\ncreated_ms\x18\x05 \x01(\x03R\tcreatedMs\x12(\n\x05owner\x18\x06 \x01(\x0b\x32\x12.whatevr.v2.PersonR\x05owner\x12!\n\x0cmember_count\x18\x07 \x01(\rR\x0bmemberCount\x12.\n\x07my_role\x18\x08 \x01(\x0e\x32\x15.whatevr.v2.GroupRoleR\x06myRole\x12\x1a\n\x08\x61nnounce\x18\t \x01(\x08R\x08\x61nnounce\x12\x16\n\x06locked\x18\n \x01(\x08R\x06locked\x12\x1a\n\x08\x61pproval\x18\x0b \x01(\x08R\x08\x61pproval\x12!\n\x0c\x63ommunity_id\x18\x0c \x01(\tR\x0b\x63ommunityId\x12\x14\n\x05\x65rror\x18\r \x01(\tR\x05\x65rror\"+\n\x10GroupMembersView\x12\x17\n\x07\x63hat_id\x18\x01 \x01(\tR\x06\x63hatId\"g\n\x0eGroupMemberRow\x12*\n\x06person\x18\x01 \x01(\x0b\x32\x12.whatevr.v2.PersonR\x06person\x12)\n\x04role\x18\x02 \x01(\x0e\x32\x15.whatevr.v2.GroupRoleR\x04role*\x84\x01\n\tGroupRole\x12\x1a\n\x16GROUP_ROLE_UNSPECIFIED\x10\x00\x12\x15\n\x11GROUP_ROLE_MEMBER\x10\x01\x12\x14\n\x10GROUP_ROLE_ADMIN\x10\x02\x12\x19\n\x15GROUP_ROLE_SUPERADMIN\x10\x03\x12\x13\n\x0fGROUP_ROLE_LEFT\x10\x04\x42\xa0\x01\n\x0e\x63om.whatevr.v2B\x0bGroupsProtoZ5github.com/codelif/whatevr/proto/whatevr/v2;whatevrv2\xa2\x02\x03WXX\xaa\x02\nWhatevr.V2\xca\x02\nWhatevr\\V2\xe2\x02\x16Whatevr\\V2\\GPBMetadata\xea\x02\x0bWhatevr::V2\x92\x03\x02\x08\x02\x62\x08\x65\x64itionsp\xe9\x07')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x17whatevr/v2/groups.proto\x12\nwhatevr.v2\x1a\x17whatevr/v2/people.proto\"$\n\tGroupView\x12\x17\n\x07\x63hat_id\x18\x01 \x01(\tR\x06\x63hatId\"\xa5\x03\n\x08GroupRow\x12\x17\n\x07\x63hat_id\x18\x01 \x01(\tR\x06\x63hatId\x12\x18\n\x07subject\x18\x02 \x01(\tR\x07subject\x12 \n\x0b\x64\x65scription\x18\x03 \x01(\tR\x0b\x64\x65scription\x12\x1f\n\x0b\x61vatar_path\x18\x04 \x01(\tR\navatarPath\x12\x1d\n\ncreated_ms\x18\x05 \x01(\x03R\tcreatedMs\x12(\n\x05owner\x18\x06 \x01(\x0b\x32\x12.whatevr.v2.PersonR\x05owner\x12!\n\x0cmember_count\x18\x07 \x01(\rR\x0bmemberCount\x12.\n\x07my_role\x18\x08 \x01(\x0e\x32\x15.whatevr.v2.GroupRoleR\x06myRole\x12\x1a\n\x08\x61nnounce\x18\t \x01(\x08R\x08\x61nnounce\x12\x16\n\x06locked\x18\n \x01(\x08R\x06locked\x12\x1a\n\x08\x61pproval\x18\x0b \x01(\x08R\x08\x61pproval\x12!\n\x0c\x63ommunity_id\x18\x0c \x01(\tR\x0b\x63ommunityId\x12\x14\n\x05\x65rror\x18\r \x01(\tR\x05\x65rror\"+\n\x10GroupMembersView\x12\x17\n\x07\x63hat_id\x18\x01 \x01(\tR\x06\x63hatId\"g\n\x0eGroupMemberRow\x12*\n\x06person\x18\x01 \x01(\x0b\x32\x12.whatevr.v2.PersonR\x06person\x12)\n\x04role\x18\x02 \x01(\x0e\x32\x15.whatevr.v2.GroupRoleR\x04role\"Z\n\x0bGroupCreate\x12\x12\n\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n\x07members\x18\x02 \x03(\tR\x07members\x12\x1d\n\nphoto_path\x18\x03 \x01(\tR\tphotoPath\",\n\x11GroupCreateResult\x12\x17\n\x07\x63hat_id\x18\x01 \x01(\tR\x06\x63hatId\"%\n\nGroupLeave\x12\x17\n\x07\x63hat_id\x18\x01 \x01(\tR\x06\x63hatId\";\n\x0cGroupSetName\x12\x17\n\x07\x63hat_id\x18\x01 \x01(\tR\x06\x63hatId\x12\x12\n\x04name\x18\x02 \x01(\tR\x04name\"J\n\rGroupSetTopic\x12\x17\n\x07\x63hat_id\x18\x01 \x01(\tR\x06\x63hatId\x12 \n\x0b\x64\x65scription\x18\x02 \x01(\tR\x0b\x64\x65scription\"<\n\rGroupSetPhoto\x12\x17\n\x07\x63hat_id\x18\x01 \x01(\tR\x06\x63hatId\x12\x12\n\x04path\x18\x02 \x01(\tR\x04path\"@\n\x0fGroupInviteLink\x12\x17\n\x07\x63hat_id\x18\x01 \x01(\tR\x06\x63hatId\x12\x14\n\x05reset\x18\x02 \x01(\x08R\x05reset\"+\n\x15GroupInviteLinkResult\x12\x12\n\x04link\x18\x01 \x01(\tR\x04link\"Y\n\x0cGroupMembers\x12\x17\n\x07\x63hat_id\x18\x01 \x01(\tR\x06\x63hatId\x12\x16\n\x06\x61\x63tion\x18\x02 \x01(\tR\x06\x61\x63tion\x12\x18\n\x07members\x18\x03 \x03(\tR\x07members\"E\n\x10GroupSetAnnounce\x12\x17\n\x07\x63hat_id\x18\x01 \x01(\tR\x06\x63hatId\x12\x18\n\x07\x65nabled\x18\x02 \x01(\x08R\x07\x65nabled\"C\n\x0eGroupSetLocked\x12\x17\n\x07\x63hat_id\x18\x01 \x01(\tR\x06\x63hatId\x12\x18\n\x07\x65nabled\x18\x02 \x01(\x08R\x07\x65nabled\"M\n\rCommunityLink\x12!\n\x0c\x63ommunity_id\x18\x01 \x01(\tR\x0b\x63ommunityId\x12\x19\n\x08group_id\x18\x02 \x01(\tR\x07groupId\"O\n\x0f\x43ommunityUnlink\x12!\n\x0c\x63ommunity_id\x18\x01 \x01(\tR\x0b\x63ommunityId\x12\x19\n\x08group_id\x18\x02 \x01(\tR\x07groupId*\x84\x01\n\tGroupRole\x12\x1a\n\x16GROUP_ROLE_UNSPECIFIED\x10\x00\x12\x15\n\x11GROUP_ROLE_MEMBER\x10\x01\x12\x14\n\x10GROUP_ROLE_ADMIN\x10\x02\x12\x19\n\x15GROUP_ROLE_SUPERADMIN\x10\x03\x12\x13\n\x0fGROUP_ROLE_LEFT\x10\x04\x42\xa0\x01\n\x0e\x63om.whatevr.v2B\x0bGroupsProtoZ5github.com/codelif/whatevr/proto/whatevr/v2;whatevrv2\xa2\x02\x03WXX\xaa\x02\nWhatevr.V2\xca\x02\nWhatevr\\V2\xe2\x02\x16Whatevr\\V2\\GPBMetadata\xea\x02\x0bWhatevr::V2\x92\x03\x02\x08\x02\x62\x08\x65\x64itionsp\xe9\x07')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -33,8 +33,8 @@ _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'whatevr.v2.groups_pb2', _gl
 if not _descriptor._USE_C_DESCRIPTORS:
   _globals['DESCRIPTOR']._loaded_options = None
   _globals['DESCRIPTOR']._serialized_options = b'\n\016com.whatevr.v2B\013GroupsProtoZ5github.com/codelif/whatevr/proto/whatevr/v2;whatevrv2\242\002\003WXX\252\002\nWhatevr.V2\312\002\nWhatevr\\V2\342\002\026Whatevr\\V2\\GPBMetadata\352\002\013Whatevr::V2\222\003\002\010\002'
-  _globals['_GROUPROLE']._serialized_start=677
-  _globals['_GROUPROLE']._serialized_end=809
+  _globals['_GROUPROLE']._serialized_start=1555
+  _globals['_GROUPROLE']._serialized_end=1687
   _globals['_GROUPVIEW']._serialized_start=64
   _globals['_GROUPVIEW']._serialized_end=100
   _globals['_GROUPROW']._serialized_start=103
@@ -43,4 +43,30 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_GROUPMEMBERSVIEW']._serialized_end=569
   _globals['_GROUPMEMBERROW']._serialized_start=571
   _globals['_GROUPMEMBERROW']._serialized_end=674
+  _globals['_GROUPCREATE']._serialized_start=676
+  _globals['_GROUPCREATE']._serialized_end=766
+  _globals['_GROUPCREATERESULT']._serialized_start=768
+  _globals['_GROUPCREATERESULT']._serialized_end=812
+  _globals['_GROUPLEAVE']._serialized_start=814
+  _globals['_GROUPLEAVE']._serialized_end=851
+  _globals['_GROUPSETNAME']._serialized_start=853
+  _globals['_GROUPSETNAME']._serialized_end=912
+  _globals['_GROUPSETTOPIC']._serialized_start=914
+  _globals['_GROUPSETTOPIC']._serialized_end=988
+  _globals['_GROUPSETPHOTO']._serialized_start=990
+  _globals['_GROUPSETPHOTO']._serialized_end=1050
+  _globals['_GROUPINVITELINK']._serialized_start=1052
+  _globals['_GROUPINVITELINK']._serialized_end=1116
+  _globals['_GROUPINVITELINKRESULT']._serialized_start=1118
+  _globals['_GROUPINVITELINKRESULT']._serialized_end=1161
+  _globals['_GROUPMEMBERS']._serialized_start=1163
+  _globals['_GROUPMEMBERS']._serialized_end=1252
+  _globals['_GROUPSETANNOUNCE']._serialized_start=1254
+  _globals['_GROUPSETANNOUNCE']._serialized_end=1323
+  _globals['_GROUPSETLOCKED']._serialized_start=1325
+  _globals['_GROUPSETLOCKED']._serialized_end=1392
+  _globals['_COMMUNITYLINK']._serialized_start=1394
+  _globals['_COMMUNITYLINK']._serialized_end=1471
+  _globals['_COMMUNITYUNLINK']._serialized_start=1473
+  _globals['_COMMUNITYUNLINK']._serialized_end=1552
 # @@protoc_insertion_point(module_scope)

@@ -555,9 +555,17 @@ private:
                 reply(id, QJsonObject{{QStringLiteral("chat_id"), m_groupCreateChatId}});
             } else if (method == QLatin1String("group.join_invite")) {
                 reply(id, QJsonObject{{QStringLiteral("chat_id"), m_joinInviteChatId}});
+            } else if (method == QLatin1String("group.invite_link")) {
+                reply(id, QJsonObject{{QStringLiteral("link"), QStringLiteral("https://chat.whatsapp.com/test")}});
             } else {
                 reply(id, QJsonObject{});
             }
+            Q_EMIT commandReceived();
+        } else if (method == QLatin1String("community.link")
+                   || method == QLatin1String("community.unlink")) {
+            lastCommandMethod = method;
+            lastCommandParams = params;
+            reply(id, QJsonObject{});
             Q_EMIT commandReceived();
         } else if (method == QLatin1String("daemon.reconnect")) {
             ++reconnectCount;
@@ -1184,6 +1192,47 @@ private Q_SLOTS:
 
         ctrl.setChatFolder(5);
         QTRY_COMPARE(daemon.lastChatsParams.value(QStringLiteral("folder_id")).toInt(), 5);
+    }
+
+    // Group management reaches the daemon: create selects the new chat like a
+    // join does, and card commands go quietly. Invite links are not copied
+    // here: the offscreen clipboard segfaults, so the ack shape is covered in
+    // tst_v2shim instead.
+    void groupCreateSelectsAndCard()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats({chatRow(QStringLiteral("130@g.us"), QStringLiteral("Club"),
+                                       QStringLiteral("1-000"))});
+        daemon.setGroupCreateChatId(QStringLiteral("130@g.us"));
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_VERIFY(!ctrl.chatsLoading());
+
+        QSignalSpy commandSpy(&daemon, &FakeDaemon::commandReceived);
+        QSignalSpy openSpy(&ctrl, &ProtocolController::openChatRequested);
+        ctrl.createGroup(QStringLiteral("Club"), QStringList{QStringLiteral("b@s")});
+        QVERIFY(commandSpy.wait());
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("group.create"));
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("name")).toString(),
+                 QStringLiteral("Club"));
+        QVERIFY(openSpy.wait());
+        QCOMPARE(openSpy.first().first().toString(), QStringLiteral("130@g.us"));
+        QCOMPARE(ctrl.selectedChatId(), QStringLiteral("130@g.us"));
+
+        const int cards = commandSpy.count();
+        ctrl.setGroupAnnounce(QStringLiteral("130@g.us"), true);
+        QTRY_COMPARE(commandSpy.count(), cards + 1);
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("group.set_announce"));
+        QVERIFY(daemon.lastCommandParams.value(QStringLiteral("enabled")).toBool());
+
+        const int links = commandSpy.count();
+        ctrl.linkCommunityGroup(QStringLiteral("c@g.us"), QStringLiteral("130@g.us"));
+        QTRY_COMPARE(commandSpy.count(), links + 1);
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("community.link"));
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("community_id")).toString(),
+                 QStringLiteral("c@g.us"));
     }
 
     // `privacy.set_default_timer` carries the seconds through.
@@ -3183,12 +3232,9 @@ private Q_SLOTS:
                  QStringLiteral("chat@s:m1"));
     }
 
-    // Creating a group lands you in it the same way a join invite does: the new
-    // chat id exists only in the ack, so the controller selects it and asks the
-    // shell to surface it.
-    // Protocol v2 has no group management: creation fails the way an
-    // unserved method does, surfaced as the action failure.
-    void createGroupFailsWithoutAGroupApi()
+    // A create ack without a chat id selects nothing: the daemon answered,
+    // but there is nowhere to land.
+    void createGroupFailsWithoutAnAckId()
     {
         FakeDaemon daemon(m_path);
         daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
@@ -3202,7 +3248,6 @@ private Q_SLOTS:
         QSignalSpy failedSpy(&ctrl, &ProtocolController::messageActionFailed);
         ctrl.createGroup(QStringLiteral("Trip"), {QStringLiteral("a@s"), QStringLiteral("b@s")});
         QVERIFY(failedSpy.wait());
-        QVERIFY(failedSpy.first().first().toString().contains(QStringLiteral("not served")));
         QVERIFY(ctrl.selectedChatId().isEmpty());
     }
 

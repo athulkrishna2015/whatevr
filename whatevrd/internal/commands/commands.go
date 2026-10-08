@@ -81,6 +81,17 @@ func Register(o Options) *Opener {
 		arm(v2.Request_PollVote_case):                 x.vote,
 		arm(v2.Request_EventRsvp_case):                x.rsvp,
 		arm(v2.Request_GroupJoinInvite_case):          x.joinInvite,
+		arm(v2.Request_GroupCreate_case):              x.groupCreate,
+		arm(v2.Request_GroupLeave_case):               x.groupLeave,
+		arm(v2.Request_GroupSetName_case):             x.groupSetName,
+		arm(v2.Request_GroupSetTopic_case):            x.groupSetTopic,
+		arm(v2.Request_GroupSetPhoto_case):            x.groupSetPhoto,
+		arm(v2.Request_GroupInviteLink_case):          x.groupInviteLink,
+		arm(v2.Request_GroupMembers_case):             x.groupMembers,
+		arm(v2.Request_GroupSetAnnounce_case):         x.groupSetAnnounce,
+		arm(v2.Request_GroupSetLocked_case):           x.groupSetLocked,
+		arm(v2.Request_CommunityLink_case):            x.communityLink,
+		arm(v2.Request_CommunityUnlink_case):          x.communityUnlink,
 		arm(v2.Request_MediaDownload_case):            x.download,
 		arm(v2.Request_MediaStream_case):              x.stream,
 		arm(v2.Request_MediaCancelDownload_case):      x.cancelDownload,
@@ -198,6 +209,22 @@ func (x *commands) person(ctx context.Context, a *v2.Address) (string, error) {
 		return "", notFound("no one by that address")
 	}
 	return key, nil
+}
+
+// member resolves a frontend person id to the key UpdateGroupMembers wants.
+// Unknown ids are skipped: the picker can hold rows the daemon never keyed.
+func (x *commands) member(ctx context.Context, id string) (string, bool) {
+	w, err := x.rs.World(ctx)
+	if err != nil {
+		return "", false
+	}
+	if key, ok := x.rs.IDs().Key(w, id); ok {
+		return key, true
+	}
+	if norm := model.Norm(id); norm != "" {
+		return norm, true
+	}
+	return "", false
 }
 
 // id is the id rows show key under, given one now if it had none.
@@ -674,6 +701,147 @@ func (x *commands) rsvp(ctx context.Context, s *server.Session, req *v2.Request)
 	return onMessage(p.GetMessageId(), func(r whatsapp.Ref) error {
 		return x.c.Rsvp(ctx, r, answer, p.GetExtraGuests())
 	})
+}
+
+func (x *commands) group(ctx context.Context, id string) (string, error) {
+	key, err := x.chat(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if !model.IsGroup(key) {
+		return "", invalid("not a group chat")
+	}
+	return key, nil
+}
+
+func (x *commands) groupCreate(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetGroupCreate()
+	members := make([]string, 0, len(p.GetMembers()))
+	for _, m := range p.GetMembers() {
+		if id, ok := x.member(ctx, m); ok {
+			members = append(members, id)
+		}
+	}
+	key, err := x.c.CreateGroup(ctx, p.GetName(), members, p.GetPhotoPath())
+	if err != nil {
+		return nil, wire(err)
+	}
+	id, err := x.id(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	resp := &v2.Response{}
+	resp.SetGroupCreate(v2.GroupCreateResult_builder{ChatId: id}.Build())
+	return resp, nil
+}
+
+func (x *commands) groupLeave(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	key, err := x.group(ctx, req.GetGroupLeave().GetChatId())
+	if err != nil {
+		return nil, err
+	}
+	return nil, wire(x.c.LeaveGroup(ctx, key))
+}
+
+func (x *commands) groupSetName(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetGroupSetName()
+	key, err := x.group(ctx, p.GetChatId())
+	if err != nil {
+		return nil, err
+	}
+	return nil, wire(x.c.SetGroupName(ctx, key, p.GetName()))
+}
+
+func (x *commands) groupSetTopic(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetGroupSetTopic()
+	key, err := x.group(ctx, p.GetChatId())
+	if err != nil {
+		return nil, err
+	}
+	return nil, wire(x.c.SetGroupDescription(ctx, key, p.GetDescription()))
+}
+
+func (x *commands) groupSetPhoto(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetGroupSetPhoto()
+	key, err := x.group(ctx, p.GetChatId())
+	if err != nil {
+		return nil, err
+	}
+	return nil, wire(x.c.SetGroupPhoto(ctx, key, p.GetPath()))
+}
+
+func (x *commands) groupInviteLink(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetGroupInviteLink()
+	key, err := x.group(ctx, p.GetChatId())
+	if err != nil {
+		return nil, err
+	}
+	link, err := x.c.GroupInviteLink(ctx, key, p.GetReset())
+	if err != nil {
+		return nil, wire(err)
+	}
+	resp := &v2.Response{}
+	resp.SetGroupInviteLink(v2.GroupInviteLinkResult_builder{Link: link}.Build())
+	return resp, nil
+}
+
+func (x *commands) groupMembers(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetGroupMembers()
+	key, err := x.group(ctx, p.GetChatId())
+	if err != nil {
+		return nil, err
+	}
+	members := make([]string, 0, len(p.GetMembers()))
+	for _, m := range p.GetMembers() {
+		if id, ok := x.member(ctx, m); ok {
+			members = append(members, id)
+		}
+	}
+	return nil, wire(x.c.UpdateGroupMembers(ctx, key, p.GetAction(), members))
+}
+
+func (x *commands) groupSetAnnounce(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetGroupSetAnnounce()
+	key, err := x.group(ctx, p.GetChatId())
+	if err != nil {
+		return nil, err
+	}
+	return nil, wire(x.c.SetGroupAnnounce(ctx, key, p.GetEnabled()))
+}
+
+func (x *commands) groupSetLocked(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetGroupSetLocked()
+	key, err := x.group(ctx, p.GetChatId())
+	if err != nil {
+		return nil, err
+	}
+	return nil, wire(x.c.SetGroupLocked(ctx, key, p.GetEnabled()))
+}
+
+func (x *commands) communityLink(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetCommunityLink()
+	community, err := x.group(ctx, p.GetCommunityId())
+	if err != nil {
+		return nil, err
+	}
+	group, err := x.group(ctx, p.GetGroupId())
+	if err != nil {
+		return nil, err
+	}
+	return nil, wire(x.c.LinkCommunityGroup(ctx, community, group))
+}
+
+func (x *commands) communityUnlink(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetCommunityUnlink()
+	community, err := x.group(ctx, p.GetCommunityId())
+	if err != nil {
+		return nil, err
+	}
+	group, err := x.group(ctx, p.GetGroupId())
+	if err != nil {
+		return nil, err
+	}
+	return nil, wire(x.c.UnlinkCommunityGroup(ctx, community, group))
 }
 
 func (x *commands) joinInvite(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {

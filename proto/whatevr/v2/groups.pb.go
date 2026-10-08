@@ -509,6 +509,918 @@ func (b0 GroupMemberRow_builder) Build() *GroupMemberRow {
 	return m0
 }
 
+// creates a group with an optional member list and photo; answers the chat
+type GroupCreate struct {
+	state                protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Name      string                 `protobuf:"bytes,1,opt,name=name"`
+	xxx_hidden_Members   []string               `protobuf:"bytes,2,rep,name=members"`
+	xxx_hidden_PhotoPath string                 `protobuf:"bytes,3,opt,name=photo_path,json=photoPath"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *GroupCreate) Reset() {
+	*x = GroupCreate{}
+	mi := &file_whatevr_v2_groups_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GroupCreate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GroupCreate) ProtoMessage() {}
+
+func (x *GroupCreate) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_groups_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GroupCreate) GetName() string {
+	if x != nil {
+		return x.xxx_hidden_Name
+	}
+	return ""
+}
+
+func (x *GroupCreate) GetMembers() []string {
+	if x != nil {
+		return x.xxx_hidden_Members
+	}
+	return nil
+}
+
+func (x *GroupCreate) GetPhotoPath() string {
+	if x != nil {
+		return x.xxx_hidden_PhotoPath
+	}
+	return ""
+}
+
+func (x *GroupCreate) SetName(v string) {
+	x.xxx_hidden_Name = v
+}
+
+func (x *GroupCreate) SetMembers(v []string) {
+	x.xxx_hidden_Members = v
+}
+
+func (x *GroupCreate) SetPhotoPath(v string) {
+	x.xxx_hidden_PhotoPath = v
+}
+
+type GroupCreate_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Name      string
+	Members   []string
+	PhotoPath string
+}
+
+func (b0 GroupCreate_builder) Build() *GroupCreate {
+	m0 := &GroupCreate{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Name = b.Name
+	x.xxx_hidden_Members = b.Members
+	x.xxx_hidden_PhotoPath = b.PhotoPath
+	return m0
+}
+
+type GroupCreateResult struct {
+	state             protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ChatId string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *GroupCreateResult) Reset() {
+	*x = GroupCreateResult{}
+	mi := &file_whatevr_v2_groups_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GroupCreateResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GroupCreateResult) ProtoMessage() {}
+
+func (x *GroupCreateResult) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_groups_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GroupCreateResult) GetChatId() string {
+	if x != nil {
+		return x.xxx_hidden_ChatId
+	}
+	return ""
+}
+
+func (x *GroupCreateResult) SetChatId(v string) {
+	x.xxx_hidden_ChatId = v
+}
+
+type GroupCreateResult_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ChatId string
+}
+
+func (b0 GroupCreateResult_builder) Build() *GroupCreateResult {
+	m0 := &GroupCreateResult{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_ChatId = b.ChatId
+	return m0
+}
+
+type GroupLeave struct {
+	state             protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ChatId string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *GroupLeave) Reset() {
+	*x = GroupLeave{}
+	mi := &file_whatevr_v2_groups_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GroupLeave) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GroupLeave) ProtoMessage() {}
+
+func (x *GroupLeave) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_groups_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GroupLeave) GetChatId() string {
+	if x != nil {
+		return x.xxx_hidden_ChatId
+	}
+	return ""
+}
+
+func (x *GroupLeave) SetChatId(v string) {
+	x.xxx_hidden_ChatId = v
+}
+
+type GroupLeave_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ChatId string
+}
+
+func (b0 GroupLeave_builder) Build() *GroupLeave {
+	m0 := &GroupLeave{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_ChatId = b.ChatId
+	return m0
+}
+
+type GroupSetName struct {
+	state             protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ChatId string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId"`
+	xxx_hidden_Name   string                 `protobuf:"bytes,2,opt,name=name"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *GroupSetName) Reset() {
+	*x = GroupSetName{}
+	mi := &file_whatevr_v2_groups_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GroupSetName) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GroupSetName) ProtoMessage() {}
+
+func (x *GroupSetName) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_groups_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GroupSetName) GetChatId() string {
+	if x != nil {
+		return x.xxx_hidden_ChatId
+	}
+	return ""
+}
+
+func (x *GroupSetName) GetName() string {
+	if x != nil {
+		return x.xxx_hidden_Name
+	}
+	return ""
+}
+
+func (x *GroupSetName) SetChatId(v string) {
+	x.xxx_hidden_ChatId = v
+}
+
+func (x *GroupSetName) SetName(v string) {
+	x.xxx_hidden_Name = v
+}
+
+type GroupSetName_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ChatId string
+	Name   string
+}
+
+func (b0 GroupSetName_builder) Build() *GroupSetName {
+	m0 := &GroupSetName{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_ChatId = b.ChatId
+	x.xxx_hidden_Name = b.Name
+	return m0
+}
+
+type GroupSetTopic struct {
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ChatId      string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId"`
+	xxx_hidden_Description string                 `protobuf:"bytes,2,opt,name=description"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *GroupSetTopic) Reset() {
+	*x = GroupSetTopic{}
+	mi := &file_whatevr_v2_groups_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GroupSetTopic) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GroupSetTopic) ProtoMessage() {}
+
+func (x *GroupSetTopic) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_groups_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GroupSetTopic) GetChatId() string {
+	if x != nil {
+		return x.xxx_hidden_ChatId
+	}
+	return ""
+}
+
+func (x *GroupSetTopic) GetDescription() string {
+	if x != nil {
+		return x.xxx_hidden_Description
+	}
+	return ""
+}
+
+func (x *GroupSetTopic) SetChatId(v string) {
+	x.xxx_hidden_ChatId = v
+}
+
+func (x *GroupSetTopic) SetDescription(v string) {
+	x.xxx_hidden_Description = v
+}
+
+type GroupSetTopic_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ChatId      string
+	Description string
+}
+
+func (b0 GroupSetTopic_builder) Build() *GroupSetTopic {
+	m0 := &GroupSetTopic{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_ChatId = b.ChatId
+	x.xxx_hidden_Description = b.Description
+	return m0
+}
+
+type GroupSetPhoto struct {
+	state             protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ChatId string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId"`
+	xxx_hidden_Path   string                 `protobuf:"bytes,2,opt,name=path"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *GroupSetPhoto) Reset() {
+	*x = GroupSetPhoto{}
+	mi := &file_whatevr_v2_groups_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GroupSetPhoto) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GroupSetPhoto) ProtoMessage() {}
+
+func (x *GroupSetPhoto) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_groups_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GroupSetPhoto) GetChatId() string {
+	if x != nil {
+		return x.xxx_hidden_ChatId
+	}
+	return ""
+}
+
+func (x *GroupSetPhoto) GetPath() string {
+	if x != nil {
+		return x.xxx_hidden_Path
+	}
+	return ""
+}
+
+func (x *GroupSetPhoto) SetChatId(v string) {
+	x.xxx_hidden_ChatId = v
+}
+
+func (x *GroupSetPhoto) SetPath(v string) {
+	x.xxx_hidden_Path = v
+}
+
+type GroupSetPhoto_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ChatId string
+	// empty clears the photo, otherwise a local file to upload
+	Path string
+}
+
+func (b0 GroupSetPhoto_builder) Build() *GroupSetPhoto {
+	m0 := &GroupSetPhoto{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_ChatId = b.ChatId
+	x.xxx_hidden_Path = b.Path
+	return m0
+}
+
+type GroupInviteLink struct {
+	state             protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ChatId string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId"`
+	xxx_hidden_Reset_ bool                   `protobuf:"varint,2,opt,name=reset"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *GroupInviteLink) Reset() {
+	*x = GroupInviteLink{}
+	mi := &file_whatevr_v2_groups_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GroupInviteLink) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GroupInviteLink) ProtoMessage() {}
+
+func (x *GroupInviteLink) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_groups_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GroupInviteLink) GetChatId() string {
+	if x != nil {
+		return x.xxx_hidden_ChatId
+	}
+	return ""
+}
+
+func (x *GroupInviteLink) GetReset() bool {
+	if x != nil {
+		return x.xxx_hidden_Reset_
+	}
+	return false
+}
+
+func (x *GroupInviteLink) SetChatId(v string) {
+	x.xxx_hidden_ChatId = v
+}
+
+func (x *GroupInviteLink) SetReset(v bool) {
+	x.xxx_hidden_Reset_ = v
+}
+
+type GroupInviteLink_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ChatId string
+	Reset  bool
+}
+
+func (b0 GroupInviteLink_builder) Build() *GroupInviteLink {
+	m0 := &GroupInviteLink{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_ChatId = b.ChatId
+	x.xxx_hidden_Reset_ = b.Reset
+	return m0
+}
+
+type GroupInviteLinkResult struct {
+	state           protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Link string                 `protobuf:"bytes,1,opt,name=link"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *GroupInviteLinkResult) Reset() {
+	*x = GroupInviteLinkResult{}
+	mi := &file_whatevr_v2_groups_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GroupInviteLinkResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GroupInviteLinkResult) ProtoMessage() {}
+
+func (x *GroupInviteLinkResult) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_groups_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GroupInviteLinkResult) GetLink() string {
+	if x != nil {
+		return x.xxx_hidden_Link
+	}
+	return ""
+}
+
+func (x *GroupInviteLinkResult) SetLink(v string) {
+	x.xxx_hidden_Link = v
+}
+
+type GroupInviteLinkResult_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Link string
+}
+
+func (b0 GroupInviteLinkResult_builder) Build() *GroupInviteLinkResult {
+	m0 := &GroupInviteLinkResult{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Link = b.Link
+	return m0
+}
+
+type GroupMembers struct {
+	state              protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ChatId  string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId"`
+	xxx_hidden_Action  string                 `protobuf:"bytes,2,opt,name=action"`
+	xxx_hidden_Members []string               `protobuf:"bytes,3,rep,name=members"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *GroupMembers) Reset() {
+	*x = GroupMembers{}
+	mi := &file_whatevr_v2_groups_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GroupMembers) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GroupMembers) ProtoMessage() {}
+
+func (x *GroupMembers) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_groups_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GroupMembers) GetChatId() string {
+	if x != nil {
+		return x.xxx_hidden_ChatId
+	}
+	return ""
+}
+
+func (x *GroupMembers) GetAction() string {
+	if x != nil {
+		return x.xxx_hidden_Action
+	}
+	return ""
+}
+
+func (x *GroupMembers) GetMembers() []string {
+	if x != nil {
+		return x.xxx_hidden_Members
+	}
+	return nil
+}
+
+func (x *GroupMembers) SetChatId(v string) {
+	x.xxx_hidden_ChatId = v
+}
+
+func (x *GroupMembers) SetAction(v string) {
+	x.xxx_hidden_Action = v
+}
+
+func (x *GroupMembers) SetMembers(v []string) {
+	x.xxx_hidden_Members = v
+}
+
+type GroupMembers_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ChatId string
+	// one of add, remove, promote, demote
+	Action  string
+	Members []string
+}
+
+func (b0 GroupMembers_builder) Build() *GroupMembers {
+	m0 := &GroupMembers{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_ChatId = b.ChatId
+	x.xxx_hidden_Action = b.Action
+	x.xxx_hidden_Members = b.Members
+	return m0
+}
+
+type GroupSetAnnounce struct {
+	state              protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ChatId  string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId"`
+	xxx_hidden_Enabled bool                   `protobuf:"varint,2,opt,name=enabled"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *GroupSetAnnounce) Reset() {
+	*x = GroupSetAnnounce{}
+	mi := &file_whatevr_v2_groups_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GroupSetAnnounce) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GroupSetAnnounce) ProtoMessage() {}
+
+func (x *GroupSetAnnounce) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_groups_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GroupSetAnnounce) GetChatId() string {
+	if x != nil {
+		return x.xxx_hidden_ChatId
+	}
+	return ""
+}
+
+func (x *GroupSetAnnounce) GetEnabled() bool {
+	if x != nil {
+		return x.xxx_hidden_Enabled
+	}
+	return false
+}
+
+func (x *GroupSetAnnounce) SetChatId(v string) {
+	x.xxx_hidden_ChatId = v
+}
+
+func (x *GroupSetAnnounce) SetEnabled(v bool) {
+	x.xxx_hidden_Enabled = v
+}
+
+type GroupSetAnnounce_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ChatId  string
+	Enabled bool
+}
+
+func (b0 GroupSetAnnounce_builder) Build() *GroupSetAnnounce {
+	m0 := &GroupSetAnnounce{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_ChatId = b.ChatId
+	x.xxx_hidden_Enabled = b.Enabled
+	return m0
+}
+
+type GroupSetLocked struct {
+	state              protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ChatId  string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId"`
+	xxx_hidden_Enabled bool                   `protobuf:"varint,2,opt,name=enabled"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *GroupSetLocked) Reset() {
+	*x = GroupSetLocked{}
+	mi := &file_whatevr_v2_groups_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GroupSetLocked) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GroupSetLocked) ProtoMessage() {}
+
+func (x *GroupSetLocked) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_groups_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *GroupSetLocked) GetChatId() string {
+	if x != nil {
+		return x.xxx_hidden_ChatId
+	}
+	return ""
+}
+
+func (x *GroupSetLocked) GetEnabled() bool {
+	if x != nil {
+		return x.xxx_hidden_Enabled
+	}
+	return false
+}
+
+func (x *GroupSetLocked) SetChatId(v string) {
+	x.xxx_hidden_ChatId = v
+}
+
+func (x *GroupSetLocked) SetEnabled(v bool) {
+	x.xxx_hidden_Enabled = v
+}
+
+type GroupSetLocked_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ChatId  string
+	Enabled bool
+}
+
+func (b0 GroupSetLocked_builder) Build() *GroupSetLocked {
+	m0 := &GroupSetLocked{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_ChatId = b.ChatId
+	x.xxx_hidden_Enabled = b.Enabled
+	return m0
+}
+
+type CommunityLink struct {
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_CommunityId string                 `protobuf:"bytes,1,opt,name=community_id,json=communityId"`
+	xxx_hidden_GroupId     string                 `protobuf:"bytes,2,opt,name=group_id,json=groupId"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *CommunityLink) Reset() {
+	*x = CommunityLink{}
+	mi := &file_whatevr_v2_groups_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CommunityLink) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CommunityLink) ProtoMessage() {}
+
+func (x *CommunityLink) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_groups_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *CommunityLink) GetCommunityId() string {
+	if x != nil {
+		return x.xxx_hidden_CommunityId
+	}
+	return ""
+}
+
+func (x *CommunityLink) GetGroupId() string {
+	if x != nil {
+		return x.xxx_hidden_GroupId
+	}
+	return ""
+}
+
+func (x *CommunityLink) SetCommunityId(v string) {
+	x.xxx_hidden_CommunityId = v
+}
+
+func (x *CommunityLink) SetGroupId(v string) {
+	x.xxx_hidden_GroupId = v
+}
+
+type CommunityLink_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	CommunityId string
+	GroupId     string
+}
+
+func (b0 CommunityLink_builder) Build() *CommunityLink {
+	m0 := &CommunityLink{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_CommunityId = b.CommunityId
+	x.xxx_hidden_GroupId = b.GroupId
+	return m0
+}
+
+type CommunityUnlink struct {
+	state                  protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_CommunityId string                 `protobuf:"bytes,1,opt,name=community_id,json=communityId"`
+	xxx_hidden_GroupId     string                 `protobuf:"bytes,2,opt,name=group_id,json=groupId"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
+}
+
+func (x *CommunityUnlink) Reset() {
+	*x = CommunityUnlink{}
+	mi := &file_whatevr_v2_groups_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CommunityUnlink) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CommunityUnlink) ProtoMessage() {}
+
+func (x *CommunityUnlink) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_groups_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *CommunityUnlink) GetCommunityId() string {
+	if x != nil {
+		return x.xxx_hidden_CommunityId
+	}
+	return ""
+}
+
+func (x *CommunityUnlink) GetGroupId() string {
+	if x != nil {
+		return x.xxx_hidden_GroupId
+	}
+	return ""
+}
+
+func (x *CommunityUnlink) SetCommunityId(v string) {
+	x.xxx_hidden_CommunityId = v
+}
+
+func (x *CommunityUnlink) SetGroupId(v string) {
+	x.xxx_hidden_GroupId = v
+}
+
+type CommunityUnlink_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	CommunityId string
+	GroupId     string
+}
+
+func (b0 CommunityUnlink_builder) Build() *CommunityUnlink {
+	m0 := &CommunityUnlink{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_CommunityId = b.CommunityId
+	x.xxx_hidden_GroupId = b.GroupId
+	return m0
+}
+
 var File_whatevr_v2_groups_proto protoreflect.FileDescriptor
 
 const file_whatevr_v2_groups_proto_rawDesc = "" +
@@ -538,7 +1450,47 @@ const file_whatevr_v2_groups_proto_rawDesc = "" +
 	"\achat_id\x18\x01 \x01(\tR\x06chatId\"g\n" +
 	"\x0eGroupMemberRow\x12*\n" +
 	"\x06person\x18\x01 \x01(\v2\x12.whatevr.v2.PersonR\x06person\x12)\n" +
-	"\x04role\x18\x02 \x01(\x0e2\x15.whatevr.v2.GroupRoleR\x04role*\x84\x01\n" +
+	"\x04role\x18\x02 \x01(\x0e2\x15.whatevr.v2.GroupRoleR\x04role\"Z\n" +
+	"\vGroupCreate\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
+	"\amembers\x18\x02 \x03(\tR\amembers\x12\x1d\n" +
+	"\n" +
+	"photo_path\x18\x03 \x01(\tR\tphotoPath\",\n" +
+	"\x11GroupCreateResult\x12\x17\n" +
+	"\achat_id\x18\x01 \x01(\tR\x06chatId\"%\n" +
+	"\n" +
+	"GroupLeave\x12\x17\n" +
+	"\achat_id\x18\x01 \x01(\tR\x06chatId\";\n" +
+	"\fGroupSetName\x12\x17\n" +
+	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"J\n" +
+	"\rGroupSetTopic\x12\x17\n" +
+	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12 \n" +
+	"\vdescription\x18\x02 \x01(\tR\vdescription\"<\n" +
+	"\rGroupSetPhoto\x12\x17\n" +
+	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x12\n" +
+	"\x04path\x18\x02 \x01(\tR\x04path\"@\n" +
+	"\x0fGroupInviteLink\x12\x17\n" +
+	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x14\n" +
+	"\x05reset\x18\x02 \x01(\bR\x05reset\"+\n" +
+	"\x15GroupInviteLinkResult\x12\x12\n" +
+	"\x04link\x18\x01 \x01(\tR\x04link\"Y\n" +
+	"\fGroupMembers\x12\x17\n" +
+	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x16\n" +
+	"\x06action\x18\x02 \x01(\tR\x06action\x12\x18\n" +
+	"\amembers\x18\x03 \x03(\tR\amembers\"E\n" +
+	"\x10GroupSetAnnounce\x12\x17\n" +
+	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x18\n" +
+	"\aenabled\x18\x02 \x01(\bR\aenabled\"C\n" +
+	"\x0eGroupSetLocked\x12\x17\n" +
+	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x18\n" +
+	"\aenabled\x18\x02 \x01(\bR\aenabled\"M\n" +
+	"\rCommunityLink\x12!\n" +
+	"\fcommunity_id\x18\x01 \x01(\tR\vcommunityId\x12\x19\n" +
+	"\bgroup_id\x18\x02 \x01(\tR\agroupId\"O\n" +
+	"\x0fCommunityUnlink\x12!\n" +
+	"\fcommunity_id\x18\x01 \x01(\tR\vcommunityId\x12\x19\n" +
+	"\bgroup_id\x18\x02 \x01(\tR\agroupId*\x84\x01\n" +
 	"\tGroupRole\x12\x1a\n" +
 	"\x16GROUP_ROLE_UNSPECIFIED\x10\x00\x12\x15\n" +
 	"\x11GROUP_ROLE_MEMBER\x10\x01\x12\x14\n" +
@@ -550,25 +1502,38 @@ const file_whatevr_v2_groups_proto_rawDesc = "" +
 	"Whatevr\\V2\xe2\x02\x16Whatevr\\V2\\GPBMetadata\xea\x02\vWhatevr::V2\x92\x03\x02\b\x02b\beditionsp\xe9\a"
 
 var file_whatevr_v2_groups_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_whatevr_v2_groups_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_whatevr_v2_groups_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_whatevr_v2_groups_proto_goTypes = []any{
-	(GroupRole)(0),           // 0: whatevr.v2.GroupRole
-	(*GroupView)(nil),        // 1: whatevr.v2.GroupView
-	(*GroupRow)(nil),         // 2: whatevr.v2.GroupRow
-	(*GroupMembersView)(nil), // 3: whatevr.v2.GroupMembersView
-	(*GroupMemberRow)(nil),   // 4: whatevr.v2.GroupMemberRow
-	(*Person)(nil),           // 5: whatevr.v2.Person
+	(GroupRole)(0),                // 0: whatevr.v2.GroupRole
+	(*GroupView)(nil),             // 1: whatevr.v2.GroupView
+	(*GroupRow)(nil),              // 2: whatevr.v2.GroupRow
+	(*GroupMembersView)(nil),      // 3: whatevr.v2.GroupMembersView
+	(*GroupMemberRow)(nil),        // 4: whatevr.v2.GroupMemberRow
+	(*GroupCreate)(nil),           // 5: whatevr.v2.GroupCreate
+	(*GroupCreateResult)(nil),     // 6: whatevr.v2.GroupCreateResult
+	(*GroupLeave)(nil),            // 7: whatevr.v2.GroupLeave
+	(*GroupSetName)(nil),          // 8: whatevr.v2.GroupSetName
+	(*GroupSetTopic)(nil),         // 9: whatevr.v2.GroupSetTopic
+	(*GroupSetPhoto)(nil),         // 10: whatevr.v2.GroupSetPhoto
+	(*GroupInviteLink)(nil),       // 11: whatevr.v2.GroupInviteLink
+	(*GroupInviteLinkResult)(nil), // 12: whatevr.v2.GroupInviteLinkResult
+	(*GroupMembers)(nil),          // 13: whatevr.v2.GroupMembers
+	(*GroupSetAnnounce)(nil),      // 14: whatevr.v2.GroupSetAnnounce
+	(*GroupSetLocked)(nil),        // 15: whatevr.v2.GroupSetLocked
+	(*CommunityLink)(nil),         // 16: whatevr.v2.CommunityLink
+	(*CommunityUnlink)(nil),       // 17: whatevr.v2.CommunityUnlink
+	(*Person)(nil),                // 18: whatevr.v2.Person
 }
 var file_whatevr_v2_groups_proto_depIdxs = []int32{
-	5, // 0: whatevr.v2.GroupRow.owner:type_name -> whatevr.v2.Person
-	0, // 1: whatevr.v2.GroupRow.my_role:type_name -> whatevr.v2.GroupRole
-	5, // 2: whatevr.v2.GroupMemberRow.person:type_name -> whatevr.v2.Person
-	0, // 3: whatevr.v2.GroupMemberRow.role:type_name -> whatevr.v2.GroupRole
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	18, // 0: whatevr.v2.GroupRow.owner:type_name -> whatevr.v2.Person
+	0,  // 1: whatevr.v2.GroupRow.my_role:type_name -> whatevr.v2.GroupRole
+	18, // 2: whatevr.v2.GroupMemberRow.person:type_name -> whatevr.v2.Person
+	0,  // 3: whatevr.v2.GroupMemberRow.role:type_name -> whatevr.v2.GroupRole
+	4,  // [4:4] is the sub-list for method output_type
+	4,  // [4:4] is the sub-list for method input_type
+	4,  // [4:4] is the sub-list for extension type_name
+	4,  // [4:4] is the sub-list for extension extendee
+	0,  // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_whatevr_v2_groups_proto_init() }
@@ -583,7 +1548,7 @@ func file_whatevr_v2_groups_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_whatevr_v2_groups_proto_rawDesc), len(file_whatevr_v2_groups_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   4,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

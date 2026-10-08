@@ -314,6 +314,18 @@ V2ResponseTranslation translateV2Response(const whatevr::v2::Response &response)
         out.result = result;
         break;
     }
+    case whatevr::v2::Response::kGroupCreate: {
+        QJsonObject result;
+        result.insert(QStringLiteral("chat_id"), v2s(response.group_create().chat_id()));
+        out.result = result;
+        break;
+    }
+    case whatevr::v2::Response::kGroupInviteLink: {
+        QJsonObject result;
+        result.insert(QStringLiteral("link"), v2s(response.group_invite_link().link()));
+        out.result = result;
+        break;
+    }
     case whatevr::v2::Response::kChatFolderCreate: {
         QJsonObject result;
         result.insert(QStringLiteral("id"),
@@ -995,6 +1007,79 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
         return true;
     }
 
+    // Groups and communities.
+    if (method == QLatin1String("group.create")) {
+        auto *create = request->mutable_group_create();
+        create->set_name(get("name").toString().toStdString());
+        for (const QJsonValue &member : get("members").toArray()) {
+            create->add_members(member.toString().toStdString());
+        }
+        create->set_photo_path(get("photo_path").toString().toStdString());
+        return true;
+    }
+    if (method == QLatin1String("group.leave")) {
+        request->mutable_group_leave()->set_chat_id(
+            get("chat_id").toString().toStdString());
+        return true;
+    }
+    if (method == QLatin1String("group.set_name")) {
+        auto *set = request->mutable_group_set_name();
+        set->set_chat_id(get("chat_id").toString().toStdString());
+        set->set_name(get("name").toString().toStdString());
+        return true;
+    }
+    if (method == QLatin1String("group.set_topic")) {
+        auto *set = request->mutable_group_set_topic();
+        set->set_chat_id(get("chat_id").toString().toStdString());
+        set->set_description(get("description").toString().toStdString());
+        return true;
+    }
+    if (method == QLatin1String("group.set_photo")) {
+        auto *set = request->mutable_group_set_photo();
+        set->set_chat_id(get("chat_id").toString().toStdString());
+        set->set_path(get("path").toString().toStdString());
+        return true;
+    }
+    if (method == QLatin1String("group.invite_link")) {
+        auto *link = request->mutable_group_invite_link();
+        link->set_chat_id(get("chat_id").toString().toStdString());
+        link->set_reset(get("reset").toBool());
+        return true;
+    }
+    if (method == QLatin1String("group.members")) {
+        auto *members = request->mutable_group_members();
+        members->set_chat_id(get("chat_id").toString().toStdString());
+        members->set_action(get("action").toString().toStdString());
+        for (const QJsonValue &member : get("members").toArray()) {
+            members->add_members(member.toString().toStdString());
+        }
+        return true;
+    }
+    if (method == QLatin1String("group.set_announce")) {
+        auto *set = request->mutable_group_set_announce();
+        set->set_chat_id(get("chat_id").toString().toStdString());
+        set->set_enabled(get("enabled").toBool());
+        return true;
+    }
+    if (method == QLatin1String("group.set_locked")) {
+        auto *set = request->mutable_group_set_locked();
+        set->set_chat_id(get("chat_id").toString().toStdString());
+        set->set_enabled(get("enabled").toBool());
+        return true;
+    }
+    if (method == QLatin1String("community.link")) {
+        auto *link = request->mutable_community_link();
+        link->set_community_id(get("community_id").toString().toStdString());
+        link->set_group_id(get("group_id").toString().toStdString());
+        return true;
+    }
+    if (method == QLatin1String("community.unlink")) {
+        auto *unlink = request->mutable_community_unlink();
+        unlink->set_community_id(get("community_id").toString().toStdString());
+        unlink->set_group_id(get("group_id").toString().toStdString());
+        return true;
+    }
+
     // Messages.
     if (method == QLatin1String("message.react")) {
         auto *react = request->mutable_message_react();
@@ -1356,10 +1441,18 @@ bool v2ResponseFromV1(const QString &method, std::uint64_t id, const QJsonObject
         }
         return true;
     }
+    if (method == QLatin1String("group.create")) {
+        out->mutable_group_create()->set_chat_id(str("chat_id"));
+        return true;
+    }
+    if (method == QLatin1String("group.invite_link")) {
+        out->mutable_group_invite_link()->set_link(str("link"));
+        return true;
+    }
     if (method == QLatin1String("chat.ensure_direct")
-        || method == QLatin1String("group.join_invite")
-        || method == QLatin1String("group.create")) {
-        // v1 answers all three with `{chat_id}`; v2 has a per-method arm.
+        || method == QLatin1String("group.join_invite")) {
+        // v1 answers both with `{chat_id}`; v2 has a per-method arm.
+        // group.create has its own arm above.
         if (method == QLatin1String("chat.ensure_direct")) {
             out->mutable_chat_ensure_direct()->set_chat_id(str("chat_id"));
         } else {
@@ -1962,6 +2055,76 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
     case Method::kSendCancel:
         out->method = QStringLiteral("send.cancel");
         params.insert(QStringLiteral("message_id"), v2s(request.send_cancel().message_id()));
+        break;
+    case Method::kGroupCreate: {
+        out->method = QStringLiteral("group.create");
+        const auto &create = request.group_create();
+        params.insert(QStringLiteral("name"), v2s(create.name()));
+        QJsonArray members;
+        for (const auto &member : create.members()) {
+            members.append(v2s(member));
+        }
+        params.insert(QStringLiteral("members"), members);
+        params.insert(QStringLiteral("photo_path"), v2s(create.photo_path()));
+        break;
+    }
+    case Method::kGroupLeave:
+        out->method = QStringLiteral("group.leave");
+        params.insert(QStringLiteral("chat_id"), v2s(request.group_leave().chat_id()));
+        break;
+    case Method::kGroupSetName:
+        out->method = QStringLiteral("group.set_name");
+        params.insert(QStringLiteral("chat_id"), v2s(request.group_set_name().chat_id()));
+        params.insert(QStringLiteral("name"), v2s(request.group_set_name().name()));
+        break;
+    case Method::kGroupSetTopic:
+        out->method = QStringLiteral("group.set_topic");
+        params.insert(QStringLiteral("chat_id"), v2s(request.group_set_topic().chat_id()));
+        params.insert(QStringLiteral("description"), v2s(request.group_set_topic().description()));
+        break;
+    case Method::kGroupSetPhoto:
+        out->method = QStringLiteral("group.set_photo");
+        params.insert(QStringLiteral("chat_id"), v2s(request.group_set_photo().chat_id()));
+        params.insert(QStringLiteral("path"), v2s(request.group_set_photo().path()));
+        break;
+    case Method::kGroupInviteLink:
+        out->method = QStringLiteral("group.invite_link");
+        params.insert(QStringLiteral("chat_id"), v2s(request.group_invite_link().chat_id()));
+        if (request.group_invite_link().reset()) {
+            params.insert(QStringLiteral("reset"), true);
+        }
+        break;
+    case Method::kGroupMembers: {
+        out->method = QStringLiteral("group.members");
+        const auto &members = request.group_members();
+        params.insert(QStringLiteral("chat_id"), v2s(members.chat_id()));
+        params.insert(QStringLiteral("action"), v2s(members.action()));
+        QJsonArray ids;
+        for (const auto &member : members.members()) {
+            ids.append(v2s(member));
+        }
+        params.insert(QStringLiteral("members"), ids);
+        break;
+    }
+    case Method::kGroupSetAnnounce:
+        out->method = QStringLiteral("group.set_announce");
+        params.insert(QStringLiteral("chat_id"), v2s(request.group_set_announce().chat_id()));
+        params.insert(QStringLiteral("enabled"), request.group_set_announce().enabled());
+        break;
+    case Method::kGroupSetLocked:
+        out->method = QStringLiteral("group.set_locked");
+        params.insert(QStringLiteral("chat_id"), v2s(request.group_set_locked().chat_id()));
+        params.insert(QStringLiteral("enabled"), request.group_set_locked().enabled());
+        break;
+    case Method::kCommunityLink:
+        out->method = QStringLiteral("community.link");
+        params.insert(QStringLiteral("community_id"), v2s(request.community_link().community_id()));
+        params.insert(QStringLiteral("group_id"), v2s(request.community_link().group_id()));
+        break;
+    case Method::kCommunityUnlink:
+        out->method = QStringLiteral("community.unlink");
+        params.insert(QStringLiteral("community_id"), v2s(request.community_unlink().community_id()));
+        params.insert(QStringLiteral("group_id"), v2s(request.community_unlink().group_id()));
         break;
     case Method::kScheduleText:
         out->method = QStringLiteral("schedule.text");
