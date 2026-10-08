@@ -1196,7 +1196,12 @@ Kirigami.Page {
             onSendTextRequested: (text, replyToMessageId, mentionedJids) => Whatevr.ProtocolController.sendText(text, replyToMessageId, mentionedJids)
             onSendImageRequested: (fileUrl, caption, replyToMessageId, kind, viewOnce) => Whatevr.ProtocolController.sendMedia(fileUrl, caption, replyToMessageId, kind, viewOnce)
             onSendMediaBatchRequested: (fileUrls, caption, replyToMessageId, kind, viewOnce, quality) => Whatevr.ProtocolController.sendMediaBatch(fileUrls, caption, replyToMessageId, kind, viewOnce, quality)
-            onComposingChanged: composing => Whatevr.ProtocolController.setSelectedChatComposing(composing)
+            onComposingChanged: composing => {
+                if (composing && !Whatevr.Settings.sendTypingIndicators) {
+                    return
+                }
+                Whatevr.ProtocolController.setSelectedChatComposing(composing)
+            }
             onClearReplyRequested: root.clearReplyTarget()
             onReplyConsumed: root.clearReplyTarget()
             onEditRequested: (messageId, text) => Whatevr.ProtocolController.editMessage(messageId, text)

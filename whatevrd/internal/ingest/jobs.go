@@ -13,6 +13,7 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/proto/waHistorySync"
 	"go.mau.fi/whatsmeow/types"
+	"google.golang.org/protobuf/proto"
 
 	"whatevrd/internal/core"
 	"whatevrd/internal/model"
@@ -251,7 +252,10 @@ func historyPieces(h core.HistoryExtraHead, c *waHistorySync.Conversation, at ti
 	msgs := c.Messages
 	ins := make([]core.Input, 0, max(1, (len(msgs)+historyPiece-1)/historyPiece))
 	for off := 0; off == 0 || off < len(msgs); off += historyPiece {
-		piece := c
+		// Clone, never alias: assigning Messages on the caller's struct
+		// would truncate its slice header on the first piece, and copying
+		// the struct trips the embedded proto lock.
+		piece := proto.Clone(c).(*waHistorySync.Conversation)
 		if off > 0 {
 			piece = &waHistorySync.Conversation{ID: c.ID}
 		}
@@ -342,7 +346,15 @@ func (j *jobs) fetchGroups(ctx context.Context) {
 func (j *jobs) fetchGroup(ctx context.Context, g string) error {
 	gj, err := types.ParseJID(g)
 	if err != nil {
-		return nil
+		// An unparseable id never parses better: record it gone once instead
+		// of burning an iq round-trip every loop forever.
+		h := core.GroupInfoHead{JID: g, Error: err.Error()}
+		in, err := input(core.KindGroupInfo, h, nil)
+		if err != nil {
+			return nil
+		}
+		_, err = j.g.log.AppendBatch(ctx, []core.Input{in})
+		return err
 	}
 	cli := j.client()
 	if !cli.IsLoggedIn() {

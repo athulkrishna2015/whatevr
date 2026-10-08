@@ -60,7 +60,16 @@ func (c *daemonClient) call(r *v2.Request) (*v2.Response, error) {
 			return nil, err
 		}
 		resp := f.GetResponse()
-		if resp == nil || resp.GetId() != c.next {
+		if resp == nil {
+			continue
+		}
+		// The daemon answers out-of-band errors under id 0 (pre-hello
+		// rejections, oversized-frame close): surface them instead of
+		// spinning until EOF past the server's message.
+		if e := resp.GetError(); e != nil && resp.GetId() != c.next {
+			return nil, fmt.Errorf("%s: %s", e.GetCode(), e.GetMessage())
+		}
+		if resp.GetId() != c.next {
 			continue
 		}
 		if e := resp.GetError(); e != nil {

@@ -34,6 +34,7 @@ class ProtocolMessageModel;
 class ProtocolSearchModel;
 class ProtocolStickerController;
 class EmojiModel;
+class UnreadChatsProxy;
 
 // The app's single controller: it owns the ProtocolClient (the one socket to
 // the daemon's PROTOCOL.md surface), subscribes every view the UI renders, and
@@ -82,6 +83,10 @@ class ProtocolController final : public QObject
     // is a subscribe param (all/direct/groups), so changing it re-subscribes —
     // no frontend-side filtering. loading/empty drive the list placeholders.
     Q_PROPERTY(QAbstractItemModel *chatsModel READ chatsModel CONSTANT FINAL)
+    // Unread-only proxy over chatsModel. Protocol v2 has no server-side
+    // unread filter, so filter 3 subscribes `all` and this proxy shows the
+    // unread rows of the loaded window; extending the source extends this view.
+    Q_PROPERTY(QAbstractItemModel *unreadChatsModel READ unreadChatsModel CONSTANT FINAL)
     Q_PROPERTY(int chatFilter READ chatFilter WRITE setChatFilter NOTIFY chatFilterChanged FINAL)
     Q_PROPERTY(QAbstractItemModel *chatFoldersModel READ chatFoldersModel CONSTANT FINAL)
     Q_PROPERTY(int chatFolder READ chatFolder WRITE setChatFolder NOTIFY chatFolderChanged FINAL)
@@ -369,6 +374,7 @@ public:
     [[nodiscard]] QString qrExpiryText() const;
 
     [[nodiscard]] QAbstractItemModel *chatsModel() const;
+    [[nodiscard]] QAbstractItemModel *unreadChatsModel() const;
     [[nodiscard]] QAbstractItemModel *chatFoldersModel() const;
     [[nodiscard]] int chatFilter() const { return m_chatFilter; }
     [[nodiscard]] int chatFolder() const { return m_chatFolder; }
@@ -1127,6 +1133,7 @@ private:
     whatevr::proto::ObjectViewModel *m_connectionModel = nullptr;
     whatevr::proto::ObjectViewModel *m_loginModel = nullptr;
     whatevr::proto::CollectionViewModel *m_chatsModel = nullptr;
+    UnreadChatsProxy *m_unreadChatsModel = nullptr;
     whatevr::proto::CollectionViewModel *m_archivedModel = nullptr;
     whatevr::proto::CollectionViewModel *m_chatFoldersModel = nullptr;
     whatevr::proto::CollectionViewModel *m_typingModel = nullptr;

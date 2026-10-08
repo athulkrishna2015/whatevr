@@ -109,6 +109,8 @@ qt_add_executable(tst_protocolcontroller
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/protocol/v2shim.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/models/protocolmessagemodel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/models/protocolsearchmodel.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/models/unreadchatsproxy.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/models/unreadchatsproxy.h
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/models/emojimodel.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/util/messagemarkup.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/util/messagerow.cpp

@@ -96,6 +96,9 @@ type Hub struct {
 	conn      conn.Status
 	login     Login
 	typing    map[string]map[string]Typist
+	// One expiry timer per typist, reset on every update: presence storms
+	// otherwise pile up a goroutine per event that only no-ops on expiry.
+	typingTimers map[string]map[string]*time.Timer
 	presence  map[string]Presence
 	transfers map[string]Transfer
 	notes     []Notification
@@ -105,7 +108,7 @@ type Hub struct {
 }
 
 func New() *Hub {
-	return &Hub{typing: map[string]map[string]Typist{}, presence: map[string]Presence{}, transfers: map[string]Transfer{},
+	return &Hub{typing: map[string]map[string]Typist{}, typingTimers: map[string]map[string]*time.Timer{}, presence: map[string]Presence{}, transfers: map[string]Transfer{},
 		about: map[string]About{}, older: map[string]bool{}, now: time.Now}
 }
 
@@ -160,18 +163,48 @@ func (h *Hub) SetTyping(chat, who string, on, recording bool) {
 			h.typing[chat] = m
 		}
 		m[who] = Typist{Addr: who, Recording: recording, Since: h.now()}
+		h.armTypingTimerLocked(chat, who)
 	} else {
 		delete(m, who)
 		if len(m) == 0 {
 			delete(h.typing, chat)
 		}
+		h.stopTypingTimerLocked(chat, who)
 	}
 	h.mu.Unlock()
 	if on || was {
 		h.tell(TouchTyping, chat)
 	}
-	if on {
-		time.AfterFunc(typingFor, func() { h.expire(chat, who) })
+}
+
+// armTypingTimerLocked (re)starts the single expiry timer for a typist.
+// Call with h.mu held.
+func (h *Hub) armTypingTimerLocked(chat, who string) {
+	h.stopTypingTimerLocked(chat, who)
+	if h.typingTimers == nil {
+		h.typingTimers = map[string]map[string]*time.Timer{}
+	}
+	m := h.typingTimers[chat]
+	if m == nil {
+		m = map[string]*time.Timer{}
+		h.typingTimers[chat] = m
+	}
+	m[who] = time.AfterFunc(typingFor, func() { h.expire(chat, who) })
+}
+
+// stopTypingTimerLocked drops a typist's expiry timer, if any.
+// Call with h.mu held.
+func (h *Hub) stopTypingTimerLocked(chat, who string) {
+	m := h.typingTimers[chat]
+	if m == nil {
+		return
+	}
+	if t, ok := m[who]; ok {
+		t.Stop()
+		delete(m, who)
+	}
+	if len(m) == 0 {
+		delete(h.typingTimers, chat)
 	}
 }
 
@@ -180,6 +213,8 @@ func (h *Hub) expire(chat, who string) {
 	t, ok := h.typing[chat][who]
 	gone := ok && h.now().Sub(t.Since) >= typingFor
 	if gone {
+		// The firing timer is spent either way; drop it so re-arms start clean.
+		h.stopTypingTimerLocked(chat, who)
 		delete(h.typing[chat], who)
 		if len(h.typing[chat]) == 0 {
 			delete(h.typing, chat)
@@ -323,12 +358,21 @@ func (h *Hub) LoadingOlder(chat string) bool {
 func (h *Hub) Reset() {
 	h.mu.Lock()
 	h.typing = map[string]map[string]Typist{}
+	for _, m := range h.typingTimers {
+		for _, t := range m {
+			t.Stop()
+		}
+	}
+	h.typingTimers = map[string]map[string]*time.Timer{}
 	h.presence = map[string]Presence{}
 	h.transfers = map[string]Transfer{}
 	h.notes = nil
 	h.about = map[string]About{}
+	// A stale LoadingOlder would otherwise survive into the next account and
+	// pin its loading indicator until a new fetch toggles it.
+	h.older = map[string]bool{}
 	h.mu.Unlock()
-	for _, k := range []string{TouchTyping, TouchPresence, TouchTransfer, TouchNotification, TouchAbout} {
+	for _, k := range []string{TouchTyping, TouchPresence, TouchTransfer, TouchNotification, TouchAbout, TouchOlder} {
 		h.tell(k)
 	}
 }

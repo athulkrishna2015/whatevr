@@ -91,6 +91,10 @@ class Settings final : public QObject
     // true => sending jumps the timeline to the new message even when the user
     // was reading further up; false leaves the viewport where it is.
     Q_PROPERTY(bool snapToBottomOnSend READ snapToBottomOnSend WRITE setSnapToBottomOnSend NOTIFY snapToBottomOnSendChanged FINAL)
+    // Let others see when you are typing. Protocol v2 carries no typing
+    // preference, so this frontend-local switch gates the announcements this
+    // frontend itself sends; other frontends keep their own behavior.
+    Q_PROPERTY(bool sendTypingIndicators READ sendTypingIndicators WRITE setSendTypingIndicators NOTIFY sendTypingIndicatorsChanged FINAL)
 
     // --- Window & Layout ---
     Q_PROPERTY(bool rememberWindowGeometry READ rememberWindowGeometry WRITE setRememberWindowGeometry NOTIFY rememberWindowGeometryChanged FINAL)
@@ -182,6 +186,8 @@ public:
     void setEnterToSend(bool enabled);
     [[nodiscard]] bool snapToBottomOnSend() const;
     void setSnapToBottomOnSend(bool enabled);
+    [[nodiscard]] bool sendTypingIndicators() const;
+    void setSendTypingIndicators(bool enabled);
 
     [[nodiscard]] bool rememberWindowGeometry() const;
     void setRememberWindowGeometry(bool remember);
@@ -261,6 +267,7 @@ Q_SIGNALS:
     void persistDraftsChanged();
     void enterToSendChanged();
     void snapToBottomOnSendChanged();
+    void sendTypingIndicatorsChanged();
     void rememberWindowGeometryChanged();
     void rememberColumnWidthChanged();
     void chatListColumnWidthChanged();
@@ -300,6 +307,7 @@ private:
     bool m_persistDrafts = true;
     bool m_enterToSend = true;
     bool m_snapToBottomOnSend = true;
+    bool m_sendTypingIndicators = true;
     bool m_rememberWindowGeometry = true;
     bool m_rememberColumnWidth = true;
     int m_chatListColumnWidth = 0;

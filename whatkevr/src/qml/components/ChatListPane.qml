@@ -413,7 +413,11 @@ Kirigami.Page {
                 property bool archivedExpanded: false
 
                 clip: true
-                model: Whatevr.ProtocolController.chatsModel
+                // The Unread filter has no daemon query on protocol v2: it
+                // reads the same `all` subscription through the unread proxy.
+                model: root.activeFilter === 3
+                       ? Whatevr.ProtocolController.unreadChatsModel
+                       : Whatevr.ProtocolController.chatsModel
                 currentIndex: -1
                 boundsBehavior: Flickable.StopAtBounds
                 flickableDirection: Flickable.VerticalFlick
@@ -585,7 +589,11 @@ Kirigami.Page {
                       }
 
                      MenuSeparator {}
+                     // Chat lists need a daemon folders API, which protocol v2
+                     // does not serve: hide the move/remove rows entirely rather
+                     // than offer silently dead actions.
                      Repeater {
+                         visible: false
                          model: Whatevr.ProtocolController.chatFoldersModel
                          delegate: MenuItem {
                              required property var item
@@ -595,11 +603,16 @@ Kirigami.Page {
                          }
                      }
                      MenuItem {
+                         // Folder assignment needs the v2-missing folders API.
+                         visible: false
                          text: Whatevr.I18n.i18nc("@action:menu take a chat out of its list", "Remove from folder")
                          onTriggered: Whatevr.ProtocolController.assignChatFolder(chatList.contextChatId, 0)
                      }
 
                      MenuItem {
+                         // Per-chat favorites have no v2 row or command: hidden
+                         // until the daemon grows them.
+                         visible: false
                          text: chatList.contextChatFavorite
                                ? Whatevr.I18n.i18nc("@action:menu", "Remove from favorites")
                                : Whatevr.I18n.i18nc("@action:menu", "Add to favorites")
@@ -670,12 +683,14 @@ Kirigami.Page {
                     anchors.centerIn: parent
                     width: Math.min(parent.width - Kirigami.Units.largeSpacing * 4,
                                     Kirigami.Units.gridUnit * 16)
-                    visible: !Whatevr.ProtocolController.chatsLoading && Whatevr.ProtocolController.chatsEmpty
+                    visible: !Whatevr.ProtocolController.chatsLoading && chatList.count === 0
                              && !(chatList.archivedExpanded
                                   && (Whatevr.ProtocolController.archivedCount > 0
                                       || Whatevr.ProtocolController.archivedLoading))
                     text: Whatevr.ProtocolController.historySyncVisible
                           ? Whatevr.I18n.i18nc("@info", "Syncing your messages…")
+                          : root.activeFilter === 3
+                          ? Whatevr.I18n.i18nc("@info", "No unread chats")
                           : Whatevr.I18n.i18nc("@info", "No chats yet")
                     explanation: Whatevr.ProtocolController.historySyncVisible
                                  ? Whatevr.I18n.i18nc("@info", "Your chats will appear here in a moment. You can start using them as they arrive.")

@@ -20,8 +20,9 @@ CenteredDialog {
     property string forcedKind: ""
     property bool viewOnceArmed: false
     // "standard" holds photos to 1600px on the long side, "hd" sends the file's
-    // own pixels. One choice for the whole batch, which is what the daemon's
-    // send.media_batch takes.
+    // own pixels. One choice for the whole batch. Protocol v2 has no batch
+    // request or quality field: the controller walks the files through
+    // sequential `send.media` calls and the quality choice is dropped.
     property string quality: "standard"
 
     title: Whatevr.I18n.i18nc("@title:dialog confirm attachments before sending", "Send files")

@@ -266,7 +266,9 @@ func (w *writer) fold() error {
 	}
 	if len(inputs) == 0 {
 		// appended ran ahead of a failed append's batch; nothing to fold.
-		w.db.appended.Store(from)
+		// Leave appended alone: it is monotonic and only advances on
+		// successful commits, so regressing it would mask writer lag from
+		// Progress/WaitFolded. The next append advances it again.
 		return nil
 	}
 	ftx := newTx(w.ctx, tx, w.db.watch)

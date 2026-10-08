@@ -908,6 +908,31 @@ private Q_SLOTS:
         QCOMPARE(ctrl.chatFilter(), 2);
     }
 
+    // Protocol v2 serves no unread filter: filter 3 subscribes `all` and the
+    // unreadChatsModel proxy shows the unread rows of the loaded window.
+    void unreadFilterProxiesOverAll()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats(
+            {chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"),
+                     QJsonObject{{QStringLiteral("unread"), 3}}),
+             chatRow(QStringLiteral("b@s"), QStringLiteral("Bob"), QStringLiteral("2-000"),
+                     QJsonObject{{QStringLiteral("unread"), 0}})});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_COMPARE(daemon.chatsSubscribeCount, 2);
+
+        ctrl.setChatFilter(3); // unread → re-subscribed as `all`
+        QTRY_COMPARE(daemon.chatsSubscribeCount, 4);
+        QCOMPARE(daemon.lastChatsParams.value(QStringLiteral("filter")).toString(), QStringLiteral("all"));
+
+        auto *proxy = qobject_cast<QAbstractItemModel *>(ctrl.unreadChatsModel());
+        QVERIFY(proxy);
+        QTRY_COMPARE(proxy->rowCount(), 1);
+    }
+
     // DN6: the chat list is a *window*, not the whole roster. Both `chats`
     // subscriptions carry a `limit`, and the next page is asked for with an
     // `older` extend — one at a time, and never past the daemon's exhaustion.

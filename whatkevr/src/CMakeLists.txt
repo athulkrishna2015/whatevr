@@ -23,6 +23,8 @@ set(WHATKEVR_SOURCES
     models/protocolmessagemodel.h
     models/protocolsearchmodel.cpp
     models/protocolsearchmodel.h
+    models/unreadchatsproxy.cpp
+    models/unreadchatsproxy.h
     media/audioplayer.cpp
     media/audioplayer.h
     media/audiorecorder.cpp

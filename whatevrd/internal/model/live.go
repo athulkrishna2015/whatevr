@@ -74,9 +74,15 @@ func putLive(tx *core.Tx, r row, m *waE2E.Message) (bool, error) {
 	var later []string
 	for rows.Next() {
 		var id string
-		if rows.Scan(&id) == nil {
-			later = append(later, id)
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return false, err
 		}
+		later = append(later, id)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return false, err
 	}
 	rows.Close()
 	for _, id := range later {

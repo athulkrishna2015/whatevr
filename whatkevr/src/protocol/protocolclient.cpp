@@ -197,8 +197,11 @@ void ProtocolClient::onSocketDisconnected()
     failAllPending(QStringLiteral("io"), QStringLiteral("connection lost"));
 
     // Live subscriptions must discard their local copy; they will be re-issued
-    // on reconnect and refilled from scratch.
-    for (Subscription *sub : std::as_const(m_subscriptions)) {
+    // on reconnect and refilled from scratch. Iterate a copy: onReset()
+    // handlers can tear down subscriptions (warm-window eviction deletes the
+    // Subscription, whose dtor mutates m_subscriptions).
+    const QList<Subscription *> live = m_subscriptions;
+    for (Subscription *sub : live) {
         sub->m_subId = ProtocolClient::kNoSub;
         if (sub->m_sink) {
             sub->m_sink->onReset();
@@ -374,8 +377,11 @@ void ProtocolClient::handleHelloReply(const QJsonObject &result, const ProtocolE
     m_state = State::Ready;
 
     // Re-issue every live subscription (fresh window, sink was reset on drop),
-    // then flush any commands queued while we were connecting.
-    for (Subscription *sub : std::as_const(m_subscriptions)) {
+    // then flush any commands queued while we were connecting. Iterate a copy
+    // for the same reason as onSocketDisconnected: handlers below can mutate
+    // the subscription list.
+    const QList<Subscription *> live = m_subscriptions;
+    for (Subscription *sub : live) {
         sendSubscribe(sub);
     }
     flushPending();
@@ -398,7 +404,9 @@ void ProtocolClient::sendFrame(const whatevr::v2::Request &request)
     *frame.mutable_request() = request;
     const QByteArray payload = encodeV2Frame(frame);
     const qint64 written = m_socket->write(payload);
-    if (written < 0 || written == 0) {
+    // A short write would desynchronize the varint-delimited stream for every
+    // frame after it; there is no resume, so fail the connection instead.
+    if (written != payload.size()) {
         failWrite(QStringLiteral("protocol write failed: %1").arg(m_socket->errorString()));
     }
 }
@@ -472,9 +480,10 @@ void ProtocolClient::flushPending()
         if (!buildV2Request(req.id, req.method, req.params, &request)) {
             m_pending.remove(req.id);
             if (req.callback) {
-                req.callback({}, ProtocolError{QStringLiteral("unknown_method"),
-                                               QStringLiteral("method %1 is not served on protocol 2")
-                                                   .arg(req.method)});
+                // Async like every other failure: the callback may re-enter
+                // request()/subscribe() and must not run inside this flush.
+                failLater(std::move(req.callback), QStringLiteral("unknown_method"),
+                          QStringLiteral("method %1 is not served on protocol 2").arg(req.method));
             }
             continue;
         }
@@ -548,10 +557,11 @@ void ProtocolClient::sendSubscribe(Subscription *sub)
         // A replaced subscription can be allocated at the same raw
         // address. QPointer tracks the original QObject identity.
         if (!guardedSub) {
-            const quint64 staleSubId = v2UInt64(result.value(QStringLiteral("sub")));
-            if (!error.isError() && !result.value(QStringLiteral("sub")).toString().isEmpty()) {
+            // Numeric sub ids never survive QJsonValue::toString(); compare
+            // presence and value instead so the cleanup actually runs.
+            if (!error.isError() && result.contains(QStringLiteral("sub"))) {
                 whatevr::v2::Request cleanup;
-                buildV2Unsubscribe(m_nextId++, staleSubId, &cleanup);
+                buildV2Unsubscribe(m_nextId++, v2UInt64(result.value(QStringLiteral("sub"))), &cleanup);
                 sendFrame(cleanup);
             }
             return;
@@ -559,6 +569,13 @@ void ProtocolClient::sendSubscribe(Subscription *sub)
         Subscription *sub = guardedSub.data();
         if (error.isError()) {
             Q_EMIT sub->failed(error.code, error.message);
+            return;
+        }
+        // A response without a sub id is not a subscription: registering id 0
+        // would collide every such sub onto one routing key.
+        if (!result.contains(QStringLiteral("sub"))) {
+            Q_EMIT sub->failed(QStringLiteral("internal"),
+                               QStringLiteral("subscribe answered without a subscription id"));
             return;
         }
         sub->m_subId = v2UInt64(result.value(QStringLiteral("sub")));

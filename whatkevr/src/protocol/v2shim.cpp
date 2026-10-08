@@ -103,7 +103,7 @@ bool buildV2Subscribe(std::uint64_t id, const QString &view, const QJsonObject &
 {
     out->set_id(id);
     auto *subscribe = out->mutable_subscribe();
-    subscribe->set_limit(static_cast<std::uint32_t>(params.value(QStringLiteral("limit")).toInt(0)));
+    subscribe->set_limit(static_cast<std::uint32_t>(qMax(0, params.value(QStringLiteral("limit")).toInt(0))));
     // Views the v2 daemon serves, 1:1 with the v1 names the frontend uses.
     // Views without a v2 arm (chat_folders, status, calls, channels, logs,
     // chat_links, ...) return false: unknown_method, like an unserved view.
@@ -147,8 +147,6 @@ bool buildV2Subscribe(std::uint64_t id, const QString &view, const QJsonObject &
         } else {
             messages->set_message_id(anchor.toStdString());
         }
-    } else if (view == QLatin1String("self")) {
-        subscribe->mutable_self();
     } else if (view == QLatin1String("contact")) {
         subscribe->mutable_contact()->mutable_person()->set_id(
             params.value(QStringLiteral("jid")).toString().toStdString());
@@ -279,10 +277,15 @@ V2ResponseTranslation translateV2Response(const whatevr::v2::Response &response)
         break;
     }
     case whatevr::v2::Response::kMessageForward: {
+        // v1 answers the whole array; keep the singular alias some callers use.
+        QJsonArray forwardedIds;
+        for (const auto &messageId : response.message_forward().message_ids()) {
+            forwardedIds.append(v2s(messageId));
+        }
         QJsonObject result;
-        if (!response.message_forward().message_ids().empty()) {
-            result.insert(QStringLiteral("message_id"),
-                          v2s(response.message_forward().message_ids(0)));
+        result.insert(QStringLiteral("message_ids"), forwardedIds);
+        if (!forwardedIds.isEmpty()) {
+            result.insert(QStringLiteral("message_id"), forwardedIds.first());
         }
         out.result = result;
         break;
@@ -348,9 +351,11 @@ V2ResponseTranslation translateV2Response(const whatevr::v2::Response &response)
             QJsonObject item;
             item.insert(QStringLiteral("id"), v2s(row.id()));
             item.insert(QStringLiteral("cache_key"), v2s(row.id()));
-            item.insert(QStringLiteral("path"), v2s(row.path()));
-            item.insert(QStringLiteral("mime"), v2s(row.mime()));
-            item.insert(QStringLiteral("animated"), row.animated());
+            item.insert(QStringLiteral("local_path"), v2s(row.path()));
+            item.insert(QStringLiteral("mime_type"), v2s(row.mime()));
+            if (row.animated() || row.lottie()) {
+                item.insert(QStringLiteral("is_animated"), true);
+            }
             item.insert(QStringLiteral("width"), static_cast<qint64>(row.width()));
             item.insert(QStringLiteral("height"), static_cast<qint64>(row.height()));
             stickers.append(item);
@@ -666,7 +671,13 @@ void applyV2ViewUpdate(const whatevr::v2::ViewUpdate &update, ViewSink *sink,
     if (update.reset()) {
         sink->onReset();
     }
+    // A handler can delete the sink mid-update (warm-window eviction), so
+    // re-check liveness after every sink call instead of only at the drain end.
+    const std::weak_ptr<const void> alive = sink->lifetime();
     for (const auto &change : update.changes()) {
+        if (alive.expired()) {
+            return;
+        }
         switch (change.change_case()) {
         case whatevr::v2::Change::kUpsert: {
             const auto &upsert = change.upsert();
@@ -896,6 +907,10 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
             rsvp->set_response(whatevr::v2::RSVP_NOT_GOING);
         } else if (response == QLatin1String("maybe")) {
             rsvp->set_response(whatevr::v2::RSVP_MAYBE);
+        } else {
+            // No wire value means "no answer": fail fast instead of sending
+            // UNSPECIFIED for a choice the user never made.
+            return false;
         }
         rsvp->set_extra_guests(static_cast<std::uint32_t>(get("extra_guests").toInt()));
         return true;
@@ -2148,6 +2163,9 @@ QPair<QString, QJsonObject> translateV2MessageBody(const whatevr::v2::MessageRow
         }
         QJsonObject wrap;
         wrap.insert(QStringLiteral("sticker"), sticker);
+        // The message model reads the library key off the top-level row for
+        // favorite/download actions; the v2 sticker id is that key.
+        wrap.insert(QStringLiteral("media_cache_key"), v2s(row.sticker().sticker_id()));
         return {QStringLiteral("sticker"), wrap};
     }
     case Body::kLocation: {
@@ -2382,6 +2400,8 @@ QJsonObject translateV2PrivacyRow(const whatevr::v2::PrivacyRow &row)
     item.insert(QStringLiteral("online"), v2PrivacyValue(row.online()));
     item.insert(QStringLiteral("profile_photo"), v2PrivacyValue(row.profile_photo()));
     item.insert(QStringLiteral("about"), v2PrivacyValue(row.about()));
+    item.insert(QStringLiteral("group_add"), v2PrivacyValue(row.group_add()));
+    item.insert(QStringLiteral("call_add"), v2PrivacyValue(row.call_add()));
     // group_add/call_add cross as their v2 enums; the settings page reads the
     // same vocabulary it sends.
     item.insert(QStringLiteral("read_receipts"), row.read_receipts());

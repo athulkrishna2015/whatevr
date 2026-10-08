@@ -72,6 +72,9 @@ Kirigami.ScrollablePage {
         }
 
         QQC2.ToolButton {
+            // The `chat_links` view has no v2 arm: hidden until the daemon
+            // grows it rather than a permanently loading list.
+            visible: false
             text: Whatevr.I18n.i18nc("@action:button gallery links", "Links")
             checked: root.linksVisible
             checkable: true

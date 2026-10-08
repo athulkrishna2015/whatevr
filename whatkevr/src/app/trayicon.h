@@ -27,16 +27,17 @@ public:
     void setTrayVisible(bool visible);
 
 Q_SIGNALS:
-    // Left-click or the Show/Hide menu row: toggle the main window.
+    // Left-click: toggle the main window.
     void toggleWindowRequested();
-    // Right-click position for the QML tray menu window.
+    // Right-click position for the QML tray menu window, which owns the whole
+    // menu (show/hide, notifications toggle, quit). No native context menu:
+    // it would shadow the QML one with a poorer duplicate.
     void trayMenuRequested(const QPoint &globalPos);
-    // The Quit menu row.
+    // Kept for API symmetry; the QML menu's Quit row calls quitApplication().
     void quitRequested();
 
 private:
     void onActivated(QSystemTrayIcon::ActivationReason reason);
 
     QSystemTrayIcon *m_tray = nullptr;
-    QMenu *m_menu = nullptr;
 };

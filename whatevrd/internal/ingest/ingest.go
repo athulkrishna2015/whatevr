@@ -8,6 +8,7 @@ package ingest
 
 import (
 	"context"
+	"errors"
 
 	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow"
@@ -93,6 +94,9 @@ func (g *Ingest) sent(cli *whatsmeow.Client, to types.JID, msg *waE2E.Message, r
 	if err == nil {
 		seqs, err = g.log.AppendBatch(g.ctx, []core.Input{in})
 	}
+	if err == nil && len(seqs) == 0 {
+		err = errors.New("ingest: append returned no sequences")
+	}
 	if err != nil {
 		zerolog.Ctx(g.ctx).Error().Err(err).Str("stanza", resp.ID).Msg("ingest: sent message not logged")
 		return
@@ -132,8 +136,14 @@ func (g *Ingest) handle(evt any) bool {
 	}
 	logged(log, evt, ins, seqs)
 	if ins[0].Kind == core.KindHistoryNotification && g.jobs != nil {
-		evt := evt.(*events.Message)
-		g.jobs.queueHistory(model.Blob{ID: evt.Info.ID, Notif: evt.Message.GetProtocolMessage().GetHistorySyncNotification()})
+		// The kind normally arrives on *events.Message, but assert nothing:
+		// a panic here would take down the whatsmeow dispatch goroutine.
+		m, ok := evt.(*events.Message)
+		if !ok {
+			log.Error().Type("event", evt).Msg("ingest: history notification is not a message")
+			return true
+		}
+		g.jobs.queueHistory(model.Blob{ID: m.Info.ID, Notif: m.Message.GetProtocolMessage().GetHistorySyncNotification()})
 	}
 	return true
 }

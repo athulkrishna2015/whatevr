@@ -32,6 +32,7 @@
 #include <utility>
 
 #include "collectionviewmodel.h"
+#include "unreadchatsproxy.h"
 #include "emojimodel.h"
 #include "messagemarkup.h"
 #include "messagerow.h"
@@ -255,6 +256,10 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
     m_chatsModel = new CollectionViewModel(this);
     connect(m_chatsModel, &CollectionViewModel::readyChanged, this, &ProtocolController::chatsChanged);
     connect(m_chatsModel, &CollectionViewModel::countChanged, this, &ProtocolController::chatsChanged);
+    // Unread sidebar filter: protocol v2 serves no unread/favorite filters,
+    // so this proxy shows the unread rows of the loaded `all` window.
+    m_unreadChatsModel = new UnreadChatsProxy(this);
+    m_unreadChatsModel->setSourceModel(m_chatsModel);
 
     // Archived chats (D2b2): a sibling `chats` collection; archivedCount tracks
     // its row count for the section header.
@@ -747,6 +752,13 @@ void ProtocolController::subscribeChats()
     // A filter switch is a fresh subscription with new params; drop the old rows
     // first so the list never briefly shows the previous filter (rule 1: the
     // frontend does no filtering itself — the daemon returns exactly the window).
+    //
+    // Protocol v2 serves no unread/favorite filters. The Unread sidebar filter
+    // subscribes `all` and reads through unreadChatsModel (a local proxy over
+    // the loaded window); Favorites has no v2 data at all and its button is
+    // hidden, so filter 4 can no longer arrive here — but clamp defensively.
+    const QString effectiveFilter =
+        (m_chatFilter == 3 || m_chatFilter == 4) ? QStringLiteral("all") : chatFilterName();
     delete m_chatsSub;
     delete m_archivedSub;
     m_chatsSub = nullptr;
@@ -761,18 +773,36 @@ void ProtocolController::subscribeChats()
     // way the active list does.
     m_chatsSub = m_client->subscribe(
         QStringLiteral("chats"),
-         {{QStringLiteral("filter"), chatFilterName()},
+         {{QStringLiteral("filter"), effectiveFilter},
           {QStringLiteral("archived"), false},
           {QStringLiteral("folder_id"), m_chatFolder > 0 ? QJsonValue(m_chatFolder) : QJsonValue()},
          {QStringLiteral("limit"), kChatPageSize}},
         m_chatsModel);
     m_archivedSub = m_client->subscribe(
         QStringLiteral("chats"),
-         {{QStringLiteral("filter"), chatFilterName()},
+         {{QStringLiteral("filter"), effectiveFilter},
           {QStringLiteral("archived"), true},
           {QStringLiteral("folder_id"), m_chatFolder > 0 ? QJsonValue(m_chatFolder) : QJsonValue()},
          {QStringLiteral("limit"), kChatPageSize}},
         m_archivedModel);
+    // A rejected subscribe must not leave the list stuck: clear the in-flight
+    // guards so the next filter switch or reconnect can try again. Mark the
+    // models ready-but-empty so the loading placeholder settles instead of
+    // spinning on a view the daemon never fills.
+    connect(m_chatsSub, &Subscription::failed, this,
+            [this](const QString &code, const QString &message) {
+                qWarning() << "protocol: chats subscribe failed:" << code << message;
+                m_chatsExtendPending = false;
+                m_chatsModel->onReady(false, true);
+                Q_EMIT chatsChanged();
+            });
+    connect(m_archivedSub, &Subscription::failed, this,
+            [this](const QString &code, const QString &message) {
+                qWarning() << "protocol: archived chats subscribe failed:" << code << message;
+                m_archivedExtendPending = false;
+                m_archivedModel->onReady(false, true);
+                Q_EMIT archivedChanged();
+            });
     // A rejected extend must not leave the list stuck refusing to ask again.
     connect(m_chatsSub, &Subscription::extendFailed, this,
             [this](const QString &code, const QString &message) {
@@ -821,6 +851,11 @@ void ProtocolController::loadMoreArchivedChats()
 QAbstractItemModel *ProtocolController::chatsModel() const
 {
     return m_chatsModel;
+}
+
+QAbstractItemModel *ProtocolController::unreadChatsModel() const
+{
+    return m_unreadChatsModel;
 }
 
 QAbstractItemModel *ProtocolController::chatFoldersModel() const
@@ -3893,9 +3928,12 @@ void ProtocolController::openLogs()
     connect(m_logsSub, &Subscription::failed, this,
             [this](const QString &code, const QString &message) {
                 m_logsLoading = false;
-                m_logsErrorText = message.isEmpty()
-                    ? i18nc("@info", "Could not load daemon logs (%1)", code)
-                    : message;
+                // The v2 daemon serves no logs view: say so plainly instead of
+                // surfacing the wire-level unknown_method text.
+                m_logsErrorText = code == QLatin1String("unknown_method")
+                    ? i18nc("@info", "Daemon logs are not available on protocol 2")
+                    : message.isEmpty() ? i18nc("@info", "Could not load daemon logs (%1)", code)
+                                        : message;
                 Q_EMIT logsLoadingChanged();
             });
     connect(m_logsModel, &CollectionViewModel::readyChanged, this, [this] {
@@ -5084,8 +5122,15 @@ QString ProtocolController::qrExpiryText() const
     if (qr.isEmpty()) {
         return {};
     }
-    // The daemon marshals expires_at as an RFC3339 timestamp.
-    const QDateTime expiresAt = QDateTime::fromString(qr.value(QStringLiteral("expires_at")).toString(), Qt::ISODateWithMs);
+    // The daemon marshals expires_at as an RFC3339 timestamp with 0-9
+    // fractional digits (Go's RFC3339Nano drops trailing zeros). Parse
+    // tolerantly: Qt::ISODateWithMs rejects both fraction-less strings and
+    // anything past milliseconds, either of which would show a live QR as
+    // immediately expired.
+    QDateTime expiresAt = QDateTime::fromString(qr.value(QStringLiteral("expires_at")).toString(), Qt::ISODateWithMs);
+    if (!expiresAt.isValid()) {
+        expiresAt = QDateTime::fromString(qr.value(QStringLiteral("expires_at")).toString(), Qt::ISODate);
+    }
     if (!expiresAt.isValid()) {
         return {};
     }

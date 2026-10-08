@@ -262,7 +262,11 @@ func (db *DB) setup(ctx context.Context) error {
 	}
 	var f int64
 	if folded != "" {
-		fmt.Sscan(folded, &f)
+		// A corrupt folded_seq must not silently refold from 0 on every open
+		// (slow start plus log spam); fall through with f == 0 explicitly.
+		if _, err := fmt.Sscan(folded, &f); err != nil {
+			zerolog.Ctx(ctx).Warn().Str("folded_seq", folded).Msg("core: corrupt fold checkpoint, refolding from 0")
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return err

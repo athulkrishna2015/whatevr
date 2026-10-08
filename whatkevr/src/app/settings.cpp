@@ -49,6 +49,7 @@ constexpr auto kMediaSaveDirectory = "settings/mediaSaveDirectory";
 constexpr auto kPersistDrafts = "settings/persistDrafts";
 constexpr auto kEnterToSend = "settings/enterToSend";
 constexpr auto kSnapToBottomOnSend = "settings/snapToBottomOnSend";
+constexpr auto kSendTypingIndicators = "settings/sendTypingIndicators";
 constexpr auto kRememberWindowGeometry = "settings/rememberWindowGeometry";
 constexpr auto kRememberColumnWidth = "settings/rememberColumnWidth";
 constexpr auto kChatListColumnWidth = "settings/chatListColumnWidth";
@@ -142,7 +143,7 @@ void Settings::load()
     m_persistDrafts = settings.value(QLatin1String(kPersistDrafts), true).toBool();
     m_enterToSend = settings.value(QLatin1String(kEnterToSend), true).toBool();
     m_snapToBottomOnSend = settings.value(QLatin1String(kSnapToBottomOnSend), true).toBool();
-    m_rememberWindowGeometry = settings.value(QLatin1String(kRememberWindowGeometry), true).toBool();
+    m_sendTypingIndicators = settings.value(QLatin1String(kSendTypingIndicators), true).toBool();    m_rememberWindowGeometry = settings.value(QLatin1String(kRememberWindowGeometry), true).toBool();
     m_rememberColumnWidth = settings.value(QLatin1String(kRememberColumnWidth), true).toBool();
     m_chatListColumnWidth = settings.value(QLatin1String(kChatListColumnWidth), 0).toInt();
     m_closeToTray = settings.value(QLatin1String(kCloseToTray), true).toBool();
@@ -689,6 +690,21 @@ void Settings::setSnapToBottomOnSend(bool enabled)
     m_snapToBottomOnSend = enabled;
     QSettings().setValue(QLatin1String(kSnapToBottomOnSend), m_snapToBottomOnSend);
     Q_EMIT snapToBottomOnSendChanged();
+}
+
+bool Settings::sendTypingIndicators() const
+{
+    return m_sendTypingIndicators;
+}
+
+void Settings::setSendTypingIndicators(bool enabled)
+{
+    if (m_sendTypingIndicators == enabled) {
+        return;
+    }
+    m_sendTypingIndicators = enabled;
+    QSettings().setValue(QLatin1String(kSendTypingIndicators), m_sendTypingIndicators);
+    Q_EMIT sendTypingIndicatorsChanged();
 }
 
 bool Settings::rememberWindowGeometry() const

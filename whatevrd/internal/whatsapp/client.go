@@ -364,7 +364,8 @@ func (c *Client) event(cli *whatsmeow.Client, raw any) {
 }
 
 // chatKey is the model's key for a chat jid, the jid itself until the world
-// knows better.
+// knows better. a transient world-load error keeps the raw address rather
+// than mixing keyspaces: callers comparing keys must see one scheme.
 func (c *Client) chatKey(j types.JID) string {
 	addr := j.ToNonAD().String()
 	if w, err := c.world(); err == nil {
@@ -504,7 +505,13 @@ func (c *Client) wipe(ctx context.Context, from *whatsmeow.Client, asked bool) e
 	}
 	c.endAccount()
 	defer c.startAccount(c.ctx)
-	prefs, _ := c.r.Prefs(ctx)
+	// Read before anything destructive: a failed read aborts the wipe while
+	// the old store still exists, instead of silently losing preferences.
+	prefs, err := c.r.Prefs(ctx)
+	if err != nil {
+		c.log.Error().Err(err).Msg("whatsapp: cannot read preferences, aborting wipe")
+		return err
+	}
 	if from != nil {
 		from.Disconnect()
 		if from.Store.ID != nil {

@@ -67,8 +67,11 @@ func (rs *Reads) chatView(ctx context.Context, s *server.Session, req *v2.Subscr
 			return nil, err
 		}
 		it := c.chatItem(gen, ch)
+		finished := c.finish()
+		// Set the id after finish(): the wait callback stamps the item id at
+		// finish, so doing it before would be overwritten right away.
 		it.SetId("")
-		return one(it), c.finish()
+		return one(it), finished
 	}
 	w.wake = func(c core.Change) bool { return touches(c, chatKinds...) }
 	return w, nil, nil

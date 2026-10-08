@@ -78,7 +78,11 @@ Item {
         }
 
 
+        // Chat lists need a daemon folders API, which protocol v2 does not
+        // serve: hide the whole section until it does rather than offer
+        // silently dead lists.
         Repeater {
+            visible: false
             model: Whatevr.ProtocolController.chatFoldersModel
             delegate: QQC2.ToolButton {
                 id: folderDelegate
@@ -125,6 +129,8 @@ Item {
         }
 
         QQC2.ToolButton {
+            // Hidden with the folder section above: no folders API on v2.
+            visible: false
             Layout.alignment: Qt.AlignHCenter
             icon.name: "list-add-symbolic"
             display: QQC2.AbstractButton.IconOnly
@@ -187,6 +193,9 @@ Item {
         }
 
         QQC2.ToolButton {
+            // Favorites need per-chat favorite rows, which protocol v2 does
+            // not serve: hidden until the daemon grows them.
+            visible: false
             Layout.alignment: Qt.AlignHCenter
             icon.name: "favorite"
             display: QQC2.AbstractButton.IconOnly
@@ -222,6 +231,9 @@ Item {
         }
 
         QQC2.ToolButton {
+            // Status needs the v2-missing `status` views: hidden until the
+            // daemon grows them rather than a permanently loading page.
+            visible: false
             Layout.alignment: Qt.AlignHCenter
             icon.name: "camera-photo-symbolic"
             display: QQC2.AbstractButton.IconOnly
@@ -244,6 +256,9 @@ Item {
         QQC2.ToolButton {
             id: callsButton
 
+            // Calls need the v2-missing `calls` views: hidden until the
+            // daemon grows them rather than a permanently loading page.
+            visible: false
             Layout.alignment: Qt.AlignHCenter
             icon.name: "call-start-symbolic"
             display: QQC2.AbstractButton.IconOnly
@@ -278,6 +293,9 @@ Item {
         }
 
         QQC2.ToolButton {
+            // Channels need the v2-missing `channels` views: hidden until the
+            // daemon grows them rather than a permanently loading page.
+            visible: false
             Layout.alignment: Qt.AlignHCenter
             icon.name: "rss-symbolic"
             display: QQC2.AbstractButton.IconOnly

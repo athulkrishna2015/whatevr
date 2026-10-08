@@ -6,7 +6,6 @@
 TrayIcon::TrayIcon(QObject *parent)
     : QObject(parent)
     , m_tray(new QSystemTrayIcon(this))
-    , m_menu(new QMenu())
 {
     // The installed application icon; fall back to a stock one so a missing
     // install prefix still shows something raisable.
@@ -14,12 +13,6 @@ TrayIcon::TrayIcon(QObject *parent)
                                   QIcon::fromTheme(QStringLiteral("im-chat")));
     m_tray->setIcon(icon);
     m_tray->setToolTip(QStringLiteral("Whatevr"));
-
-    QAction *toggle = m_menu->addAction(QStringLiteral("Show/Hide"));
-    connect(toggle, &QAction::triggered, this, &TrayIcon::toggleWindowRequested);
-    QAction *quit = m_menu->addAction(QStringLiteral("Quit"));
-    connect(quit, &QAction::triggered, this, &TrayIcon::quitRequested);
-    m_tray->setContextMenu(m_menu);
 
     connect(m_tray, &QSystemTrayIcon::activated, this, &TrayIcon::onActivated);
     m_tray->setVisible(true);

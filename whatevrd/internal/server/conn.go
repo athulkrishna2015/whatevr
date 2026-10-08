@@ -157,6 +157,9 @@ func (c *conn) dispatch(req *v2.Request) {
 		return
 	}
 	if !c.acquire() {
+		// The connection is going away: answer instead of leaving the
+		// frontend hanging until the socket closes.
+		c.respond(errorResponse(req.GetId(), v2.ErrorCode_ERROR_CODE_INTERNAL, "connection closing"), false)
 		return
 	}
 	go call(c.releaser())
@@ -248,6 +251,7 @@ func (c *conn) subscribe(ctx context.Context, req *v2.Request) {
 	// sub before its response, so nothing overtakes it
 	if !c.acquire() {
 		opened()
+		c.respond(errorResponse(req.GetId(), v2.ErrorCode_ERROR_CODE_INTERNAL, "connection closing"), false)
 		return
 	}
 	release := c.releaser()
