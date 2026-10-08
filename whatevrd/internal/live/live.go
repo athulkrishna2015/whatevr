@@ -92,19 +92,19 @@ const typingFor = 25 * time.Second
 type Hub struct {
 	OnChange func(core.Change)
 
-	mu        sync.Mutex
-	conn      conn.Status
-	login     Login
-	typing    map[string]map[string]Typist
+	mu     sync.Mutex
+	conn   conn.Status
+	login  Login
+	typing map[string]map[string]Typist
 	// One expiry timer per typist, reset on every update: presence storms
 	// otherwise pile up a goroutine per event that only no-ops on expiry.
 	typingTimers map[string]map[string]*time.Timer
-	presence  map[string]Presence
-	transfers map[string]Transfer
-	notes     []Notification
-	about     map[string]About
-	older     map[string]bool
-	now       func() time.Time
+	presence     map[string]Presence
+	transfers    map[string]Transfer
+	notes        []Notification
+	about        map[string]About
+	older        map[string]bool
+	now          func() time.Time
 }
 
 func New() *Hub {
