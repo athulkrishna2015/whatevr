@@ -125,6 +125,23 @@ bash -lc 'for i in $(seq 1 45); do st=$(gh run list --repo athulkrishna2015/what
 Only `origin` (`athulkrishna2015/whatevr`) is watched and pushed to; release
 tags and releases are never published to `upstream`.
 
+### Debugging with logs
+
+Check logs before guessing. Three sources, cheapest first:
+
+```sh
+# Daemon run logs (JSONL, one file per run — the real history of what happened)
+ls -t ~/.local/state/whatevr/logs/ | head
+grep -i -E "history blob logged|history_sync_stalled|\"level\":\"(error|fatal)\"" \
+  ~/.local/state/whatevr/logs/whatevrd-*.jsonl | tail -n 15
+# Service lifecycle (restarts, crashes)
+journalctl --user -u whatevrd.service --since "30 min ago" --no-pager | tail -n 15
+# Frontend stdout (QML errors, protocol warnings)
+tail -n 20 /tmp/opencode/whatkevr-v2.log
+```
+
+Key patterns: `history blob logged` (phone sent history; type/chunk/progress show what), `history_sync_stalled` with `nothing new for X` (phone stopped sending — phone-side, keep WhatsApp open and wait; a daemon restart forces a fresh handshake that often resumes it), `status: problem` heartbeat (the status board ticking, not an error by itself). `whatevrd logs` needs the daemon stopped (it takes the process lock), so prefer reading the JSONL files directly on a live session.
+
 ## Updating the whatsmeow dependency
 
 WhatsMeow (`go.mau.fi/whatsmeow`) has no tagged releases; the daemon pins to a
