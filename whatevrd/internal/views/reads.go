@@ -59,8 +59,8 @@ type Reads struct {
 	login func()
 	// runLog is the current run's log file, tailed by the logs view
 	runLog string
-	seen  func(keys []string)
-	srv   *server.Server
+	seen   func(keys []string)
+	srv    *server.Server
 
 	mu    sync.Mutex
 	world *model.World
@@ -270,6 +270,7 @@ func (rs *Reads) Register(srv *server.Server) {
 		protoreflect.FieldNumber(v2.Subscribe_LiveLocations_case):  {rs.liveLocationsView, rowBytes},
 		protoreflect.FieldNumber(v2.Subscribe_ChatMedia_case):      {rs.chatMediaView, messageBytes},
 		protoreflect.FieldNumber(v2.Subscribe_ChatLinks_case):      {rs.chatLinksView, messageBytes},
+		protoreflect.FieldNumber(v2.Subscribe_ChatFolders_case):    {rs.foldersView, rowBytes},
 		protoreflect.FieldNumber(v2.Subscribe_Stickers_case):       {rs.stickersView, rowBytes},
 		protoreflect.FieldNumber(v2.Subscribe_StickerPacks_case):   {rs.stickerPacksView, rowBytes},
 		protoreflect.FieldNumber(v2.Subscribe_StickerPack_case):    {rs.stickerPackView, rowBytes},

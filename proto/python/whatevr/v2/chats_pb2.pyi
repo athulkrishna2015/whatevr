@@ -37,12 +37,14 @@ CHAT_TYPE_NEWSLETTER: ChatType
 CHAT_TYPE_BROADCAST: ChatType
 
 class ChatsView(_message.Message):
-    __slots__ = ("filter", "archived")
+    __slots__ = ("filter", "archived", "folder_id")
     FILTER_FIELD_NUMBER: _ClassVar[int]
     ARCHIVED_FIELD_NUMBER: _ClassVar[int]
+    FOLDER_ID_FIELD_NUMBER: _ClassVar[int]
     filter: ChatFilter
     archived: bool
-    def __init__(self, filter: _Optional[_Union[ChatFilter, str]] = ..., archived: _Optional[bool] = ...) -> None: ...
+    folder_id: int
+    def __init__(self, filter: _Optional[_Union[ChatFilter, str]] = ..., archived: _Optional[bool] = ..., folder_id: _Optional[int] = ...) -> None: ...
 
 class ChatView(_message.Message):
     __slots__ = ("chat_id",)
@@ -197,3 +199,49 @@ class ChatExportResult(_message.Message):
     PATH_FIELD_NUMBER: _ClassVar[int]
     path: str
     def __init__(self, path: _Optional[str] = ...) -> None: ...
+
+class ChatFoldersView(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class ChatFolderRow(_message.Message):
+    __slots__ = ("id", "name")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    id: int
+    name: str
+    def __init__(self, id: _Optional[int] = ..., name: _Optional[str] = ...) -> None: ...
+
+class ChatFolderCreate(_message.Message):
+    __slots__ = ("name",)
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    name: str
+    def __init__(self, name: _Optional[str] = ...) -> None: ...
+
+class ChatFolderCreateResult(_message.Message):
+    __slots__ = ("folder",)
+    FOLDER_FIELD_NUMBER: _ClassVar[int]
+    folder: ChatFolderRow
+    def __init__(self, folder: _Optional[_Union[ChatFolderRow, _Mapping]] = ...) -> None: ...
+
+class ChatFolderRename(_message.Message):
+    __slots__ = ("id", "name")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    id: int
+    name: str
+    def __init__(self, id: _Optional[int] = ..., name: _Optional[str] = ...) -> None: ...
+
+class ChatFolderDelete(_message.Message):
+    __slots__ = ("id",)
+    ID_FIELD_NUMBER: _ClassVar[int]
+    id: int
+    def __init__(self, id: _Optional[int] = ...) -> None: ...
+
+class ChatFolderSetChat(_message.Message):
+    __slots__ = ("chat_id", "folder_id")
+    CHAT_ID_FIELD_NUMBER: _ClassVar[int]
+    FOLDER_ID_FIELD_NUMBER: _ClassVar[int]
+    chat_id: str
+    folder_id: int
+    def __init__(self, chat_id: _Optional[str] = ..., folder_id: _Optional[int] = ...) -> None: ...

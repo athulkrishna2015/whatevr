@@ -589,11 +589,7 @@ Kirigami.Page {
                       }
 
                      MenuSeparator {}
-                     // Chat lists need a daemon folders API, which protocol v2
-                     // does not serve: hide the move/remove rows entirely rather
-                     // than offer silently dead actions.
                      Repeater {
-                         visible: false
                          model: Whatevr.ProtocolController.chatFoldersModel
                          delegate: MenuItem {
                              required property var item
@@ -603,8 +599,6 @@ Kirigami.Page {
                          }
                      }
                      MenuItem {
-                         // Folder assignment needs the v2-missing folders API.
-                         visible: false
                          text: Whatevr.I18n.i18nc("@action:menu take a chat out of its list", "Remove from folder")
                          onTriggered: Whatevr.ProtocolController.assignChatFolder(chatList.contextChatId, 0)
                      }

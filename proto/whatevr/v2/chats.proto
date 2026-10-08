@@ -10,6 +10,8 @@ option features.field_presence = IMPLICIT;
 message ChatsView {
   ChatFilter filter = 1;
   bool archived = 2;
+  // a folder id, 0 for every folder
+  int64 folder_id = 3;
 }
 
 enum ChatFilter {
@@ -138,4 +140,35 @@ message ChatExport {
 
 message ChatExportResult {
   string path = 1;
+}
+
+// user-made chat lists; local display policy like pins and favorites
+message ChatFoldersView {}
+
+message ChatFolderRow {
+  int64 id = 1;
+  string name = 2;
+}
+
+message ChatFolderCreate {
+  string name = 1;
+}
+
+message ChatFolderCreateResult {
+  ChatFolderRow folder = 1;
+}
+
+message ChatFolderRename {
+  int64 id = 1;
+  string name = 2;
+}
+
+message ChatFolderDelete {
+  int64 id = 1;
+}
+
+// puts a chat in a folder; folder_id 0 takes it out again
+message ChatFolderSetChat {
+  string chat_id = 1;
+  int64 folder_id = 2;
 }

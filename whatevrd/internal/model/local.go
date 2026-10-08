@@ -3,6 +3,7 @@ package model
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"whatevrd/internal/core"
 )
@@ -48,6 +49,7 @@ var localDomain = core.Domain{
 		core.KindPrefs:    foldPrefs,
 		core.KindFavorite: foldFavorite,
 		core.KindSchedule: foldSchedule,
+		core.KindFolder:   foldFolder,
 	},
 }
 
@@ -314,6 +316,30 @@ func (r *Reader) DueScheduled(ctx context.Context, now int64, limit int) ([]Sche
 	return out, rows.Err()
 }
 
+// Folder is one user-made chat list.
+type Folder struct {
+	ID   int64
+	Name string
+}
+
+// Folders lists every chat folder, by name.
+func (r *Reader) Folders(ctx context.Context) ([]Folder, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id, name FROM folders ORDER BY name COLLATE NOCASE, id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Folder
+	for rows.Next() {
+		var f Folder
+		if err := rows.Scan(&f.ID, &f.Name); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
+}
+
 // AvatarPaths is every picture file an avatar row names.
 func (r *Reader) AvatarPaths(ctx context.Context) (map[string]bool, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT DISTINCT path FROM avatar_try WHERE path != ''`)
@@ -359,5 +385,64 @@ func foldSchedule(tx *core.Tx, in core.Input) error {
 		return nil
 	}
 	tx.Touch("scheduled", "")
+	return nil
+}
+
+// foldFolder tracks user-made chat lists. A create's input seq is the folder
+// id: seqs never repeat, so renames and deletes name exactly one row.
+func foldFolder(tx *core.Tx, in core.Input) error {
+	h, err := head[core.FolderHead](in)
+	if err != nil {
+		return err
+	}
+	switch h.Op {
+	case "create":
+		if strings.TrimSpace(h.Name) == "" {
+			return nil
+		}
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO folders (id, name) VALUES (?, ?)`, in.Seq, strings.TrimSpace(h.Name)); err != nil {
+			return err
+		}
+	case "rename":
+		if h.ID <= 0 || strings.TrimSpace(h.Name) == "" {
+			return nil
+		}
+		if _, err := tx.Exec(`UPDATE folders SET name = ? WHERE id = ?`, strings.TrimSpace(h.Name), h.ID); err != nil {
+			return err
+		}
+	case "delete":
+		if h.ID <= 0 {
+			return nil
+		}
+		if _, err := tx.Exec(`DELETE FROM chat_folder WHERE folder = ?`, h.ID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM folders WHERE id = ?`, h.ID); err != nil {
+			return err
+		}
+	case "set":
+		if h.Chat == "" || h.Folder <= 0 {
+			return nil
+		}
+		var n int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM folders WHERE id = ?`, h.Folder).Scan(&n); err != nil || n == 0 {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO chat_folder (key, folder) VALUES (?, ?)
+			ON CONFLICT (key) DO UPDATE SET folder = excluded.folder`, h.Chat, h.Folder); err != nil {
+			return err
+		}
+	case "unset":
+		if h.Chat == "" {
+			return nil
+		}
+		if _, err := tx.Exec(`DELETE FROM chat_folder WHERE key = ?`, h.Chat); err != nil {
+			return err
+		}
+	default:
+		return nil
+	}
+	tx.Touch("folders", "")
+	tx.Touch("chat", h.Chat)
 	return nil
 }

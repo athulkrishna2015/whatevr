@@ -226,6 +226,16 @@ func (db *DB) setup(ctx context.Context) error {
 		// created on every open, and the favorite fold fills it.
 		// Scheduled texts, filled by the schedule fold; like chat_favorite
 		// this table needs no rebuild to appear.
+		// User-made chat lists and their members; like chat_favorite this
+		// table needs no rebuild to appear.
+		`CREATE TABLE IF NOT EXISTS folders (
+			id       INTEGER PRIMARY KEY,
+			name     TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS chat_folder (
+			key      TEXT PRIMARY KEY,
+			folder   INTEGER NOT NULL REFERENCES folders(id) ON DELETE CASCADE
+		)`,
 		`CREATE TABLE IF NOT EXISTS scheduled (
 			seq      INTEGER PRIMARY KEY,
 			chat     TEXT NOT NULL,

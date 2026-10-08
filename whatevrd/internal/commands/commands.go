@@ -114,6 +114,10 @@ func Register(o Options) *Opener {
 		arm(v2.Request_SendContact_case):         x.sendContact,
 		arm(v2.Request_SendLocation_case):        x.sendLocation,
 		arm(v2.Request_SendCancel_case):          x.sendCancel,
+		arm(v2.Request_ChatFolderCreate_case):    x.folderCreate,
+		arm(v2.Request_ChatFolderRename_case):    x.folderRename,
+		arm(v2.Request_ChatFolderDelete_case):    x.folderDelete,
+		arm(v2.Request_ChatFolderSetChat_case):   x.folderSetChat,
 		arm(v2.Request_ScheduleText_case):        x.scheduleText,
 		arm(v2.Request_ScheduleList_case):        x.scheduleList,
 		arm(v2.Request_ScheduleCancel_case):      x.scheduleCancel,
@@ -469,6 +473,45 @@ func (x *commands) sendLocation(ctx context.Context, s *server.Session, req *v2.
 	}
 	d.Once = once(p)
 	return sent(x.c.SendLocation(ctx, d, p.GetLat(), p.GetLng(), p.GetName(), p.GetAddress()))
+}
+
+func (x *commands) folderCreate(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	id, err := x.c.CreateFolder(ctx, req.GetChatFolderCreate().GetName())
+	if err != nil {
+		return nil, wire(err)
+	}
+	folders, err := x.c.Folders(ctx)
+	if err != nil {
+		return nil, wire(err)
+	}
+	resp := &v2.Response{}
+	for _, f := range folders {
+		if f.ID == id {
+			resp.SetChatFolderCreate(v2.ChatFolderCreateResult_builder{
+				Folder: v2.ChatFolderRow_builder{Id: f.ID, Name: f.Name}.Build(),
+			}.Build())
+			break
+		}
+	}
+	return resp, nil
+}
+
+func (x *commands) folderRename(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetChatFolderRename()
+	return nil, wire(x.c.RenameFolder(ctx, p.GetId(), p.GetName()))
+}
+
+func (x *commands) folderDelete(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	return nil, wire(x.c.DeleteFolder(ctx, req.GetChatFolderDelete().GetId()))
+}
+
+func (x *commands) folderSetChat(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetChatFolderSetChat()
+	key, err := x.chat(ctx, p.GetChatId())
+	if err != nil {
+		return nil, err
+	}
+	return nil, wire(x.c.SetChatFolder(ctx, key, p.GetFolderId()))
 }
 
 func (x *commands) scheduleText(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {

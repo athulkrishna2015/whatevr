@@ -40,6 +40,8 @@ const (
 	KindFavorite = "favorite"
 	// a text the daemon sends later, see ScheduleHead
 	KindSchedule = "schedule"
+	// user-made chat lists, see FolderHead
+	KindFolder = "folder"
 	// what this daemon fetched or did for the sticker picker
 	KindSticker = "sticker"
 	// the id this daemon gave an address the first time it showed it. read
@@ -429,4 +431,15 @@ type ScheduleHead struct {
 	Text   string `json:"text,omitempty"`
 	SendAt int64  `json:"send_at,omitempty"`
 	ID     int64  `json:"id,omitempty"`
+}
+
+// FolderHead is one chat-folder change. Op is create, rename, delete, set
+// or unset. A create's input seq is the folder id; set and unset name the
+// chat by key and the folder by id.
+type FolderHead struct {
+	Op     string `json:"op"`
+	ID     int64  `json:"id,omitempty"`
+	Name   string `json:"name,omitempty"`
+	Chat   string `json:"chat,omitempty"`
+	Folder int64  `json:"folder,omitempty"`
 }

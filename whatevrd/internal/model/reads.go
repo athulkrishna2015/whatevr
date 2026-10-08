@@ -528,6 +528,8 @@ type ChatFilter struct {
 	// Kind is "", "direct", "groups" or "favorite"
 	Kind     string
 	Archived bool
+	// Folder keeps only chats in that folder, 0 for every folder
+	Folder int64
 	// Any takes archived and unarchived alike
 	Any   bool
 	Limit int
@@ -586,6 +588,10 @@ func (r *Reader) ChatsIn(ctx context.Context, w *World, f ChatFilter) ([]Chat, e
 		q += ` AND grp = 1`
 	case "favorite":
 		q += ` AND key IN (SELECT key FROM chat_favorite WHERE on_flag = 1)`
+	}
+	if f.Folder > 0 {
+		q += ` AND key IN (SELECT key FROM chat_folder WHERE folder = ?)`
+		args = append(args, f.Folder)
 	}
 	q += ` ORDER BY pinned DESC, pin_t DESC, last_t DESC, key`
 	name := strings.ToLower(strings.TrimSpace(f.Name))

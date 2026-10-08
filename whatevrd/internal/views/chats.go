@@ -19,7 +19,7 @@ var chatKinds = []string{"chat", "chatrow", "message", "person", "group", TouchC
 
 func (rs *Reads) chatsView(ctx context.Context, s *server.Session, req *v2.Subscribe) (server.Window, *v2.SubscribeResult, error) {
 	p := req.GetChats()
-	f := model.ChatFilter{Archived: p.GetArchived()}
+	f := model.ChatFilter{Archived: p.GetArchived(), Folder: p.GetFolderId()}
 	switch p.GetFilter() {
 	case v2.ChatFilter_CHAT_FILTER_DIRECT:
 		f.Kind = "direct"

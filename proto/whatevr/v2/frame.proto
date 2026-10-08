@@ -56,6 +56,10 @@ message Request {
     ChatFavorite chat_favorite = 37;
     ChatMarkAllRead chat_mark_all_read = 38;
     ChatExport chat_export = 39;
+    ChatFolderCreate chat_folder_create = 40;
+    ChatFolderRename chat_folder_rename = 41;
+    ChatFolderDelete chat_folder_delete = 42;
+    ChatFolderSetChat chat_folder_set_chat = 43;
 
     // 50-59: sends
     SendText send_text = 50;
@@ -129,6 +133,7 @@ message Response {
     ChatRequestOlderResult chat_request_older = 35;
     ChatMarkAllReadResult chat_mark_all_read = 38;
     ChatExportResult chat_export = 39;
+    ChatFolderCreateResult chat_folder_create = 40;
 
     SendResult send = 50;
     ScheduleTextResult schedule_text = 57;
@@ -260,6 +265,7 @@ message Upsert {
     PollVoteRow poll_vote = 32;
     Responder responder = 33;
     LogRow log = 34;
+    ChatFolderRow chat_folder = 35;
   }
 }
 
@@ -308,6 +314,7 @@ message Subscribe {
     LiveLocationsView live_locations = 29;
     ChatMediaView chat_media = 30;
     ChatLinksView chat_links = 40;
+    ChatFoldersView chat_folders = 41;
     StickersView stickers = 31;
     StickerPacksView sticker_packs = 32;
     StickerPackView sticker_pack = 33;

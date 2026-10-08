@@ -3,6 +3,7 @@ package whatsapp
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	"google.golang.org/protobuf/encoding/protojson"
 
@@ -55,6 +56,70 @@ func (c *Client) SetDefaultFrontend(ctx context.Context, id string) error {
 	p := c.prefs(ctx)
 	p.SetDefaultFrontend(id)
 	return c.storePrefs(ctx, p)
+}
+
+// Folders lists every chat folder, by name.
+func (c *Client) Folders(ctx context.Context) ([]model.Folder, error) {
+	return c.r.Folders(ctx)
+}
+
+// CreateFolder makes a user chat list; the input seq it is logged under is
+// the folder id.
+func (c *Client) CreateFolder(ctx context.Context, name string) (int64, error) {
+	if strings.TrimSpace(name) == "" {
+		return 0, Errorf(ErrInvalid, "folder name is required")
+	}
+	h, err := json.Marshal(core.FolderHead{Op: "create", Name: strings.TrimSpace(name)})
+	if err != nil {
+		return 0, err
+	}
+	seq, err := c.core.Append(ctx, core.Input{Kind: core.KindFolder, V: 1, Head: h})
+	if err != nil {
+		return 0, err
+	}
+	c.waitLogged(ctx)
+	return seq, nil
+}
+
+// RenameFolder renames a chat folder.
+func (c *Client) RenameFolder(ctx context.Context, id int64, name string) error {
+	if id <= 0 {
+		return Errorf(ErrInvalid, "folder id is required")
+	}
+	if strings.TrimSpace(name) == "" {
+		return Errorf(ErrInvalid, "folder name is required")
+	}
+	if err := c.append(ctx, core.KindFolder, core.FolderHead{Op: "rename", ID: id, Name: strings.TrimSpace(name)}, nil); err != nil {
+		return err
+	}
+	c.waitLogged(ctx)
+	return nil
+}
+
+// DeleteFolder deletes a chat folder and every membership in it.
+func (c *Client) DeleteFolder(ctx context.Context, id int64) error {
+	if id <= 0 {
+		return Errorf(ErrInvalid, "folder id is required")
+	}
+	if err := c.append(ctx, core.KindFolder, core.FolderHead{Op: "delete", ID: id}, nil); err != nil {
+		return err
+	}
+	c.waitLogged(ctx)
+	return nil
+}
+
+// SetChatFolder puts a chat in a folder, or takes it out when folder is 0.
+// Local display policy, like pins: nothing crosses to WhatsApp.
+func (c *Client) SetChatFolder(ctx context.Context, key string, folder int64) error {
+	op := "unset"
+	if folder > 0 {
+		op = "set"
+	}
+	if err := c.append(ctx, core.KindFolder, core.FolderHead{Op: op, Chat: key, Folder: folder}, nil); err != nil {
+		return err
+	}
+	c.waitLogged(ctx)
+	return nil
 }
 
 // SetChatFavorite favorites a chat on this device. local display policy,

@@ -78,11 +78,7 @@ Item {
         }
 
 
-        // Chat lists need a daemon folders API, which protocol v2 does not
-        // serve: hide the whole section until it does rather than offer
-        // silently dead lists.
         Repeater {
-            visible: false
             model: Whatevr.ProtocolController.chatFoldersModel
             delegate: QQC2.ToolButton {
                 id: folderDelegate
@@ -129,8 +125,6 @@ Item {
         }
 
         QQC2.ToolButton {
-            // Hidden with the folder section above: no folders API on v2.
-            visible: false
             Layout.alignment: Qt.AlignHCenter
             icon.name: "list-add-symbolic"
             display: QQC2.AbstractButton.IconOnly

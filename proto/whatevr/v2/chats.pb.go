@@ -127,6 +127,7 @@ type ChatsView struct {
 	state               protoimpl.MessageState `protogen:"opaque.v1"`
 	xxx_hidden_Filter   ChatFilter             `protobuf:"varint,1,opt,name=filter,enum=whatevr.v2.ChatFilter"`
 	xxx_hidden_Archived bool                   `protobuf:"varint,2,opt,name=archived"`
+	xxx_hidden_FolderId int64                  `protobuf:"varint,3,opt,name=folder_id,json=folderId"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -170,6 +171,13 @@ func (x *ChatsView) GetArchived() bool {
 	return false
 }
 
+func (x *ChatsView) GetFolderId() int64 {
+	if x != nil {
+		return x.xxx_hidden_FolderId
+	}
+	return 0
+}
+
 func (x *ChatsView) SetFilter(v ChatFilter) {
 	x.xxx_hidden_Filter = v
 }
@@ -178,11 +186,17 @@ func (x *ChatsView) SetArchived(v bool) {
 	x.xxx_hidden_Archived = v
 }
 
+func (x *ChatsView) SetFolderId(v int64) {
+	x.xxx_hidden_FolderId = v
+}
+
 type ChatsView_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
 	Filter   ChatFilter
 	Archived bool
+	// a folder id, 0 for every folder
+	FolderId int64
 }
 
 func (b0 ChatsView_builder) Build() *ChatsView {
@@ -191,6 +205,7 @@ func (b0 ChatsView_builder) Build() *ChatsView {
 	_, _ = b, x
 	x.xxx_hidden_Filter = b.Filter
 	x.xxx_hidden_Archived = b.Archived
+	x.xxx_hidden_FolderId = b.FolderId
 	return m0
 }
 
@@ -1567,15 +1582,456 @@ func (b0 ChatExportResult_builder) Build() *ChatExportResult {
 	return m0
 }
 
+// user-made chat lists; local display policy like pins and favorites
+type ChatFoldersView struct {
+	state         protoimpl.MessageState `protogen:"opaque.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChatFoldersView) Reset() {
+	*x = ChatFoldersView{}
+	mi := &file_whatevr_v2_chats_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChatFoldersView) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChatFoldersView) ProtoMessage() {}
+
+func (x *ChatFoldersView) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_chats_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+type ChatFoldersView_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+}
+
+func (b0 ChatFoldersView_builder) Build() *ChatFoldersView {
+	m0 := &ChatFoldersView{}
+	b, x := &b0, m0
+	_, _ = b, x
+	return m0
+}
+
+type ChatFolderRow struct {
+	state           protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Id   int64                  `protobuf:"varint,1,opt,name=id"`
+	xxx_hidden_Name string                 `protobuf:"bytes,2,opt,name=name"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ChatFolderRow) Reset() {
+	*x = ChatFolderRow{}
+	mi := &file_whatevr_v2_chats_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChatFolderRow) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChatFolderRow) ProtoMessage() {}
+
+func (x *ChatFolderRow) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_chats_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ChatFolderRow) GetId() int64 {
+	if x != nil {
+		return x.xxx_hidden_Id
+	}
+	return 0
+}
+
+func (x *ChatFolderRow) GetName() string {
+	if x != nil {
+		return x.xxx_hidden_Name
+	}
+	return ""
+}
+
+func (x *ChatFolderRow) SetId(v int64) {
+	x.xxx_hidden_Id = v
+}
+
+func (x *ChatFolderRow) SetName(v string) {
+	x.xxx_hidden_Name = v
+}
+
+type ChatFolderRow_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Id   int64
+	Name string
+}
+
+func (b0 ChatFolderRow_builder) Build() *ChatFolderRow {
+	m0 := &ChatFolderRow{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Id = b.Id
+	x.xxx_hidden_Name = b.Name
+	return m0
+}
+
+type ChatFolderCreate struct {
+	state           protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Name string                 `protobuf:"bytes,1,opt,name=name"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ChatFolderCreate) Reset() {
+	*x = ChatFolderCreate{}
+	mi := &file_whatevr_v2_chats_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChatFolderCreate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChatFolderCreate) ProtoMessage() {}
+
+func (x *ChatFolderCreate) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_chats_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ChatFolderCreate) GetName() string {
+	if x != nil {
+		return x.xxx_hidden_Name
+	}
+	return ""
+}
+
+func (x *ChatFolderCreate) SetName(v string) {
+	x.xxx_hidden_Name = v
+}
+
+type ChatFolderCreate_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Name string
+}
+
+func (b0 ChatFolderCreate_builder) Build() *ChatFolderCreate {
+	m0 := &ChatFolderCreate{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Name = b.Name
+	return m0
+}
+
+type ChatFolderCreateResult struct {
+	state             protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Folder *ChatFolderRow         `protobuf:"bytes,1,opt,name=folder"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *ChatFolderCreateResult) Reset() {
+	*x = ChatFolderCreateResult{}
+	mi := &file_whatevr_v2_chats_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChatFolderCreateResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChatFolderCreateResult) ProtoMessage() {}
+
+func (x *ChatFolderCreateResult) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_chats_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ChatFolderCreateResult) GetFolder() *ChatFolderRow {
+	if x != nil {
+		return x.xxx_hidden_Folder
+	}
+	return nil
+}
+
+func (x *ChatFolderCreateResult) SetFolder(v *ChatFolderRow) {
+	x.xxx_hidden_Folder = v
+}
+
+func (x *ChatFolderCreateResult) HasFolder() bool {
+	if x == nil {
+		return false
+	}
+	return x.xxx_hidden_Folder != nil
+}
+
+func (x *ChatFolderCreateResult) ClearFolder() {
+	x.xxx_hidden_Folder = nil
+}
+
+type ChatFolderCreateResult_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Folder *ChatFolderRow
+}
+
+func (b0 ChatFolderCreateResult_builder) Build() *ChatFolderCreateResult {
+	m0 := &ChatFolderCreateResult{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Folder = b.Folder
+	return m0
+}
+
+type ChatFolderRename struct {
+	state           protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Id   int64                  `protobuf:"varint,1,opt,name=id"`
+	xxx_hidden_Name string                 `protobuf:"bytes,2,opt,name=name"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ChatFolderRename) Reset() {
+	*x = ChatFolderRename{}
+	mi := &file_whatevr_v2_chats_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChatFolderRename) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChatFolderRename) ProtoMessage() {}
+
+func (x *ChatFolderRename) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_chats_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ChatFolderRename) GetId() int64 {
+	if x != nil {
+		return x.xxx_hidden_Id
+	}
+	return 0
+}
+
+func (x *ChatFolderRename) GetName() string {
+	if x != nil {
+		return x.xxx_hidden_Name
+	}
+	return ""
+}
+
+func (x *ChatFolderRename) SetId(v int64) {
+	x.xxx_hidden_Id = v
+}
+
+func (x *ChatFolderRename) SetName(v string) {
+	x.xxx_hidden_Name = v
+}
+
+type ChatFolderRename_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Id   int64
+	Name string
+}
+
+func (b0 ChatFolderRename_builder) Build() *ChatFolderRename {
+	m0 := &ChatFolderRename{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Id = b.Id
+	x.xxx_hidden_Name = b.Name
+	return m0
+}
+
+type ChatFolderDelete struct {
+	state         protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Id int64                  `protobuf:"varint,1,opt,name=id"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChatFolderDelete) Reset() {
+	*x = ChatFolderDelete{}
+	mi := &file_whatevr_v2_chats_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChatFolderDelete) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChatFolderDelete) ProtoMessage() {}
+
+func (x *ChatFolderDelete) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_chats_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ChatFolderDelete) GetId() int64 {
+	if x != nil {
+		return x.xxx_hidden_Id
+	}
+	return 0
+}
+
+func (x *ChatFolderDelete) SetId(v int64) {
+	x.xxx_hidden_Id = v
+}
+
+type ChatFolderDelete_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Id int64
+}
+
+func (b0 ChatFolderDelete_builder) Build() *ChatFolderDelete {
+	m0 := &ChatFolderDelete{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Id = b.Id
+	return m0
+}
+
+// puts a chat in a folder; folder_id 0 takes it out again
+type ChatFolderSetChat struct {
+	state               protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ChatId   string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId"`
+	xxx_hidden_FolderId int64                  `protobuf:"varint,2,opt,name=folder_id,json=folderId"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *ChatFolderSetChat) Reset() {
+	*x = ChatFolderSetChat{}
+	mi := &file_whatevr_v2_chats_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChatFolderSetChat) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChatFolderSetChat) ProtoMessage() {}
+
+func (x *ChatFolderSetChat) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_chats_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ChatFolderSetChat) GetChatId() string {
+	if x != nil {
+		return x.xxx_hidden_ChatId
+	}
+	return ""
+}
+
+func (x *ChatFolderSetChat) GetFolderId() int64 {
+	if x != nil {
+		return x.xxx_hidden_FolderId
+	}
+	return 0
+}
+
+func (x *ChatFolderSetChat) SetChatId(v string) {
+	x.xxx_hidden_ChatId = v
+}
+
+func (x *ChatFolderSetChat) SetFolderId(v int64) {
+	x.xxx_hidden_FolderId = v
+}
+
+type ChatFolderSetChat_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ChatId   string
+	FolderId int64
+}
+
+func (b0 ChatFolderSetChat_builder) Build() *ChatFolderSetChat {
+	m0 := &ChatFolderSetChat{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_ChatId = b.ChatId
+	x.xxx_hidden_FolderId = b.FolderId
+	return m0
+}
+
 var File_whatevr_v2_chats_proto protoreflect.FileDescriptor
 
 const file_whatevr_v2_chats_proto_rawDesc = "" +
 	"\n" +
 	"\x16whatevr/v2/chats.proto\x12\n" +
-	"whatevr.v2\x1a\x19whatevr/v2/messages.proto\x1a\x17whatevr/v2/people.proto\"W\n" +
+	"whatevr.v2\x1a\x19whatevr/v2/messages.proto\x1a\x17whatevr/v2/people.proto\"t\n" +
 	"\tChatsView\x12.\n" +
 	"\x06filter\x18\x01 \x01(\x0e2\x16.whatevr.v2.ChatFilterR\x06filter\x12\x1a\n" +
-	"\barchived\x18\x02 \x01(\bR\barchived\"#\n" +
+	"\barchived\x18\x02 \x01(\bR\barchived\x12\x1b\n" +
+	"\tfolder_id\x18\x03 \x01(\x03R\bfolderId\"#\n" +
 	"\bChatView\x12\x17\n" +
 	"\achat_id\x18\x01 \x01(\tR\x06chatId\"\x9d\x04\n" +
 	"\aChatRow\x12\x0e\n" +
@@ -1640,7 +2096,23 @@ const file_whatevr_v2_chats_proto_rawDesc = "" +
 	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x12\n" +
 	"\x04path\x18\x02 \x01(\tR\x04path\"&\n" +
 	"\x10ChatExportResult\x12\x12\n" +
-	"\x04path\x18\x01 \x01(\tR\x04path*\x88\x01\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\"\x11\n" +
+	"\x0fChatFoldersView\"3\n" +
+	"\rChatFolderRow\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"&\n" +
+	"\x10ChatFolderCreate\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\"K\n" +
+	"\x16ChatFolderCreateResult\x121\n" +
+	"\x06folder\x18\x01 \x01(\v2\x19.whatevr.v2.ChatFolderRowR\x06folder\"6\n" +
+	"\x10ChatFolderRename\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"\"\n" +
+	"\x10ChatFolderDelete\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x03R\x02id\"I\n" +
+	"\x11ChatFolderSetChat\x12\x17\n" +
+	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x1b\n" +
+	"\tfolder_id\x18\x02 \x01(\x03R\bfolderId*\x88\x01\n" +
 	"\n" +
 	"ChatFilter\x12\x1b\n" +
 	"\x17CHAT_FILTER_UNSPECIFIED\x10\x00\x12\x13\n" +
@@ -1661,7 +2133,7 @@ const file_whatevr_v2_chats_proto_rawDesc = "" +
 	"Whatevr\\V2\xe2\x02\x16Whatevr\\V2\\GPBMetadata\xea\x02\vWhatevr::V2\x92\x03\x02\b\x02b\beditionsp\xe9\a"
 
 var file_whatevr_v2_chats_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_whatevr_v2_chats_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
+var file_whatevr_v2_chats_proto_msgTypes = make([]protoimpl.MessageInfo, 25)
 var file_whatevr_v2_chats_proto_goTypes = []any{
 	(ChatFilter)(0),                // 0: whatevr.v2.ChatFilter
 	(ChatType)(0),                  // 1: whatevr.v2.ChatType
@@ -1683,20 +2155,28 @@ var file_whatevr_v2_chats_proto_goTypes = []any{
 	(*ChatMarkAllReadResult)(nil),  // 17: whatevr.v2.ChatMarkAllReadResult
 	(*ChatExport)(nil),             // 18: whatevr.v2.ChatExport
 	(*ChatExportResult)(nil),       // 19: whatevr.v2.ChatExportResult
-	(MessageStatus)(0),             // 20: whatevr.v2.MessageStatus
-	(*Address)(nil),                // 21: whatevr.v2.Address
+	(*ChatFoldersView)(nil),        // 20: whatevr.v2.ChatFoldersView
+	(*ChatFolderRow)(nil),          // 21: whatevr.v2.ChatFolderRow
+	(*ChatFolderCreate)(nil),       // 22: whatevr.v2.ChatFolderCreate
+	(*ChatFolderCreateResult)(nil), // 23: whatevr.v2.ChatFolderCreateResult
+	(*ChatFolderRename)(nil),       // 24: whatevr.v2.ChatFolderRename
+	(*ChatFolderDelete)(nil),       // 25: whatevr.v2.ChatFolderDelete
+	(*ChatFolderSetChat)(nil),      // 26: whatevr.v2.ChatFolderSetChat
+	(MessageStatus)(0),             // 27: whatevr.v2.MessageStatus
+	(*Address)(nil),                // 28: whatevr.v2.Address
 }
 var file_whatevr_v2_chats_proto_depIdxs = []int32{
 	0,  // 0: whatevr.v2.ChatsView.filter:type_name -> whatevr.v2.ChatFilter
 	1,  // 1: whatevr.v2.ChatRow.type:type_name -> whatevr.v2.ChatType
 	5,  // 2: whatevr.v2.ChatRow.preview:type_name -> whatevr.v2.ChatPreview
-	20, // 3: whatevr.v2.ChatPreview.status:type_name -> whatevr.v2.MessageStatus
-	21, // 4: whatevr.v2.ChatEnsureDirect.person:type_name -> whatevr.v2.Address
-	5,  // [5:5] is the sub-list for method output_type
-	5,  // [5:5] is the sub-list for method input_type
-	5,  // [5:5] is the sub-list for extension type_name
-	5,  // [5:5] is the sub-list for extension extendee
-	0,  // [0:5] is the sub-list for field type_name
+	27, // 3: whatevr.v2.ChatPreview.status:type_name -> whatevr.v2.MessageStatus
+	28, // 4: whatevr.v2.ChatEnsureDirect.person:type_name -> whatevr.v2.Address
+	21, // 5: whatevr.v2.ChatFolderCreateResult.folder:type_name -> whatevr.v2.ChatFolderRow
+	6,  // [6:6] is the sub-list for method output_type
+	6,  // [6:6] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_whatevr_v2_chats_proto_init() }
@@ -1712,7 +2192,7 @@ func file_whatevr_v2_chats_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_whatevr_v2_chats_proto_rawDesc), len(file_whatevr_v2_chats_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   18,
+			NumMessages:   25,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

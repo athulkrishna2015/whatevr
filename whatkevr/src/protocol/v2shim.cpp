@@ -123,6 +123,9 @@ bool buildV2Subscribe(std::uint64_t id, const QString &view, const QJsonObject &
         }
         chats->set_filter(filter);
         chats->set_archived(params.value(QStringLiteral("archived")).toBool(false));
+        chats->set_folder_id(params.value(QStringLiteral("folder_id")).toInteger());
+    } else if (view == QLatin1String("chat_folders")) {
+        subscribe->mutable_chat_folders();
     } else if (view == QLatin1String("typing")) {
         subscribe->mutable_typing();
     } else if (view == QLatin1String("transfers")) {
@@ -308,6 +311,14 @@ V2ResponseTranslation translateV2Response(const whatevr::v2::Response &response)
         }
         QJsonObject result;
         result.insert(QStringLiteral("messages"), messages);
+        out.result = result;
+        break;
+    }
+    case whatevr::v2::Response::kChatFolderCreate: {
+        QJsonObject result;
+        result.insert(QStringLiteral("id"),
+                      static_cast<qint64>(response.chat_folder_create().folder().id()));
+        result.insert(QStringLiteral("name"), v2s(response.chat_folder_create().folder().name()));
         out.result = result;
         break;
     }
@@ -701,6 +712,13 @@ QJsonObject translateV2Item(const whatevr::v2::Upsert &upsert)
         return translateV2StickerRow(upsert.sticker());
     case whatevr::v2::Upsert::kStickerPack:
         return translateV2StickerPackRow(upsert.sticker_pack());
+    case whatevr::v2::Upsert::kChatFolder: {
+        QJsonObject item;
+        item.insert(QStringLiteral("id"), QString::number(upsert.chat_folder().id()));
+        item.insert(QStringLiteral("folder_id"), static_cast<qint64>(upsert.chat_folder().id()));
+        item.insert(QStringLiteral("name"), v2s(upsert.chat_folder().name()));
+        return item;
+    }
     case whatevr::v2::Upsert::kTransfer:
         return translateV2TransferRow(upsert.transfer());
     case whatevr::v2::Upsert::kLog:
@@ -829,6 +847,27 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
     }
     if (method == QLatin1String("chat.mark_all_read")) {
         request->mutable_chat_mark_all_read();
+        return true;
+    }
+    if (method == QLatin1String("chat_folder.create")) {
+        request->mutable_chat_folder_create()->set_name(
+            get("name").toString().toStdString());
+        return true;
+    }
+    if (method == QLatin1String("chat_folder.rename")) {
+        auto *rename = request->mutable_chat_folder_rename();
+        rename->set_id(get("id").toInteger());
+        rename->set_name(get("name").toString().toStdString());
+        return true;
+    }
+    if (method == QLatin1String("chat_folder.delete")) {
+        request->mutable_chat_folder_delete()->set_id(get("id").toInteger());
+        return true;
+    }
+    if (method == QLatin1String("chat_folder.set_chat")) {
+        auto *set = request->mutable_chat_folder_set_chat();
+        set->set_chat_id(get("chat_id").toString().toStdString());
+        set->set_folder_id(get("folder_id").toInteger());
         return true;
     }
     if (method == QLatin1String("chat.export")) {
@@ -1293,6 +1332,12 @@ bool v2ResponseFromV1(const QString &method, std::uint64_t id, const QJsonObject
         out->mutable_chat_export()->set_path(str("path"));
         return true;
     }
+    if (method == QLatin1String("chat_folder.create")) {
+        auto *folder = out->mutable_chat_folder_create()->mutable_folder();
+        folder->set_id(static_cast<std::int64_t>(result.value(QStringLiteral("id")).toInteger()));
+        folder->set_name(str("name"));
+        return true;
+    }
     if (method == QLatin1String("schedule.text")) {
         out->mutable_schedule_text()->set_scheduled_id(
             static_cast<std::int64_t>(result.value(QStringLiteral("scheduled_id")).toInteger()));
@@ -1615,6 +1660,10 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
                 break;
             }
             params.insert(QStringLiteral("archived"), subscribe.chats().archived());
+            if (subscribe.chats().folder_id() > 0) {
+                params.insert(QStringLiteral("folder_id"),
+                              static_cast<qint64>(subscribe.chats().folder_id()));
+            }
             break;
         case View::kChat:
             params.insert(QStringLiteral("view"), QStringLiteral("chat"));
@@ -1694,6 +1743,9 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
             params.insert(QStringLiteral("view"), QStringLiteral("chat_links"));
             params.insert(QStringLiteral("chat_id"), v2s(subscribe.chat_links().chat_id()));
             break;
+        case View::kChatFolders:
+            params.insert(QStringLiteral("view"), QStringLiteral("chat_folders"));
+            break;
         case View::kStickers:
             params.insert(QStringLiteral("view"), QStringLiteral("stickers"));
             switch (subscribe.stickers().source()) {
@@ -1766,6 +1818,28 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
     case Method::kChatMarkAllRead:
         out->method = QStringLiteral("chat.mark_all_read");
         break;
+    case Method::kChatFolderCreate:
+        out->method = QStringLiteral("chat_folder.create");
+        params.insert(QStringLiteral("name"), v2s(request.chat_folder_create().name()));
+        break;
+    case Method::kChatFolderRename:
+        out->method = QStringLiteral("chat_folder.rename");
+        params.insert(QStringLiteral("id"), static_cast<qint64>(request.chat_folder_rename().id()));
+        params.insert(QStringLiteral("name"), v2s(request.chat_folder_rename().name()));
+        break;
+    case Method::kChatFolderDelete:
+        out->method = QStringLiteral("chat_folder.delete");
+        params.insert(QStringLiteral("id"), static_cast<qint64>(request.chat_folder_delete().id()));
+        break;
+    case Method::kChatFolderSetChat: {
+        out->method = QStringLiteral("chat_folder.set_chat");
+        const auto &set = request.chat_folder_set_chat();
+        params.insert(QStringLiteral("chat_id"), v2s(set.chat_id()));
+        if (set.folder_id() > 0) {
+            params.insert(QStringLiteral("folder_id"), static_cast<qint64>(set.folder_id()));
+        }
+        break;
+    }
     case Method::kChatExport:
         out->method = QStringLiteral("chat.export");
         params.insert(QStringLiteral("chat_id"), v2s(request.chat_export().chat_id()));
@@ -2982,6 +3056,13 @@ bool v2UpsertRowFromJson(const QString &view, const QJsonObject &item, whatevr::
             row->set_qr_expires_ms(expires.toMSecsSinceEpoch());
         }
         row->set_detail(str("detail"));
+        return true;
+    }
+    if (view == QLatin1String("chat_folders")) {
+        auto *row = out->mutable_chat_folder();
+        // The daemon keys rows by string id; the test fake may use numbers.
+        row->set_id(static_cast<std::int64_t>(item.value(QStringLiteral("id")).toVariant().toLongLong()));
+        row->set_name(str("name"));
         return true;
     }
     if (view == QLatin1String("typing")) {

@@ -175,3 +175,54 @@ func TestScheduledTextsListDueAndCancel(t *testing.T) {
 		t.Fatalf("after cancel %+v %v", rest, err)
 	}
 }
+
+func TestChatFoldersCreateRenameAssignAndDelete(t *testing.T) {
+	folder := func(op string, id int64, name, chat string, f int64, sec int) core.Input {
+		return in(core.KindFolder, core.FolderHead{Op: op, ID: id, Name: name, Chat: chat, Folder: f}, nil, at(sec))
+	}
+	db := openModel(t)
+	ctx := context.Background()
+	feed(t, db, []core.Input{
+		msgIn("M1", ashaL, ashaL, ashaPN, false, 10, text("hi")),
+		folder("create", 0, "Work", "", 0, 1),
+		folder("create", 0, "Friends", "", 0, 2),
+	})
+	r := NewReader(db.Read())
+	all, err := r.Folders(ctx)
+	if err != nil || len(all) != 2 || all[0].Name != "Friends" || all[1].Name != "Work" {
+		t.Fatalf("listed %+v %v", all, err)
+	}
+	work := all[1].ID
+	feed(t, db, []core.Input{
+		folder("rename", all[0].ID, "Family", "", 0, 3),
+		folder("set", 0, "", ashaL, work, 4),
+	})
+	renamed, err := r.Folders(ctx)
+	if err != nil || len(renamed) != 2 || renamed[0].Name != "Family" {
+		t.Fatalf("renamed %+v %v", renamed, err)
+	}
+	inFolder, err := r.ChatsIn(ctx, mustWorld(t, r), ChatFilter{Any: true, Folder: work})
+	if err != nil || len(inFolder) != 1 {
+		t.Fatalf("folder filter %+v %v", inFolder, err)
+	}
+	outFolder, err := r.ChatsIn(ctx, mustWorld(t, r), ChatFilter{Any: true, Folder: work + 1000})
+	if err != nil || len(outFolder) != 0 {
+		t.Fatalf("other folder %+v %v", outFolder, err)
+	}
+	feed(t, db, []core.Input{
+		folder("unset", 0, "", ashaL, 0, 5),
+		folder("delete", work, "", "", 0, 6),
+	})
+	if rest, err := r.Folders(ctx); err != nil || len(rest) != 1 || rest[0].Name != "Family" {
+		t.Fatalf("after delete %+v %v", rest, err)
+	}
+}
+
+func mustWorld(t *testing.T, r *Reader) *World {
+	t.Helper()
+	w, err := r.World(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return w
+}

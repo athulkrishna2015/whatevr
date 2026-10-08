@@ -577,6 +577,20 @@ private:
                                                             {QStringLiteral("text"), QStringLiteral("later")},
                                                             {QStringLiteral("send_at"), 1900000000}}}}});
             Q_EMIT commandReceived();
+        } else if (method == QLatin1String("chat_folder.create")) {
+            lastCommandMethod = method;
+            lastCommandParams = params;
+            reply(id, QJsonObject{{QStringLiteral("id"), 5},
+                                  {QStringLiteral("name"),
+                                   params.value(QStringLiteral("name"))}});
+            Q_EMIT commandReceived();
+        } else if (method == QLatin1String("chat_folder.rename")
+                   || method == QLatin1String("chat_folder.delete")
+                   || method == QLatin1String("chat_folder.set_chat")) {
+            lastCommandMethod = method;
+            lastCommandParams = params;
+            reply(id, QJsonObject{});
+            Q_EMIT commandReceived();
         } else if (method == QLatin1String("schedule.cancel")) {
             lastCommandMethod = method;
             lastCommandParams = params;
@@ -1125,6 +1139,51 @@ private Q_SLOTS:
         QCOMPARE(methods, (QStringList{QStringLiteral("schedule.cancel"),
                                         QStringLiteral("schedule.list")}));
         QCOMPARE(cancelledId, 7);
+    }
+
+    // Folders list through the `chat_folders` view; create/rename/delete
+    // resubscribe it, assignments send the folder id (or none to remove).
+    void chatFoldersListCreateAssign()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats(
+            {chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});
+        daemon.setCollection(QStringLiteral("chat_folders"),
+                             {QJsonObject{{QStringLiteral("id"), QStringLiteral("5")},
+                                           {QStringLiteral("name"), QStringLiteral("Work")},
+                                           {QStringLiteral("folder_id"), 5}}});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_COMPARE(daemon.chatsSubscribeCount, 2);
+        auto *folders = qobject_cast<QAbstractItemModel *>(ctrl.chatFoldersModel());
+        QVERIFY(folders);
+        QTRY_COMPARE(folders->rowCount(), 1);
+
+        QSignalSpy commandSpy(&daemon, &FakeDaemon::commandReceived);
+        ctrl.createChatFolder(QStringLiteral("Friends"));
+        QVERIFY(commandSpy.wait());
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("chat_folder.create"));
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("name")).toString(),
+                 QStringLiteral("Friends"));
+        // The controller resubscribes the view after every mutation.
+        QTRY_COMPARE(folders->rowCount(), 1);
+
+        ctrl.assignChatFolder(QStringLiteral("a@s"), 5);
+        QTRY_COMPARE(daemon.lastCommandMethod, QStringLiteral("chat_folder.set_chat"));
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("chat_id")).toString(),
+                 QStringLiteral("a@s"));
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("folder_id")).toInt(), 5);
+
+        const int assigns = commandSpy.count();
+        ctrl.assignChatFolder(QStringLiteral("a@s"), 0);
+        QTRY_COMPARE(commandSpy.count(), assigns + 1);
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("chat_folder.set_chat"));
+        QVERIFY(!daemon.lastCommandParams.contains(QStringLiteral("folder_id")));
+
+        ctrl.setChatFolder(5);
+        QTRY_COMPARE(daemon.lastChatsParams.value(QStringLiteral("folder_id")).toInt(), 5);
     }
 
     // `privacy.set_default_timer` carries the seconds through.
