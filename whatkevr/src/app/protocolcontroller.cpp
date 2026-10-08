@@ -466,6 +466,8 @@ ProtocolController::ProtocolController(QString socketPath, QObject *parent)
     connect(m_channelsModel, &CollectionViewModel::readyChanged, this, &ProtocolController::channelsChanged);
     connect(m_channelsModel, &CollectionViewModel::modelReset, this, &ProtocolController::channelsChanged);
     m_channelMessagesModel = new CollectionViewModel(this);
+    m_channelMessagePresentationModel = new ProtocolMessageModel(m_channelMessagesModel, this);
+    m_channelMessagePresentationModel->setTransfersSource(m_transfersModel);
     connect(m_channelMessagesModel, &CollectionViewModel::countChanged, this, &ProtocolController::channelMessagesChanged);
     connect(m_channelMessagesModel, &CollectionViewModel::readyChanged, this, &ProtocolController::channelMessagesChanged);
     connect(m_channelMessagesModel, &CollectionViewModel::modelReset, this, &ProtocolController::channelMessagesChanged);
@@ -3999,6 +4001,11 @@ bool ProtocolController::channelsLoading() const
 QAbstractItemModel *ProtocolController::channelMessagesModel() const
 {
     return m_channelMessagesModel;
+}
+
+QAbstractItemModel *ProtocolController::channelMessagePresentationModel() const
+{
+    return m_channelMessagePresentationModel;
 }
 
 bool ProtocolController::channelMessagesLoading() const

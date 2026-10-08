@@ -268,6 +268,7 @@ class ProtocolController final : public QObject
     Q_PROPERTY(QAbstractItemModel *channelsModel READ channelsModel CONSTANT FINAL)
     Q_PROPERTY(bool channelsLoading READ channelsLoading NOTIFY channelsChanged FINAL)
     Q_PROPERTY(QAbstractItemModel *channelMessagesModel READ channelMessagesModel CONSTANT FINAL)
+    Q_PROPERTY(QAbstractItemModel *channelMessagePresentationModel READ channelMessagePresentationModel CONSTANT FINAL)
     Q_PROPERTY(bool channelMessagesLoading READ channelMessagesLoading NOTIFY channelMessagesChanged FINAL)
     Q_PROPERTY(QString selectedChannelJid READ selectedChannelJid NOTIFY channelMessagesChanged FINAL)
     Q_PROPERTY(QString selectedChannelName READ selectedChannelName NOTIFY channelMessagesChanged FINAL)
@@ -515,6 +516,7 @@ public:
     [[nodiscard]] QAbstractItemModel *channelsModel() const;
     [[nodiscard]] bool channelsLoading() const;
     [[nodiscard]] QAbstractItemModel *channelMessagesModel() const;
+    [[nodiscard]] QAbstractItemModel *channelMessagePresentationModel() const;
     [[nodiscard]] bool channelMessagesLoading() const;
     [[nodiscard]] QString selectedChannelJid() const;
     [[nodiscard]] QString selectedChannelName() const;
@@ -1160,6 +1162,7 @@ private:
     whatevr::proto::CollectionViewModel *m_callHistoryModel = nullptr;
     whatevr::proto::CollectionViewModel *m_channelsModel = nullptr;
     whatevr::proto::CollectionViewModel *m_channelMessagesModel = nullptr;
+    ProtocolMessageModel *m_channelMessagePresentationModel = nullptr;
     whatevr::proto::CollectionViewModel *m_logsModel = nullptr;
     whatevr::proto::CollectionViewModel *m_groupMembersModel = nullptr;
     whatevr::proto::CollectionViewModel *m_chatMembersModel = nullptr;

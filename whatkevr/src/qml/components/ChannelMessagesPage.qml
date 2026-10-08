@@ -191,7 +191,7 @@ Kirigami.ScrollablePage {
     ListView {
         id: messagesList
 
-        model: Whatevr.ProtocolController.channelMessagesModel
+        model: Whatevr.ProtocolController.channelMessagePresentationModel
         currentIndex: -1
         reuseItems: true
         onContentYChanged: root.markVisibleViewed()
