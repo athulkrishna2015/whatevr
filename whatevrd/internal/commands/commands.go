@@ -57,61 +57,63 @@ func Register(o Options) *Opener {
 	x.opener = &Opener{x: x}
 	type arm = protoreflect.FieldNumber
 	off := map[arm]server.Method{
-		arm(v2.Request_DaemonReconnect_case):          x.reconnect,
-		arm(v2.Request_AccountLogout_case):            x.logout,
-		arm(v2.Request_ChatMarkRead_case):             x.markRead,
-		arm(v2.Request_ChatMarkAllRead_case):          x.markAllRead,
-		arm(v2.Request_ChatExport_case):               x.exportChat,
-		arm(v2.Request_ChatPin_case):                  x.chatPin,
-		arm(v2.Request_ChatFavorite_case):             x.chatFavorite,
-		arm(v2.Request_ChatArchive_case):              x.chatArchive,
-		arm(v2.Request_ChatMute_case):                 x.chatMute,
-		arm(v2.Request_ChatTyping_case):               x.typing,
-		arm(v2.Request_ChatRequestOlder_case):         x.requestOlder,
-		arm(v2.Request_ChatEnsureDirect_case):         x.ensureDirect,
-		arm(v2.Request_MessageReact_case):             x.react,
-		arm(v2.Request_MessageEdit_case):              x.edit,
-		arm(v2.Request_MessageEditHistory_case):       x.editHistory,
-		arm(v2.Request_MessageRevoke_case):            x.revoke,
-		arm(v2.Request_MessageDelete_case):            x.deleteForMe,
-		arm(v2.Request_MessageStar_case):              x.star,
-		arm(v2.Request_MessagePin_case):               x.pin,
-		arm(v2.Request_MessageForward_case):           x.forward,
-		arm(v2.Request_MessageMarkPlayed_case):        x.markPlayed,
-		arm(v2.Request_MessageRequestFromPhone_case):  x.requestFromPhone,
-		arm(v2.Request_PollVote_case):                 x.vote,
-		arm(v2.Request_EventRsvp_case):                x.rsvp,
-		arm(v2.Request_GroupJoinInvite_case):          x.joinInvite,
-		arm(v2.Request_GroupCreate_case):              x.groupCreate,
-		arm(v2.Request_GroupLeave_case):               x.groupLeave,
-		arm(v2.Request_GroupSetName_case):             x.groupSetName,
-		arm(v2.Request_GroupSetTopic_case):            x.groupSetTopic,
-		arm(v2.Request_GroupSetPhoto_case):            x.groupSetPhoto,
-		arm(v2.Request_GroupInviteLink_case):          x.groupInviteLink,
-		arm(v2.Request_GroupMembers_case):             x.groupMembers,
-		arm(v2.Request_GroupSetAnnounce_case):         x.groupSetAnnounce,
-		arm(v2.Request_GroupSetLocked_case):           x.groupSetLocked,
-		arm(v2.Request_CommunityLink_case):            x.communityLink,
-		arm(v2.Request_CommunityUnlink_case):          x.communityUnlink,
-		arm(v2.Request_MediaDownload_case):            x.download,
-		arm(v2.Request_MediaStream_case):              x.stream,
-		arm(v2.Request_MediaCancelDownload_case):      x.cancelDownload,
-		arm(v2.Request_MediaRead_case):                x.read,
-		arm(v2.Request_MediaFetchProfilePicture_case): x.profilePicture,
-		arm(v2.Request_MediaSave_case):                x.saveMedia,
-		arm(v2.Request_LogMessage_case):               x.logMessage,
-		arm(v2.Request_PrivacySet_case):               x.privacy,
-		arm(v2.Request_PrivacySetDefaultTimer_case):   x.defaultTimer,
-		arm(v2.Request_SelfSetAbout_case):             x.about,
-		arm(v2.Request_ContactBlock_case):             x.block,
-		arm(v2.Request_StickerFavorite_case):          x.stickerFavorite,
-		arm(v2.Request_StickerDownload_case):          x.stickerDownload,
-		arm(v2.Request_StickerPackInstall_case):       x.packInstall,
-		arm(v2.Request_StickerPacksRefresh_case):      x.packsRefresh,
-		arm(v2.Request_ContactCheckPhone_case):        x.checkPhone,
-		arm(v2.Request_FrontendList_case):             x.frontendList,
-		arm(v2.Request_FrontendSetDefault_case):       x.frontendSetDefault,
-		arm(v2.Request_LinkOpen_case):                 x.linkOpen,
+		arm(v2.Request_DaemonReconnect_case):           x.reconnect,
+		arm(v2.Request_AccountLogout_case):             x.logout,
+		arm(v2.Request_ChatMarkRead_case):              x.markRead,
+		arm(v2.Request_ChatMarkAllRead_case):           x.markAllRead,
+		arm(v2.Request_ChatExport_case):                x.exportChat,
+		arm(v2.Request_ChatPin_case):                   x.chatPin,
+		arm(v2.Request_ChatFavorite_case):              x.chatFavorite,
+		arm(v2.Request_ChatArchive_case):               x.chatArchive,
+		arm(v2.Request_ChatMute_case):                  x.chatMute,
+		arm(v2.Request_ChatTyping_case):                x.typing,
+		arm(v2.Request_ChatRequestOlder_case):          x.requestOlder,
+		arm(v2.Request_ChatEnsureDirect_case):          x.ensureDirect,
+		arm(v2.Request_MessageReact_case):              x.react,
+		arm(v2.Request_MessageEdit_case):               x.edit,
+		arm(v2.Request_MessageEditHistory_case):        x.editHistory,
+		arm(v2.Request_MessageRevoke_case):             x.revoke,
+		arm(v2.Request_MessageDelete_case):             x.deleteForMe,
+		arm(v2.Request_MessageStar_case):               x.star,
+		arm(v2.Request_MessagePin_case):                x.pin,
+		arm(v2.Request_MessageForward_case):            x.forward,
+		arm(v2.Request_MessageMarkPlayed_case):         x.markPlayed,
+		arm(v2.Request_MessageRequestFromPhone_case):   x.requestFromPhone,
+		arm(v2.Request_PollVote_case):                  x.vote,
+		arm(v2.Request_EventRsvp_case):                 x.rsvp,
+		arm(v2.Request_GroupJoinInvite_case):           x.joinInvite,
+		arm(v2.Request_GroupCreate_case):               x.groupCreate,
+		arm(v2.Request_GroupLeave_case):                x.groupLeave,
+		arm(v2.Request_GroupSetName_case):              x.groupSetName,
+		arm(v2.Request_GroupSetTopic_case):             x.groupSetTopic,
+		arm(v2.Request_GroupSetPhoto_case):             x.groupSetPhoto,
+		arm(v2.Request_GroupInviteLink_case):           x.groupInviteLink,
+		arm(v2.Request_GroupMembers_case):              x.groupMembers,
+		arm(v2.Request_GroupSetAnnounce_case):          x.groupSetAnnounce,
+		arm(v2.Request_GroupSetLocked_case):            x.groupSetLocked,
+		arm(v2.Request_CommunityLink_case):             x.communityLink,
+		arm(v2.Request_CommunityUnlink_case):           x.communityUnlink,
+		arm(v2.Request_MediaDownload_case):             x.download,
+		arm(v2.Request_MediaStream_case):               x.stream,
+		arm(v2.Request_MediaCancelDownload_case):       x.cancelDownload,
+		arm(v2.Request_MediaRead_case):                 x.read,
+		arm(v2.Request_MediaFetchProfilePicture_case):  x.profilePicture,
+		arm(v2.Request_MediaSave_case):                 x.saveMedia,
+		arm(v2.Request_DaemonBackupExport_case):        x.backupExport,
+		arm(v2.Request_DaemonBackupSetPassphrase_case): x.backupSetPassphrase,
+		arm(v2.Request_LogMessage_case):                x.logMessage,
+		arm(v2.Request_PrivacySet_case):                x.privacy,
+		arm(v2.Request_PrivacySetDefaultTimer_case):    x.defaultTimer,
+		arm(v2.Request_SelfSetAbout_case):              x.about,
+		arm(v2.Request_ContactBlock_case):              x.block,
+		arm(v2.Request_StickerFavorite_case):           x.stickerFavorite,
+		arm(v2.Request_StickerDownload_case):           x.stickerDownload,
+		arm(v2.Request_StickerPackInstall_case):        x.packInstall,
+		arm(v2.Request_StickerPacksRefresh_case):       x.packsRefresh,
+		arm(v2.Request_ContactCheckPhone_case):         x.checkPhone,
+		arm(v2.Request_FrontendList_case):              x.frontendList,
+		arm(v2.Request_FrontendSetDefault_case):        x.frontendSetDefault,
+		arm(v2.Request_LinkOpen_case):                  x.linkOpen,
 	}
 	for n, fn := range off {
 		o.Server.Handle(n, fn)
@@ -259,6 +261,21 @@ func (x *commands) reconnect(ctx context.Context, s *server.Session, req *v2.Req
 
 // logMessage lands a frontend's own diagnostics in the run log the logs
 // view tails, so the Logs tab shows both halves of the story.
+func (x *commands) backupExport(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetDaemonBackupExport()
+	path, size, err := x.c.ExportBackup(ctx, p.GetPath(), p.GetPassphrase(), p.GetUseKeyring())
+	if err != nil {
+		return nil, wire(err)
+	}
+	resp := &v2.Response{}
+	resp.SetDaemonBackupExport(v2.DaemonBackupExportResult_builder{Path: path, SizeBytes: uint64(size)}.Build())
+	return resp, nil
+}
+
+func (x *commands) backupSetPassphrase(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	return nil, wire(x.c.SetBackupPassphrase(ctx, req.GetDaemonBackupSetPassphrase().GetPassphrase()))
+}
+
 func (x *commands) logMessage(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
 	x.log.Info().Msg(req.GetLogMessage().GetMessage())
 	return nil, nil

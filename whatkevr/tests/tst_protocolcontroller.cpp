@@ -576,6 +576,18 @@ private:
             lastCommandParams = params;
             reply(id, QJsonObject{});
             Q_EMIT commandReceived();
+        } else if (method == QLatin1String("daemon.backup_export")) {
+            lastCommandMethod = method;
+            lastCommandParams = params;
+            reply(id, QJsonObject{{QStringLiteral("path"),
+                                    params.value(QStringLiteral("path"))},
+                                  {QStringLiteral("size_bytes"), 42}});
+            Q_EMIT commandReceived();
+        } else if (method == QLatin1String("daemon.backup_set_passphrase")) {
+            lastCommandMethod = method;
+            lastCommandParams = params;
+            reply(id, QJsonObject{});
+            Q_EMIT commandReceived();
         } else if (method == QLatin1String("daemon.reconnect")) {
             ++reconnectCount;
             reply(id, QJsonObject{});
@@ -1242,6 +1254,38 @@ private Q_SLOTS:
         QCOMPARE(daemon.lastCommandMethod, QStringLiteral("community.link"));
         QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("community_id")).toString(),
                  QStringLiteral("c@g.us"));
+    }
+
+    // Backups export through backupExported; the passphrase stores quietly.
+    void backupExportAndPassphrase()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats(
+            {chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_COMPARE(daemon.chatsSubscribeCount, 2);
+
+        QSignalSpy commandSpy(&daemon, &FakeDaemon::commandReceived);
+        QSignalSpy exportedSpy(&ctrl, &ProtocolController::backupExported);
+        ctrl.exportBackup(QUrl::fromLocalFile(QStringLiteral("/tmp/opencode/backup-test.tar.gz")),
+                          QString(), false);
+        QVERIFY(commandSpy.wait());
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("daemon.backup_export"));
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("path")).toString(),
+                 QStringLiteral("/tmp/opencode/backup-test.tar.gz"));
+        QTRY_COMPARE(exportedSpy.count(), 1);
+        QCOMPARE(exportedSpy.first().first().toString(),
+                 QStringLiteral("/tmp/opencode/backup-test.tar.gz"));
+
+        const int sets = commandSpy.count();
+        QSignalSpy failedSpy(&ctrl, &ProtocolController::messageActionFailed);
+        ctrl.setBackupPassphrase(QStringLiteral("s3cret"));
+        QTRY_COMPARE(commandSpy.count(), sets + 1);
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("daemon.backup_set_passphrase"));
+        QVERIFY(failedSpy.isEmpty());
     }
 
     // Edit history lists superseded bodies through editHistoryReady.

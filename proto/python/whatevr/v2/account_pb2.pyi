@@ -209,6 +209,30 @@ class AccountLogout(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
 
+class DaemonBackupExport(_message.Message):
+    __slots__ = ("path", "passphrase", "use_keyring")
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    PASSPHRASE_FIELD_NUMBER: _ClassVar[int]
+    USE_KEYRING_FIELD_NUMBER: _ClassVar[int]
+    path: str
+    passphrase: str
+    use_keyring: bool
+    def __init__(self, path: _Optional[str] = ..., passphrase: _Optional[str] = ..., use_keyring: _Optional[bool] = ...) -> None: ...
+
+class DaemonBackupExportResult(_message.Message):
+    __slots__ = ("path", "size_bytes")
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    SIZE_BYTES_FIELD_NUMBER: _ClassVar[int]
+    path: str
+    size_bytes: int
+    def __init__(self, path: _Optional[str] = ..., size_bytes: _Optional[int] = ...) -> None: ...
+
+class DaemonBackupSetPassphrase(_message.Message):
+    __slots__ = ("passphrase",)
+    PASSPHRASE_FIELD_NUMBER: _ClassVar[int]
+    passphrase: str
+    def __init__(self, passphrase: _Optional[str] = ...) -> None: ...
+
 class LogMessage(_message.Message):
     __slots__ = ("message",)
     MESSAGE_FIELD_NUMBER: _ClassVar[int]

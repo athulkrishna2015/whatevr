@@ -1245,6 +1245,224 @@ func (b0 AccountLogout_builder) Build() *AccountLogout {
 	return m0
 }
 
+// writes a backup bundle (message store + session + media) to path. a
+// passphrase encrypts it; use_keyring reads that passphrase from the OS
+// keyring instead of the wire
+type DaemonBackupExport struct {
+	state                 protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Path       string                 `protobuf:"bytes,1,opt,name=path"`
+	xxx_hidden_Passphrase string                 `protobuf:"bytes,2,opt,name=passphrase"`
+	xxx_hidden_UseKeyring bool                   `protobuf:"varint,3,opt,name=use_keyring,json=useKeyring"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *DaemonBackupExport) Reset() {
+	*x = DaemonBackupExport{}
+	mi := &file_whatevr_v2_account_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DaemonBackupExport) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DaemonBackupExport) ProtoMessage() {}
+
+func (x *DaemonBackupExport) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_account_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *DaemonBackupExport) GetPath() string {
+	if x != nil {
+		return x.xxx_hidden_Path
+	}
+	return ""
+}
+
+func (x *DaemonBackupExport) GetPassphrase() string {
+	if x != nil {
+		return x.xxx_hidden_Passphrase
+	}
+	return ""
+}
+
+func (x *DaemonBackupExport) GetUseKeyring() bool {
+	if x != nil {
+		return x.xxx_hidden_UseKeyring
+	}
+	return false
+}
+
+func (x *DaemonBackupExport) SetPath(v string) {
+	x.xxx_hidden_Path = v
+}
+
+func (x *DaemonBackupExport) SetPassphrase(v string) {
+	x.xxx_hidden_Passphrase = v
+}
+
+func (x *DaemonBackupExport) SetUseKeyring(v bool) {
+	x.xxx_hidden_UseKeyring = v
+}
+
+type DaemonBackupExport_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Path       string
+	Passphrase string
+	UseKeyring bool
+}
+
+func (b0 DaemonBackupExport_builder) Build() *DaemonBackupExport {
+	m0 := &DaemonBackupExport{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Path = b.Path
+	x.xxx_hidden_Passphrase = b.Passphrase
+	x.xxx_hidden_UseKeyring = b.UseKeyring
+	return m0
+}
+
+type DaemonBackupExportResult struct {
+	state                protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Path      string                 `protobuf:"bytes,1,opt,name=path"`
+	xxx_hidden_SizeBytes uint64                 `protobuf:"varint,2,opt,name=size_bytes,json=sizeBytes"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *DaemonBackupExportResult) Reset() {
+	*x = DaemonBackupExportResult{}
+	mi := &file_whatevr_v2_account_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DaemonBackupExportResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DaemonBackupExportResult) ProtoMessage() {}
+
+func (x *DaemonBackupExportResult) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_account_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *DaemonBackupExportResult) GetPath() string {
+	if x != nil {
+		return x.xxx_hidden_Path
+	}
+	return ""
+}
+
+func (x *DaemonBackupExportResult) GetSizeBytes() uint64 {
+	if x != nil {
+		return x.xxx_hidden_SizeBytes
+	}
+	return 0
+}
+
+func (x *DaemonBackupExportResult) SetPath(v string) {
+	x.xxx_hidden_Path = v
+}
+
+func (x *DaemonBackupExportResult) SetSizeBytes(v uint64) {
+	x.xxx_hidden_SizeBytes = v
+}
+
+type DaemonBackupExportResult_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Path      string
+	SizeBytes uint64
+}
+
+func (b0 DaemonBackupExportResult_builder) Build() *DaemonBackupExportResult {
+	m0 := &DaemonBackupExportResult{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Path = b.Path
+	x.xxx_hidden_SizeBytes = b.SizeBytes
+	return m0
+}
+
+// stores the backup passphrase in the OS keyring, so later exports can
+// pass use_keyring instead of the secret itself
+type DaemonBackupSetPassphrase struct {
+	state                 protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Passphrase string                 `protobuf:"bytes,1,opt,name=passphrase"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *DaemonBackupSetPassphrase) Reset() {
+	*x = DaemonBackupSetPassphrase{}
+	mi := &file_whatevr_v2_account_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DaemonBackupSetPassphrase) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DaemonBackupSetPassphrase) ProtoMessage() {}
+
+func (x *DaemonBackupSetPassphrase) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_account_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *DaemonBackupSetPassphrase) GetPassphrase() string {
+	if x != nil {
+		return x.xxx_hidden_Passphrase
+	}
+	return ""
+}
+
+func (x *DaemonBackupSetPassphrase) SetPassphrase(v string) {
+	x.xxx_hidden_Passphrase = v
+}
+
+type DaemonBackupSetPassphrase_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Passphrase string
+}
+
+func (b0 DaemonBackupSetPassphrase_builder) Build() *DaemonBackupSetPassphrase {
+	m0 := &DaemonBackupSetPassphrase{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Passphrase = b.Passphrase
+	return m0
+}
+
 // a frontend's own diagnostics, landing in the run log the logs view tails
 type LogMessage struct {
 	state              protoimpl.MessageState `protogen:"opaque.v1"`
@@ -1255,7 +1473,7 @@ type LogMessage struct {
 
 func (x *LogMessage) Reset() {
 	*x = LogMessage{}
-	mi := &file_whatevr_v2_account_proto_msgTypes[11]
+	mi := &file_whatevr_v2_account_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1267,7 +1485,7 @@ func (x *LogMessage) String() string {
 func (*LogMessage) ProtoMessage() {}
 
 func (x *LogMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_account_proto_msgTypes[11]
+	mi := &file_whatevr_v2_account_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1312,7 +1530,7 @@ type LogsView struct {
 
 func (x *LogsView) Reset() {
 	*x = LogsView{}
-	mi := &file_whatevr_v2_account_proto_msgTypes[12]
+	mi := &file_whatevr_v2_account_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1324,7 +1542,7 @@ func (x *LogsView) String() string {
 func (*LogsView) ProtoMessage() {}
 
 func (x *LogsView) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_account_proto_msgTypes[12]
+	mi := &file_whatevr_v2_account_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1361,7 +1579,7 @@ type LogRow struct {
 
 func (x *LogRow) Reset() {
 	*x = LogRow{}
-	mi := &file_whatevr_v2_account_proto_msgTypes[13]
+	mi := &file_whatevr_v2_account_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1373,7 +1591,7 @@ func (x *LogRow) String() string {
 func (*LogRow) ProtoMessage() {}
 
 func (x *LogRow) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_account_proto_msgTypes[13]
+	mi := &file_whatevr_v2_account_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1495,7 +1713,22 @@ const file_whatevr_v2_account_proto_rawDesc = "" +
 	"\x0eactive_chat_id\x18\x02 \x01(\tR\factiveChatId\x12/\n" +
 	"\x13shows_notifications\x18\x03 \x01(\bR\x12showsNotifications\"\x11\n" +
 	"\x0fDaemonReconnect\"\x0f\n" +
-	"\rAccountLogout\"&\n" +
+	"\rAccountLogout\"i\n" +
+	"\x12DaemonBackupExport\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x1e\n" +
+	"\n" +
+	"passphrase\x18\x02 \x01(\tR\n" +
+	"passphrase\x12\x1f\n" +
+	"\vuse_keyring\x18\x03 \x01(\bR\n" +
+	"useKeyring\"M\n" +
+	"\x18DaemonBackupExportResult\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x02 \x01(\x04R\tsizeBytes\";\n" +
+	"\x19DaemonBackupSetPassphrase\x12\x1e\n" +
+	"\n" +
+	"passphrase\x18\x01 \x01(\tR\n" +
+	"passphrase\"&\n" +
 	"\n" +
 	"LogMessage\x12\x18\n" +
 	"\amessage\x18\x01 \x01(\tR\amessage\"\n" +
@@ -1563,28 +1796,31 @@ const file_whatevr_v2_account_proto_rawDesc = "" +
 	"Whatevr\\V2\xe2\x02\x16Whatevr\\V2\\GPBMetadata\xea\x02\vWhatevr::V2\x92\x03\x02\b\x02b\beditionsp\xe9\a"
 
 var file_whatevr_v2_account_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_whatevr_v2_account_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_whatevr_v2_account_proto_msgTypes = make([]protoimpl.MessageInfo, 17)
 var file_whatevr_v2_account_proto_goTypes = []any{
-	(ConnectionState)(0),    // 0: whatevr.v2.ConnectionState
-	(ConnectionCause)(0),    // 1: whatevr.v2.ConnectionCause
-	(LoginState)(0),         // 2: whatevr.v2.LoginState
-	(SyncType)(0),           // 3: whatevr.v2.SyncType
-	(SyncPhase)(0),          // 4: whatevr.v2.SyncPhase
-	(ProblemKind)(0),        // 5: whatevr.v2.ProblemKind
-	(*ConnectionView)(nil),  // 6: whatevr.v2.ConnectionView
-	(*ConnectionRow)(nil),   // 7: whatevr.v2.ConnectionRow
-	(*LoginView)(nil),       // 8: whatevr.v2.LoginView
-	(*LoginRow)(nil),        // 9: whatevr.v2.LoginRow
-	(*SyncView)(nil),        // 10: whatevr.v2.SyncView
-	(*SyncRow)(nil),         // 11: whatevr.v2.SyncRow
-	(*ProblemsView)(nil),    // 12: whatevr.v2.ProblemsView
-	(*ProblemRow)(nil),      // 13: whatevr.v2.ProblemRow
-	(*SessionUpdate)(nil),   // 14: whatevr.v2.SessionUpdate
-	(*DaemonReconnect)(nil), // 15: whatevr.v2.DaemonReconnect
-	(*AccountLogout)(nil),   // 16: whatevr.v2.AccountLogout
-	(*LogMessage)(nil),      // 17: whatevr.v2.LogMessage
-	(*LogsView)(nil),        // 18: whatevr.v2.LogsView
-	(*LogRow)(nil),          // 19: whatevr.v2.LogRow
+	(ConnectionState)(0),              // 0: whatevr.v2.ConnectionState
+	(ConnectionCause)(0),              // 1: whatevr.v2.ConnectionCause
+	(LoginState)(0),                   // 2: whatevr.v2.LoginState
+	(SyncType)(0),                     // 3: whatevr.v2.SyncType
+	(SyncPhase)(0),                    // 4: whatevr.v2.SyncPhase
+	(ProblemKind)(0),                  // 5: whatevr.v2.ProblemKind
+	(*ConnectionView)(nil),            // 6: whatevr.v2.ConnectionView
+	(*ConnectionRow)(nil),             // 7: whatevr.v2.ConnectionRow
+	(*LoginView)(nil),                 // 8: whatevr.v2.LoginView
+	(*LoginRow)(nil),                  // 9: whatevr.v2.LoginRow
+	(*SyncView)(nil),                  // 10: whatevr.v2.SyncView
+	(*SyncRow)(nil),                   // 11: whatevr.v2.SyncRow
+	(*ProblemsView)(nil),              // 12: whatevr.v2.ProblemsView
+	(*ProblemRow)(nil),                // 13: whatevr.v2.ProblemRow
+	(*SessionUpdate)(nil),             // 14: whatevr.v2.SessionUpdate
+	(*DaemonReconnect)(nil),           // 15: whatevr.v2.DaemonReconnect
+	(*AccountLogout)(nil),             // 16: whatevr.v2.AccountLogout
+	(*DaemonBackupExport)(nil),        // 17: whatevr.v2.DaemonBackupExport
+	(*DaemonBackupExportResult)(nil),  // 18: whatevr.v2.DaemonBackupExportResult
+	(*DaemonBackupSetPassphrase)(nil), // 19: whatevr.v2.DaemonBackupSetPassphrase
+	(*LogMessage)(nil),                // 20: whatevr.v2.LogMessage
+	(*LogsView)(nil),                  // 21: whatevr.v2.LogsView
+	(*LogRow)(nil),                    // 22: whatevr.v2.LogRow
 }
 var file_whatevr_v2_account_proto_depIdxs = []int32{
 	0, // 0: whatevr.v2.ConnectionRow.state:type_name -> whatevr.v2.ConnectionState
@@ -1611,7 +1847,7 @@ func file_whatevr_v2_account_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_whatevr_v2_account_proto_rawDesc), len(file_whatevr_v2_account_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   14,
+			NumMessages:   17,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

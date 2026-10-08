@@ -280,6 +280,14 @@ V2ResponseTranslation translateV2Response(const whatevr::v2::Response &response)
         out.result = result;
         break;
     }
+    case whatevr::v2::Response::kDaemonBackupExport: {
+        QJsonObject result;
+        result.insert(QStringLiteral("path"), v2s(response.daemon_backup_export().path()));
+        result.insert(QStringLiteral("size_bytes"),
+                      static_cast<qint64>(response.daemon_backup_export().size_bytes()));
+        out.result = result;
+        break;
+    }
     case whatevr::v2::Response::kChatEnsureDirect: {
         QJsonObject result;
         result.insert(QStringLiteral("chat_id"), v2s(response.chat_ensure_direct().chat_id()));
@@ -847,6 +855,18 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
         auto *update = request->mutable_session_update();
         update->set_focused(get("focused").toBool());
         update->set_active_chat_id(get("active_chat_id").toString().toStdString());
+        return true;
+    }
+    if (method == QLatin1String("daemon.backup_export")) {
+        auto *exp = request->mutable_daemon_backup_export();
+        exp->set_path(get("path").toString().toStdString());
+        exp->set_passphrase(get("passphrase").toString().toStdString());
+        exp->set_use_keyring(get("use_keyring").toBool());
+        return true;
+    }
+    if (method == QLatin1String("daemon.backup_set_passphrase")) {
+        request->mutable_daemon_backup_set_passphrase()->set_passphrase(
+            get("passphrase").toString().toStdString());
         return true;
     }
     if (method == QLatin1String("daemon.reconnect")) {
@@ -1421,6 +1441,13 @@ bool v2ResponseFromV1(const QString &method, std::uint64_t id, const QJsonObject
         }
         return true;
     }
+    if (method == QLatin1String("daemon.backup_export")) {
+        auto *exp = out->mutable_daemon_backup_export();
+        exp->set_path(str("path"));
+        exp->set_size_bytes(static_cast<std::uint64_t>(
+            result.value(QStringLiteral("size_bytes")).toInteger()));
+        return true;
+    }
     if (method == QLatin1String("chat.request_older")) {
         out->mutable_chat_request_older()->set_requested(
             result.value(QStringLiteral("requested")).toBool());
@@ -1920,6 +1947,17 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
         params.insert(QStringLiteral("focused"), request.session_update().focused());
         params.insert(QStringLiteral("active_chat_id"),
                       v2s(request.session_update().active_chat_id()));
+        break;
+    case Method::kDaemonBackupExport:
+        out->method = QStringLiteral("daemon.backup_export");
+        params.insert(QStringLiteral("path"), v2s(request.daemon_backup_export().path()));
+        params.insert(QStringLiteral("passphrase"), v2s(request.daemon_backup_export().passphrase()));
+        params.insert(QStringLiteral("use_keyring"), request.daemon_backup_export().use_keyring());
+        break;
+    case Method::kDaemonBackupSetPassphrase:
+        out->method = QStringLiteral("daemon.backup_set_passphrase");
+        params.insert(QStringLiteral("passphrase"),
+                      v2s(request.daemon_backup_set_passphrase().passphrase()));
         break;
     case Method::kDaemonReconnect:
         out->method = QStringLiteral("daemon.reconnect");

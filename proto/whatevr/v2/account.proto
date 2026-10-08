@@ -152,6 +152,26 @@ message DaemonReconnect {}
 
 message AccountLogout {}
 
+// writes a backup bundle (message store + session + media) to path. a
+// passphrase encrypts it; use_keyring reads that passphrase from the OS
+// keyring instead of the wire
+message DaemonBackupExport {
+  string path = 1;
+  string passphrase = 2;
+  bool use_keyring = 3;
+}
+
+message DaemonBackupExportResult {
+  string path = 1;
+  uint64 size_bytes = 2;
+}
+
+// stores the backup passphrase in the OS keyring, so later exports can
+// pass use_keyring instead of the secret itself
+message DaemonBackupSetPassphrase {
+  string passphrase = 1;
+}
+
 // a frontend's own diagnostics, landing in the run log the logs view tails
 message LogMessage {
   string message = 1;

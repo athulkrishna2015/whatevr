@@ -44,6 +44,8 @@ message Request {
     FrontendSetDefault frontend_set_default = 23;
     LinkOpen link_open = 24;
     LogMessage log_message = 25;
+    DaemonBackupExport daemon_backup_export = 26;
+    DaemonBackupSetPassphrase daemon_backup_set_passphrase = 27;
 
     // 30-49: chats
     ChatMarkRead chat_mark_read = 30;
@@ -141,6 +143,7 @@ message Response {
     SubscribeResult subscribe = 11;
     Done done = 12;
 
+    DaemonBackupExportResult daemon_backup_export = 26;
     ChatEnsureDirectResult chat_ensure_direct = 36;
     ChatRequestOlderResult chat_request_older = 35;
     ChatMarkAllReadResult chat_mark_all_read = 38;
