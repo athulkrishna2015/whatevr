@@ -130,6 +130,10 @@ func runDaemon(mockFlagSet *mockFlagSet, captureFlagSet *captureFlagSet) {
 		log.Fatal().Err(err).Msg("read ids")
 	}
 	mockIDs(mock, ids)
+	// one-time: server ids for messages folded before retention landed
+	if err := model.BackfillServerIDs(ctx, db); err != nil {
+		log.Warn().Err(err).Msg("backfill server ids")
+	}
 
 	hub := live.New()
 	qr := newQRWatch(hub)

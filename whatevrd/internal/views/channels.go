@@ -56,9 +56,20 @@ func (rs *Reads) channelMessagesView(ctx context.Context, s *server.Session, req
 		if err != nil {
 			return nil, err
 		}
+		var ids []string
+		for _, m := range ms {
+			ids = append(ids, m.ID)
+		}
+		serverIDs, err := rs.r.ServerIDs(ctx, channel, ids)
+		if err != nil {
+			return nil, err
+		}
 		var out []*v2.Upsert
 		for _, m := range ms {
 			for _, it := range c.messageItems(chatCtx{}, []model.Message{m}) {
+				if serverID := serverIDs[m.ID]; serverID > 0 {
+					it.GetMessage().SetServerId(serverID)
+				}
 				out = append(out, it)
 			}
 		}

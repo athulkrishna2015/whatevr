@@ -300,9 +300,12 @@ type row struct {
 	status                      int
 	viewOnce                    bool
 	src                         int
-	hash                        []byte
-	seq                         int64
-	off, len                    int
+	// serverID is WhatsApp's id for the message, 0 when the input gave
+	// none. Channel mark-viewed and reactions name posts by it.
+	serverID int
+	hash     []byte
+	seq      int64
+	off, len int
 	// ord is where it arrived, see arrival
 	ord int64
 	// raw is the sender's own address when sender is Me
@@ -346,7 +349,7 @@ func foldMessage(tx *core.Tx, in core.Input) error {
 	}
 	if len(in.Body) == 0 {
 		// scrubbed: only the delete that did it is left to agree with
-		return putMsg(tx, row{chat: chat, id: h.ID, sender: sender, senderAlt: user(h.SenderAlt), t: ms(h.T, in), seq: in.Seq, off: -1, len: -1, ord: arrival(in.At, -1)})
+		return putMsg(tx, row{chat: chat, id: h.ID, sender: sender, senderAlt: user(h.SenderAlt), t: ms(h.T, in), seq: in.Seq, off: -1, len: -1, ord: arrival(in.At, -1), serverID: h.ServerID})
 	}
 	var raw waE2E.Message
 	if err := proto.Unmarshal(in.Body, &raw); err != nil {
@@ -363,6 +366,7 @@ func foldMessage(tx *core.Tx, in core.Input) error {
 	r := row{
 		chat: chat, id: h.ID, sender: sender, senderAlt: user(h.SenderAlt), fromMe: h.FromMe, raw: user(h.Sender),
 		t: ms(h.T, in), src: src, hash: sum[:], seq: in.Seq, off: -1, len: -1, ord: arrival(in.At, -1), body: in.Body,
+		serverID: h.ServerID,
 	}
 	return foldContent(tx, r, &raw, h.FromMe)
 }
@@ -509,6 +513,13 @@ var marshal = proto.MarshalOptions{Deterministic: true}
 // better body when it came before. a row without a kind only records where
 // the message was, for a delete to find.
 func putMsg(tx *core.Tx, r row) error {
+	if r.serverID > 0 {
+		if _, err := tx.Exec(`INSERT INTO msg_server (chat, id, server_id) VALUES (?, ?, ?)
+			ON CONFLICT (chat, id) DO UPDATE SET server_id = excluded.server_id`,
+			r.chat, r.id, r.serverID); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.Exec(`INSERT INTO msg_src (chat, id, t, seq, off, len, sender, alt, ord) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT DO UPDATE SET sender = excluded.sender, alt = excluded.alt WHERE msg_src.sender = ''`,
 		r.chat, r.id, r.t, r.seq, r.off, r.len, r.sender, r.senderAlt, r.ord); err != nil {

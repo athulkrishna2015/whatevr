@@ -40,6 +40,8 @@ const (
 	KindFavorite = "favorite"
 	// a text the daemon sends later, see ScheduleHead
 	KindSchedule = "schedule"
+	// a backfill pass over the input log, see ServerIDsHead
+	KindServerIDs = "serverids"
 	// user-made chat lists, see FolderHead
 	KindFolder = "folder"
 	// status mute flips, see StatusMuteHead

@@ -175,6 +175,19 @@ private Q_SLOTS:
         QCOMPARE(group.value(QStringLiteral("is_group")).toBool(), true);
     }
 
+    void messageRowServerId()
+    {
+        whatevr::v2::MessageRow row;
+        row.set_id("1@newsletter/m9");
+        row.set_server_id(4242);
+        const QJsonObject item = translateV2MessageRow(row);
+        QCOMPARE(item.value(QStringLiteral("server_id")).toInteger(), 4242);
+
+        whatevr::v2::MessageRow back;
+        QVERIFY(v2MessageRowFromJson(item, &back));
+        QCOMPARE(back.server_id(), std::int64_t(4242));
+    }
+
     void loginRowExpiryParses()
     {
         whatevr::v2::LoginRow row;

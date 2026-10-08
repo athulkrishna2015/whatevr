@@ -51,6 +51,7 @@ var localDomain = core.Domain{
 		core.KindSchedule:   foldSchedule,
 		core.KindFolder:     foldFolder,
 		core.KindStatusMute: foldStatusMute,
+		core.KindServerIDs:  foldServerIDs,
 	},
 }
 
@@ -497,6 +498,45 @@ func foldStatusMute(tx *core.Tx, in core.Input) error {
 	}
 	tx.Touch("status", "")
 	return nil
+}
+
+// foldServerIDsBackfill fills msg_server from the input log's message
+// heads, once. Later messages fill it through the putMsg hook.
+func foldServerIDs(tx *core.Tx, in core.Input) error {
+	var done string
+	if err := tx.QueryRow(`SELECT value FROM core_meta WHERE key = '` + serverIDsBackfill + `'`).Scan(&done); err == nil {
+		return nil
+	}
+	rows, err := tx.Query(`SELECT head FROM inputs WHERE kind = '` + string(core.KindMessage) + `'`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	type head struct {
+		Chat     string `json:"chat"`
+		ID       string `json:"id"`
+		ServerID int    `json:"server_id"`
+	}
+	for rows.Next() {
+		var raw []byte
+		var h head
+		if err := rows.Scan(&raw); err != nil {
+			return err
+		}
+		if err := json.Unmarshal(raw, &h); err != nil || h.ServerID <= 0 || h.Chat == "" || h.ID == "" {
+			continue
+		}
+		if _, err := tx.Exec(`INSERT INTO msg_server (chat, id, server_id) VALUES (?, ?, ?)
+			ON CONFLICT (chat, id) DO UPDATE SET server_id = excluded.server_id`,
+			h.Chat, h.ID, h.ServerID); err != nil {
+			return err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = tx.Exec(`INSERT INTO core_meta (key, value) VALUES ('` + serverIDsBackfill + `', '1')`)
+	return err
 }
 
 // StatusViewOp is the local op marking a status opened.

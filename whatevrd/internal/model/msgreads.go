@@ -55,6 +55,9 @@ type Message struct {
 
 	// row is the msg rowid, which grows in arrival order; 0 for a stub
 	row int64
+	// ServerID is WhatsApp's id for the message, 0 when unknown. Channel
+	// mark-viewed and reactions name posts by it.
+	ServerID int64
 }
 
 // Facts is what other messages and app state said about one message.

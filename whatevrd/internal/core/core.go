@@ -263,6 +263,15 @@ func (db *DB) setup(ctx context.Context) error {
 			on_flag  INTEGER NOT NULL DEFAULT 0,
 			t        INTEGER NOT NULL DEFAULT 0
 		)`,
+		// WhatsApp's server ids per message, for channel mark-viewed and
+		// reactions. Filled by the message fold and a one-time backfill;
+		// like chat_favorite this table needs no rebuild to appear.
+		`CREATE TABLE IF NOT EXISTS msg_server (
+			chat      TEXT NOT NULL,
+			id        TEXT NOT NULL,
+			server_id INTEGER NOT NULL,
+			PRIMARY KEY (chat, id)
+		)`,
 		// an input whose fold failed. it is skipped, not retried, so one bad
 		// input cannot wedge every input after it; a rebuild tries it again.
 		`CREATE TABLE IF NOT EXISTS fold_failures (

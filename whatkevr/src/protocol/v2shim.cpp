@@ -694,6 +694,9 @@ QJsonObject translateV2MessageRow(const whatevr::v2::MessageRow &row)
     if (row.viewed()) {
         item.insert(QStringLiteral("viewed"), true);
     }
+    if (row.server_id() > 0) {
+        item.insert(QStringLiteral("server_id"), static_cast<qint64>(row.server_id()));
+    }
     if (row.kept()) {
         item.insert(QStringLiteral("kept"), true);
     }
@@ -1896,6 +1899,7 @@ bool v2MessageRowFromJson(const QJsonObject &item, whatevr::v2::MessageRow *out)
     out->set_edited(item.value(QStringLiteral("edited")).toBool());
     out->set_revoked(item.value(QStringLiteral("revoked")).toBool());
     out->set_starred(item.value(QStringLiteral("starred")).toBool());
+    out->set_server_id(static_cast<std::int64_t>(item.value(QStringLiteral("server_id")).toInteger()));
     out->set_viewed(item.value(QStringLiteral("viewed")).toBool());
     out->set_forwarded(item.value(QStringLiteral("forwarded")).toBool());
     out->set_kept(item.value(QStringLiteral("kept")).toBool());

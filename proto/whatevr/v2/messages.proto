@@ -134,6 +134,9 @@ message MessageRow {
   repeated ReactionCount reaction_counts = 25;
   // a status the user opened; only the status views set it
   bool viewed = 26;
+  // WhatsApp's id for the message, 0 when unknown. Channel mark-viewed
+  // and reactions name posts by it.
+  int64 server_id = 27;
 
   oneof body {
     Text text_body = 30;

@@ -341,3 +341,29 @@ func TestNewsletterAddressesAreNoChats(t *testing.T) {
 		t.Fatalf("newsletter opens as chat: %v %v", ok, err)
 	}
 }
+
+func TestServerIDsFillFromFoldAndBackfill(t *testing.T) {
+	head := func(id string, serverID int, sec int) core.Input {
+		return in(core.KindMessage, core.MessageHead{
+			Source: core.Source{Chat: "1@newsletter", Sender: "1@newsletter"},
+			ID:     id, ServerID: serverID, T: at(sec).Unix(),
+		}, pb(text("n"+id)), at(sec))
+	}
+	db := openModel(t)
+	ctx := context.Background()
+	feed(t, db, []core.Input{head("m1", 101, 1), head("m2", 0, 2)})
+	r := NewReader(db.Read())
+	if got, err := r.ServerIDs(ctx, "1@newsletter", []string{"m1", "m2"}); err != nil || got["m1"] != 101 || got["m2"] != 0 {
+		t.Fatalf("fold hook %+v %v", got, err)
+	}
+	// the backfill folds the same rows idempotently, then no-ops on its flag
+	if err := BackfillServerIDs(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	if err := BackfillServerIDs(ctx, db); err != nil {
+		t.Fatalf("rerun: %v", err)
+	}
+	if got, err := r.ServerIDs(ctx, "1@newsletter", []string{"m1"}); err != nil || got["m1"] != 101 {
+		t.Fatalf("after backfill %+v %v", got, err)
+	}
+}

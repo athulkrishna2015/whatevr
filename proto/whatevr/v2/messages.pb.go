@@ -1797,6 +1797,7 @@ type MessageRow struct {
 	xxx_hidden_TextTruncated  bool                   `protobuf:"varint,24,opt,name=text_truncated,json=textTruncated"`
 	xxx_hidden_ReactionCounts *[]*ReactionCount      `protobuf:"bytes,25,rep,name=reaction_counts,json=reactionCounts"`
 	xxx_hidden_Viewed         bool                   `protobuf:"varint,26,opt,name=viewed"`
+	xxx_hidden_ServerId       int64                  `protobuf:"varint,27,opt,name=server_id,json=serverId"`
 	xxx_hidden_Body           isMessageRow_Body      `protobuf_oneof:"body"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
@@ -2013,6 +2014,13 @@ func (x *MessageRow) GetViewed() bool {
 		return x.xxx_hidden_Viewed
 	}
 	return false
+}
+
+func (x *MessageRow) GetServerId() int64 {
+	if x != nil {
+		return x.xxx_hidden_ServerId
+	}
+	return 0
 }
 
 func (x *MessageRow) GetTextBody() *Text {
@@ -2342,6 +2350,10 @@ func (x *MessageRow) SetReactionCounts(v []*ReactionCount) {
 
 func (x *MessageRow) SetViewed(v bool) {
 	x.xxx_hidden_Viewed = v
+}
+
+func (x *MessageRow) SetServerId(v int64) {
+	x.xxx_hidden_ServerId = v
 }
 
 func (x *MessageRow) SetTextBody(v *Text) {
@@ -3067,6 +3079,9 @@ type MessageRow_builder struct {
 	ReactionCounts []*ReactionCount
 	// a status the user opened; only the status views set it
 	Viewed bool
+	// WhatsApp's id for the message, 0 when unknown. Channel mark-viewed
+	// and reactions name posts by it.
+	ServerId int64
 	// Fields of oneof xxx_hidden_Body:
 	TextBody     *Text
 	Image        *Image
@@ -3126,6 +3141,7 @@ func (b0 MessageRow_builder) Build() *MessageRow {
 	x.xxx_hidden_TextTruncated = b.TextTruncated
 	x.xxx_hidden_ReactionCounts = &b.ReactionCounts
 	x.xxx_hidden_Viewed = b.Viewed
+	x.xxx_hidden_ServerId = b.ServerId
 	if b.TextBody != nil {
 		x.xxx_hidden_Body = &messageRow_TextBody{b.TextBody}
 	}
@@ -12845,7 +12861,7 @@ const file_whatevr_v2_messages_proto_rawDesc = "" +
 	"expires_ms\x18\x04 \x01(\x03R\texpiresMs\x12\x1d\n" +
 	"\n" +
 	"updated_ms\x18\x05 \x01(\x03R\tupdatedMs\x120\n" +
-	"\blocation\x18\x06 \x01(\v2\x14.whatevr.v2.LocationR\blocation\"\xea\x10\n" +
+	"\blocation\x18\x06 \x01(\v2\x14.whatevr.v2.LocationR\blocation\"\x87\x11\n" +
 	"\n" +
 	"MessageRow\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x17\n" +
@@ -12875,7 +12891,8 @@ const file_whatevr_v2_messages_proto_rawDesc = "" +
 	"\x05error\x18\x17 \x01(\tR\x05error\x12%\n" +
 	"\x0etext_truncated\x18\x18 \x01(\bR\rtextTruncated\x12B\n" +
 	"\x0freaction_counts\x18\x19 \x03(\v2\x19.whatevr.v2.ReactionCountR\x0ereactionCounts\x12\x16\n" +
-	"\x06viewed\x18\x1a \x01(\bR\x06viewed\x12/\n" +
+	"\x06viewed\x18\x1a \x01(\bR\x06viewed\x12\x1b\n" +
+	"\tserver_id\x18\x1b \x01(\x03R\bserverId\x12/\n" +
 	"\ttext_body\x18\x1e \x01(\v2\x10.whatevr.v2.TextH\x00R\btextBody\x12)\n" +
 	"\x05image\x18\x1f \x01(\v2\x11.whatevr.v2.ImageH\x00R\x05image\x12)\n" +
 	"\x05video\x18  \x01(\v2\x11.whatevr.v2.VideoH\x00R\x05video\x12#\n" +
