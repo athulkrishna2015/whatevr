@@ -523,6 +523,36 @@ func (c *Client) Rsvp(ctx context.Context, ref Ref, answer waE2E.EventResponseMe
 		EventCreationMessageKey: a.key(), EncPayload: payload, EncIV: iv}})
 }
 
+// MarkAllRead marks every badge-carrying chat read up to its newest
+// message, one chat at a time through MarkRead so receipts and the local
+// read state follow the same path as a single mark_read.
+func (c *Client) MarkAllRead(ctx context.Context) (int, error) {
+	w, err := c.world()
+	if err != nil {
+		return 0, err
+	}
+	chats, err := c.r.ChatsIn(ctx, w, model.ChatFilter{Any: true})
+	if err != nil {
+		return 0, err
+	}
+	marked := 0
+	for _, ch := range chats {
+		if ch.Unread <= 0 && !ch.MarkedUnread {
+			continue
+		}
+		prev, ok, err := c.r.Preview(ctx, w, w.Addrs(ch.Key))
+		if err != nil || !ok {
+			continue
+		}
+		if err := c.MarkRead(ctx, prev.Chat, Ref{Chat: prev.Chat, ID: prev.ID}); err != nil {
+			c.log.Warn().Err(err).Str("chat", ch.Key).Msg("whatsapp: mark all read")
+			continue
+		}
+		marked++
+	}
+	return marked, nil
+}
+
 // MarkRead sends read receipts for what came into chat up to and with ref,
 // and logs them as ours: whatsmeow does not hand back what it sends.
 func (c *Client) MarkRead(ctx context.Context, chat string, upTo Ref) error {

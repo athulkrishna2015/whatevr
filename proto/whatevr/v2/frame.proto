@@ -54,6 +54,7 @@ message Request {
     ChatRequestOlder chat_request_older = 35;
     ChatEnsureDirect chat_ensure_direct = 36;
     ChatFavorite chat_favorite = 37;
+    ChatMarkAllRead chat_mark_all_read = 38;
 
     // 50-59: sends
     SendText send_text = 50;
@@ -116,6 +117,7 @@ message Response {
 
     ChatEnsureDirectResult chat_ensure_direct = 36;
     ChatRequestOlderResult chat_request_older = 35;
+    ChatMarkAllReadResult chat_mark_all_read = 38;
 
     SendResult send = 50;
 

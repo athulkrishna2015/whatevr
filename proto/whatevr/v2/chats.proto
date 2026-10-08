@@ -122,3 +122,10 @@ message ChatFavorite {
   string chat_id = 1;
   bool favorite = 2;
 }
+
+// marks every badge-carrying chat read up to its newest message
+message ChatMarkAllRead {}
+
+message ChatMarkAllReadResult {
+  int32 count = 1;
+}

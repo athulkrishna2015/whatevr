@@ -1337,6 +1337,107 @@ func (b0 ChatFavorite_builder) Build() *ChatFavorite {
 	return m0
 }
 
+// marks every badge-carrying chat read up to its newest message
+type ChatMarkAllRead struct {
+	state         protoimpl.MessageState `protogen:"opaque.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ChatMarkAllRead) Reset() {
+	*x = ChatMarkAllRead{}
+	mi := &file_whatevr_v2_chats_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChatMarkAllRead) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChatMarkAllRead) ProtoMessage() {}
+
+func (x *ChatMarkAllRead) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_chats_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+type ChatMarkAllRead_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+}
+
+func (b0 ChatMarkAllRead_builder) Build() *ChatMarkAllRead {
+	m0 := &ChatMarkAllRead{}
+	b, x := &b0, m0
+	_, _ = b, x
+	return m0
+}
+
+type ChatMarkAllReadResult struct {
+	state            protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Count int32                  `protobuf:"varint,1,opt,name=count"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *ChatMarkAllReadResult) Reset() {
+	*x = ChatMarkAllReadResult{}
+	mi := &file_whatevr_v2_chats_proto_msgTypes[15]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChatMarkAllReadResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChatMarkAllReadResult) ProtoMessage() {}
+
+func (x *ChatMarkAllReadResult) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_chats_proto_msgTypes[15]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ChatMarkAllReadResult) GetCount() int32 {
+	if x != nil {
+		return x.xxx_hidden_Count
+	}
+	return 0
+}
+
+func (x *ChatMarkAllReadResult) SetCount(v int32) {
+	x.xxx_hidden_Count = v
+}
+
+type ChatMarkAllReadResult_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Count int32
+}
+
+func (b0 ChatMarkAllReadResult_builder) Build() *ChatMarkAllReadResult {
+	m0 := &ChatMarkAllReadResult{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Count = b.Count
+	return m0
+}
+
 var File_whatevr_v2_chats_proto protoreflect.FileDescriptor
 
 const file_whatevr_v2_chats_proto_rawDesc = "" +
@@ -1401,7 +1502,10 @@ const file_whatevr_v2_chats_proto_rawDesc = "" +
 	"\achat_id\x18\x01 \x01(\tR\x06chatId\"C\n" +
 	"\fChatFavorite\x12\x17\n" +
 	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x1a\n" +
-	"\bfavorite\x18\x02 \x01(\bR\bfavorite*\x88\x01\n" +
+	"\bfavorite\x18\x02 \x01(\bR\bfavorite\"\x11\n" +
+	"\x0fChatMarkAllRead\"-\n" +
+	"\x15ChatMarkAllReadResult\x12\x14\n" +
+	"\x05count\x18\x01 \x01(\x05R\x05count*\x88\x01\n" +
 	"\n" +
 	"ChatFilter\x12\x1b\n" +
 	"\x17CHAT_FILTER_UNSPECIFIED\x10\x00\x12\x13\n" +
@@ -1422,7 +1526,7 @@ const file_whatevr_v2_chats_proto_rawDesc = "" +
 	"Whatevr\\V2\xe2\x02\x16Whatevr\\V2\\GPBMetadata\xea\x02\vWhatevr::V2\x92\x03\x02\b\x02b\beditionsp\xe9\a"
 
 var file_whatevr_v2_chats_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_whatevr_v2_chats_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
+var file_whatevr_v2_chats_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_whatevr_v2_chats_proto_goTypes = []any{
 	(ChatFilter)(0),                // 0: whatevr.v2.ChatFilter
 	(ChatType)(0),                  // 1: whatevr.v2.ChatType
@@ -1440,15 +1544,17 @@ var file_whatevr_v2_chats_proto_goTypes = []any{
 	(*ChatEnsureDirect)(nil),       // 13: whatevr.v2.ChatEnsureDirect
 	(*ChatEnsureDirectResult)(nil), // 14: whatevr.v2.ChatEnsureDirectResult
 	(*ChatFavorite)(nil),           // 15: whatevr.v2.ChatFavorite
-	(MessageStatus)(0),             // 16: whatevr.v2.MessageStatus
-	(*Address)(nil),                // 17: whatevr.v2.Address
+	(*ChatMarkAllRead)(nil),        // 16: whatevr.v2.ChatMarkAllRead
+	(*ChatMarkAllReadResult)(nil),  // 17: whatevr.v2.ChatMarkAllReadResult
+	(MessageStatus)(0),             // 18: whatevr.v2.MessageStatus
+	(*Address)(nil),                // 19: whatevr.v2.Address
 }
 var file_whatevr_v2_chats_proto_depIdxs = []int32{
 	0,  // 0: whatevr.v2.ChatsView.filter:type_name -> whatevr.v2.ChatFilter
 	1,  // 1: whatevr.v2.ChatRow.type:type_name -> whatevr.v2.ChatType
 	5,  // 2: whatevr.v2.ChatRow.preview:type_name -> whatevr.v2.ChatPreview
-	16, // 3: whatevr.v2.ChatPreview.status:type_name -> whatevr.v2.MessageStatus
-	17, // 4: whatevr.v2.ChatEnsureDirect.person:type_name -> whatevr.v2.Address
+	18, // 3: whatevr.v2.ChatPreview.status:type_name -> whatevr.v2.MessageStatus
+	19, // 4: whatevr.v2.ChatEnsureDirect.person:type_name -> whatevr.v2.Address
 	5,  // [5:5] is the sub-list for method output_type
 	5,  // [5:5] is the sub-list for method input_type
 	5,  // [5:5] is the sub-list for extension type_name
@@ -1469,7 +1575,7 @@ func file_whatevr_v2_chats_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_whatevr_v2_chats_proto_rawDesc), len(file_whatevr_v2_chats_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   14,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

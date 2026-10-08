@@ -283,6 +283,12 @@ V2ResponseTranslation translateV2Response(const whatevr::v2::Response &response)
         out.result = result;
         break;
     }
+    case whatevr::v2::Response::kChatMarkAllRead: {
+        QJsonObject result;
+        result.insert(QStringLiteral("count"), response.chat_mark_all_read().count());
+        out.result = result;
+        break;
+    }
     case whatevr::v2::Response::kMessageForward: {
         // v1 answers the whole array; keep the singular alias some callers use.
         QJsonArray forwardedIds;
@@ -787,6 +793,10 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
         mark->set_up_to_message_id(get("up_to_message_id").toString().toStdString());
         return true;
     }
+    if (method == QLatin1String("chat.mark_all_read")) {
+        request->mutable_chat_mark_all_read();
+        return true;
+    }
     if (method == QLatin1String("chat.pin")) {
         auto *pin = request->mutable_chat_pin();
         pin->set_chat_id(get("chat_id").toString().toStdString());
@@ -1170,6 +1180,11 @@ bool v2ResponseFromV1(const QString &method, std::uint64_t id, const QJsonObject
     if (method == QLatin1String("chat.request_older")) {
         out->mutable_chat_request_older()->set_requested(
             result.value(QStringLiteral("requested")).toBool());
+        return true;
+    }
+    if (method == QLatin1String("chat.mark_all_read")) {
+        out->mutable_chat_mark_all_read()->set_count(
+            static_cast<std::int32_t>(result.value(QStringLiteral("count")).toInt()));
         return true;
     }
     if (method == QLatin1String("chat.ensure_direct")
@@ -1618,6 +1633,9 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
         params.insert(QStringLiteral("up_to_message_id"), v2s(mark.up_to_message_id()));
         break;
     }
+    case Method::kChatMarkAllRead:
+        out->method = QStringLiteral("chat.mark_all_read");
+        break;
     case Method::kChatPin:
         out->method = QStringLiteral("chat.pin");
         params.insert(QStringLiteral("chat_id"), v2s(request.chat_pin().chat_id()));

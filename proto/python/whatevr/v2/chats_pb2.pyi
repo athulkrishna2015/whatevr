@@ -173,3 +173,13 @@ class ChatFavorite(_message.Message):
     chat_id: str
     favorite: bool
     def __init__(self, chat_id: _Optional[str] = ..., favorite: _Optional[bool] = ...) -> None: ...
+
+class ChatMarkAllRead(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class ChatMarkAllReadResult(_message.Message):
+    __slots__ = ("count",)
+    COUNT_FIELD_NUMBER: _ClassVar[int]
+    count: int
+    def __init__(self, count: _Optional[int] = ...) -> None: ...

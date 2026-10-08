@@ -60,6 +60,7 @@ func Register(o Options) *Opener {
 		arm(v2.Request_DaemonReconnect_case):          x.reconnect,
 		arm(v2.Request_AccountLogout_case):            x.logout,
 		arm(v2.Request_ChatMarkRead_case):             x.markRead,
+		arm(v2.Request_ChatMarkAllRead_case):          x.markAllRead,
 		arm(v2.Request_ChatPin_case):                  x.chatPin,
 		arm(v2.Request_ChatFavorite_case):             x.chatFavorite,
 		arm(v2.Request_ChatArchive_case):              x.chatArchive,
@@ -236,6 +237,16 @@ func (x *commands) markRead(ctx context.Context, s *server.Session, req *v2.Requ
 		return nil, err
 	}
 	return nil, wire(x.c.MarkRead(ctx, key, ref))
+}
+
+func (x *commands) markAllRead(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	n, err := x.c.MarkAllRead(ctx)
+	if err != nil {
+		return nil, wire(err)
+	}
+	res := &v2.Response{}
+	res.SetChatMarkAllRead(v2.ChatMarkAllReadResult_builder{Count: int32(n)}.Build())
+	return res, nil
 }
 
 func (x *commands) chatPin(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {

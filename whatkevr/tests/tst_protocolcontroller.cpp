@@ -960,6 +960,24 @@ private Q_SLOTS:
         QVERIFY(daemon.lastCommandParams.value(QStringLiteral("favorite")).toBool());
     }
 
+    // `chat.mark_all_read` reaches the daemon and answers without error.
+    void markAllChatsRead()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats(
+            {chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_COMPARE(daemon.chatsSubscribeCount, 2);
+
+        QSignalSpy commandSpy(&daemon, &FakeDaemon::commandReceived);
+        ctrl.markAllChatsRead();
+        QVERIFY(commandSpy.wait());
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("chat.mark_all_read"));
+    }
+
     // DN6: the chat list is a *window*, not the whole roster. Both `chats`
     // subscriptions carry a `limit`, and the next page is asked for with an
     // `older` extend — one at a time, and never past the daemon's exhaustion.
