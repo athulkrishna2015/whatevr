@@ -437,7 +437,9 @@ private:
             lastCommandParams = params;
             reply(id, QJsonObject{{QStringLiteral("requested"), true}});
             Q_EMIT commandReceived();
-        } else if (method == QLatin1String("send.text") || method == QLatin1String("send.media")) {
+        } else if (method == QLatin1String("send.text") || method == QLatin1String("send.media")
+                   || method == QLatin1String("send.poll") || method == QLatin1String("send.contact")
+                   || method == QLatin1String("send.location")) {
             lastCommandMethod = method;
             lastCommandParams = params;
             if (std::exchange(m_rejectNextSend, false)) {

@@ -865,6 +865,35 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
         send->set_reply_to(get("reply_to").toString().toStdString());
         return true;
     }
+    if (method == QLatin1String("send.poll")) {
+        auto *send = request->mutable_send_poll();
+        send->set_chat_id(get("chat_id").toString().toStdString());
+        send->set_question(get("question").toString().toStdString());
+        for (const QJsonValue &option : get("options").toArray()) {
+            send->add_options(option.toString().toStdString());
+        }
+        send->set_multi(get("multi").toBool());
+        send->set_reply_to(get("reply_to").toString().toStdString());
+        return true;
+    }
+    if (method == QLatin1String("send.contact")) {
+        auto *send = request->mutable_send_contact();
+        send->set_chat_id(get("chat_id").toString().toStdString());
+        send->set_name(get("name").toString().toStdString());
+        send->set_phone(get("phone").toString().toStdString());
+        send->set_reply_to(get("reply_to").toString().toStdString());
+        return true;
+    }
+    if (method == QLatin1String("send.location")) {
+        auto *send = request->mutable_send_location();
+        send->set_chat_id(get("chat_id").toString().toStdString());
+        send->set_lat(get("lat").toDouble());
+        send->set_lng(get("long").toDouble());
+        send->set_name(get("name").toString().toStdString());
+        send->set_address(get("address").toString().toStdString());
+        send->set_reply_to(get("reply_to").toString().toStdString());
+        return true;
+    }
 
     // Messages.
     if (method == QLatin1String("message.react")) {
@@ -1259,7 +1288,9 @@ bool v2ResponseFromV1(const QString &method, std::uint64_t id, const QJsonObject
         return true;
     }
     if (method == QLatin1String("send.text") || method == QLatin1String("send.media")
-        || method == QLatin1String("send.sticker") || method == QLatin1String("send.media_batch")) {
+        || method == QLatin1String("send.sticker") || method == QLatin1String("send.media_batch")
+        || method == QLatin1String("send.poll") || method == QLatin1String("send.contact")
+        || method == QLatin1String("send.location")) {
         // v1 answers sends with `{message_id}` (batch answers lists, which the
         // controller only reads for failures; fakes answer the single shape).
         if (result.contains(QStringLiteral("message_id"))) {
@@ -1710,6 +1741,46 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
             params.insert(QStringLiteral("reply_to"), v2s(request.send_sticker().reply_to()));
         }
         break;
+    case Method::kSendPoll: {
+        out->method = QStringLiteral("send.poll");
+        const auto &send = request.send_poll();
+        params.insert(QStringLiteral("chat_id"), v2s(send.chat_id()));
+        params.insert(QStringLiteral("question"), v2s(send.question()));
+        QJsonArray options;
+        for (const auto &option : send.options()) {
+            options.append(v2s(option));
+        }
+        params.insert(QStringLiteral("options"), options);
+        params.insert(QStringLiteral("multi"), send.multi());
+        if (!send.reply_to().empty()) {
+            params.insert(QStringLiteral("reply_to"), v2s(send.reply_to()));
+        }
+        break;
+    }
+    case Method::kSendContact: {
+        out->method = QStringLiteral("send.contact");
+        const auto &send = request.send_contact();
+        params.insert(QStringLiteral("chat_id"), v2s(send.chat_id()));
+        params.insert(QStringLiteral("name"), v2s(send.name()));
+        params.insert(QStringLiteral("phone"), v2s(send.phone()));
+        if (!send.reply_to().empty()) {
+            params.insert(QStringLiteral("reply_to"), v2s(send.reply_to()));
+        }
+        break;
+    }
+    case Method::kSendLocation: {
+        out->method = QStringLiteral("send.location");
+        const auto &send = request.send_location();
+        params.insert(QStringLiteral("chat_id"), v2s(send.chat_id()));
+        params.insert(QStringLiteral("lat"), send.lat());
+        params.insert(QStringLiteral("long"), send.lng());
+        params.insert(QStringLiteral("name"), v2s(send.name()));
+        params.insert(QStringLiteral("address"), v2s(send.address()));
+        if (!send.reply_to().empty()) {
+            params.insert(QStringLiteral("reply_to"), v2s(send.reply_to()));
+        }
+        break;
+    }
     case Method::kMessageReact:
         out->method = QStringLiteral("message.react");
         params.insert(QStringLiteral("message_id"), v2s(request.message_react().message_id()));

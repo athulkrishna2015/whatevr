@@ -989,6 +989,54 @@ class SendSticker(_message.Message):
     key: str
     def __init__(self, chat_id: _Optional[str] = ..., sticker_id: _Optional[str] = ..., reply_to: _Optional[str] = ..., key: _Optional[str] = ...) -> None: ...
 
+class SendPoll(_message.Message):
+    __slots__ = ("chat_id", "question", "options", "multi", "reply_to", "key")
+    CHAT_ID_FIELD_NUMBER: _ClassVar[int]
+    QUESTION_FIELD_NUMBER: _ClassVar[int]
+    OPTIONS_FIELD_NUMBER: _ClassVar[int]
+    MULTI_FIELD_NUMBER: _ClassVar[int]
+    REPLY_TO_FIELD_NUMBER: _ClassVar[int]
+    KEY_FIELD_NUMBER: _ClassVar[int]
+    chat_id: str
+    question: str
+    options: _containers.RepeatedScalarFieldContainer[str]
+    multi: bool
+    reply_to: str
+    key: str
+    def __init__(self, chat_id: _Optional[str] = ..., question: _Optional[str] = ..., options: _Optional[_Iterable[str]] = ..., multi: _Optional[bool] = ..., reply_to: _Optional[str] = ..., key: _Optional[str] = ...) -> None: ...
+
+class SendContact(_message.Message):
+    __slots__ = ("chat_id", "name", "phone", "reply_to", "key")
+    CHAT_ID_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    PHONE_FIELD_NUMBER: _ClassVar[int]
+    REPLY_TO_FIELD_NUMBER: _ClassVar[int]
+    KEY_FIELD_NUMBER: _ClassVar[int]
+    chat_id: str
+    name: str
+    phone: str
+    reply_to: str
+    key: str
+    def __init__(self, chat_id: _Optional[str] = ..., name: _Optional[str] = ..., phone: _Optional[str] = ..., reply_to: _Optional[str] = ..., key: _Optional[str] = ...) -> None: ...
+
+class SendLocation(_message.Message):
+    __slots__ = ("chat_id", "lat", "lng", "name", "address", "reply_to", "key")
+    CHAT_ID_FIELD_NUMBER: _ClassVar[int]
+    LAT_FIELD_NUMBER: _ClassVar[int]
+    LNG_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    ADDRESS_FIELD_NUMBER: _ClassVar[int]
+    REPLY_TO_FIELD_NUMBER: _ClassVar[int]
+    KEY_FIELD_NUMBER: _ClassVar[int]
+    chat_id: str
+    lat: float
+    lng: float
+    name: str
+    address: str
+    reply_to: str
+    key: str
+    def __init__(self, chat_id: _Optional[str] = ..., lat: _Optional[float] = ..., lng: _Optional[float] = ..., name: _Optional[str] = ..., address: _Optional[str] = ..., reply_to: _Optional[str] = ..., key: _Optional[str] = ...) -> None: ...
+
 class SendResult(_message.Message):
     __slots__ = ("message_id",)
     MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]

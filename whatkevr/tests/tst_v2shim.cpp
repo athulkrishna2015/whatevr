@@ -236,6 +236,52 @@ private Q_SLOTS:
         QCOMPARE(v2s(request.send_text().mentions(0).id()), QStringLiteral("j@s"));
     }
 
+    void requestSendPollContactLocation()
+    {
+        whatevr::v2::Request poll;
+        QVERIFY(buildV2Request(10, QStringLiteral("send.poll"),
+                               QJsonObject{{QStringLiteral("chat_id"), QStringLiteral("c")},
+                                           {QStringLiteral("question"), QStringLiteral("lunch?")},
+                                           {QStringLiteral("options"),
+                                            QJsonArray{QStringLiteral("a"), QStringLiteral("b")}},
+                                           {QStringLiteral("multi"), true}},
+                               &poll));
+        QVERIFY(poll.has_send_poll());
+        QCOMPARE(v2s(poll.send_poll().question()), QStringLiteral("lunch?"));
+        QCOMPARE(poll.send_poll().options_size(), 2);
+        QVERIFY(poll.send_poll().multi());
+
+        whatevr::v2::Request contact;
+        QVERIFY(buildV2Request(11, QStringLiteral("send.contact"),
+                               QJsonObject{{QStringLiteral("chat_id"), QStringLiteral("c")},
+                                           {QStringLiteral("name"), QStringLiteral("Asha")},
+                                           {QStringLiteral("phone"), QStringLiteral("+1555")}},
+                               &contact));
+        QVERIFY(contact.has_send_contact());
+        QCOMPARE(v2s(contact.send_contact().name()), QStringLiteral("Asha"));
+
+        whatevr::v2::Request location;
+        QVERIFY(buildV2Request(12, QStringLiteral("send.location"),
+                               QJsonObject{{QStringLiteral("chat_id"), QStringLiteral("c")},
+                                           {QStringLiteral("lat"), 12.5},
+                                           {QStringLiteral("long"), 77.5},
+                                           {QStringLiteral("name"), QStringLiteral("office")}},
+                               &location));
+        QVERIFY(location.has_send_location());
+        QCOMPARE(location.send_location().lat(), 12.5);
+        QCOMPARE(location.send_location().lng(), 77.5);
+
+        // The reverse trip keeps the v1 names the controller speaks.
+        V2RequestV1 decoded;
+        QVERIFY(v2RequestToV1(poll, &decoded));
+        QCOMPARE(decoded.method, QStringLiteral("send.poll"));
+        QVERIFY(v2RequestToV1(contact, &decoded));
+        QCOMPARE(decoded.method, QStringLiteral("send.contact"));
+        QVERIFY(v2RequestToV1(location, &decoded));
+        QCOMPARE(decoded.method, QStringLiteral("send.location"));
+        QCOMPARE(decoded.params.value(QStringLiteral("long")).toDouble(), 77.5);
+    }
+
     void requestMuteConvertsToMillis()
     {
         whatevr::v2::Request request;

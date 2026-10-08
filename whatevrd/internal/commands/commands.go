@@ -107,6 +107,9 @@ func Register(o Options) *Opener {
 		arm(v2.Request_SendText_case):            x.sendText,
 		arm(v2.Request_SendMedia_case):           x.sendMedia,
 		arm(v2.Request_SendSticker_case):         x.sendSticker,
+		arm(v2.Request_SendPoll_case):            x.sendPoll,
+		arm(v2.Request_SendContact_case):         x.sendContact,
+		arm(v2.Request_SendLocation_case):        x.sendLocation,
 		arm(v2.Request_PreferencesSet_case):      x.prefs,
 		arm(v2.Request_NotificationDismiss_case): x.dismiss,
 	}
@@ -414,6 +417,36 @@ func (x *commands) sendSticker(ctx context.Context, s *server.Session, req *v2.R
 	}
 	d.Once = once(p)
 	return sent(x.c.SendSticker(ctx, d, p.GetStickerId()))
+}
+
+func (x *commands) sendPoll(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetSendPoll()
+	d, err := x.draft(ctx, p.GetChatId(), p.GetReplyTo(), nil)
+	if err != nil {
+		return nil, err
+	}
+	d.Once = once(p)
+	return sent(x.c.SendPoll(ctx, d, p.GetQuestion(), p.GetOptions(), p.GetMulti()))
+}
+
+func (x *commands) sendContact(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetSendContact()
+	d, err := x.draft(ctx, p.GetChatId(), p.GetReplyTo(), nil)
+	if err != nil {
+		return nil, err
+	}
+	d.Once = once(p)
+	return sent(x.c.SendContact(ctx, d, p.GetName(), p.GetPhone()))
+}
+
+func (x *commands) sendLocation(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetSendLocation()
+	d, err := x.draft(ctx, p.GetChatId(), p.GetReplyTo(), nil)
+	if err != nil {
+		return nil, err
+	}
+	d.Once = once(p)
+	return sent(x.c.SendLocation(ctx, d, p.GetLat(), p.GetLng(), p.GetName(), p.GetAddress()))
 }
 
 // onMessage is a request that names one message and answers done.

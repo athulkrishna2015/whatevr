@@ -657,6 +657,45 @@ message SendSticker {
   string key = 4;
 }
 
+// a poll: 2-12 options after trimming and dedup, like official clients
+message SendPoll {
+  string chat_id = 1;
+  string question = 2;
+  repeated string options = 3;
+  bool multi = 4;
+  string reply_to = 5;
+  // picked by the frontend, unique per send. a repeat sends nothing and
+  // answers the first one's result; the same key with other params is
+  // INVALID_PARAMS. empty is no key
+  string key = 6;
+}
+
+// a contact card: name plus phone, shared as a vCard
+message SendContact {
+  string chat_id = 1;
+  string name = 2;
+  string phone = 3;
+  string reply_to = 4;
+  // picked by the frontend, unique per send. a repeat sends nothing and
+  // answers the first one's result; the same key with other params is
+  // INVALID_PARAMS. empty is no key
+  string key = 5;
+}
+
+// a location pin: coordinates plus an optional place name and address
+message SendLocation {
+  string chat_id = 1;
+  double lat = 2;
+  double lng = 3;
+  string name = 4;
+  string address = 5;
+  string reply_to = 6;
+  // picked by the frontend, unique per send. a repeat sends nothing and
+  // answers the first one's result; the same key with other params is
+  // INVALID_PARAMS. empty is no key
+  string key = 7;
+}
+
 message SendResult {
   string message_id = 1;
 }

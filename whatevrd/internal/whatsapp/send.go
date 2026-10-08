@@ -537,6 +537,125 @@ func (c *Client) sendSticker(ctx context.Context, d Draft, key string) (Ref, err
 	return c.queue(ctx, cli, to, &waE2E.Message{StickerMessage: &sm}, file, d.Once)
 }
 
+// SendPoll queues a poll: 2-12 options after trimming and dedup, like
+// official clients.
+func (c *Client) SendPoll(ctx context.Context, d Draft, question string, options []string, multi bool) (Ref, error) {
+	return c.once(ctx, d.Once, func() (Ref, error) { return c.sendPoll(ctx, d, question, options, multi) })
+}
+
+func (c *Client) sendPoll(ctx context.Context, d Draft, question string, options []string, multi bool) (Ref, error) {
+	cli, err := c.loggedIn()
+	if err != nil {
+		return Ref{}, err
+	}
+	question = strings.TrimSpace(question)
+	if question == "" {
+		return Ref{}, Errorf(ErrInvalid, "poll question is required")
+	}
+	seen := map[string]bool{}
+	clean := make([]string, 0, len(options))
+	for _, o := range options {
+		if o = strings.TrimSpace(o); o == "" || seen[o] {
+			continue
+		}
+		seen[o] = true
+		clean = append(clean, o)
+	}
+	if len(clean) < 2 {
+		return Ref{}, Errorf(ErrInvalid, "a poll needs at least two options")
+	}
+	if len(clean) > 12 {
+		return Ref{}, Errorf(ErrInvalid, "a poll holds at most 12 options")
+	}
+	to, err := c.sendJID(d.Chat)
+	if err != nil {
+		return Ref{}, err
+	}
+	ci, err := c.context(ctx, cli, d)
+	if err != nil {
+		return Ref{}, err
+	}
+	selectable := 1
+	if multi {
+		selectable = len(clean)
+	}
+	body := cli.BuildPollCreation(question, clean, selectable)
+	if ci != nil {
+		body.GetPollCreationMessage().ContextInfo = ci
+	}
+	return c.queue(ctx, cli, to, body, "", d.Once)
+}
+
+// SendContact queues a contact card: name plus phone, shared as a vCard.
+func (c *Client) SendContact(ctx context.Context, d Draft, name, phone string) (Ref, error) {
+	return c.once(ctx, d.Once, func() (Ref, error) { return c.sendContact(ctx, d, name, phone) })
+}
+
+func (c *Client) sendContact(ctx context.Context, d Draft, name, phone string) (Ref, error) {
+	cli, err := c.loggedIn()
+	if err != nil {
+		return Ref{}, err
+	}
+	name, phone = strings.TrimSpace(name), strings.TrimSpace(phone)
+	if name == "" {
+		return Ref{}, Errorf(ErrInvalid, "contact name is required")
+	}
+	if phone == "" {
+		return Ref{}, Errorf(ErrInvalid, "contact phone is required")
+	}
+	to, err := c.sendJID(d.Chat)
+	if err != nil {
+		return Ref{}, err
+	}
+	ci, err := c.context(ctx, cli, d)
+	if err != nil {
+		return Ref{}, err
+	}
+	vcard := fmt.Sprintf("BEGIN:VCARD\r\nVERSION:3.0\r\nFN:%s\r\nTEL;TYPE=CELL:%s\r\nEND:VCARD",
+		escapeVCardValue(name), escapeVCardValue(phone))
+	body := &waE2E.Message{ContactMessage: &waE2E.ContactMessage{
+		DisplayName: proto.String(name), Vcard: proto.String(vcard), ContextInfo: ci}}
+	return c.queue(ctx, cli, to, body, "", d.Once)
+}
+
+// escapeVCardValue escapes a vCard 3.0 text value.
+func escapeVCardValue(s string) string {
+	return strings.NewReplacer(`\`, `\\`, "\n", `\n`, ",", `\,`, ";", `\;`).Replace(s)
+}
+
+// SendLocation queues a location pin: coordinates plus an optional place
+// name and address.
+func (c *Client) SendLocation(ctx context.Context, d Draft, lat, lng float64, name, address string) (Ref, error) {
+	return c.once(ctx, d.Once, func() (Ref, error) { return c.sendLocation(ctx, d, lat, lng, name, address) })
+}
+
+func (c *Client) sendLocation(ctx context.Context, d Draft, lat, lng float64, name, address string) (Ref, error) {
+	cli, err := c.loggedIn()
+	if err != nil {
+		return Ref{}, err
+	}
+	if lat < -90 || lat > 90 || lng < -180 || lng > 180 {
+		return Ref{}, Errorf(ErrInvalid, "coordinates out of range")
+	}
+	to, err := c.sendJID(d.Chat)
+	if err != nil {
+		return Ref{}, err
+	}
+	ci, err := c.context(ctx, cli, d)
+	if err != nil {
+		return Ref{}, err
+	}
+	loc := &waE2E.LocationMessage{
+		DegreesLatitude: proto.Float64(lat), DegreesLongitude: proto.Float64(lng), ContextInfo: ci}
+	if name = strings.TrimSpace(name); name != "" {
+		loc.Name = proto.String(name)
+	}
+	if address = strings.TrimSpace(address); address != "" {
+		loc.Address = proto.String(address)
+	}
+	return c.queue(ctx, cli, to, &waE2E.Message{LocationMessage: loc}, "", d.Once)
+}
+
 // stickerUploadGood is how long an upload of ours is sent again rather than
 // made anew: the media servers keep a file about a month
 const stickerUploadGood = 14 * 24 * time.Hour

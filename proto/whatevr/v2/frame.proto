@@ -60,6 +60,9 @@ message Request {
     SendText send_text = 50;
     SendMedia send_media = 51;
     SendSticker send_sticker = 52;
+    SendPoll send_poll = 53;
+    SendContact send_contact = 54;
+    SendLocation send_location = 55;
 
     // 60-89: messages
     MessageReact message_react = 60;
