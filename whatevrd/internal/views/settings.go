@@ -2,6 +2,8 @@ package views
 
 import (
 	"context"
+	"strconv"
+	"strings"
 
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 
@@ -26,6 +28,7 @@ func (rs *Reads) privacyView(ctx context.Context, s *server.Session, req *v2.Sub
 			CallAdd:      privacyValue(p["calladd"]),
 			ReadReceipts: p["readreceipts"] != "none",
 		}.Build()
+		row.SetDefaultTimerSecs(defaultTimerSecs(p["default_timer"]))
 		it := &v2.Upsert{}
 		it.SetPrivacy(row)
 		return one(it), nil
@@ -74,4 +77,15 @@ func (rs *Reads) preferencesView(ctx context.Context, s *server.Session, req *v2
 	}
 	w.wake = func(c core.Change) bool { return touches(c, "prefs") }
 	return w, nil, nil
+}
+
+// defaultTimerSecs parses the stored default disappearing timer: -1 when
+// the account never reported one.
+func defaultTimerSecs(v string) int64 {
+	switch strings.TrimSpace(v) {
+	case "0", "86400", "604800", "7776000":
+		n, _ := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+		return n
+	}
+	return -1
 }

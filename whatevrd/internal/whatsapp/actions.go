@@ -3,6 +3,7 @@ package whatsapp
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -885,6 +886,39 @@ func (c *Client) SetPrivacy(ctx context.Context, name types.PrivacySettingType, 
 		evt.CallAddChanged = true
 	}
 	if err := c.ingest.Event(ctx, evt); err != nil {
+		return err
+	}
+	c.waitLogged(ctx)
+	return nil
+}
+
+// SetDefaultTimer sets the account's default disappearing timer for new
+// chats. WhatsApp only offers off and three durations; anything else is
+// rejected here rather than sent on to be refused by the server. The timer
+// is logged as our own privacy fact: WhatsApp sends no event back for it.
+func (c *Client) SetDefaultTimer(ctx context.Context, secs int64) error {
+	var timer time.Duration
+	switch secs {
+	case 0:
+		timer = 0
+	case 24 * 60 * 60:
+		timer = 24 * time.Hour
+	case 7 * 24 * 60 * 60:
+		timer = 7 * 24 * time.Hour
+	case 90 * 24 * 60 * 60:
+		timer = 90 * 24 * time.Hour
+	default:
+		return Errorf(ErrInvalid, "seconds must be 0, 86400, 604800 or 7776000")
+	}
+	cli, err := c.connected()
+	if err != nil {
+		return err
+	}
+	if err := cli.SetDefaultDisappearingTimer(ctx, timer); err != nil {
+		return Errorf(ErrRejected, "%v", err)
+	}
+	if err := c.append(ctx, core.KindPrivacy,
+		core.PrivacyHead{Settings: map[string]string{"default_timer": strconv.FormatInt(secs, 10)}}, nil); err != nil {
 		return err
 	}
 	c.waitLogged(ctx)

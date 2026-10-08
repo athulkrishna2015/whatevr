@@ -15,6 +15,8 @@ message PrivacyRow {
   PrivacyValue group_add = 5;
   PrivacyValue call_add = 6;
   bool read_receipts = 7;
+  // the account's default disappearing timer, -1 when unknown
+  int64 default_timer_secs = 8;
 }
 
 enum PrivacyCategory {
@@ -44,6 +46,12 @@ message PrivacySet {
   PrivacyCategory category = 1;
   // read receipts take ALL for on, NOBODY for off
   PrivacyValue value = 2;
+}
+
+// the default disappearing timer for new chats: 0 for off, or 86400,
+// 604800 or 7776000 — the only durations WhatsApp offers
+message PrivacySetDefaultTimer {
+  int64 seconds = 1;
 }
 
 // the daemon's own preferences, kept across restarts

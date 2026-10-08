@@ -1088,6 +1088,10 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
         }
         return true;
     }
+    if (method == QLatin1String("privacy.set_default_timer")) {
+        request->mutable_privacy_set_default_timer()->set_seconds(get("seconds").toInteger());
+        return true;
+    }
     if (method == QLatin1String("preferences.set")) {
         auto *set = request->mutable_preferences_set();
         bool any = false;
@@ -1985,6 +1989,11 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
         params.insert(QStringLiteral("value"), v2PrivacyValue(request.privacy_set().value()));
         break;
     }
+    case Method::kPrivacySetDefaultTimer:
+        out->method = QStringLiteral("privacy.set_default_timer");
+        params.insert(QStringLiteral("seconds"),
+                      static_cast<qint64>(request.privacy_set_default_timer().seconds()));
+        break;
     case Method::kPreferencesSet: {
         out->method = QStringLiteral("preferences.set");
         const auto &set = request.preferences_set();
@@ -2609,6 +2618,7 @@ QJsonObject translateV2PrivacyRow(const whatevr::v2::PrivacyRow &row)
     // group_add/call_add cross as their v2 enums; the settings page reads the
     // same vocabulary it sends.
     item.insert(QStringLiteral("read_receipts"), row.read_receipts());
+    item.insert(QStringLiteral("default_timer_seconds"), static_cast<qint64>(row.default_timer_secs()));
     return item;
 }
 

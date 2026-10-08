@@ -61,7 +61,7 @@ func Register(o Options) *Opener {
 		arm(v2.Request_AccountLogout_case):            x.logout,
 		arm(v2.Request_ChatMarkRead_case):             x.markRead,
 		arm(v2.Request_ChatMarkAllRead_case):          x.markAllRead,
-		arm(v2.Request_ChatExport_case):                x.exportChat,
+		arm(v2.Request_ChatExport_case):               x.exportChat,
 		arm(v2.Request_ChatPin_case):                  x.chatPin,
 		arm(v2.Request_ChatFavorite_case):             x.chatFavorite,
 		arm(v2.Request_ChatArchive_case):              x.chatArchive,
@@ -89,6 +89,7 @@ func Register(o Options) *Opener {
 		arm(v2.Request_MediaSave_case):                x.saveMedia,
 		arm(v2.Request_LogMessage_case):               x.logMessage,
 		arm(v2.Request_PrivacySet_case):               x.privacy,
+		arm(v2.Request_PrivacySetDefaultTimer_case):   x.defaultTimer,
 		arm(v2.Request_SelfSetAbout_case):             x.about,
 		arm(v2.Request_ContactBlock_case):             x.block,
 		arm(v2.Request_StickerFavorite_case):          x.stickerFavorite,
@@ -748,6 +749,10 @@ func (x *commands) privacy(ctx context.Context, s *server.Session, req *v2.Reque
 		return nil, invalid("%v can't be %v", p.GetCategory(), p.GetValue())
 	}
 	return nil, wire(x.c.SetPrivacy(ctx, name, privacyValues[p.GetValue()]))
+}
+
+func (x *commands) defaultTimer(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	return nil, wire(x.c.SetDefaultTimer(ctx, req.GetPrivacySetDefaultTimer().GetSeconds()))
 }
 
 func (x *commands) prefs(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {

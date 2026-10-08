@@ -293,6 +293,21 @@ private Q_SLOTS:
         QCOMPARE(request.chat_mute().duration_ms(), std::int64_t(60000));
     }
 
+    void requestDefaultTimer()
+    {
+        whatevr::v2::Request request;
+        QVERIFY(buildV2Request(13, QStringLiteral("privacy.set_default_timer"),
+                               QJsonObject{{QStringLiteral("seconds"), 604800}},
+                               &request));
+        QVERIFY(request.has_privacy_set_default_timer());
+        QCOMPARE(request.privacy_set_default_timer().seconds(), std::int64_t(604800));
+
+        V2RequestV1 decoded;
+        QVERIFY(v2RequestToV1(request, &decoded));
+        QCOMPARE(decoded.method, QStringLiteral("privacy.set_default_timer"));
+        QCOMPARE(decoded.params.value(QStringLiteral("seconds")).toInt(), 604800);
+    }
+
     void requestPrivacyMapping()
     {
         whatevr::v2::Request request;

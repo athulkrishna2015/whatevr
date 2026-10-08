@@ -91,6 +91,7 @@ message Request {
 
     // 100-119: settings, people, stickers, notifications
     PrivacySet privacy_set = 100;
+    PrivacySetDefaultTimer privacy_set_default_timer = 109;
     PreferencesSet preferences_set = 101;
     SelfSetAbout self_set_about = 102;
     ContactBlock contact_block = 103;

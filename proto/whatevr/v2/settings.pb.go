@@ -182,16 +182,17 @@ func (b0 PrivacyView_builder) Build() *PrivacyView {
 }
 
 type PrivacyRow struct {
-	state                   protoimpl.MessageState `protogen:"opaque.v1"`
-	xxx_hidden_LastSeen     PrivacyValue           `protobuf:"varint,1,opt,name=last_seen,json=lastSeen,enum=whatevr.v2.PrivacyValue"`
-	xxx_hidden_Online       PrivacyValue           `protobuf:"varint,2,opt,name=online,enum=whatevr.v2.PrivacyValue"`
-	xxx_hidden_ProfilePhoto PrivacyValue           `protobuf:"varint,3,opt,name=profile_photo,json=profilePhoto,enum=whatevr.v2.PrivacyValue"`
-	xxx_hidden_About        PrivacyValue           `protobuf:"varint,4,opt,name=about,enum=whatevr.v2.PrivacyValue"`
-	xxx_hidden_GroupAdd     PrivacyValue           `protobuf:"varint,5,opt,name=group_add,json=groupAdd,enum=whatevr.v2.PrivacyValue"`
-	xxx_hidden_CallAdd      PrivacyValue           `protobuf:"varint,6,opt,name=call_add,json=callAdd,enum=whatevr.v2.PrivacyValue"`
-	xxx_hidden_ReadReceipts bool                   `protobuf:"varint,7,opt,name=read_receipts,json=readReceipts"`
-	unknownFields           protoimpl.UnknownFields
-	sizeCache               protoimpl.SizeCache
+	state                       protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_LastSeen         PrivacyValue           `protobuf:"varint,1,opt,name=last_seen,json=lastSeen,enum=whatevr.v2.PrivacyValue"`
+	xxx_hidden_Online           PrivacyValue           `protobuf:"varint,2,opt,name=online,enum=whatevr.v2.PrivacyValue"`
+	xxx_hidden_ProfilePhoto     PrivacyValue           `protobuf:"varint,3,opt,name=profile_photo,json=profilePhoto,enum=whatevr.v2.PrivacyValue"`
+	xxx_hidden_About            PrivacyValue           `protobuf:"varint,4,opt,name=about,enum=whatevr.v2.PrivacyValue"`
+	xxx_hidden_GroupAdd         PrivacyValue           `protobuf:"varint,5,opt,name=group_add,json=groupAdd,enum=whatevr.v2.PrivacyValue"`
+	xxx_hidden_CallAdd          PrivacyValue           `protobuf:"varint,6,opt,name=call_add,json=callAdd,enum=whatevr.v2.PrivacyValue"`
+	xxx_hidden_ReadReceipts     bool                   `protobuf:"varint,7,opt,name=read_receipts,json=readReceipts"`
+	xxx_hidden_DefaultTimerSecs int64                  `protobuf:"varint,8,opt,name=default_timer_secs,json=defaultTimerSecs"`
+	unknownFields               protoimpl.UnknownFields
+	sizeCache                   protoimpl.SizeCache
 }
 
 func (x *PrivacyRow) Reset() {
@@ -268,6 +269,13 @@ func (x *PrivacyRow) GetReadReceipts() bool {
 	return false
 }
 
+func (x *PrivacyRow) GetDefaultTimerSecs() int64 {
+	if x != nil {
+		return x.xxx_hidden_DefaultTimerSecs
+	}
+	return 0
+}
+
 func (x *PrivacyRow) SetLastSeen(v PrivacyValue) {
 	x.xxx_hidden_LastSeen = v
 }
@@ -296,6 +304,10 @@ func (x *PrivacyRow) SetReadReceipts(v bool) {
 	x.xxx_hidden_ReadReceipts = v
 }
 
+func (x *PrivacyRow) SetDefaultTimerSecs(v int64) {
+	x.xxx_hidden_DefaultTimerSecs = v
+}
+
 type PrivacyRow_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -306,6 +318,8 @@ type PrivacyRow_builder struct {
 	GroupAdd     PrivacyValue
 	CallAdd      PrivacyValue
 	ReadReceipts bool
+	// the account's default disappearing timer, -1 when unknown
+	DefaultTimerSecs int64
 }
 
 func (b0 PrivacyRow_builder) Build() *PrivacyRow {
@@ -319,6 +333,7 @@ func (b0 PrivacyRow_builder) Build() *PrivacyRow {
 	x.xxx_hidden_GroupAdd = b.GroupAdd
 	x.xxx_hidden_CallAdd = b.CallAdd
 	x.xxx_hidden_ReadReceipts = b.ReadReceipts
+	x.xxx_hidden_DefaultTimerSecs = b.DefaultTimerSecs
 	return m0
 }
 
@@ -394,6 +409,65 @@ func (b0 PrivacySet_builder) Build() *PrivacySet {
 	return m0
 }
 
+// the default disappearing timer for new chats: 0 for off, or 86400,
+// 604800 or 7776000 — the only durations WhatsApp offers
+type PrivacySetDefaultTimer struct {
+	state              protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Seconds int64                  `protobuf:"varint,1,opt,name=seconds"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *PrivacySetDefaultTimer) Reset() {
+	*x = PrivacySetDefaultTimer{}
+	mi := &file_whatevr_v2_settings_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PrivacySetDefaultTimer) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PrivacySetDefaultTimer) ProtoMessage() {}
+
+func (x *PrivacySetDefaultTimer) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_settings_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *PrivacySetDefaultTimer) GetSeconds() int64 {
+	if x != nil {
+		return x.xxx_hidden_Seconds
+	}
+	return 0
+}
+
+func (x *PrivacySetDefaultTimer) SetSeconds(v int64) {
+	x.xxx_hidden_Seconds = v
+}
+
+type PrivacySetDefaultTimer_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Seconds int64
+}
+
+func (b0 PrivacySetDefaultTimer_builder) Build() *PrivacySetDefaultTimer {
+	m0 := &PrivacySetDefaultTimer{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Seconds = b.Seconds
+	return m0
+}
+
 // the daemon's own preferences, kept across restarts
 type PreferencesView struct {
 	state         protoimpl.MessageState `protogen:"opaque.v1"`
@@ -403,7 +477,7 @@ type PreferencesView struct {
 
 func (x *PreferencesView) Reset() {
 	*x = PreferencesView{}
-	mi := &file_whatevr_v2_settings_proto_msgTypes[3]
+	mi := &file_whatevr_v2_settings_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -415,7 +489,7 @@ func (x *PreferencesView) String() string {
 func (*PreferencesView) ProtoMessage() {}
 
 func (x *PreferencesView) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_settings_proto_msgTypes[3]
+	mi := &file_whatevr_v2_settings_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -447,7 +521,7 @@ type PreferencesRow struct {
 
 func (x *PreferencesRow) Reset() {
 	*x = PreferencesRow{}
-	mi := &file_whatevr_v2_settings_proto_msgTypes[4]
+	mi := &file_whatevr_v2_settings_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -459,7 +533,7 @@ func (x *PreferencesRow) String() string {
 func (*PreferencesRow) ProtoMessage() {}
 
 func (x *PreferencesRow) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_settings_proto_msgTypes[4]
+	mi := &file_whatevr_v2_settings_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -529,7 +603,7 @@ type Preferences struct {
 
 func (x *Preferences) Reset() {
 	*x = Preferences{}
-	mi := &file_whatevr_v2_settings_proto_msgTypes[5]
+	mi := &file_whatevr_v2_settings_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -541,7 +615,7 @@ func (x *Preferences) String() string {
 func (*Preferences) ProtoMessage() {}
 
 func (x *Preferences) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_settings_proto_msgTypes[5]
+	mi := &file_whatevr_v2_settings_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -777,7 +851,7 @@ type Argv struct {
 
 func (x *Argv) Reset() {
 	*x = Argv{}
-	mi := &file_whatevr_v2_settings_proto_msgTypes[6]
+	mi := &file_whatevr_v2_settings_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -789,7 +863,7 @@ func (x *Argv) String() string {
 func (*Argv) ProtoMessage() {}
 
 func (x *Argv) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_settings_proto_msgTypes[6]
+	mi := &file_whatevr_v2_settings_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -850,7 +924,7 @@ type PreferencesSet struct {
 
 func (x *PreferencesSet) Reset() {
 	*x = PreferencesSet{}
-	mi := &file_whatevr_v2_settings_proto_msgTypes[7]
+	mi := &file_whatevr_v2_settings_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -862,7 +936,7 @@ func (x *PreferencesSet) String() string {
 func (*PreferencesSet) ProtoMessage() {}
 
 func (x *PreferencesSet) ProtoReflect() protoreflect.Message {
-	mi := &file_whatevr_v2_settings_proto_msgTypes[7]
+	mi := &file_whatevr_v2_settings_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1293,7 +1367,7 @@ const file_whatevr_v2_settings_proto_rawDesc = "" +
 	"\n" +
 	"\x19whatevr/v2/settings.proto\x12\n" +
 	"whatevr.v2\"\r\n" +
-	"\vPrivacyView\"\xf5\x02\n" +
+	"\vPrivacyView\"\xa3\x03\n" +
 	"\n" +
 	"PrivacyRow\x125\n" +
 	"\tlast_seen\x18\x01 \x01(\x0e2\x18.whatevr.v2.PrivacyValueR\blastSeen\x120\n" +
@@ -1302,11 +1376,14 @@ const file_whatevr_v2_settings_proto_rawDesc = "" +
 	"\x05about\x18\x04 \x01(\x0e2\x18.whatevr.v2.PrivacyValueR\x05about\x125\n" +
 	"\tgroup_add\x18\x05 \x01(\x0e2\x18.whatevr.v2.PrivacyValueR\bgroupAdd\x123\n" +
 	"\bcall_add\x18\x06 \x01(\x0e2\x18.whatevr.v2.PrivacyValueR\acallAdd\x12#\n" +
-	"\rread_receipts\x18\a \x01(\bR\freadReceipts\"u\n" +
+	"\rread_receipts\x18\a \x01(\bR\freadReceipts\x12,\n" +
+	"\x12default_timer_secs\x18\b \x01(\x03R\x10defaultTimerSecs\"u\n" +
 	"\n" +
 	"PrivacySet\x127\n" +
 	"\bcategory\x18\x01 \x01(\x0e2\x1b.whatevr.v2.PrivacyCategoryR\bcategory\x12.\n" +
-	"\x05value\x18\x02 \x01(\x0e2\x18.whatevr.v2.PrivacyValueR\x05value\"\x11\n" +
+	"\x05value\x18\x02 \x01(\x0e2\x18.whatevr.v2.PrivacyValueR\x05value\"2\n" +
+	"\x16PrivacySetDefaultTimer\x12\x18\n" +
+	"\aseconds\x18\x01 \x01(\x03R\aseconds\"\x11\n" +
 	"\x0fPreferencesView\"K\n" +
 	"\x0ePreferencesRow\x129\n" +
 	"\vpreferences\x18\x01 \x01(\v2\x17.whatevr.v2.PreferencesR\vpreferences\"\xbe\x05\n" +
@@ -1369,18 +1446,19 @@ const file_whatevr_v2_settings_proto_rawDesc = "" +
 	"Whatevr\\V2\xe2\x02\x16Whatevr\\V2\\GPBMetadata\xea\x02\vWhatevr::V2\x92\x03\x02\b\x02b\beditionsp\xe9\a"
 
 var file_whatevr_v2_settings_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_whatevr_v2_settings_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_whatevr_v2_settings_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_whatevr_v2_settings_proto_goTypes = []any{
-	(PrivacyCategory)(0),    // 0: whatevr.v2.PrivacyCategory
-	(PrivacyValue)(0),       // 1: whatevr.v2.PrivacyValue
-	(*PrivacyView)(nil),     // 2: whatevr.v2.PrivacyView
-	(*PrivacyRow)(nil),      // 3: whatevr.v2.PrivacyRow
-	(*PrivacySet)(nil),      // 4: whatevr.v2.PrivacySet
-	(*PreferencesView)(nil), // 5: whatevr.v2.PreferencesView
-	(*PreferencesRow)(nil),  // 6: whatevr.v2.PreferencesRow
-	(*Preferences)(nil),     // 7: whatevr.v2.Preferences
-	(*Argv)(nil),            // 8: whatevr.v2.Argv
-	(*PreferencesSet)(nil),  // 9: whatevr.v2.PreferencesSet
+	(PrivacyCategory)(0),           // 0: whatevr.v2.PrivacyCategory
+	(PrivacyValue)(0),              // 1: whatevr.v2.PrivacyValue
+	(*PrivacyView)(nil),            // 2: whatevr.v2.PrivacyView
+	(*PrivacyRow)(nil),             // 3: whatevr.v2.PrivacyRow
+	(*PrivacySet)(nil),             // 4: whatevr.v2.PrivacySet
+	(*PrivacySetDefaultTimer)(nil), // 5: whatevr.v2.PrivacySetDefaultTimer
+	(*PreferencesView)(nil),        // 6: whatevr.v2.PreferencesView
+	(*PreferencesRow)(nil),         // 7: whatevr.v2.PreferencesRow
+	(*Preferences)(nil),            // 8: whatevr.v2.Preferences
+	(*Argv)(nil),                   // 9: whatevr.v2.Argv
+	(*PreferencesSet)(nil),         // 10: whatevr.v2.PreferencesSet
 }
 var file_whatevr_v2_settings_proto_depIdxs = []int32{
 	1,  // 0: whatevr.v2.PrivacyRow.last_seen:type_name -> whatevr.v2.PrivacyValue
@@ -1391,8 +1469,8 @@ var file_whatevr_v2_settings_proto_depIdxs = []int32{
 	1,  // 5: whatevr.v2.PrivacyRow.call_add:type_name -> whatevr.v2.PrivacyValue
 	0,  // 6: whatevr.v2.PrivacySet.category:type_name -> whatevr.v2.PrivacyCategory
 	1,  // 7: whatevr.v2.PrivacySet.value:type_name -> whatevr.v2.PrivacyValue
-	7,  // 8: whatevr.v2.PreferencesRow.preferences:type_name -> whatevr.v2.Preferences
-	8,  // 9: whatevr.v2.PreferencesSet.terminal:type_name -> whatevr.v2.Argv
+	8,  // 8: whatevr.v2.PreferencesRow.preferences:type_name -> whatevr.v2.Preferences
+	9,  // 9: whatevr.v2.PreferencesSet.terminal:type_name -> whatevr.v2.Argv
 	10, // [10:10] is the sub-list for method output_type
 	10, // [10:10] is the sub-list for method input_type
 	10, // [10:10] is the sub-list for extension type_name
@@ -1411,7 +1489,7 @@ func file_whatevr_v2_settings_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_whatevr_v2_settings_proto_rawDesc), len(file_whatevr_v2_settings_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   8,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

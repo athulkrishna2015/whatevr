@@ -48,7 +48,7 @@ class PrivacyView(_message.Message):
     def __init__(self) -> None: ...
 
 class PrivacyRow(_message.Message):
-    __slots__ = ("last_seen", "online", "profile_photo", "about", "group_add", "call_add", "read_receipts")
+    __slots__ = ("last_seen", "online", "profile_photo", "about", "group_add", "call_add", "read_receipts", "default_timer_secs")
     LAST_SEEN_FIELD_NUMBER: _ClassVar[int]
     ONLINE_FIELD_NUMBER: _ClassVar[int]
     PROFILE_PHOTO_FIELD_NUMBER: _ClassVar[int]
@@ -56,6 +56,7 @@ class PrivacyRow(_message.Message):
     GROUP_ADD_FIELD_NUMBER: _ClassVar[int]
     CALL_ADD_FIELD_NUMBER: _ClassVar[int]
     READ_RECEIPTS_FIELD_NUMBER: _ClassVar[int]
+    DEFAULT_TIMER_SECS_FIELD_NUMBER: _ClassVar[int]
     last_seen: PrivacyValue
     online: PrivacyValue
     profile_photo: PrivacyValue
@@ -63,7 +64,8 @@ class PrivacyRow(_message.Message):
     group_add: PrivacyValue
     call_add: PrivacyValue
     read_receipts: bool
-    def __init__(self, last_seen: _Optional[_Union[PrivacyValue, str]] = ..., online: _Optional[_Union[PrivacyValue, str]] = ..., profile_photo: _Optional[_Union[PrivacyValue, str]] = ..., about: _Optional[_Union[PrivacyValue, str]] = ..., group_add: _Optional[_Union[PrivacyValue, str]] = ..., call_add: _Optional[_Union[PrivacyValue, str]] = ..., read_receipts: _Optional[bool] = ...) -> None: ...
+    default_timer_secs: int
+    def __init__(self, last_seen: _Optional[_Union[PrivacyValue, str]] = ..., online: _Optional[_Union[PrivacyValue, str]] = ..., profile_photo: _Optional[_Union[PrivacyValue, str]] = ..., about: _Optional[_Union[PrivacyValue, str]] = ..., group_add: _Optional[_Union[PrivacyValue, str]] = ..., call_add: _Optional[_Union[PrivacyValue, str]] = ..., read_receipts: _Optional[bool] = ..., default_timer_secs: _Optional[int] = ...) -> None: ...
 
 class PrivacySet(_message.Message):
     __slots__ = ("category", "value")
@@ -72,6 +74,12 @@ class PrivacySet(_message.Message):
     category: PrivacyCategory
     value: PrivacyValue
     def __init__(self, category: _Optional[_Union[PrivacyCategory, str]] = ..., value: _Optional[_Union[PrivacyValue, str]] = ...) -> None: ...
+
+class PrivacySetDefaultTimer(_message.Message):
+    __slots__ = ("seconds",)
+    SECONDS_FIELD_NUMBER: _ClassVar[int]
+    seconds: int
+    def __init__(self, seconds: _Optional[int] = ...) -> None: ...
 
 class PreferencesView(_message.Message):
     __slots__ = ()

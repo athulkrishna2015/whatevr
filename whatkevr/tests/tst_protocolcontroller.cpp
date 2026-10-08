@@ -524,6 +524,7 @@ private:
             reply(id, QJsonObject{});
             Q_EMIT commandReceived();
         } else if (method == QLatin1String("privacy.set")
+                   || method == QLatin1String("privacy.set_default_timer")
                    || method == QLatin1String("preferences.set")
                    || method == QLatin1String("self.set_about")
                    || method == QLatin1String("account.logout")
@@ -1059,6 +1060,25 @@ private Q_SLOTS:
                  QStringLiteral("a@s"));
         QTRY_COMPARE(exportedSpy.count(), 1);
         QCOMPARE(exportedSpy.first().first().toString(), QStringLiteral("/tmp/opencode/export-test.txt"));
+    }
+
+    // `privacy.set_default_timer` carries the seconds through.
+    void setDefaultDisappearingTimer()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats(
+            {chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_COMPARE(daemon.chatsSubscribeCount, 2);
+
+        QSignalSpy commandSpy(&daemon, &FakeDaemon::commandReceived);
+        ctrl.setDefaultDisappearingTimer(86400);
+        QVERIFY(commandSpy.wait());
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("privacy.set_default_timer"));
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("seconds")).toInt(), 86400);
     }
 
     // DN6: the chat list is a *window*, not the whole roster. Both `chats`
