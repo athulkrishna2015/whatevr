@@ -110,6 +110,7 @@ func Register(o Options) *Opener {
 		arm(v2.Request_SendPoll_case):            x.sendPoll,
 		arm(v2.Request_SendContact_case):         x.sendContact,
 		arm(v2.Request_SendLocation_case):        x.sendLocation,
+		arm(v2.Request_SendCancel_case):          x.sendCancel,
 		arm(v2.Request_PreferencesSet_case):      x.prefs,
 		arm(v2.Request_NotificationDismiss_case): x.dismiss,
 	}
@@ -447,6 +448,14 @@ func (x *commands) sendLocation(ctx context.Context, s *server.Session, req *v2.
 	}
 	d.Once = once(p)
 	return sent(x.c.SendLocation(ctx, d, p.GetLat(), p.GetLng(), p.GetName(), p.GetAddress()))
+}
+
+func (x *commands) sendCancel(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	ref, err := message(req.GetSendCancel().GetMessageId())
+	if err != nil {
+		return nil, err
+	}
+	return nil, wire(x.c.Cancel(ctx, ref))
 }
 
 // onMessage is a request that names one message and answers done.

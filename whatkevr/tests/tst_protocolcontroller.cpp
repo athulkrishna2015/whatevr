@@ -439,7 +439,7 @@ private:
             Q_EMIT commandReceived();
         } else if (method == QLatin1String("send.text") || method == QLatin1String("send.media")
                    || method == QLatin1String("send.poll") || method == QLatin1String("send.contact")
-                   || method == QLatin1String("send.location")) {
+                   || method == QLatin1String("send.location") || method == QLatin1String("send.cancel")) {
             lastCommandMethod = method;
             lastCommandParams = params;
             if (std::exchange(m_rejectNextSend, false)) {
@@ -978,6 +978,27 @@ private Q_SLOTS:
         ctrl.markAllChatsRead();
         QVERIFY(commandSpy.wait());
         QCOMPARE(daemon.lastCommandMethod, QStringLiteral("chat.mark_all_read"));
+    }
+
+    // `send.cancel` reaches the daemon; a rejection only means the send
+    // already left the queue, so the controller ignores the answer.
+    void cancelPendingSend()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats(
+            {chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_COMPARE(daemon.chatsSubscribeCount, 2);
+
+        QSignalSpy commandSpy(&daemon, &FakeDaemon::commandReceived);
+        ctrl.cancelPendingSend(QStringLiteral("a@s/mid-1"));
+        QVERIFY(commandSpy.wait());
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("send.cancel"));
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("message_id")).toString(),
+                 QStringLiteral("a@s/mid-1"));
     }
 
     // DN6: the chat list is a *window*, not the whole roster. Both `chats`

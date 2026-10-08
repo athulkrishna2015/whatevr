@@ -696,6 +696,11 @@ message SendLocation {
   string key = 7;
 }
 
+// takes a queued send back, if it has not gone out
+message SendCancel {
+  string message_id = 1;
+}
+
 message SendResult {
   string message_id = 1;
 }

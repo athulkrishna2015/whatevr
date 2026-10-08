@@ -1037,6 +1037,12 @@ class SendLocation(_message.Message):
     key: str
     def __init__(self, chat_id: _Optional[str] = ..., lat: _Optional[float] = ..., lng: _Optional[float] = ..., name: _Optional[str] = ..., address: _Optional[str] = ..., reply_to: _Optional[str] = ..., key: _Optional[str] = ...) -> None: ...
 
+class SendCancel(_message.Message):
+    __slots__ = ("message_id",)
+    MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]
+    message_id: str
+    def __init__(self, message_id: _Optional[str] = ...) -> None: ...
+
 class SendResult(_message.Message):
     __slots__ = ("message_id",)
     MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]

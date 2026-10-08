@@ -894,6 +894,11 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
         send->set_reply_to(get("reply_to").toString().toStdString());
         return true;
     }
+    if (method == QLatin1String("send.cancel")) {
+        request->mutable_send_cancel()->set_message_id(
+            get("message_id").toString().toStdString());
+        return true;
+    }
 
     // Messages.
     if (method == QLatin1String("message.react")) {
@@ -1781,6 +1786,10 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
         }
         break;
     }
+    case Method::kSendCancel:
+        out->method = QStringLiteral("send.cancel");
+        params.insert(QStringLiteral("message_id"), v2s(request.send_cancel().message_id()));
+        break;
     case Method::kMessageReact:
         out->method = QStringLiteral("message.react");
         params.insert(QStringLiteral("message_id"), v2s(request.message_react().message_id()));

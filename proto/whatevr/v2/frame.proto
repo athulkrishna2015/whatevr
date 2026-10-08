@@ -63,6 +63,7 @@ message Request {
     SendPoll send_poll = 53;
     SendContact send_contact = 54;
     SendLocation send_location = 55;
+    SendCancel send_cancel = 56;
 
     // 60-89: messages
     MessageReact message_react = 60;
