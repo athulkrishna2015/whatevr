@@ -71,6 +71,12 @@ message Preferences {
   // the terminal a terminal frontend runs in, its argv appended. empty is
   // the platform's default
   repeated string terminal = 12;
+  // skip notifications for archived chats; default on
+  bool mute_archived_chats = 13;
+  // keep deleted messages visible with a Deleted mark instead of scrubbing
+  bool anti_delete = 14;
+  // new messages do not lift chats out of the archive
+  bool keep_chats_archived = 15;
 }
 
 // an argv as one value, so a set can tell empty from absent
@@ -92,4 +98,7 @@ message PreferencesSet {
   bool auto_fetch_maps = 10 [features.field_presence = EXPLICIT];
   // present and empty goes back to the platform's terminal
   Argv terminal = 12;
+  bool mute_archived_chats = 13 [features.field_presence = EXPLICIT];
+  bool anti_delete = 14 [features.field_presence = EXPLICIT];
+  bool keep_chats_archived = 15 [features.field_presence = EXPLICIT];
 }

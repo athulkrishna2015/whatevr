@@ -1245,6 +1245,209 @@ func (b0 AccountLogout_builder) Build() *AccountLogout {
 	return m0
 }
 
+// a frontend's own diagnostics, landing in the run log the logs view tails
+type LogMessage struct {
+	state              protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Message string                 `protobuf:"bytes,1,opt,name=message"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
+}
+
+func (x *LogMessage) Reset() {
+	*x = LogMessage{}
+	mi := &file_whatevr_v2_account_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogMessage) ProtoMessage() {}
+
+func (x *LogMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_account_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *LogMessage) GetMessage() string {
+	if x != nil {
+		return x.xxx_hidden_Message
+	}
+	return ""
+}
+
+func (x *LogMessage) SetMessage(v string) {
+	x.xxx_hidden_Message = v
+}
+
+type LogMessage_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Message string
+}
+
+func (b0 LogMessage_builder) Build() *LogMessage {
+	m0 := &LogMessage{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Message = b.Message
+	return m0
+}
+
+// the daemon's own run log, newest first; a debug page, not history
+type LogsView struct {
+	state         protoimpl.MessageState `protogen:"opaque.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *LogsView) Reset() {
+	*x = LogsView{}
+	mi := &file_whatevr_v2_account_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogsView) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogsView) ProtoMessage() {}
+
+func (x *LogsView) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_account_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+type LogsView_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+}
+
+func (b0 LogsView_builder) Build() *LogsView {
+	m0 := &LogsView{}
+	b, x := &b0, m0
+	_, _ = b, x
+	return m0
+}
+
+// one log line: the byte offset is the stable id, the timestamp is when it
+// was written, the level is the zerolog level name
+type LogRow struct {
+	state            protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Id    string                 `protobuf:"bytes,1,opt,name=id"`
+	xxx_hidden_TMs   int64                  `protobuf:"varint,2,opt,name=t_ms,json=tMs"`
+	xxx_hidden_Level string                 `protobuf:"bytes,3,opt,name=level"`
+	xxx_hidden_Text  string                 `protobuf:"bytes,4,opt,name=text"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *LogRow) Reset() {
+	*x = LogRow{}
+	mi := &file_whatevr_v2_account_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *LogRow) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*LogRow) ProtoMessage() {}
+
+func (x *LogRow) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_account_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *LogRow) GetId() string {
+	if x != nil {
+		return x.xxx_hidden_Id
+	}
+	return ""
+}
+
+func (x *LogRow) GetTMs() int64 {
+	if x != nil {
+		return x.xxx_hidden_TMs
+	}
+	return 0
+}
+
+func (x *LogRow) GetLevel() string {
+	if x != nil {
+		return x.xxx_hidden_Level
+	}
+	return ""
+}
+
+func (x *LogRow) GetText() string {
+	if x != nil {
+		return x.xxx_hidden_Text
+	}
+	return ""
+}
+
+func (x *LogRow) SetId(v string) {
+	x.xxx_hidden_Id = v
+}
+
+func (x *LogRow) SetTMs(v int64) {
+	x.xxx_hidden_TMs = v
+}
+
+func (x *LogRow) SetLevel(v string) {
+	x.xxx_hidden_Level = v
+}
+
+func (x *LogRow) SetText(v string) {
+	x.xxx_hidden_Text = v
+}
+
+type LogRow_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Id    string
+	TMs   int64
+	Level string
+	Text  string
+}
+
+func (b0 LogRow_builder) Build() *LogRow {
+	m0 := &LogRow{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Id = b.Id
+	x.xxx_hidden_TMs = b.TMs
+	x.xxx_hidden_Level = b.Level
+	x.xxx_hidden_Text = b.Text
+	return m0
+}
+
 var File_whatevr_v2_account_proto protoreflect.FileDescriptor
 
 const file_whatevr_v2_account_proto_rawDesc = "" +
@@ -1292,7 +1495,17 @@ const file_whatevr_v2_account_proto_rawDesc = "" +
 	"\x0eactive_chat_id\x18\x02 \x01(\tR\factiveChatId\x12/\n" +
 	"\x13shows_notifications\x18\x03 \x01(\bR\x12showsNotifications\"\x11\n" +
 	"\x0fDaemonReconnect\"\x0f\n" +
-	"\rAccountLogout*\xed\x01\n" +
+	"\rAccountLogout\"&\n" +
+	"\n" +
+	"LogMessage\x12\x18\n" +
+	"\amessage\x18\x01 \x01(\tR\amessage\"\n" +
+	"\n" +
+	"\bLogsView\"U\n" +
+	"\x06LogRow\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x11\n" +
+	"\x04t_ms\x18\x02 \x01(\x03R\x03tMs\x12\x14\n" +
+	"\x05level\x18\x03 \x01(\tR\x05level\x12\x12\n" +
+	"\x04text\x18\x04 \x01(\tR\x04text*\xed\x01\n" +
 	"\x0fConnectionState\x12 \n" +
 	"\x1cCONNECTION_STATE_UNSPECIFIED\x10\x00\x12\x1d\n" +
 	"\x19CONNECTION_STATE_STARTING\x10\x01\x12\x1f\n" +
@@ -1350,7 +1563,7 @@ const file_whatevr_v2_account_proto_rawDesc = "" +
 	"Whatevr\\V2\xe2\x02\x16Whatevr\\V2\\GPBMetadata\xea\x02\vWhatevr::V2\x92\x03\x02\b\x02b\beditionsp\xe9\a"
 
 var file_whatevr_v2_account_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_whatevr_v2_account_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_whatevr_v2_account_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_whatevr_v2_account_proto_goTypes = []any{
 	(ConnectionState)(0),    // 0: whatevr.v2.ConnectionState
 	(ConnectionCause)(0),    // 1: whatevr.v2.ConnectionCause
@@ -1369,6 +1582,9 @@ var file_whatevr_v2_account_proto_goTypes = []any{
 	(*SessionUpdate)(nil),   // 14: whatevr.v2.SessionUpdate
 	(*DaemonReconnect)(nil), // 15: whatevr.v2.DaemonReconnect
 	(*AccountLogout)(nil),   // 16: whatevr.v2.AccountLogout
+	(*LogMessage)(nil),      // 17: whatevr.v2.LogMessage
+	(*LogsView)(nil),        // 18: whatevr.v2.LogsView
+	(*LogRow)(nil),          // 19: whatevr.v2.LogRow
 }
 var file_whatevr_v2_account_proto_depIdxs = []int32{
 	0, // 0: whatevr.v2.ConnectionRow.state:type_name -> whatevr.v2.ConnectionState
@@ -1395,7 +1611,7 @@ func file_whatevr_v2_account_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_whatevr_v2_account_proto_rawDesc), len(file_whatevr_v2_account_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   11,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -14,6 +14,7 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/appstate"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/proto/waServerSync"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -37,6 +38,11 @@ type Ingest struct {
 	// KeepHistoryMedia leaves downloaded history blobs on the server, for
 	// another reader of the same blobs
 	KeepHistoryMedia bool
+	// KeepArchived holds this device on archived chats: when set, unarchive
+	// mutations arriving from WhatsApp are dropped before they reach the log
+	// (archives still apply, and an unarchive made here is already written
+	// locally before its own echo comes back). Nil keeps everything.
+	KeepArchived func() bool
 	// OnDemand hears the chats of each on-demand history blob once it is
 	// logged: the phone answered them
 	OnDemand func(chats []string)
@@ -165,7 +171,27 @@ func logged(log *zerolog.Logger, evt any, ins []core.Input, seqs []int64) {
 
 // appState runs before whatsmeow saves the collection's new version. an
 // error leaves the version where it was, so the mutations come again.
+// dropUnarchives removes archive-unset mutations when keep is on: an
+// unarchive arriving from WhatsApp (the phone surfacing an archived chat a
+// new message landed in) is dropped instead of mirrored. Archives still
+// apply, and explicit removes pass through untouched.
+func dropUnarchives(mutations []appstate.Mutation, keep bool) []appstate.Mutation {
+	if !keep {
+		return mutations
+	}
+	kept := mutations[:0]
+	for _, m := range mutations {
+		if m.Operation != waServerSync.SyncdMutation_REMOVE && m.Action.GetArchiveChatAction() != nil &&
+			!m.Action.GetArchiveChatAction().GetArchived() {
+			continue
+		}
+		kept = append(kept, m)
+	}
+	return kept
+}
+
 func (g *Ingest) appState(ctx context.Context, name appstate.WAPatchName, version uint64, mutations []appstate.Mutation, snapshot bool) error {
+	mutations = dropUnarchives(mutations, g.KeepArchived != nil && g.KeepArchived())
 	ins, err := appStateInputs(name, version, mutations, snapshot)
 	if err != nil {
 		return err

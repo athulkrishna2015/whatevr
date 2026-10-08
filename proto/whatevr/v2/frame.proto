@@ -43,6 +43,7 @@ message Request {
     AccountLogout account_logout = 22;
     FrontendSetDefault frontend_set_default = 23;
     LinkOpen link_open = 24;
+    LogMessage log_message = 25;
 
     // 30-49: chats
     ChatMarkRead chat_mark_read = 30;
@@ -241,6 +242,7 @@ message Upsert {
     Reaction reaction = 31;
     PollVoteRow poll_vote = 32;
     Responder responder = 33;
+    LogRow log = 34;
   }
 }
 
@@ -296,6 +298,7 @@ message Subscribe {
     ReactionsView reactions = 36;
     PollVotesView poll_votes = 37;
     EventResponsesView event_responses = 38;
+    LogsView logs = 39;
   }
 }
 

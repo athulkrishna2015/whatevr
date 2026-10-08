@@ -9,6 +9,7 @@ import (
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
 
 	"whatevrd/internal/core"
+	"whatevrd/internal/model"
 )
 
 // DefaultPreferences is what a daemon nobody configured does.
@@ -18,6 +19,8 @@ func DefaultPreferences() *v2.Preferences {
 		NotificationPreview:  true,
 		AutoDownloadMaxBytes: 16 << 20,
 		AutoFetchMaps:        true,
+		MuteArchivedChats:    true,
+		AntiDelete:           true,
 	}.Build()
 }
 
@@ -87,10 +90,23 @@ func (c *Client) SetPreferences(ctx context.Context, set *v2.PreferencesSet) err
 	if set.HasAutoFetchMaps() {
 		p.SetAutoFetchMaps(set.GetAutoFetchMaps())
 	}
+	if set.HasMuteArchivedChats() {
+		p.SetMuteArchivedChats(set.GetMuteArchivedChats())
+	}
+	if set.HasAntiDelete() {
+		p.SetAntiDelete(set.GetAntiDelete())
+	}
+	if set.HasKeepChatsArchived() {
+		p.SetKeepChatsArchived(set.GetKeepChatsArchived())
+	}
 	if set.HasTerminal() {
 		p.SetTerminal(set.GetTerminal().GetArgs())
 	}
-	return c.storePrefs(ctx, p)
+	if err := c.storePrefs(ctx, p); err != nil {
+		return err
+	}
+	model.SetAntiDelete(p.GetAntiDelete())
+	return nil
 }
 
 func (c *Client) storePrefs(ctx context.Context, p *v2.Preferences) error {

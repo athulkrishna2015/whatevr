@@ -123,6 +123,7 @@ void applyV2ViewUpdate(const whatevr::v2::ViewUpdate &update, ViewSink *sink,
 [[nodiscard]] QJsonObject translateV2StickerPackRow(const whatevr::v2::StickerPackRow &row);
 [[nodiscard]] QJsonObject translateV2LiveLocationRow(const whatevr::v2::LiveLocationRow &row,
                                                       const QString &chatId);
+[[nodiscard]] QJsonObject translateV2LogRow(const whatevr::v2::LogRow &row);
 
 // Opaque sort bytes to an order-preserving string for the keyed models.
 [[nodiscard]] QString v2SortKey(std::string_view sort);

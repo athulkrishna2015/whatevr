@@ -218,6 +218,7 @@ func runDaemon(mockFlagSet *mockFlagSet, captureFlagSet *captureFlagSet) {
 		Board:    board,
 		MediaDir: paths.MediaCacheDir,
 		Log:      log.With().Str("module", "views").Logger(),
+		RunLog:   run.Path,
 		Login:    func() { client.WantLogin() },
 		Shown:    func(keys []string) { client.WantAvatars(keys) },
 	})

@@ -208,3 +208,25 @@ class DaemonReconnect(_message.Message):
 class AccountLogout(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
+
+class LogMessage(_message.Message):
+    __slots__ = ("message",)
+    MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    message: str
+    def __init__(self, message: _Optional[str] = ...) -> None: ...
+
+class LogsView(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class LogRow(_message.Message):
+    __slots__ = ("id", "t_ms", "level", "text")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    T_MS_FIELD_NUMBER: _ClassVar[int]
+    LEVEL_FIELD_NUMBER: _ClassVar[int]
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    t_ms: int
+    level: str
+    text: str
+    def __init__(self, id: _Optional[str] = ..., t_ms: _Optional[int] = ..., level: _Optional[str] = ..., text: _Optional[str] = ...) -> None: ...

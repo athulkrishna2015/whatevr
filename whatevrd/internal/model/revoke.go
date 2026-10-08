@@ -3,9 +3,20 @@ package model
 import (
 	"context"
 	"database/sql"
+	"sync/atomic"
 
 	"whatevrd/internal/core"
 )
+
+// antiDelete keeps revoked content visible with a Deleted mark instead of
+// blanking it. It mirrors the daemon preference of the same name; the
+// whatsapp layer sets it from stored prefs at startup and on every change.
+// Package state rather than a fold parameter: fold funcs take no config, and
+// the flag gates blanking only, never the revoked mark itself.
+var antiDelete atomic.Bool
+
+// SetAntiDelete reports the daemon's anti-delete preference to the fold.
+func SetAntiDelete(on bool) { antiDelete.Store(on) }
 
 // a delete for everyone is end to end encrypted: the server sees that a
 // stanza revokes something, never what. so any member can name anyone's
@@ -286,8 +297,12 @@ func tombstone(tx *core.Tx, cs chats, id string) error {
 	}
 	stones := map[string]*stone{}
 	for _, s := range srcs {
-		if err := scrubBody(tx, s.seq, s.off, s.len); err != nil {
-			return err
+		// Anti-delete keeps the bytes and only takes the mark below: the
+		// bubble shows the content with a Deleted tag instead of a tombstone.
+		if !antiDelete.Load() {
+			if err := scrubBody(tx, s.seq, s.off, s.len); err != nil {
+				return err
+			}
 		}
 		if s.sender == "" {
 			continue
@@ -341,6 +356,9 @@ func tombstone(tx *core.Tx, cs chats, id string) error {
 	}
 	edits.Close()
 	for _, s := range seqs {
+		if antiDelete.Load() {
+			continue
+		}
 		if err := scrubBody(tx, s, -1, -1); err != nil {
 			return err
 		}

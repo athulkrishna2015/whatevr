@@ -66,8 +66,8 @@ SettingsPage {
             id: archivedSwitch
             objectName: "notifications.muteArchivedChats"
             text: Whatevr.I18n.i18nc("@option:check", "Mute archived chats")
-            description: Whatevr.I18n.i18nc("@info", "Don't show notifications for chats in the archive. Unavailable: the v2 daemon has no archived-mute preference yet.")
-            enabled: false
+            description: Whatevr.I18n.i18nc("@info", "Don't show notifications for chats in the archive.")
+            enabled: page.notificationsOn
             checked: Whatevr.ProtocolController.appPreferences.mute_archived_chats ?? true
             onToggled: Whatevr.ProtocolController.setAppPreference("mute_archived_chats", checked)
         }

@@ -125,6 +125,8 @@ bool buildV2Subscribe(std::uint64_t id, const QString &view, const QJsonObject &
         subscribe->mutable_typing();
     } else if (view == QLatin1String("transfers")) {
         subscribe->mutable_transfers();
+    } else if (view == QLatin1String("daemon.logs")) {
+        subscribe->mutable_logs();
     } else if (view == QLatin1String("self")) {
         subscribe->mutable_self();
     } else if (view == QLatin1String("preferences")) {
@@ -655,6 +657,8 @@ QJsonObject translateV2Item(const whatevr::v2::Upsert &upsert)
         return translateV2StickerPackRow(upsert.sticker_pack());
     case whatevr::v2::Upsert::kTransfer:
         return translateV2TransferRow(upsert.transfer());
+    case whatevr::v2::Upsert::kLog:
+        return translateV2LogRow(upsert.log());
     default:
         return {};
     }
@@ -758,6 +762,11 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
     }
     if (method == QLatin1String("daemon.reconnect")) {
         request->mutable_daemon_reconnect();
+        return true;
+    }
+    if (method == QLatin1String("daemon.log")) {
+        request->mutable_log_message()->set_message(
+            get("message").toString().toStdString());
         return true;
     }
     if (method == QLatin1String("account.logout")) {
@@ -1015,6 +1024,9 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
         flag("auto_download_audio", &whatevr::v2::PreferencesSet::set_auto_download_audio);
         flag("auto_download_documents", &whatevr::v2::PreferencesSet::set_auto_download_documents);
         flag("auto_download_stickers", &whatevr::v2::PreferencesSet::set_auto_download_stickers);
+        flag("mute_archived_chats", &whatevr::v2::PreferencesSet::set_mute_archived_chats);
+        flag("anti_delete", &whatevr::v2::PreferencesSet::set_anti_delete);
+        flag("keep_chats_archived", &whatevr::v2::PreferencesSet::set_keep_chats_archived);
         if (params.contains(QLatin1String("auto_download_max_bytes"))) {
             set->set_auto_download_max_bytes(
                 static_cast<std::uint64_t>(params.value(QLatin1String("auto_download_max_bytes"))
@@ -1542,6 +1554,9 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
         case View::kTransfers:
             params.insert(QStringLiteral("view"), QStringLiteral("transfers"));
             break;
+        case View::kLogs:
+            params.insert(QStringLiteral("view"), QStringLiteral("daemon.logs"));
+            break;
         default:
             return false;
         }
@@ -1569,6 +1584,10 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
         break;
     case Method::kDaemonReconnect:
         out->method = QStringLiteral("daemon.reconnect");
+        break;
+    case Method::kLogMessage:
+        out->method = QStringLiteral("daemon.log");
+        params.insert(QStringLiteral("message"), v2s(request.log_message().message()));
         break;
     case Method::kAccountLogout:
         out->method = QStringLiteral("account.logout");
@@ -1820,6 +1839,15 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
         if (set.has_auto_download_max_bytes()) {
             params.insert(QStringLiteral("auto_download_max_bytes"),
                           static_cast<qint64>(set.auto_download_max_bytes()));
+        }
+        if (set.has_mute_archived_chats()) {
+            params.insert(QStringLiteral("mute_archived_chats"), set.mute_archived_chats());
+        }
+        if (set.has_anti_delete()) {
+            params.insert(QStringLiteral("anti_delete"), set.anti_delete());
+        }
+        if (set.has_keep_chats_archived()) {
+            params.insert(QStringLiteral("keep_chats_archived"), set.keep_chats_archived());
         }
         break;
     }
@@ -2423,8 +2451,9 @@ QJsonObject translateV2Preferences(const whatevr::v2::Preferences &prefs)
     item.insert(QStringLiteral("auto_download_max_bytes"),
                 static_cast<qint64>(prefs.auto_download_max_bytes()));
     item.insert(QStringLiteral("auto_fetch_maps"), prefs.auto_fetch_maps());
-    // mute_archived_chats / anti_delete / typing indicators have no v2 field
-    // yet; they read back absent (off) until the daemon grows them.
+    item.insert(QStringLiteral("mute_archived_chats"), prefs.mute_archived_chats());
+    item.insert(QStringLiteral("anti_delete"), prefs.anti_delete());
+    item.insert(QStringLiteral("keep_chats_archived"), prefs.keep_chats_archived());
     return item;
 }
 
@@ -2580,6 +2609,19 @@ QJsonObject translateV2StickerPackRow(const whatevr::v2::StickerPackRow &row)
     item.insert(QStringLiteral("sticker_count"), static_cast<qint64>(row.count()));
     item.insert(QStringLiteral("installed"), row.installed());
     item.insert(QStringLiteral("contents_fetched"), row.fetched());
+    return item;
+}
+
+QJsonObject translateV2LogRow(const whatevr::v2::LogRow &row)
+{
+    QJsonObject item;
+    item.insert(QStringLiteral("id"), v2s(row.id()));
+    if (row.t_ms() > 0) {
+        item.insert(QStringLiteral("time"),
+                    QDateTime::fromMSecsSinceEpoch(row.t_ms()).toString(QStringLiteral("HH:mm:ss.zzz")));
+    }
+    item.insert(QStringLiteral("level"), v2s(row.level()));
+    item.insert(QStringLiteral("text"), v2s(row.text()));
     return item;
 }
 

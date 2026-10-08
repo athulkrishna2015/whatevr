@@ -41,6 +41,8 @@ type Options struct {
 	Log      zerolog.Logger
 	// Login is told a login view opened, to start pairing when logged out
 	Login func()
+	// RunLog is the current run's log file, tailed by the logs view
+	RunLog string
 	// Shown hears every person and chat key a row was built with, for
 	// fetching what the rows want, avatars first
 	Shown func(keys []string)
@@ -55,6 +57,8 @@ type Reads struct {
 	media string
 	log   zerolog.Logger
 	login func()
+	// runLog is the current run's log file, tailed by the logs view
+	runLog string
 	seen  func(keys []string)
 	srv   *server.Server
 
@@ -71,7 +75,7 @@ type Reads struct {
 
 func New(o Options) *Reads {
 	return &Reads{core: o.Core, r: model.NewReader(o.Core.Read()), ids: o.IDs, live: o.Live, board: o.Board,
-		media: o.MediaDir, log: o.Log, login: o.Login, seen: o.Shown, previews: newPreviews(), queue: make(chan core.Change, 1024)}
+		media: o.MediaDir, log: o.Log, login: o.Login, runLog: o.RunLog, seen: o.Shown, previews: newPreviews(), queue: make(chan core.Change, 1024)}
 }
 
 // Reader is the model reader the views use.
@@ -273,6 +277,7 @@ func (rs *Reads) Register(srv *server.Server) {
 		protoreflect.FieldNumber(v2.Subscribe_Reactions_case):      {rs.reactionsView, personBytes},
 		protoreflect.FieldNumber(v2.Subscribe_PollVotes_case):      {rs.pollVotesView, personBytes},
 		protoreflect.FieldNumber(v2.Subscribe_EventResponses_case): {rs.eventResponsesView, personBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Logs_case):           {rs.logsView, rowBytes},
 	}
 	for n, v := range views {
 		srv.View(n, v.v, v.bytes)

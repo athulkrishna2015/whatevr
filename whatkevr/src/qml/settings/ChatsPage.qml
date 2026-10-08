@@ -73,8 +73,7 @@ SettingsPage {
             id: antiDeleteSwitch
             objectName: "chats.antiDelete"
             text: Whatevr.I18n.i18nc("@option:check", "Keep deleted messages")
-            description: Whatevr.I18n.i18nc("@info", "Messages deleted for everyone stay visible with a Deleted mark instead of vanishing. Local display only. Unavailable: the v2 daemon has no anti-delete preference yet.")
-            enabled: false
+            description: Whatevr.I18n.i18nc("@info", "Messages deleted for everyone stay visible with a Deleted mark instead of vanishing. Local display only.")
             checked: Whatevr.ProtocolController.appPreferences.anti_delete ?? true
             onToggled: Whatevr.ProtocolController.setAppPreference("anti_delete", checked)
         }
@@ -100,8 +99,7 @@ SettingsPage {
             id: keepArchivedSwitch
             objectName: "chats.keepArchived"
             text: Whatevr.I18n.i18nc("@option:check", "Keep chats archived")
-            description: Whatevr.I18n.i18nc("@info", "Archived chats stay archived here when a new message arrives. This app only — your phone keeps its own setting. Unavailable: the v2 daemon has no keep-archived preference yet.")
-            enabled: false
+            description: Whatevr.I18n.i18nc("@info", "Archived chats stay archived here when a new message arrives. This app only — your phone keeps its own setting.")
             checked: Whatevr.ProtocolController.appPreferences.keep_chats_archived ?? false
             onToggled: Whatevr.ProtocolController.setAppPreference("keep_chats_archived", checked)
         }

@@ -83,6 +83,7 @@ func Register(o Options) *Opener {
 		arm(v2.Request_MediaCancelDownload_case):      x.cancelDownload,
 		arm(v2.Request_MediaRead_case):                x.read,
 		arm(v2.Request_MediaFetchProfilePicture_case): x.profilePicture,
+		arm(v2.Request_LogMessage_case):               x.logMessage,
 		arm(v2.Request_PrivacySet_case):               x.privacy,
 		arm(v2.Request_SelfSetAbout_case):             x.about,
 		arm(v2.Request_ContactBlock_case):             x.block,
@@ -209,6 +210,13 @@ func duration(ms int64) time.Duration { return time.Duration(ms) * time.Millisec
 
 func (x *commands) reconnect(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
 	x.c.Reconnect()
+	return nil, nil
+}
+
+// logMessage lands a frontend's own diagnostics in the run log the logs
+// view tails, so the Logs tab shows both halves of the story.
+func (x *commands) logMessage(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	x.log.Info().Msg(req.GetLogMessage().GetMessage())
 	return nil, nil
 }
 

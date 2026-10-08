@@ -84,7 +84,7 @@ class PreferencesRow(_message.Message):
     def __init__(self, preferences: _Optional[_Union[Preferences, _Mapping]] = ...) -> None: ...
 
 class Preferences(_message.Message):
-    __slots__ = ("notifications", "notification_sound", "notification_preview", "auto_download_photos", "auto_download_videos", "auto_download_audio", "auto_download_documents", "auto_download_stickers", "auto_download_max_bytes", "auto_fetch_maps", "default_frontend", "terminal")
+    __slots__ = ("notifications", "notification_sound", "notification_preview", "auto_download_photos", "auto_download_videos", "auto_download_audio", "auto_download_documents", "auto_download_stickers", "auto_download_max_bytes", "auto_fetch_maps", "default_frontend", "terminal", "mute_archived_chats", "anti_delete", "keep_chats_archived")
     NOTIFICATIONS_FIELD_NUMBER: _ClassVar[int]
     NOTIFICATION_SOUND_FIELD_NUMBER: _ClassVar[int]
     NOTIFICATION_PREVIEW_FIELD_NUMBER: _ClassVar[int]
@@ -97,6 +97,9 @@ class Preferences(_message.Message):
     AUTO_FETCH_MAPS_FIELD_NUMBER: _ClassVar[int]
     DEFAULT_FRONTEND_FIELD_NUMBER: _ClassVar[int]
     TERMINAL_FIELD_NUMBER: _ClassVar[int]
+    MUTE_ARCHIVED_CHATS_FIELD_NUMBER: _ClassVar[int]
+    ANTI_DELETE_FIELD_NUMBER: _ClassVar[int]
+    KEEP_CHATS_ARCHIVED_FIELD_NUMBER: _ClassVar[int]
     notifications: bool
     notification_sound: bool
     notification_preview: bool
@@ -109,7 +112,10 @@ class Preferences(_message.Message):
     auto_fetch_maps: bool
     default_frontend: str
     terminal: _containers.RepeatedScalarFieldContainer[str]
-    def __init__(self, notifications: _Optional[bool] = ..., notification_sound: _Optional[bool] = ..., notification_preview: _Optional[bool] = ..., auto_download_photos: _Optional[bool] = ..., auto_download_videos: _Optional[bool] = ..., auto_download_audio: _Optional[bool] = ..., auto_download_documents: _Optional[bool] = ..., auto_download_stickers: _Optional[bool] = ..., auto_download_max_bytes: _Optional[int] = ..., auto_fetch_maps: _Optional[bool] = ..., default_frontend: _Optional[str] = ..., terminal: _Optional[_Iterable[str]] = ...) -> None: ...
+    mute_archived_chats: bool
+    anti_delete: bool
+    keep_chats_archived: bool
+    def __init__(self, notifications: _Optional[bool] = ..., notification_sound: _Optional[bool] = ..., notification_preview: _Optional[bool] = ..., auto_download_photos: _Optional[bool] = ..., auto_download_videos: _Optional[bool] = ..., auto_download_audio: _Optional[bool] = ..., auto_download_documents: _Optional[bool] = ..., auto_download_stickers: _Optional[bool] = ..., auto_download_max_bytes: _Optional[int] = ..., auto_fetch_maps: _Optional[bool] = ..., default_frontend: _Optional[str] = ..., terminal: _Optional[_Iterable[str]] = ..., mute_archived_chats: _Optional[bool] = ..., anti_delete: _Optional[bool] = ..., keep_chats_archived: _Optional[bool] = ...) -> None: ...
 
 class Argv(_message.Message):
     __slots__ = ("args",)
@@ -118,7 +124,7 @@ class Argv(_message.Message):
     def __init__(self, args: _Optional[_Iterable[str]] = ...) -> None: ...
 
 class PreferencesSet(_message.Message):
-    __slots__ = ("notifications", "notification_sound", "notification_preview", "auto_download_photos", "auto_download_videos", "auto_download_audio", "auto_download_documents", "auto_download_stickers", "auto_download_max_bytes", "auto_fetch_maps", "terminal")
+    __slots__ = ("notifications", "notification_sound", "notification_preview", "auto_download_photos", "auto_download_videos", "auto_download_audio", "auto_download_documents", "auto_download_stickers", "auto_download_max_bytes", "auto_fetch_maps", "terminal", "mute_archived_chats", "anti_delete", "keep_chats_archived")
     NOTIFICATIONS_FIELD_NUMBER: _ClassVar[int]
     NOTIFICATION_SOUND_FIELD_NUMBER: _ClassVar[int]
     NOTIFICATION_PREVIEW_FIELD_NUMBER: _ClassVar[int]
@@ -130,6 +136,9 @@ class PreferencesSet(_message.Message):
     AUTO_DOWNLOAD_MAX_BYTES_FIELD_NUMBER: _ClassVar[int]
     AUTO_FETCH_MAPS_FIELD_NUMBER: _ClassVar[int]
     TERMINAL_FIELD_NUMBER: _ClassVar[int]
+    MUTE_ARCHIVED_CHATS_FIELD_NUMBER: _ClassVar[int]
+    ANTI_DELETE_FIELD_NUMBER: _ClassVar[int]
+    KEEP_CHATS_ARCHIVED_FIELD_NUMBER: _ClassVar[int]
     notifications: bool
     notification_sound: bool
     notification_preview: bool
@@ -141,4 +150,7 @@ class PreferencesSet(_message.Message):
     auto_download_max_bytes: int
     auto_fetch_maps: bool
     terminal: Argv
-    def __init__(self, notifications: _Optional[bool] = ..., notification_sound: _Optional[bool] = ..., notification_preview: _Optional[bool] = ..., auto_download_photos: _Optional[bool] = ..., auto_download_videos: _Optional[bool] = ..., auto_download_audio: _Optional[bool] = ..., auto_download_documents: _Optional[bool] = ..., auto_download_stickers: _Optional[bool] = ..., auto_download_max_bytes: _Optional[int] = ..., auto_fetch_maps: _Optional[bool] = ..., terminal: _Optional[_Union[Argv, _Mapping]] = ...) -> None: ...
+    mute_archived_chats: bool
+    anti_delete: bool
+    keep_chats_archived: bool
+    def __init__(self, notifications: _Optional[bool] = ..., notification_sound: _Optional[bool] = ..., notification_preview: _Optional[bool] = ..., auto_download_photos: _Optional[bool] = ..., auto_download_videos: _Optional[bool] = ..., auto_download_audio: _Optional[bool] = ..., auto_download_documents: _Optional[bool] = ..., auto_download_stickers: _Optional[bool] = ..., auto_download_max_bytes: _Optional[int] = ..., auto_fetch_maps: _Optional[bool] = ..., terminal: _Optional[_Union[Argv, _Mapping]] = ..., mute_archived_chats: _Optional[bool] = ..., anti_delete: _Optional[bool] = ..., keep_chats_archived: _Optional[bool] = ...) -> None: ...

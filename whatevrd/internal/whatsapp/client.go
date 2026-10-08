@@ -116,6 +116,13 @@ func New(ctx context.Context, o Options) (*Client, error) {
 	c.relink.Store(o.Relink != nil)
 	c.ingest = ingest.New(ctx, o.Core)
 	c.ingest.OnDemand = c.olderAnswered
+	// Keep-archived holds this device on archived chats by dropping
+	// unarchive mutations arriving from WhatsApp; archives still apply, and
+	// the fold never sees the pref directly.
+	c.ingest.KeepArchived = func() bool { return c.prefs(ctx).GetKeepChatsArchived() }
+	// The fold reads this for every tombstone; seed it from stored prefs so a
+	// fresh start honors the saved choice before any SetPreferences lands.
+	model.SetAntiDelete(c.prefs(ctx).GetAntiDelete())
 	c.conn = conn.New(conn.Options{
 		Network: o.Network,
 		Log:     o.Log.With().Str("module", "conn").Logger(),

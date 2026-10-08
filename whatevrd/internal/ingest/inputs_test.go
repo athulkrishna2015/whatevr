@@ -161,8 +161,7 @@ func TestEveryOtherKindKeepsItsFacts(t *testing.T) {
 	}
 }
 
-func TestAppStateIsOneInputPerMutationAndWhereTheCollectionGotTo(t *testing.T) {
-	pin := &waSyncAction.SyncActionValue{PinAction: &waSyncAction.PinAction{Pinned: proto.Bool(true)}}
+func TestAppStateIsOneInputPerMutationAndWhereTheCollectionGotTo(t *testing.T) {	pin := &waSyncAction.SyncActionValue{PinAction: &waSyncAction.PinAction{Pinned: proto.Bool(true)}}
 	ins, err := appStateInputs(appstate.WAPatchRegularLow, 7, []appstate.Mutation{
 		{Operation: waServerSync.SyncdMutation_SET, Index: []string{"pin_v1", asha.String()}, Version: 5, Action: pin, PatchVersion: 6},
 		{Operation: waServerSync.SyncdMutation_REMOVE, Index: []string{"pin_v1", ashaL.String()}, Version: 5, PatchVersion: 7},
@@ -267,5 +266,25 @@ func TestALongConversationComesInPieces(t *testing.T) {
 	// an empty conversation is still one input
 	if ins, err := historyPieces(core.HistoryExtraHead{}, &waHistorySync.Conversation{ID: proto.String("2@s.whatsapp.net")}, at); err != nil || len(ins) != 1 {
 		t.Fatalf("%d pieces, %v", len(ins), err)
+	}
+}
+
+func TestDropUnarchivesKeepsArchivesAndOtherMutations(t *testing.T) {
+	archived := appstate.Mutation{Operation: waServerSync.SyncdMutation_SET,
+		Action: &waSyncAction.SyncActionValue{ArchiveChatAction: &waSyncAction.ArchiveChatAction{Archived: proto.Bool(true)}}}
+	unarchived := appstate.Mutation{Operation: waServerSync.SyncdMutation_SET,
+		Action: &waSyncAction.SyncActionValue{ArchiveChatAction: &waSyncAction.ArchiveChatAction{Archived: proto.Bool(false)}}}
+	pin := appstate.Mutation{Operation: waServerSync.SyncdMutation_SET,
+		Action: &waSyncAction.SyncActionValue{PinAction: &waSyncAction.PinAction{Pinned: proto.Bool(true)}}}
+	in := []appstate.Mutation{archived, unarchived, pin}
+	if got := dropUnarchives(in, false); len(got) != 3 {
+		t.Fatalf("off keeps everything: %d", len(got))
+	}
+	got := dropUnarchives(in, true)
+	if len(got) != 2 {
+		t.Fatalf("on drops only the unarchive: %d", len(got))
+	}
+	if !got[0].Action.GetArchiveChatAction().GetArchived() || got[1].Action.GetPinAction() == nil {
+		t.Fatal("wrong mutations survived")
 	}
 }

@@ -520,6 +520,9 @@ type Preferences struct {
 	xxx_hidden_AutoFetchMaps         bool                   `protobuf:"varint,10,opt,name=auto_fetch_maps,json=autoFetchMaps"`
 	xxx_hidden_DefaultFrontend       string                 `protobuf:"bytes,11,opt,name=default_frontend,json=defaultFrontend"`
 	xxx_hidden_Terminal              []string               `protobuf:"bytes,12,rep,name=terminal"`
+	xxx_hidden_MuteArchivedChats     bool                   `protobuf:"varint,13,opt,name=mute_archived_chats,json=muteArchivedChats"`
+	xxx_hidden_AntiDelete            bool                   `protobuf:"varint,14,opt,name=anti_delete,json=antiDelete"`
+	xxx_hidden_KeepChatsArchived     bool                   `protobuf:"varint,15,opt,name=keep_chats_archived,json=keepChatsArchived"`
 	unknownFields                    protoimpl.UnknownFields
 	sizeCache                        protoimpl.SizeCache
 }
@@ -633,6 +636,27 @@ func (x *Preferences) GetTerminal() []string {
 	return nil
 }
 
+func (x *Preferences) GetMuteArchivedChats() bool {
+	if x != nil {
+		return x.xxx_hidden_MuteArchivedChats
+	}
+	return false
+}
+
+func (x *Preferences) GetAntiDelete() bool {
+	if x != nil {
+		return x.xxx_hidden_AntiDelete
+	}
+	return false
+}
+
+func (x *Preferences) GetKeepChatsArchived() bool {
+	if x != nil {
+		return x.xxx_hidden_KeepChatsArchived
+	}
+	return false
+}
+
 func (x *Preferences) SetNotifications(v bool) {
 	x.xxx_hidden_Notifications = v
 }
@@ -681,6 +705,18 @@ func (x *Preferences) SetTerminal(v []string) {
 	x.xxx_hidden_Terminal = v
 }
 
+func (x *Preferences) SetMuteArchivedChats(v bool) {
+	x.xxx_hidden_MuteArchivedChats = v
+}
+
+func (x *Preferences) SetAntiDelete(v bool) {
+	x.xxx_hidden_AntiDelete = v
+}
+
+func (x *Preferences) SetKeepChatsArchived(v bool) {
+	x.xxx_hidden_KeepChatsArchived = v
+}
+
 type Preferences_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -701,6 +737,12 @@ type Preferences_builder struct {
 	// the terminal a terminal frontend runs in, its argv appended. empty is
 	// the platform's default
 	Terminal []string
+	// skip notifications for archived chats; default on
+	MuteArchivedChats bool
+	// keep deleted messages visible with a Deleted mark instead of scrubbing
+	AntiDelete bool
+	// new messages do not lift chats out of the archive
+	KeepChatsArchived bool
 }
 
 func (b0 Preferences_builder) Build() *Preferences {
@@ -719,6 +761,9 @@ func (b0 Preferences_builder) Build() *Preferences {
 	x.xxx_hidden_AutoFetchMaps = b.AutoFetchMaps
 	x.xxx_hidden_DefaultFrontend = b.DefaultFrontend
 	x.xxx_hidden_Terminal = b.Terminal
+	x.xxx_hidden_MuteArchivedChats = b.MuteArchivedChats
+	x.xxx_hidden_AntiDelete = b.AntiDelete
+	x.xxx_hidden_KeepChatsArchived = b.KeepChatsArchived
 	return m0
 }
 
@@ -794,6 +839,9 @@ type PreferencesSet struct {
 	xxx_hidden_AutoDownloadMaxBytes  uint64                 `protobuf:"varint,9,opt,name=auto_download_max_bytes,json=autoDownloadMaxBytes"`
 	xxx_hidden_AutoFetchMaps         bool                   `protobuf:"varint,10,opt,name=auto_fetch_maps,json=autoFetchMaps"`
 	xxx_hidden_Terminal              *Argv                  `protobuf:"bytes,12,opt,name=terminal"`
+	xxx_hidden_MuteArchivedChats     bool                   `protobuf:"varint,13,opt,name=mute_archived_chats,json=muteArchivedChats"`
+	xxx_hidden_AntiDelete            bool                   `protobuf:"varint,14,opt,name=anti_delete,json=antiDelete"`
+	xxx_hidden_KeepChatsArchived     bool                   `protobuf:"varint,15,opt,name=keep_chats_archived,json=keepChatsArchived"`
 	XXX_raceDetectHookData           protoimpl.RaceDetectHookData
 	XXX_presence                     [1]uint32
 	unknownFields                    protoimpl.UnknownFields
@@ -902,58 +950,94 @@ func (x *PreferencesSet) GetTerminal() *Argv {
 	return nil
 }
 
+func (x *PreferencesSet) GetMuteArchivedChats() bool {
+	if x != nil {
+		return x.xxx_hidden_MuteArchivedChats
+	}
+	return false
+}
+
+func (x *PreferencesSet) GetAntiDelete() bool {
+	if x != nil {
+		return x.xxx_hidden_AntiDelete
+	}
+	return false
+}
+
+func (x *PreferencesSet) GetKeepChatsArchived() bool {
+	if x != nil {
+		return x.xxx_hidden_KeepChatsArchived
+	}
+	return false
+}
+
 func (x *PreferencesSet) SetNotifications(v bool) {
 	x.xxx_hidden_Notifications = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 0, 14)
 }
 
 func (x *PreferencesSet) SetNotificationSound(v bool) {
 	x.xxx_hidden_NotificationSound = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 1, 14)
 }
 
 func (x *PreferencesSet) SetNotificationPreview(v bool) {
 	x.xxx_hidden_NotificationPreview = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 2, 14)
 }
 
 func (x *PreferencesSet) SetAutoDownloadPhotos(v bool) {
 	x.xxx_hidden_AutoDownloadPhotos = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 3, 14)
 }
 
 func (x *PreferencesSet) SetAutoDownloadVideos(v bool) {
 	x.xxx_hidden_AutoDownloadVideos = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 4, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 4, 14)
 }
 
 func (x *PreferencesSet) SetAutoDownloadAudio(v bool) {
 	x.xxx_hidden_AutoDownloadAudio = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 5, 14)
 }
 
 func (x *PreferencesSet) SetAutoDownloadDocuments(v bool) {
 	x.xxx_hidden_AutoDownloadDocuments = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 6, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 6, 14)
 }
 
 func (x *PreferencesSet) SetAutoDownloadStickers(v bool) {
 	x.xxx_hidden_AutoDownloadStickers = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 7, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 7, 14)
 }
 
 func (x *PreferencesSet) SetAutoDownloadMaxBytes(v uint64) {
 	x.xxx_hidden_AutoDownloadMaxBytes = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 8, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 8, 14)
 }
 
 func (x *PreferencesSet) SetAutoFetchMaps(v bool) {
 	x.xxx_hidden_AutoFetchMaps = v
-	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 9, 11)
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 9, 14)
 }
 
 func (x *PreferencesSet) SetTerminal(v *Argv) {
 	x.xxx_hidden_Terminal = v
+}
+
+func (x *PreferencesSet) SetMuteArchivedChats(v bool) {
+	x.xxx_hidden_MuteArchivedChats = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 11, 14)
+}
+
+func (x *PreferencesSet) SetAntiDelete(v bool) {
+	x.xxx_hidden_AntiDelete = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 12, 14)
+}
+
+func (x *PreferencesSet) SetKeepChatsArchived(v bool) {
+	x.xxx_hidden_KeepChatsArchived = v
+	protoimpl.X.SetPresent(&(x.XXX_presence[0]), 13, 14)
 }
 
 func (x *PreferencesSet) HasNotifications() bool {
@@ -1033,6 +1117,27 @@ func (x *PreferencesSet) HasTerminal() bool {
 	return x.xxx_hidden_Terminal != nil
 }
 
+func (x *PreferencesSet) HasMuteArchivedChats() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 11)
+}
+
+func (x *PreferencesSet) HasAntiDelete() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 12)
+}
+
+func (x *PreferencesSet) HasKeepChatsArchived() bool {
+	if x == nil {
+		return false
+	}
+	return protoimpl.X.Present(&(x.XXX_presence[0]), 13)
+}
+
 func (x *PreferencesSet) ClearNotifications() {
 	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 0)
 	x.xxx_hidden_Notifications = false
@@ -1087,6 +1192,21 @@ func (x *PreferencesSet) ClearTerminal() {
 	x.xxx_hidden_Terminal = nil
 }
 
+func (x *PreferencesSet) ClearMuteArchivedChats() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 11)
+	x.xxx_hidden_MuteArchivedChats = false
+}
+
+func (x *PreferencesSet) ClearAntiDelete() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 12)
+	x.xxx_hidden_AntiDelete = false
+}
+
+func (x *PreferencesSet) ClearKeepChatsArchived() {
+	protoimpl.X.ClearPresent(&(x.XXX_presence[0]), 13)
+	x.xxx_hidden_KeepChatsArchived = false
+}
+
 type PreferencesSet_builder struct {
 	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
 
@@ -1101,7 +1221,10 @@ type PreferencesSet_builder struct {
 	AutoDownloadMaxBytes  *uint64
 	AutoFetchMaps         *bool
 	// present and empty goes back to the platform's terminal
-	Terminal *Argv
+	Terminal          *Argv
+	MuteArchivedChats *bool
+	AntiDelete        *bool
+	KeepChatsArchived *bool
 }
 
 func (b0 PreferencesSet_builder) Build() *PreferencesSet {
@@ -1109,46 +1232,58 @@ func (b0 PreferencesSet_builder) Build() *PreferencesSet {
 	b, x := &b0, m0
 	_, _ = b, x
 	if b.Notifications != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 0, 14)
 		x.xxx_hidden_Notifications = *b.Notifications
 	}
 	if b.NotificationSound != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 1, 14)
 		x.xxx_hidden_NotificationSound = *b.NotificationSound
 	}
 	if b.NotificationPreview != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 2, 14)
 		x.xxx_hidden_NotificationPreview = *b.NotificationPreview
 	}
 	if b.AutoDownloadPhotos != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 3, 14)
 		x.xxx_hidden_AutoDownloadPhotos = *b.AutoDownloadPhotos
 	}
 	if b.AutoDownloadVideos != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 4, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 4, 14)
 		x.xxx_hidden_AutoDownloadVideos = *b.AutoDownloadVideos
 	}
 	if b.AutoDownloadAudio != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 5, 14)
 		x.xxx_hidden_AutoDownloadAudio = *b.AutoDownloadAudio
 	}
 	if b.AutoDownloadDocuments != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 6, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 6, 14)
 		x.xxx_hidden_AutoDownloadDocuments = *b.AutoDownloadDocuments
 	}
 	if b.AutoDownloadStickers != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 7, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 7, 14)
 		x.xxx_hidden_AutoDownloadStickers = *b.AutoDownloadStickers
 	}
 	if b.AutoDownloadMaxBytes != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 8, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 8, 14)
 		x.xxx_hidden_AutoDownloadMaxBytes = *b.AutoDownloadMaxBytes
 	}
 	if b.AutoFetchMaps != nil {
-		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 9, 11)
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 9, 14)
 		x.xxx_hidden_AutoFetchMaps = *b.AutoFetchMaps
 	}
 	x.xxx_hidden_Terminal = b.Terminal
+	if b.MuteArchivedChats != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 11, 14)
+		x.xxx_hidden_MuteArchivedChats = *b.MuteArchivedChats
+	}
+	if b.AntiDelete != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 12, 14)
+		x.xxx_hidden_AntiDelete = *b.AntiDelete
+	}
+	if b.KeepChatsArchived != nil {
+		protoimpl.X.SetPresentNonAtomic(&(x.XXX_presence[0]), 13, 14)
+		x.xxx_hidden_KeepChatsArchived = *b.KeepChatsArchived
+	}
 	return m0
 }
 
@@ -1174,7 +1309,7 @@ const file_whatevr_v2_settings_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\x0e2\x18.whatevr.v2.PrivacyValueR\x05value\"\x11\n" +
 	"\x0fPreferencesView\"K\n" +
 	"\x0ePreferencesRow\x129\n" +
-	"\vpreferences\x18\x01 \x01(\v2\x17.whatevr.v2.PreferencesR\vpreferences\"\xbd\x04\n" +
+	"\vpreferences\x18\x01 \x01(\v2\x17.whatevr.v2.PreferencesR\vpreferences\"\xbe\x05\n" +
 	"\vPreferences\x12$\n" +
 	"\rnotifications\x18\x01 \x01(\bR\rnotifications\x12-\n" +
 	"\x12notification_sound\x18\x02 \x01(\bR\x11notificationSound\x121\n" +
@@ -1188,9 +1323,13 @@ const file_whatevr_v2_settings_proto_rawDesc = "" +
 	"\x0fauto_fetch_maps\x18\n" +
 	" \x01(\bR\rautoFetchMaps\x12)\n" +
 	"\x10default_frontend\x18\v \x01(\tR\x0fdefaultFrontend\x12\x1a\n" +
-	"\bterminal\x18\f \x03(\tR\bterminal\"\x1a\n" +
+	"\bterminal\x18\f \x03(\tR\bterminal\x12.\n" +
+	"\x13mute_archived_chats\x18\r \x01(\bR\x11muteArchivedChats\x12\x1f\n" +
+	"\vanti_delete\x18\x0e \x01(\bR\n" +
+	"antiDelete\x12.\n" +
+	"\x13keep_chats_archived\x18\x0f \x01(\bR\x11keepChatsArchived\"\x1a\n" +
 	"\x04Argv\x12\x12\n" +
-	"\x04args\x18\x01 \x03(\tR\x04args\"\xed\x04\n" +
+	"\x04args\x18\x01 \x03(\tR\x04args\"\x83\x06\n" +
 	"\x0ePreferencesSet\x12+\n" +
 	"\rnotifications\x18\x01 \x01(\bB\x05\xaa\x01\x02\b\x01R\rnotifications\x124\n" +
 	"\x12notification_sound\x18\x02 \x01(\bB\x05\xaa\x01\x02\b\x01R\x11notificationSound\x128\n" +
@@ -1203,7 +1342,11 @@ const file_whatevr_v2_settings_proto_rawDesc = "" +
 	"\x17auto_download_max_bytes\x18\t \x01(\x04B\x05\xaa\x01\x02\b\x01R\x14autoDownloadMaxBytes\x12-\n" +
 	"\x0fauto_fetch_maps\x18\n" +
 	" \x01(\bB\x05\xaa\x01\x02\b\x01R\rautoFetchMaps\x12,\n" +
-	"\bterminal\x18\f \x01(\v2\x10.whatevr.v2.ArgvR\bterminal*\x93\x02\n" +
+	"\bterminal\x18\f \x01(\v2\x10.whatevr.v2.ArgvR\bterminal\x125\n" +
+	"\x13mute_archived_chats\x18\r \x01(\bB\x05\xaa\x01\x02\b\x01R\x11muteArchivedChats\x12&\n" +
+	"\vanti_delete\x18\x0e \x01(\bB\x05\xaa\x01\x02\b\x01R\n" +
+	"antiDelete\x125\n" +
+	"\x13keep_chats_archived\x18\x0f \x01(\bB\x05\xaa\x01\x02\b\x01R\x11keepChatsArchived*\x93\x02\n" +
 	"\x0fPrivacyCategory\x12 \n" +
 	"\x1cPRIVACY_CATEGORY_UNSPECIFIED\x10\x00\x12\x1e\n" +
 	"\x1aPRIVACY_CATEGORY_LAST_SEEN\x10\x01\x12\x1b\n" +

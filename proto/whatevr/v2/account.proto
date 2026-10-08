@@ -151,3 +151,20 @@ message SessionUpdate {
 message DaemonReconnect {}
 
 message AccountLogout {}
+
+// a frontend's own diagnostics, landing in the run log the logs view tails
+message LogMessage {
+  string message = 1;
+}
+
+// the daemon's own run log, newest first; a debug page, not history
+message LogsView {}
+
+// one log line: the byte offset is the stable id, the timestamp is when it
+// was written, the level is the zerolog level name
+message LogRow {
+  string id = 1;
+  int64 t_ms = 2;
+  string level = 3;
+  string text = 4;
+}

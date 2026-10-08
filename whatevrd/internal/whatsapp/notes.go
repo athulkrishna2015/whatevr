@@ -96,6 +96,9 @@ func (n *notes) look(ctx context.Context, evt *events.Message) {
 	if err != nil || !ok || ch.Muted {
 		return
 	}
+	if p.GetMuteArchivedChats() && ch.Archived {
+		return
+	}
 	line, id := "", evt.Info.ID
 	if r := evt.Message.GetReactionMessage(); r != nil {
 		// a reaction is news only on our own message
