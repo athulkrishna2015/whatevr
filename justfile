@@ -76,6 +76,13 @@ screenshot *args:
 version:
     @printf '%s\n' '{{version}}'
 
+# Validate desktop entry, metainfo, and mime database (used by the release
+# driver before it commits metadata changes).
+validate:
+    @desktop-file-validate whatkevr/data/in.codelif.Whatevr.desktop
+    @appstreamcli validate --no-net whatkevr/data/in.codelif.Whatevr.metainfo.xml
+    @xmllint --noout whatkevr/data/in.codelif.Whatevr.xml
+
 # Update metadata, commit, and tag. Does not push. x.y.z
 release version:
     @uv run scripts/release.py "{{version}}"
