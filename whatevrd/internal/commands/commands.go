@@ -85,6 +85,7 @@ func Register(o Options) *Opener {
 		arm(v2.Request_MediaCancelDownload_case):      x.cancelDownload,
 		arm(v2.Request_MediaRead_case):                x.read,
 		arm(v2.Request_MediaFetchProfilePicture_case): x.profilePicture,
+		arm(v2.Request_MediaSave_case):                x.saveMedia,
 		arm(v2.Request_LogMessage_case):               x.logMessage,
 		arm(v2.Request_PrivacySet_case):               x.privacy,
 		arm(v2.Request_SelfSetAbout_case):             x.about,
@@ -593,6 +594,39 @@ func (x *commands) cancelDownload(ctx context.Context, s *server.Session, req *v
 	return onMessage(req.GetMediaCancelDownload().GetMessageId(), func(r whatsapp.Ref) error {
 		return x.c.CancelDownload(ctx, r)
 	})
+}
+
+func (x *commands) saveMedia(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetMediaSave()
+	if strings.TrimSpace(p.GetStatusId()) != "" {
+		return nil, invalid("status saves need the status views")
+	}
+	var ref whatsapp.Ref
+	if tok := strings.TrimSpace(p.GetMessageId()); tok != "" {
+		var err error
+		if ref, err = message(tok); err != nil {
+			return nil, err
+		}
+	}
+	var avatar string
+	if jid := strings.TrimSpace(p.GetJid()); jid != "" {
+		w, err := x.rs.World(ctx)
+		if err != nil {
+			return nil, err
+		}
+		key := w.Now(model.Norm(jid))
+		if key == "" {
+			return nil, invalid("jid is required")
+		}
+		avatar = key
+	}
+	path, err := x.c.SaveMedia(ctx, ref, avatar, p.GetPath())
+	if err != nil {
+		return nil, wire(err)
+	}
+	resp := &v2.Response{}
+	resp.SetMediaSave(v2.MediaSaveResult_builder{Path: path}.Build())
+	return resp, nil
 }
 
 func (x *commands) stream(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {

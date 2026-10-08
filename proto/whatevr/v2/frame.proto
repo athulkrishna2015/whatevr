@@ -86,6 +86,7 @@ message Request {
     MediaCancelDownload media_cancel_download = 92;
     MediaRead media_read = 93;
     MediaFetchProfilePicture media_fetch_profile_picture = 94;
+    MediaSave media_save = 95;
 
     // 100-119: settings, people, stickers, notifications
     PrivacySet privacy_set = 100;
@@ -132,6 +133,7 @@ message Response {
     MediaStreamResult media_stream = 91;
     MediaReadResult media_read = 93;
     MediaFetchProfilePictureResult media_fetch_profile_picture = 94;
+    MediaSaveResult media_save = 95;
 
     SearchChatsResult search_chats = 120;
     SearchMessagesResult search_messages = 121;

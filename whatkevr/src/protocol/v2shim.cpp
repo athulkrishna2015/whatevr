@@ -328,6 +328,12 @@ V2ResponseTranslation translateV2Response(const whatevr::v2::Response &response)
         out.result = result;
         break;
     }
+    case whatevr::v2::Response::kMediaSave: {
+        QJsonObject result;
+        result.insert(QStringLiteral("path"), v2s(response.media_save().path()));
+        out.result = result;
+        break;
+    }
     case whatevr::v2::Response::kSearchChats: {
         QJsonArray chats;
         for (const auto &row : response.search_chats().chats()) {
@@ -1006,6 +1012,14 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
         setAddressId(request->mutable_media_fetch_profile_picture()->mutable_person(), params, "jid");
         return true;
     }
+    if (method == QLatin1String("media.save")) {
+        auto *save = request->mutable_media_save();
+        save->set_message_id(get("message_id").toString().toStdString());
+        save->set_status_id(get("status_id").toString().toStdString());
+        save->set_jid(get("jid").toString().toStdString());
+        save->set_path(get("path").toString().toStdString());
+        return true;
+    }
 
     // People and settings.
     if (method == QLatin1String("contact.block")) {
@@ -1251,6 +1265,10 @@ bool v2ResponseFromV1(const QString &method, std::uint64_t id, const QJsonObject
     }
     if (method == QLatin1String("media.fetch_profile_picture")) {
         out->mutable_media_fetch_profile_picture()->set_path(str("path"));
+        return true;
+    }
+    if (method == QLatin1String("media.save")) {
+        out->mutable_media_save()->set_path(str("path"));
         return true;
     }
     if (method == QLatin1String("search.chats")) {
@@ -1892,6 +1910,21 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
         out->method = QStringLiteral("media.fetch_profile_picture");
         setJsonAddress(params, "jid", request.media_fetch_profile_picture().person());
         break;
+    case Method::kMediaSave: {
+        out->method = QStringLiteral("media.save");
+        const auto &save = request.media_save();
+        if (!save.message_id().empty()) {
+            params.insert(QStringLiteral("message_id"), v2s(save.message_id()));
+        }
+        if (!save.status_id().empty()) {
+            params.insert(QStringLiteral("status_id"), v2s(save.status_id()));
+        }
+        if (!save.jid().empty()) {
+            params.insert(QStringLiteral("jid"), v2s(save.jid()));
+        }
+        params.insert(QStringLiteral("path"), v2s(save.path()));
+        break;
+    }
     case Method::kContactBlock:
         out->method = QStringLiteral("contact.block");
         setJsonAddress(params, "jid", request.contact_block().person());

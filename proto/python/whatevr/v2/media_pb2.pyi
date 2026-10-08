@@ -122,3 +122,21 @@ class MediaFetchProfilePictureResult(_message.Message):
     PATH_FIELD_NUMBER: _ClassVar[int]
     path: str
     def __init__(self, path: _Optional[str] = ...) -> None: ...
+
+class MediaSave(_message.Message):
+    __slots__ = ("message_id", "status_id", "jid", "path")
+    MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]
+    STATUS_ID_FIELD_NUMBER: _ClassVar[int]
+    JID_FIELD_NUMBER: _ClassVar[int]
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    message_id: str
+    status_id: str
+    jid: str
+    path: str
+    def __init__(self, message_id: _Optional[str] = ..., status_id: _Optional[str] = ..., jid: _Optional[str] = ..., path: _Optional[str] = ...) -> None: ...
+
+class MediaSaveResult(_message.Message):
+    __slots__ = ("path",)
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    path: str
+    def __init__(self, path: _Optional[str] = ...) -> None: ...

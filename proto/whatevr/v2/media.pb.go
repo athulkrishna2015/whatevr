@@ -986,6 +986,165 @@ func (b0 MediaFetchProfilePictureResult_builder) Build() *MediaFetchProfilePictu
 	return m0
 }
 
+// copies media out of the daemon cache to a caller-owned path. exactly one
+// of message_id (a chat message) or jid (a profile picture) selects the
+// source; status_id arrives with the status views
+type MediaSave struct {
+	state                protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_MessageId string                 `protobuf:"bytes,1,opt,name=message_id,json=messageId"`
+	xxx_hidden_StatusId  string                 `protobuf:"bytes,2,opt,name=status_id,json=statusId"`
+	xxx_hidden_Jid       string                 `protobuf:"bytes,3,opt,name=jid"`
+	xxx_hidden_Path      string                 `protobuf:"bytes,4,opt,name=path"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *MediaSave) Reset() {
+	*x = MediaSave{}
+	mi := &file_whatevr_v2_media_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MediaSave) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MediaSave) ProtoMessage() {}
+
+func (x *MediaSave) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_media_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *MediaSave) GetMessageId() string {
+	if x != nil {
+		return x.xxx_hidden_MessageId
+	}
+	return ""
+}
+
+func (x *MediaSave) GetStatusId() string {
+	if x != nil {
+		return x.xxx_hidden_StatusId
+	}
+	return ""
+}
+
+func (x *MediaSave) GetJid() string {
+	if x != nil {
+		return x.xxx_hidden_Jid
+	}
+	return ""
+}
+
+func (x *MediaSave) GetPath() string {
+	if x != nil {
+		return x.xxx_hidden_Path
+	}
+	return ""
+}
+
+func (x *MediaSave) SetMessageId(v string) {
+	x.xxx_hidden_MessageId = v
+}
+
+func (x *MediaSave) SetStatusId(v string) {
+	x.xxx_hidden_StatusId = v
+}
+
+func (x *MediaSave) SetJid(v string) {
+	x.xxx_hidden_Jid = v
+}
+
+func (x *MediaSave) SetPath(v string) {
+	x.xxx_hidden_Path = v
+}
+
+type MediaSave_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	MessageId string
+	StatusId  string
+	Jid       string
+	Path      string
+}
+
+func (b0 MediaSave_builder) Build() *MediaSave {
+	m0 := &MediaSave{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_MessageId = b.MessageId
+	x.xxx_hidden_StatusId = b.StatusId
+	x.xxx_hidden_Jid = b.Jid
+	x.xxx_hidden_Path = b.Path
+	return m0
+}
+
+type MediaSaveResult struct {
+	state           protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Path string                 `protobuf:"bytes,1,opt,name=path"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *MediaSaveResult) Reset() {
+	*x = MediaSaveResult{}
+	mi := &file_whatevr_v2_media_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *MediaSaveResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*MediaSaveResult) ProtoMessage() {}
+
+func (x *MediaSaveResult) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_media_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *MediaSaveResult) GetPath() string {
+	if x != nil {
+		return x.xxx_hidden_Path
+	}
+	return ""
+}
+
+func (x *MediaSaveResult) SetPath(v string) {
+	x.xxx_hidden_Path = v
+}
+
+type MediaSaveResult_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Path string
+}
+
+func (b0 MediaSaveResult_builder) Build() *MediaSaveResult {
+	m0 := &MediaSaveResult{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Path = b.Path
+	return m0
+}
+
 var File_whatevr_v2_media_proto protoreflect.FileDescriptor
 
 const file_whatevr_v2_media_proto_rawDesc = "" +
@@ -1039,6 +1198,14 @@ const file_whatevr_v2_media_proto_rawDesc = "" +
 	"\x18MediaFetchProfilePicture\x12+\n" +
 	"\x06person\x18\x01 \x01(\v2\x13.whatevr.v2.AddressR\x06person\"4\n" +
 	"\x1eMediaFetchProfilePictureResult\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\"m\n" +
+	"\tMediaSave\x12\x1d\n" +
+	"\n" +
+	"message_id\x18\x01 \x01(\tR\tmessageId\x12\x1b\n" +
+	"\tstatus_id\x18\x02 \x01(\tR\bstatusId\x12\x10\n" +
+	"\x03jid\x18\x03 \x01(\tR\x03jid\x12\x12\n" +
+	"\x04path\x18\x04 \x01(\tR\x04path\"%\n" +
+	"\x0fMediaSaveResult\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path*w\n" +
 	"\x11TransferDirection\x12\"\n" +
 	"\x1eTRANSFER_DIRECTION_UNSPECIFIED\x10\x00\x12\x1f\n" +
@@ -1054,7 +1221,7 @@ const file_whatevr_v2_media_proto_rawDesc = "" +
 	"Whatevr\\V2\xe2\x02\x16Whatevr\\V2\\GPBMetadata\xea\x02\vWhatevr::V2\x92\x03\x02\b\x02b\beditionsp\xe9\a"
 
 var file_whatevr_v2_media_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_whatevr_v2_media_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_whatevr_v2_media_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_whatevr_v2_media_proto_goTypes = []any{
 	(TransferDirection)(0),                 // 0: whatevr.v2.TransferDirection
 	(MediaStreamState)(0),                  // 1: whatevr.v2.MediaStreamState
@@ -1069,12 +1236,14 @@ var file_whatevr_v2_media_proto_goTypes = []any{
 	(*MediaReadResult)(nil),                // 10: whatevr.v2.MediaReadResult
 	(*MediaFetchProfilePicture)(nil),       // 11: whatevr.v2.MediaFetchProfilePicture
 	(*MediaFetchProfilePictureResult)(nil), // 12: whatevr.v2.MediaFetchProfilePictureResult
-	(*Address)(nil),                        // 13: whatevr.v2.Address
+	(*MediaSave)(nil),                      // 13: whatevr.v2.MediaSave
+	(*MediaSaveResult)(nil),                // 14: whatevr.v2.MediaSaveResult
+	(*Address)(nil),                        // 15: whatevr.v2.Address
 }
 var file_whatevr_v2_media_proto_depIdxs = []int32{
 	0,  // 0: whatevr.v2.TransferRow.direction:type_name -> whatevr.v2.TransferDirection
 	1,  // 1: whatevr.v2.MediaStreamUpdate.state:type_name -> whatevr.v2.MediaStreamState
-	13, // 2: whatevr.v2.MediaFetchProfilePicture.person:type_name -> whatevr.v2.Address
+	15, // 2: whatevr.v2.MediaFetchProfilePicture.person:type_name -> whatevr.v2.Address
 	3,  // [3:3] is the sub-list for method output_type
 	3,  // [3:3] is the sub-list for method input_type
 	3,  // [3:3] is the sub-list for extension type_name
@@ -1094,7 +1263,7 @@ func file_whatevr_v2_media_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_whatevr_v2_media_proto_rawDesc), len(file_whatevr_v2_media_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   11,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -89,3 +89,17 @@ message MediaFetchProfilePicture {
 message MediaFetchProfilePictureResult {
   string path = 1;
 }
+
+// copies media out of the daemon cache to a caller-owned path. exactly one
+// of message_id (a chat message) or jid (a profile picture) selects the
+// source; status_id arrives with the status views
+message MediaSave {
+  string message_id = 1;
+  string status_id = 2;
+  string jid = 3;
+  string path = 4;
+}
+
+message MediaSaveResult {
+  string path = 1;
+}

@@ -483,6 +483,9 @@ private:
                                       {QStringLiteral("url"), QStringLiteral("http://127.0.0.1:1/media/test")},
                                       {QStringLiteral("mime"), QStringLiteral("video/mp4")},
                                       {QStringLiteral("size_bytes"), 42}});
+            } else if (method == QLatin1String("media.save")) {
+                reply(id, QJsonObject{{QStringLiteral("path"),
+                                        params.value(QStringLiteral("path"))}});
             } else {
                 reply(id, QJsonObject{});
             }
@@ -999,6 +1002,33 @@ private Q_SLOTS:
         QCOMPARE(daemon.lastCommandMethod, QStringLiteral("send.cancel"));
         QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("message_id")).toString(),
                  QStringLiteral("a@s/mid-1"));
+    }
+
+    // `media.save` carries the message selector and destination; the echoed
+    // path surfaces through remoteMediaSaved.
+    void saveRemoteMedia()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats(
+            {chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_COMPARE(daemon.chatsSubscribeCount, 2);
+
+        QSignalSpy commandSpy(&daemon, &FakeDaemon::commandReceived);
+        QSignalSpy savedSpy(&ctrl, &ProtocolController::remoteMediaSaved);
+        ctrl.saveRemoteMedia(QStringLiteral("a@s/mid-1"), QString(), QString(),
+                             QUrl::fromLocalFile(QStringLiteral("/tmp/opencode/save-test.bin")));
+        QVERIFY(commandSpy.wait());
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("media.save"));
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("message_id")).toString(),
+                 QStringLiteral("a@s/mid-1"));
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("path")).toString(),
+                 QStringLiteral("/tmp/opencode/save-test.bin"));
+        QTRY_COMPARE(savedSpy.count(), 1);
+        QCOMPARE(savedSpy.first().first().toString(), QStringLiteral("/tmp/opencode/save-test.bin"));
     }
 
     // DN6: the chat list is a *window*, not the whole roster. Both `chats`

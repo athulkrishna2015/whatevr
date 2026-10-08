@@ -134,6 +134,109 @@ func (t target) location() bool {
 		t.sm.MediaKind == appstore.MediaKindEvent
 }
 
+// SaveMedia copies media out of the daemon cache to a destination path the
+// caller owns. Exactly one of ref (a chat message) or avatarJID (a
+// full-resolution profile picture) selects the source; status saves arrive
+// with the status views. Sources without local bytes are fetched first.
+// The write is atomic (temp file + rename) so a failed save never leaves a
+// half-written destination. The destination must be absolute and must not
+// be a symlink; its parent directory must already exist.
+func (c *Client) SaveMedia(ctx context.Context, ref Ref, avatarJID, destPath string) (string, error) {
+	destPath = strings.TrimSpace(destPath)
+	if destPath == "" {
+		return "", Errorf(ErrInvalid, "path is required")
+	}
+	if !filepath.IsAbs(destPath) {
+		return "", Errorf(ErrInvalid, "destination path must be absolute")
+	}
+	selectors := 0
+	if ref != (Ref{}) {
+		selectors++
+	}
+	if strings.TrimSpace(avatarJID) != "" {
+		selectors++
+	}
+	if selectors != 1 {
+		return "", Errorf(ErrInvalid, "exactly one of message_id or jid is required")
+	}
+	var src string
+	if ref != (Ref{}) {
+		t, err := c.media.target(ctx, ref)
+		if err != nil {
+			return "", err
+		}
+		if f := t.m.Facts.Local.File; f != "" {
+			if _, err := os.Stat(f); err == nil {
+				src = f
+			}
+		}
+		if src == "" {
+			if src, err = c.media.fetch(ctx, t, true); err != nil {
+				return "", err
+			}
+		}
+	} else {
+		fetched, err := c.FetchProfilePicture(ctx, strings.TrimSpace(avatarJID))
+		if err != nil {
+			return "", err
+		}
+		if strings.TrimSpace(fetched) == "" {
+			return "", Errorf(ErrNotFound, "no profile picture for this contact")
+		}
+		src = fetched
+	}
+	if err := copyToDestination(src, destPath); err != nil {
+		return "", err
+	}
+	return destPath, nil
+}
+
+// copyToDestination copies src to dest atomically.
+func copyToDestination(src, dest string) error {
+	if strings.TrimSpace(src) == "" {
+		return fmt.Errorf("media source file is missing")
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return Errorf(ErrNotFound, "media file is not downloaded yet")
+	}
+	defer in.Close()
+	parent := filepath.Dir(dest)
+	if info, err := os.Stat(parent); err != nil || !info.IsDir() {
+		return Errorf(ErrInvalid, "destination directory does not exist")
+	}
+	if info, err := os.Lstat(dest); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return Errorf(ErrInvalid, "destination must not be a symlink")
+		}
+		if !info.Mode().IsRegular() {
+			return Errorf(ErrInvalid, "destination must be a regular file")
+		}
+	} else if !os.IsNotExist(err) {
+		return Errorf(ErrInvalid, "destination is not accessible")
+	}
+	tmp, err := os.CreateTemp(parent, "."+filepath.Base(dest)+".tmp-*")
+	if err != nil {
+		return fmt.Errorf("save media: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if _, err := io.Copy(tmp, in); err != nil {
+		tmp.Close()
+		return fmt.Errorf("save media: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("save media: %w", err)
+	}
+	if err := os.Chmod(tmpName, 0o600); err != nil {
+		return fmt.Errorf("save media: %w", err)
+	}
+	if err := os.Rename(tmpName, dest); err != nil {
+		return fmt.Errorf("save media: %w", err)
+	}
+	return nil
+}
+
 // Download starts fetching a message's media. it lands on the row: the file,
 // or the error.
 func (c *Client) Download(ctx context.Context, ref Ref) error {
