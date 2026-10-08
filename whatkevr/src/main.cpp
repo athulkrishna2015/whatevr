@@ -88,6 +88,9 @@ int main(int argc, char *argv[])
     QLoggingCategory::setFilterRules(QStringLiteral("qt.gui.icc.warning=false\n"));
 
     QApplication app(argc, argv);
+    // The tray icon outlives the window (close-to-tray hides it); without
+    // this the application would quit the moment the last window hides.
+    app.setQuitOnLastWindowClosed(false);
     // QApplication's constructor calls setlocale(LC_ALL, "") and libmpv refuses
     // to create an instance under a non-C LC_NUMERIC, so this has to come after
     // the constructor, not before it. Without it every mpv_create() returns

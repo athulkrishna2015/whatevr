@@ -51,8 +51,9 @@ Kirigami.ApplicationWindow {
     property bool hiddenToTray: false
     function quitApplication() {
         quitting = true
-        // Ask the daemon to exit too (tray icon is daemon-owned), then quit
-        // the frontend even if the daemon is already gone.
+        // Ask the daemon to exit too, then quit the frontend even if the
+        // daemon is already gone. (No-op on protocol v2: the daemon is a user
+        // service that outlives the UI.)
         Whatevr.ProtocolController.shutdownDaemon()
         Qt.quit()
     }
@@ -94,6 +95,21 @@ Kirigami.ApplicationWindow {
         if (workspacePageItem)
             workspacePageItem.openConversation()
         root.hide()
+    }
+
+    // Frontend-owned tray icon (the v2 daemon exports none): left-click
+    // toggles the window, right-click opens the tray menu at the icon.
+    TrayIcon {
+        id: trayIcon
+
+        onToggleWindowRequested: {
+            if (root.hiddenToTray)
+                root.activateWindow()
+            else
+                root.hideToTray()
+        }
+        onTrayMenuRequested: pos => trayMenuWindow.showAt(pos.x, pos.y)
+        onQuitRequested: root.quitApplication()
     }
 
     SettingsView {
@@ -775,7 +791,6 @@ Kirigami.ApplicationWindow {
     // connection/login views decide splash/login/status/chat.
     Connections {
         target: Whatevr.ProtocolController
-
         function onStateChanged() {
             // Coalesce bursts of state changes into one rebuild per frame.
             Qt.callLater(root.rebuildPageStack)

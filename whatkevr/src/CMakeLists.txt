@@ -15,6 +15,8 @@ set(WHATKEVR_SOURCES
     app/protocolstickercontroller.h
     app/settings.cpp
     app/settings.h
+    app/trayicon.cpp
+    app/trayicon.h
     models/emojimodel.cpp
     models/emojimodel.h
     models/protocolmessagemodel.cpp
