@@ -290,6 +290,7 @@ message Subscribe {
     PinnedView pinned = 28;
     LiveLocationsView live_locations = 29;
     ChatMediaView chat_media = 30;
+    ChatLinksView chat_links = 40;
     StickersView stickers = 31;
     StickerPacksView sticker_packs = 32;
     StickerPackView sticker_pack = 33;

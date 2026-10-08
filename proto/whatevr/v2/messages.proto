@@ -42,6 +42,11 @@ message ChatMediaView {
   string chat_id = 1;
 }
 
+// one chat's messages carrying links, newest first
+message ChatLinksView {
+  string chat_id = 1;
+}
+
 // per-member delivered, read and played times of one message
 message ReceiptsView {
   string message_id = 1;

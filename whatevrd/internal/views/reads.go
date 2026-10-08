@@ -269,6 +269,7 @@ func (rs *Reads) Register(srv *server.Server) {
 		protoreflect.FieldNumber(v2.Subscribe_Pinned_case):         {rs.pinnedView, messageBytes},
 		protoreflect.FieldNumber(v2.Subscribe_LiveLocations_case):  {rs.liveLocationsView, rowBytes},
 		protoreflect.FieldNumber(v2.Subscribe_ChatMedia_case):      {rs.chatMediaView, messageBytes},
+		protoreflect.FieldNumber(v2.Subscribe_ChatLinks_case):      {rs.chatLinksView, messageBytes},
 		protoreflect.FieldNumber(v2.Subscribe_Stickers_case):       {rs.stickersView, rowBytes},
 		protoreflect.FieldNumber(v2.Subscribe_StickerPacks_case):   {rs.stickerPacksView, rowBytes},
 		protoreflect.FieldNumber(v2.Subscribe_StickerPack_case):    {rs.stickerPackView, rowBytes},

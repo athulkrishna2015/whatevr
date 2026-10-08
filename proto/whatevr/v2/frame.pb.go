@@ -6168,6 +6168,15 @@ func (x *Subscribe) GetChatMedia() *ChatMediaView {
 	return nil
 }
 
+func (x *Subscribe) GetChatLinks() *ChatLinksView {
+	if x != nil {
+		if x, ok := x.xxx_hidden_View.(*subscribe_ChatLinks); ok {
+			return x.ChatLinks
+		}
+	}
+	return nil
+}
+
 func (x *Subscribe) GetStickers() *StickersView {
 	if x != nil {
 		if x, ok := x.xxx_hidden_View.(*subscribe_Stickers); ok {
@@ -6421,6 +6430,14 @@ func (x *Subscribe) SetChatMedia(v *ChatMediaView) {
 	x.xxx_hidden_View = &subscribe_ChatMedia{v}
 }
 
+func (x *Subscribe) SetChatLinks(v *ChatLinksView) {
+	if v == nil {
+		x.xxx_hidden_View = nil
+		return
+	}
+	x.xxx_hidden_View = &subscribe_ChatLinks{v}
+}
+
 func (x *Subscribe) SetStickers(v *StickersView) {
 	if v == nil {
 		x.xxx_hidden_View = nil
@@ -6668,6 +6685,14 @@ func (x *Subscribe) HasChatMedia() bool {
 	return ok
 }
 
+func (x *Subscribe) HasChatLinks() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_View.(*subscribe_ChatLinks)
+	return ok
+}
+
 func (x *Subscribe) HasStickers() bool {
 	if x == nil {
 		return false
@@ -6870,6 +6895,12 @@ func (x *Subscribe) ClearChatMedia() {
 	}
 }
 
+func (x *Subscribe) ClearChatLinks() {
+	if _, ok := x.xxx_hidden_View.(*subscribe_ChatLinks); ok {
+		x.xxx_hidden_View = nil
+	}
+}
+
 func (x *Subscribe) ClearStickers() {
 	if _, ok := x.xxx_hidden_View.(*subscribe_Stickers); ok {
 		x.xxx_hidden_View = nil
@@ -6946,6 +6977,7 @@ const Subscribe_Starred_case case_Subscribe_View = 27
 const Subscribe_Pinned_case case_Subscribe_View = 28
 const Subscribe_LiveLocations_case case_Subscribe_View = 29
 const Subscribe_ChatMedia_case case_Subscribe_View = 30
+const Subscribe_ChatLinks_case case_Subscribe_View = 40
 const Subscribe_Stickers_case case_Subscribe_View = 31
 const Subscribe_StickerPacks_case case_Subscribe_View = 32
 const Subscribe_StickerPack_case case_Subscribe_View = 33
@@ -7003,6 +7035,8 @@ func (x *Subscribe) WhichView() case_Subscribe_View {
 		return Subscribe_LiveLocations_case
 	case *subscribe_ChatMedia:
 		return Subscribe_ChatMedia_case
+	case *subscribe_ChatLinks:
+		return Subscribe_ChatLinks_case
 	case *subscribe_Stickers:
 		return Subscribe_Stickers_case
 	case *subscribe_StickerPacks:
@@ -7053,6 +7087,7 @@ type Subscribe_builder struct {
 	Pinned         *PinnedView
 	LiveLocations  *LiveLocationsView
 	ChatMedia      *ChatMediaView
+	ChatLinks      *ChatLinksView
 	Stickers       *StickersView
 	StickerPacks   *StickerPacksView
 	StickerPack    *StickerPackView
@@ -7132,6 +7167,9 @@ func (b0 Subscribe_builder) Build() *Subscribe {
 	}
 	if b.ChatMedia != nil {
 		x.xxx_hidden_View = &subscribe_ChatMedia{b.ChatMedia}
+	}
+	if b.ChatLinks != nil {
+		x.xxx_hidden_View = &subscribe_ChatLinks{b.ChatLinks}
 	}
 	if b.Stickers != nil {
 		x.xxx_hidden_View = &subscribe_Stickers{b.Stickers}
@@ -7261,6 +7299,10 @@ type subscribe_ChatMedia struct {
 	ChatMedia *ChatMediaView `protobuf:"bytes,30,opt,name=chat_media,json=chatMedia,oneof"`
 }
 
+type subscribe_ChatLinks struct {
+	ChatLinks *ChatLinksView `protobuf:"bytes,40,opt,name=chat_links,json=chatLinks,oneof"`
+}
+
 type subscribe_Stickers struct {
 	Stickers *StickersView `protobuf:"bytes,31,opt,name=stickers,oneof"`
 }
@@ -7338,6 +7380,8 @@ func (*subscribe_Pinned) isSubscribe_View() {}
 func (*subscribe_LiveLocations) isSubscribe_View() {}
 
 func (*subscribe_ChatMedia) isSubscribe_View() {}
+
+func (*subscribe_ChatLinks) isSubscribe_View() {}
 
 func (*subscribe_Stickers) isSubscribe_View() {}
 
@@ -7741,7 +7785,7 @@ const file_whatevr_v2_frame_proto_rawDesc = "" +
 	"\x05Ready\x12\x1c\n" +
 	"\texhausted\x18\x01 \x01(\bR\texhausted\"#\n" +
 	"\bOpenChat\x12\x17\n" +
-	"\achat_id\x18\x01 \x01(\tR\x06chatId\"\xcf\r\n" +
+	"\achat_id\x18\x01 \x01(\tR\x06chatId\"\x8b\x0e\n" +
 	"\tSubscribe\x12\x14\n" +
 	"\x05limit\x18\x01 \x01(\rR\x05limit\x12<\n" +
 	"\n" +
@@ -7768,7 +7812,9 @@ const file_whatevr_v2_frame_proto_rawDesc = "" +
 	"\x06pinned\x18\x1c \x01(\v2\x16.whatevr.v2.PinnedViewH\x00R\x06pinned\x12F\n" +
 	"\x0elive_locations\x18\x1d \x01(\v2\x1d.whatevr.v2.LiveLocationsViewH\x00R\rliveLocations\x12:\n" +
 	"\n" +
-	"chat_media\x18\x1e \x01(\v2\x19.whatevr.v2.ChatMediaViewH\x00R\tchatMedia\x126\n" +
+	"chat_media\x18\x1e \x01(\v2\x19.whatevr.v2.ChatMediaViewH\x00R\tchatMedia\x12:\n" +
+	"\n" +
+	"chat_links\x18( \x01(\v2\x19.whatevr.v2.ChatLinksViewH\x00R\tchatLinks\x126\n" +
 	"\bstickers\x18\x1f \x01(\v2\x18.whatevr.v2.StickersViewH\x00R\bstickers\x12C\n" +
 	"\rsticker_packs\x18  \x01(\v2\x1c.whatevr.v2.StickerPacksViewH\x00R\fstickerPacks\x12@\n" +
 	"\fsticker_pack\x18! \x01(\v2\x1b.whatevr.v2.StickerPackViewH\x00R\vstickerPack\x129\n" +
@@ -7946,15 +7992,16 @@ var file_whatevr_v2_frame_proto_goTypes = []any{
 	(*PinnedView)(nil),                     // 127: whatevr.v2.PinnedView
 	(*LiveLocationsView)(nil),              // 128: whatevr.v2.LiveLocationsView
 	(*ChatMediaView)(nil),                  // 129: whatevr.v2.ChatMediaView
-	(*StickersView)(nil),                   // 130: whatevr.v2.StickersView
-	(*StickerPacksView)(nil),               // 131: whatevr.v2.StickerPacksView
-	(*StickerPackView)(nil),                // 132: whatevr.v2.StickerPackView
-	(*TransfersView)(nil),                  // 133: whatevr.v2.TransfersView
-	(*NotificationsView)(nil),              // 134: whatevr.v2.NotificationsView
-	(*ReactionsView)(nil),                  // 135: whatevr.v2.ReactionsView
-	(*PollVotesView)(nil),                  // 136: whatevr.v2.PollVotesView
-	(*EventResponsesView)(nil),             // 137: whatevr.v2.EventResponsesView
-	(*LogsView)(nil),                       // 138: whatevr.v2.LogsView
+	(*ChatLinksView)(nil),                  // 130: whatevr.v2.ChatLinksView
+	(*StickersView)(nil),                   // 131: whatevr.v2.StickersView
+	(*StickerPacksView)(nil),               // 132: whatevr.v2.StickerPacksView
+	(*StickerPackView)(nil),                // 133: whatevr.v2.StickerPackView
+	(*TransfersView)(nil),                  // 134: whatevr.v2.TransfersView
+	(*NotificationsView)(nil),              // 135: whatevr.v2.NotificationsView
+	(*ReactionsView)(nil),                  // 136: whatevr.v2.ReactionsView
+	(*PollVotesView)(nil),                  // 137: whatevr.v2.PollVotesView
+	(*EventResponsesView)(nil),             // 138: whatevr.v2.EventResponsesView
+	(*LogsView)(nil),                       // 139: whatevr.v2.LogsView
 }
 var file_whatevr_v2_frame_proto_depIdxs = []int32{
 	3,   // 0: whatevr.v2.Frame.request:type_name -> whatevr.v2.Request
@@ -8085,21 +8132,22 @@ var file_whatevr_v2_frame_proto_depIdxs = []int32{
 	127, // 125: whatevr.v2.Subscribe.pinned:type_name -> whatevr.v2.PinnedView
 	128, // 126: whatevr.v2.Subscribe.live_locations:type_name -> whatevr.v2.LiveLocationsView
 	129, // 127: whatevr.v2.Subscribe.chat_media:type_name -> whatevr.v2.ChatMediaView
-	130, // 128: whatevr.v2.Subscribe.stickers:type_name -> whatevr.v2.StickersView
-	131, // 129: whatevr.v2.Subscribe.sticker_packs:type_name -> whatevr.v2.StickerPacksView
-	132, // 130: whatevr.v2.Subscribe.sticker_pack:type_name -> whatevr.v2.StickerPackView
-	133, // 131: whatevr.v2.Subscribe.transfers:type_name -> whatevr.v2.TransfersView
-	134, // 132: whatevr.v2.Subscribe.notifications:type_name -> whatevr.v2.NotificationsView
-	135, // 133: whatevr.v2.Subscribe.reactions:type_name -> whatevr.v2.ReactionsView
-	136, // 134: whatevr.v2.Subscribe.poll_votes:type_name -> whatevr.v2.PollVotesView
-	137, // 135: whatevr.v2.Subscribe.event_responses:type_name -> whatevr.v2.EventResponsesView
-	138, // 136: whatevr.v2.Subscribe.logs:type_name -> whatevr.v2.LogsView
-	1,   // 137: whatevr.v2.Extend.direction:type_name -> whatevr.v2.Direction
-	138, // [138:138] is the sub-list for method output_type
-	138, // [138:138] is the sub-list for method input_type
-	138, // [138:138] is the sub-list for extension type_name
-	138, // [138:138] is the sub-list for extension extendee
-	0,   // [0:138] is the sub-list for field type_name
+	130, // 128: whatevr.v2.Subscribe.chat_links:type_name -> whatevr.v2.ChatLinksView
+	131, // 129: whatevr.v2.Subscribe.stickers:type_name -> whatevr.v2.StickersView
+	132, // 130: whatevr.v2.Subscribe.sticker_packs:type_name -> whatevr.v2.StickerPacksView
+	133, // 131: whatevr.v2.Subscribe.sticker_pack:type_name -> whatevr.v2.StickerPackView
+	134, // 132: whatevr.v2.Subscribe.transfers:type_name -> whatevr.v2.TransfersView
+	135, // 133: whatevr.v2.Subscribe.notifications:type_name -> whatevr.v2.NotificationsView
+	136, // 134: whatevr.v2.Subscribe.reactions:type_name -> whatevr.v2.ReactionsView
+	137, // 135: whatevr.v2.Subscribe.poll_votes:type_name -> whatevr.v2.PollVotesView
+	138, // 136: whatevr.v2.Subscribe.event_responses:type_name -> whatevr.v2.EventResponsesView
+	139, // 137: whatevr.v2.Subscribe.logs:type_name -> whatevr.v2.LogsView
+	1,   // 138: whatevr.v2.Extend.direction:type_name -> whatevr.v2.Direction
+	139, // [139:139] is the sub-list for method output_type
+	139, // [139:139] is the sub-list for method input_type
+	139, // [139:139] is the sub-list for extension type_name
+	139, // [139:139] is the sub-list for extension extendee
+	0,   // [0:139] is the sub-list for field type_name
 }
 
 func init() { file_whatevr_v2_frame_proto_init() }
@@ -8256,6 +8304,7 @@ func file_whatevr_v2_frame_proto_init() {
 		(*subscribe_Pinned)(nil),
 		(*subscribe_LiveLocations)(nil),
 		(*subscribe_ChatMedia)(nil),
+		(*subscribe_ChatLinks)(nil),
 		(*subscribe_Stickers)(nil),
 		(*subscribe_StickerPacks)(nil),
 		(*subscribe_StickerPack)(nil),

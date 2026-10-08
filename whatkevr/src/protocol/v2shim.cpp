@@ -176,6 +176,9 @@ bool buildV2Subscribe(std::uint64_t id, const QString &view, const QJsonObject &
     } else if (view == QLatin1String("chat_media")) {
         subscribe->mutable_chat_media()->set_chat_id(
             params.value(QStringLiteral("chat_id")).toString().toStdString());
+    } else if (view == QLatin1String("chat_links")) {
+        subscribe->mutable_chat_links()->set_chat_id(
+            params.value(QStringLiteral("chat_id")).toString().toStdString());
     } else if (view == QLatin1String("stickers")) {
         const QString source = params.value(QStringLiteral("source")).toString();
         if (source == QLatin1String("recent")) {
@@ -1530,6 +1533,10 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
             params.insert(QStringLiteral("view"), QStringLiteral("chat_media"));
             params.insert(QStringLiteral("chat_id"), v2s(subscribe.chat_media().chat_id()));
             break;
+        case View::kChatLinks:
+            params.insert(QStringLiteral("view"), QStringLiteral("chat_links"));
+            params.insert(QStringLiteral("chat_id"), v2s(subscribe.chat_links().chat_id()));
+            break;
         case View::kStickers:
             params.insert(QStringLiteral("view"), QStringLiteral("stickers"));
             switch (subscribe.stickers().source()) {
@@ -2674,7 +2681,8 @@ bool v2UpsertRowFromJson(const QString &view, const QJsonObject &item, whatevr::
         return true;
     }
     if (view == QLatin1String("messages") || view == QLatin1String("starred")
-        || view == QLatin1String("pinned") || view == QLatin1String("chat_media")) {
+        || view == QLatin1String("pinned") || view == QLatin1String("chat_media")
+        || view == QLatin1String("chat_links")) {
         whatevr::v2::MessageRow row;
         if (!v2MessageRowFromJson(item, &row)) {
             return false;

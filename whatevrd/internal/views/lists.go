@@ -143,6 +143,21 @@ func (rs *Reads) pinnedView(ctx context.Context, s *server.Session, req *v2.Subs
 	return w, nil, nil
 }
 
+func (rs *Reads) chatLinksView(ctx context.Context, s *server.Session, req *v2.Subscribe) (server.Window, *v2.SubscribeResult, error) {
+	id := req.GetChatLinks().GetChatId()
+	if id == "" {
+		return nil, nil, invalid("chat_links needs a chat_id")
+	}
+	w, err := rs.messageList(req, id, false, func(ctx context.Context, addrs []string, max int) ([]model.Message, error) {
+		return rs.r.Links(ctx, addrs, model.Cursor{}, all(max))
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	w.(*win).limit = messagesLimit
+	return w, nil, nil
+}
+
 func (rs *Reads) chatMediaView(ctx context.Context, s *server.Session, req *v2.Subscribe) (server.Window, *v2.SubscribeResult, error) {
 	id := req.GetChatMedia().GetChatId()
 	if id == "" {

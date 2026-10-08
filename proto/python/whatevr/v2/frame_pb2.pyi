@@ -367,7 +367,7 @@ class OpenChat(_message.Message):
     def __init__(self, chat_id: _Optional[str] = ...) -> None: ...
 
 class Subscribe(_message.Message):
-    __slots__ = ("limit", "connection", "login", "sync", "problems", "chats", "chat", "messages", "typing", "presence", "receipts", "self", "contact", "group", "group_members", "privacy", "preferences", "blocklist", "starred", "pinned", "live_locations", "chat_media", "stickers", "sticker_packs", "sticker_pack", "transfers", "notifications", "reactions", "poll_votes", "event_responses", "logs")
+    __slots__ = ("limit", "connection", "login", "sync", "problems", "chats", "chat", "messages", "typing", "presence", "receipts", "self", "contact", "group", "group_members", "privacy", "preferences", "blocklist", "starred", "pinned", "live_locations", "chat_media", "chat_links", "stickers", "sticker_packs", "sticker_pack", "transfers", "notifications", "reactions", "poll_votes", "event_responses", "logs")
     LIMIT_FIELD_NUMBER: _ClassVar[int]
     CONNECTION_FIELD_NUMBER: _ClassVar[int]
     LOGIN_FIELD_NUMBER: _ClassVar[int]
@@ -390,6 +390,7 @@ class Subscribe(_message.Message):
     PINNED_FIELD_NUMBER: _ClassVar[int]
     LIVE_LOCATIONS_FIELD_NUMBER: _ClassVar[int]
     CHAT_MEDIA_FIELD_NUMBER: _ClassVar[int]
+    CHAT_LINKS_FIELD_NUMBER: _ClassVar[int]
     STICKERS_FIELD_NUMBER: _ClassVar[int]
     STICKER_PACKS_FIELD_NUMBER: _ClassVar[int]
     STICKER_PACK_FIELD_NUMBER: _ClassVar[int]
@@ -421,6 +422,7 @@ class Subscribe(_message.Message):
     pinned: _messages_pb2.PinnedView
     live_locations: _messages_pb2.LiveLocationsView
     chat_media: _messages_pb2.ChatMediaView
+    chat_links: _messages_pb2.ChatLinksView
     stickers: _stickers_pb2.StickersView
     sticker_packs: _stickers_pb2.StickerPacksView
     sticker_pack: _stickers_pb2.StickerPackView
@@ -430,7 +432,7 @@ class Subscribe(_message.Message):
     poll_votes: _messages_pb2.PollVotesView
     event_responses: _messages_pb2.EventResponsesView
     logs: _account_pb2.LogsView
-    def __init__(self_, limit: _Optional[int] = ..., connection: _Optional[_Union[_account_pb2.ConnectionView, _Mapping]] = ..., login: _Optional[_Union[_account_pb2.LoginView, _Mapping]] = ..., sync: _Optional[_Union[_account_pb2.SyncView, _Mapping]] = ..., problems: _Optional[_Union[_account_pb2.ProblemsView, _Mapping]] = ..., chats: _Optional[_Union[_chats_pb2.ChatsView, _Mapping]] = ..., chat: _Optional[_Union[_chats_pb2.ChatView, _Mapping]] = ..., messages: _Optional[_Union[_messages_pb2.MessagesView, _Mapping]] = ..., typing: _Optional[_Union[_people_pb2.TypingView, _Mapping]] = ..., presence: _Optional[_Union[_people_pb2.PresenceView, _Mapping]] = ..., receipts: _Optional[_Union[_messages_pb2.ReceiptsView, _Mapping]] = ..., self: _Optional[_Union[_people_pb2.SelfView, _Mapping]] = ..., contact: _Optional[_Union[_people_pb2.ContactView, _Mapping]] = ..., group: _Optional[_Union[_groups_pb2.GroupView, _Mapping]] = ..., group_members: _Optional[_Union[_groups_pb2.GroupMembersView, _Mapping]] = ..., privacy: _Optional[_Union[_settings_pb2.PrivacyView, _Mapping]] = ..., preferences: _Optional[_Union[_settings_pb2.PreferencesView, _Mapping]] = ..., blocklist: _Optional[_Union[_people_pb2.BlocklistView, _Mapping]] = ..., starred: _Optional[_Union[_messages_pb2.StarredView, _Mapping]] = ..., pinned: _Optional[_Union[_messages_pb2.PinnedView, _Mapping]] = ..., live_locations: _Optional[_Union[_messages_pb2.LiveLocationsView, _Mapping]] = ..., chat_media: _Optional[_Union[_messages_pb2.ChatMediaView, _Mapping]] = ..., stickers: _Optional[_Union[_stickers_pb2.StickersView, _Mapping]] = ..., sticker_packs: _Optional[_Union[_stickers_pb2.StickerPacksView, _Mapping]] = ..., sticker_pack: _Optional[_Union[_stickers_pb2.StickerPackView, _Mapping]] = ..., transfers: _Optional[_Union[_media_pb2.TransfersView, _Mapping]] = ..., notifications: _Optional[_Union[_notifications_pb2.NotificationsView, _Mapping]] = ..., reactions: _Optional[_Union[_messages_pb2.ReactionsView, _Mapping]] = ..., poll_votes: _Optional[_Union[_messages_pb2.PollVotesView, _Mapping]] = ..., event_responses: _Optional[_Union[_messages_pb2.EventResponsesView, _Mapping]] = ..., logs: _Optional[_Union[_account_pb2.LogsView, _Mapping]] = ...) -> None: ...
+    def __init__(self_, limit: _Optional[int] = ..., connection: _Optional[_Union[_account_pb2.ConnectionView, _Mapping]] = ..., login: _Optional[_Union[_account_pb2.LoginView, _Mapping]] = ..., sync: _Optional[_Union[_account_pb2.SyncView, _Mapping]] = ..., problems: _Optional[_Union[_account_pb2.ProblemsView, _Mapping]] = ..., chats: _Optional[_Union[_chats_pb2.ChatsView, _Mapping]] = ..., chat: _Optional[_Union[_chats_pb2.ChatView, _Mapping]] = ..., messages: _Optional[_Union[_messages_pb2.MessagesView, _Mapping]] = ..., typing: _Optional[_Union[_people_pb2.TypingView, _Mapping]] = ..., presence: _Optional[_Union[_people_pb2.PresenceView, _Mapping]] = ..., receipts: _Optional[_Union[_messages_pb2.ReceiptsView, _Mapping]] = ..., self: _Optional[_Union[_people_pb2.SelfView, _Mapping]] = ..., contact: _Optional[_Union[_people_pb2.ContactView, _Mapping]] = ..., group: _Optional[_Union[_groups_pb2.GroupView, _Mapping]] = ..., group_members: _Optional[_Union[_groups_pb2.GroupMembersView, _Mapping]] = ..., privacy: _Optional[_Union[_settings_pb2.PrivacyView, _Mapping]] = ..., preferences: _Optional[_Union[_settings_pb2.PreferencesView, _Mapping]] = ..., blocklist: _Optional[_Union[_people_pb2.BlocklistView, _Mapping]] = ..., starred: _Optional[_Union[_messages_pb2.StarredView, _Mapping]] = ..., pinned: _Optional[_Union[_messages_pb2.PinnedView, _Mapping]] = ..., live_locations: _Optional[_Union[_messages_pb2.LiveLocationsView, _Mapping]] = ..., chat_media: _Optional[_Union[_messages_pb2.ChatMediaView, _Mapping]] = ..., chat_links: _Optional[_Union[_messages_pb2.ChatLinksView, _Mapping]] = ..., stickers: _Optional[_Union[_stickers_pb2.StickersView, _Mapping]] = ..., sticker_packs: _Optional[_Union[_stickers_pb2.StickerPacksView, _Mapping]] = ..., sticker_pack: _Optional[_Union[_stickers_pb2.StickerPackView, _Mapping]] = ..., transfers: _Optional[_Union[_media_pb2.TransfersView, _Mapping]] = ..., notifications: _Optional[_Union[_notifications_pb2.NotificationsView, _Mapping]] = ..., reactions: _Optional[_Union[_messages_pb2.ReactionsView, _Mapping]] = ..., poll_votes: _Optional[_Union[_messages_pb2.PollVotesView, _Mapping]] = ..., event_responses: _Optional[_Union[_messages_pb2.EventResponsesView, _Mapping]] = ..., logs: _Optional[_Union[_account_pb2.LogsView, _Mapping]] = ...) -> None: ...
 
 class SubscribeResult(_message.Message):
     __slots__ = ("sub", "anchor_id")

@@ -466,8 +466,7 @@ func (r *Reader) Pinned(ctx context.Context, addrs []string) ([]Message, error) 
 }
 
 // Media is a chat's messages of the given field kinds, newest first.
-func (r *Reader) Media(ctx context.Context, addrs []string, kinds []string, from Cursor, limit int) ([]Message, error) {
-	if from == (Cursor{}) {
+func (r *Reader) Media(ctx context.Context, addrs []string, kinds []string, from Cursor, limit int) ([]Message, error) {	if from == (Cursor{}) {
 		from = Cursor{T: tMax}
 	}
 	// a proven delete already made the row a tombstone, which no kind or
@@ -475,6 +474,17 @@ func (r *Reader) Media(ctx context.Context, addrs []string, kinds []string, from
 	where := `m.kind IN (` + placeholders(len(kinds)) + `) AND (m.t, m.ord, m.id) < (?, ?, ?)`
 	return r.list(ctx, byChat(len(addrs), where, "DESC"),
 		byChatArgs(addrs, append(anys(kinds), from.T, from.Ord, from.ID), limit)...)
+}
+
+// Links is a chat's messages carrying links, newest first: text with a URL
+// in it, or a row with a link preview.
+func (r *Reader) Links(ctx context.Context, addrs []string, from Cursor, limit int) ([]Message, error) {
+	if from == (Cursor{}) {
+		from = Cursor{T: tMax}
+	}
+	where := `(m.text LIKE '%http://%' ESCAPE '\' OR m.text LIKE '%https://%' ESCAPE '\' OR m.text LIKE '%www.%' ESCAPE '\') AND (m.t, m.ord, m.id) < (?, ?, ?)`
+	return r.list(ctx, byChat(len(addrs), where, "DESC"),
+		byChatArgs(addrs, []any{from.T, from.Ord, from.ID}, limit)...)
 }
 
 // Search finds messages whose words contain query, newest first; addrs

@@ -257,7 +257,7 @@ Now with that, here is the current feature map for whatevrd.
 | Calls tab and call history | ❌ | No v2 API; UI hidden |
 | Channels tab | ❌ | No v2 API; UI hidden |
 | Daemon logs viewer | ⚠️ | Shows "not available on protocol 2" (no v2 API) |
-| Chat media links tab | ❌ | No v2 API; UI hidden |
+| Chat media links tab | ✅ | Served by the new `chat_links` view |
 | Keep-archived / anti-delete / archived-mute prefs | ❌ | No v2 preference fields; toggles disabled with notes |
   
 </details>

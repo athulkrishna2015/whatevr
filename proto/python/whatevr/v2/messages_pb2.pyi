@@ -201,6 +201,12 @@ class ChatMediaView(_message.Message):
     chat_id: str
     def __init__(self, chat_id: _Optional[str] = ...) -> None: ...
 
+class ChatLinksView(_message.Message):
+    __slots__ = ("chat_id",)
+    CHAT_ID_FIELD_NUMBER: _ClassVar[int]
+    chat_id: str
+    def __init__(self, chat_id: _Optional[str] = ...) -> None: ...
+
 class ReceiptsView(_message.Message):
     __slots__ = ("message_id",)
     MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]
