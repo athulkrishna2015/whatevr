@@ -29,6 +29,85 @@ Kirigami.ScrollablePage {
 
     onChannelJidChanged: root.lastMarkedKey = ""
 
+    // Read-more expansion, keyed by message id. The revision keeps the
+    // per-row `textExpanded` bindings live without rebuilding the map.
+    property var expandedIds: ({})
+    property int expandRevision: 0
+
+    function toggleExpanded(messageId) {
+        const expanded = Object.assign({}, root.expandedIds)
+        if (expanded[messageId]) {
+            delete expanded[messageId]
+        } else {
+            expanded[messageId] = true
+        }
+        root.expandedIds = expanded
+        root.expandRevision++
+    }
+
+    function rowById(messageId) {
+        const model = Whatevr.ProtocolController.channelMessagesModel
+        if (!model || !messageId) {
+            return null
+        }
+        return model.itemById(messageId)
+    }
+
+    function serverIdOf(messageId) {
+        const row = root.rowById(messageId)
+        const id = row ? Number(row.server_id || 0) : 0
+        return id > 0 ? id : 0
+    }
+
+    function openChannelImage(messageId, localPath) {
+        const row = root.rowById(messageId)
+        channelMediaViewer.showImage(localPath, messageId,
+                                     row ? String(row.mediaFileName || "") : "",
+                                     row ? Number(row.timestamp || 0) : 0)
+    }
+
+    function openChannelGallery(albumMessageId, index) {
+        // The gallery is only the pictures actually on disk; the bubble
+        // behind is where an undownloaded picture is asked for.
+        const model = Whatevr.ProtocolController.channelMessagesModel
+        const entries = []
+        let start = -1
+        if (model) {
+            for (let i = 0; i < model.count; ++i) {
+                const row = model.itemById(model.idAt(i))
+                const media = row ? row.media : null
+                const path = media ? String(media.path || "") : ""
+                if (path.length === 0) {
+                    continue
+                }
+                if (row && row.id === albumMessageId) {
+                    start = entries.length
+                }
+                entries.push({
+                    id: row ? String(row.id || "") : "",
+                    kind: "image",
+                    path: path,
+                    fileName: row ? String(row.mediaFileName || "") : "",
+                    timestampUnix: row ? Number(row.timestamp || 0) : 0,
+                    width: media ? Number(media.width || 0) : 0,
+                    height: media ? Number(media.height || 0) : 0,
+                    durationSecs: 0,
+                })
+            }
+        }
+        if (start >= 0 && entries.length > 1) {
+            channelMediaViewer.showGallery(entries, start)
+        } else {
+            const row = root.rowById(albumMessageId)
+            const media = row ? row.media : null
+            root.openChannelImage(albumMessageId, media ? String(media.path || "") : "")
+        }
+    }
+
+    MediaViewer {
+        id: channelMediaViewer
+    }
+
     function markVisibleViewed() {
         if (!root.channelJid || root.channelJid.length === 0)
             return
@@ -57,7 +136,7 @@ Kirigami.ScrollablePage {
         for (let i = first; i <= last; ++i) {
             const delegate = messagesList.itemAtIndex(i)
             if (delegate) {
-                const id = Number(delegate.item.server_id)
+                const id = root.serverIdOf(delegate.messageId)
                 if (id > 0)
                     ids.push(id)
             }
@@ -135,76 +214,28 @@ Kirigami.ScrollablePage {
             text: Whatevr.I18n.i18nc("@info placeholder for channel messages", "No messages yet")
         }
 
-        delegate: QQC2.ItemDelegate {
+        delegate: ChatBubble {
             id: msgDelegate
 
-            required property var item
+            listWidth: messagesList.width
+            textExpanded: !!root.expandedIds[messageId] && root.expandRevision >= 0
+            readMoreTextWidth: readMoreMetrics.advanceWidth
 
-            width: ListView.view.width
-            padding: Kirigami.Units.largeSpacing
+            ListView.onPooled: pooled = true
+            ListView.onReused: pooled = false
 
-            contentItem: ColumnLayout {
-                spacing: Kirigami.Units.smallSpacing / 2
-
-                RowLayout {
-                    spacing: Kirigami.Units.smallSpacing
-
-                    QQC2.Label {
-                        text: msgDelegate.item.sender_name || ""
-                        font.weight: Font.DemiBold
-                        elide: Text.ElideRight
-                        Layout.fillWidth: true
-                    }
-
-                    QQC2.Label {
-                        text: {
-                            const ts = msgDelegate.item.time || msgDelegate.item.timestamp || 0
-                            if (ts <= 0) return ""
-                            return Qt.formatTime(new Date(ts * 1000), Qt.DefaultLocaleShortDate)
-                        }
-                        color: Kirigami.Theme.disabledTextColor
-                        font.pointSize: Kirigami.Theme.smallFont.pointSize
-                    }
-                }
-
-                QQC2.Label {
-                    Layout.fillWidth: true
-                    text: msgDelegate.item.text || ""
-                    wrapMode: Text.Wrap
-                    visible: (msgDelegate.item.text || "").length > 0
-                }
-
-                // Channel posts are full message rows, so photos and videos
-                // render from the same media fields a chat photo would: the
-                // file when fetched, the thumbnail while it is not, and a
-                // load button when neither is on disk yet.
-                Image {
-                    id: statusMedia
-                    Layout.fillWidth: true
-                    Layout.maximumHeight: Kirigami.Units.gridUnit * 16
-                    fillMode: Image.PreserveAspectFit
-                    asynchronous: true
-                    source: {
-                        const media = msgDelegate.item.media || {}
-                        if (media.path) {
-                            return "file://" + media.path
-                        }
-                        if (media.thumbnail_path) {
-                            return "file://" + media.thumbnail_path
-                        }
-                        return ""
-                    }
-                    visible: statusMedia.source !== ""
-                }
-
-                QQC2.Button {
-                    Layout.alignment: Qt.AlignHCenter
-                    icon.name: "document-save-symbolic"
-                    text: Whatevr.I18n.i18nc("@action:button load channel media", "Load image")
-                    visible: (msgDelegate.item.media !== undefined
-                              && !(msgDelegate.item.media.path || "")
-                              && !(msgDelegate.item.media.thumbnail_path || ""))
-                    onClicked: Whatevr.ProtocolController.downloadMessageMedia(msgDelegate.item.id || "")
+            onReadMoreRequested: id => root.toggleExpanded(id)
+            onImageActivated: (messageId, localPath) => root.openChannelImage(messageId, localPath)
+            onVideoActivated: (messageId, localPath, streamUrl, streamId, kind, durationSecs, startAt) => {
+                channelMediaViewer.showVideo(messageId, localPath, streamUrl, streamId, kind,
+                                             durationSecs, startAt, "", 0)
+            }
+            onAlbumItemActivated: (albumMessageId, index) => root.openChannelGallery(albumMessageId, index)
+            onContextMenuRequested: (posX, posY) => messageContextMenu.popup(msgDelegate, posX, posY)
+            onReactionToggleRequested: emoji => {
+                const serverId = root.serverIdOf(msgDelegate.messageId)
+                if (serverId > 0) {
+                    Whatevr.ProtocolController.reactToChannelMessage(root.channelJid, serverId, emoji)
                 }
             }
 
@@ -214,28 +245,31 @@ Kirigami.ScrollablePage {
                 QQC2.MenuItem {
                     text: Whatevr.I18n.i18nc("@action:menu copy channel message", "Copy text")
                     icon.name: "edit-copy-symbolic"
-                    enabled: (msgDelegate.item.text || "").length > 0
-                    onTriggered: Whatevr.ProtocolController.copyToClipboard(msgDelegate.item.text || "")
+                    enabled: (msgDelegate.text || "").length > 0
+                    onTriggered: Whatevr.ProtocolController.copyToClipboard(msgDelegate.text || "")
                 }
                 QQC2.MenuSeparator {}
                 QQC2.MenuItem {
                     text: Whatevr.I18n.i18nc("@action:menu react to channel message", "Like")
                     icon.name: "heart-symbolic"
                     onTriggered: Whatevr.ProtocolController.reactToChannelMessage(
-                        root.channelJid, msgDelegate.item.server_id || 0, "❤️")
+                        root.channelJid, root.serverIdOf(msgDelegate.messageId), "❤️")
                 }
                 QQC2.MenuItem {
                     text: Whatevr.I18n.i18nc("@action:menu remove channel reaction", "Remove reaction")
                     icon.name: "edit-clear-symbolic"
                     onTriggered: Whatevr.ProtocolController.reactToChannelMessage(
-                        root.channelJid, msgDelegate.item.server_id || 0, "")
+                        root.channelJid, root.serverIdOf(msgDelegate.messageId), "")
                 }
             }
+        }
 
-            TapHandler {
-                acceptedButtons: Qt.RightButton
-                onTapped: messageContextMenu.popup()
-            }
+        TextMetrics {
+            id: readMoreMetrics
+
+            text: Whatevr.I18n.i18nc("@action:button expand long message", "Read more")
+            font.pointSize: Kirigami.Theme.smallFont.pointSize
+            font.weight: Font.DemiBold
         }
     }
 }
