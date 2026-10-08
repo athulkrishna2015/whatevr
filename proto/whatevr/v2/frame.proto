@@ -285,6 +285,7 @@ message Upsert {
     Responder responder = 33;
     LogRow log = 34;
     ChatFolderRow chat_folder = 35;
+    StatusMutedRow status_muted = 36;
   }
 }
 
@@ -343,6 +344,8 @@ message Subscribe {
     PollVotesView poll_votes = 37;
     EventResponsesView event_responses = 38;
     LogsView logs = 39;
+    StatusView status = 42;
+    StatusMutedView status_muted = 43;
   }
 }
 

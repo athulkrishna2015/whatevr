@@ -126,6 +126,10 @@ bool buildV2Subscribe(std::uint64_t id, const QString &view, const QJsonObject &
         chats->set_folder_id(params.value(QStringLiteral("folder_id")).toInteger());
     } else if (view == QLatin1String("chat_folders")) {
         subscribe->mutable_chat_folders();
+    } else if (view == QLatin1String("status")) {
+        subscribe->mutable_status();
+    } else if (view == QLatin1String("status.muted")) {
+        subscribe->mutable_status_muted();
     } else if (view == QLatin1String("typing")) {
         subscribe->mutable_typing();
     } else if (view == QLatin1String("transfers")) {
@@ -640,6 +644,9 @@ QJsonObject translateV2MessageRow(const whatevr::v2::MessageRow &row)
     if (row.forwarded()) {
         item.insert(QStringLiteral("forwarded"), true);
     }
+    if (row.viewed()) {
+        item.insert(QStringLiteral("viewed"), true);
+    }
     if (row.kept()) {
         item.insert(QStringLiteral("kept"), true);
     }
@@ -745,6 +752,11 @@ QJsonObject translateV2Item(const whatevr::v2::Upsert &upsert)
         return translateV2StickerRow(upsert.sticker());
     case whatevr::v2::Upsert::kStickerPack:
         return translateV2StickerPackRow(upsert.sticker_pack());
+    case whatevr::v2::Upsert::kStatusMuted: {
+        QJsonObject item;
+        item.insert(QStringLiteral("id"), v2s(upsert.status_muted().sender_id()));
+        return item;
+    }
     case whatevr::v2::Upsert::kChatFolder: {
         QJsonObject item;
         item.insert(QStringLiteral("id"), QString::number(upsert.chat_folder().id()));
@@ -1678,6 +1690,7 @@ bool v2MessageRowFromJson(const QJsonObject &item, whatevr::v2::MessageRow *out)
     out->set_edited(item.value(QStringLiteral("edited")).toBool());
     out->set_revoked(item.value(QStringLiteral("revoked")).toBool());
     out->set_starred(item.value(QStringLiteral("starred")).toBool());
+    out->set_viewed(item.value(QStringLiteral("viewed")).toBool());
     out->set_forwarded(item.value(QStringLiteral("forwarded")).toBool());
     out->set_kept(item.value(QStringLiteral("kept")).toBool());
     if (item.contains(QStringLiteral("reply_to"))) {
@@ -1899,6 +1912,12 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
             break;
         case View::kChatFolders:
             params.insert(QStringLiteral("view"), QStringLiteral("chat_folders"));
+            break;
+        case View::kStatus:
+            params.insert(QStringLiteral("view"), QStringLiteral("status"));
+            break;
+        case View::kStatusMuted:
+            params.insert(QStringLiteral("view"), QStringLiteral("status.muted"));
             break;
         case View::kStickers:
             params.insert(QStringLiteral("view"), QStringLiteral("stickers"));
@@ -3245,6 +3264,19 @@ bool v2UpsertRowFromJson(const QString &view, const QJsonObject &item, whatevr::
             return false;
         }
         *out->mutable_chat() = row;
+        return true;
+    }
+    if (view == QLatin1String("status")) {
+        whatevr::v2::MessageRow row;
+        if (!v2MessageRowFromJson(item, &row)) {
+            return false;
+        }
+        *out->mutable_message() = row;
+        return true;
+    }
+    if (view == QLatin1String("status.muted")) {
+        auto *row = out->mutable_status_muted();
+        row->set_sender_id(str("id"));
         return true;
     }
     if (view == QLatin1String("messages") || view == QLatin1String("starred")

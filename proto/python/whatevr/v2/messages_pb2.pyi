@@ -276,7 +276,7 @@ class LiveLocationRow(_message.Message):
     def __init__(self, message_id: _Optional[str] = ..., sender: _Optional[_Union[_people_pb2.Person, _Mapping]] = ..., started_ms: _Optional[int] = ..., expires_ms: _Optional[int] = ..., updated_ms: _Optional[int] = ..., location: _Optional[_Union[Location, _Mapping]] = ...) -> None: ...
 
 class MessageRow(_message.Message):
-    __slots__ = ("id", "chat_id", "chat_name", "sender", "from_me", "t_ms", "status", "fallback", "text", "mentions", "reply_to", "reactions", "edited", "revoked", "revoked_by", "starred", "forwarded", "forwarded_many", "pinned_until_ms", "edit_until_ms", "kept", "view_once", "error", "text_truncated", "reaction_counts", "text_body", "image", "video", "gif", "voice", "audio", "document", "video_note", "sticker", "location", "live_location", "contacts", "poll", "group_invite", "event", "album", "interactive", "product", "order", "payment", "sticker_pack", "call_log", "system", "waiting", "unsupported")
+    __slots__ = ("id", "chat_id", "chat_name", "sender", "from_me", "t_ms", "status", "fallback", "text", "mentions", "reply_to", "reactions", "edited", "revoked", "revoked_by", "starred", "forwarded", "forwarded_many", "pinned_until_ms", "edit_until_ms", "kept", "view_once", "error", "text_truncated", "reaction_counts", "viewed", "text_body", "image", "video", "gif", "voice", "audio", "document", "video_note", "sticker", "location", "live_location", "contacts", "poll", "group_invite", "event", "album", "interactive", "product", "order", "payment", "sticker_pack", "call_log", "system", "waiting", "unsupported")
     ID_FIELD_NUMBER: _ClassVar[int]
     CHAT_ID_FIELD_NUMBER: _ClassVar[int]
     CHAT_NAME_FIELD_NUMBER: _ClassVar[int]
@@ -302,6 +302,7 @@ class MessageRow(_message.Message):
     ERROR_FIELD_NUMBER: _ClassVar[int]
     TEXT_TRUNCATED_FIELD_NUMBER: _ClassVar[int]
     REACTION_COUNTS_FIELD_NUMBER: _ClassVar[int]
+    VIEWED_FIELD_NUMBER: _ClassVar[int]
     TEXT_BODY_FIELD_NUMBER: _ClassVar[int]
     IMAGE_FIELD_NUMBER: _ClassVar[int]
     VIDEO_FIELD_NUMBER: _ClassVar[int]
@@ -352,6 +353,7 @@ class MessageRow(_message.Message):
     error: str
     text_truncated: bool
     reaction_counts: _containers.RepeatedCompositeFieldContainer[ReactionCount]
+    viewed: bool
     text_body: Text
     image: Image
     video: Video
@@ -377,7 +379,7 @@ class MessageRow(_message.Message):
     system: System
     waiting: Waiting
     unsupported: Unsupported
-    def __init__(self, id: _Optional[str] = ..., chat_id: _Optional[str] = ..., chat_name: _Optional[str] = ..., sender: _Optional[_Union[_people_pb2.Person, _Mapping]] = ..., from_me: _Optional[bool] = ..., t_ms: _Optional[int] = ..., status: _Optional[_Union[MessageStatus, str]] = ..., fallback: _Optional[str] = ..., text: _Optional[str] = ..., mentions: _Optional[_Iterable[_Union[Mention, _Mapping]]] = ..., reply_to: _Optional[_Union[Quote, _Mapping]] = ..., reactions: _Optional[_Iterable[_Union[Reaction, _Mapping]]] = ..., edited: _Optional[bool] = ..., revoked: _Optional[bool] = ..., revoked_by: _Optional[_Union[_people_pb2.Person, _Mapping]] = ..., starred: _Optional[bool] = ..., forwarded: _Optional[bool] = ..., forwarded_many: _Optional[bool] = ..., pinned_until_ms: _Optional[int] = ..., edit_until_ms: _Optional[int] = ..., kept: _Optional[bool] = ..., view_once: _Optional[bool] = ..., error: _Optional[str] = ..., text_truncated: _Optional[bool] = ..., reaction_counts: _Optional[_Iterable[_Union[ReactionCount, _Mapping]]] = ..., text_body: _Optional[_Union[Text, _Mapping]] = ..., image: _Optional[_Union[Image, _Mapping]] = ..., video: _Optional[_Union[Video, _Mapping]] = ..., gif: _Optional[_Union[Gif, _Mapping]] = ..., voice: _Optional[_Union[Voice, _Mapping]] = ..., audio: _Optional[_Union[Audio, _Mapping]] = ..., document: _Optional[_Union[Document, _Mapping]] = ..., video_note: _Optional[_Union[VideoNote, _Mapping]] = ..., sticker: _Optional[_Union[Sticker, _Mapping]] = ..., location: _Optional[_Union[Location, _Mapping]] = ..., live_location: _Optional[_Union[LiveLocation, _Mapping]] = ..., contacts: _Optional[_Union[Contacts, _Mapping]] = ..., poll: _Optional[_Union[Poll, _Mapping]] = ..., group_invite: _Optional[_Union[GroupInvite, _Mapping]] = ..., event: _Optional[_Union[ScheduledEvent, _Mapping]] = ..., album: _Optional[_Union[Album, _Mapping]] = ..., interactive: _Optional[_Union[Interactive, _Mapping]] = ..., product: _Optional[_Union[Product, _Mapping]] = ..., order: _Optional[_Union[Order, _Mapping]] = ..., payment: _Optional[_Union[Payment, _Mapping]] = ..., sticker_pack: _Optional[_Union[StickerPackShare, _Mapping]] = ..., call_log: _Optional[_Union[CallLog, _Mapping]] = ..., system: _Optional[_Union[System, _Mapping]] = ..., waiting: _Optional[_Union[Waiting, _Mapping]] = ..., unsupported: _Optional[_Union[Unsupported, _Mapping]] = ...) -> None: ...
+    def __init__(self, id: _Optional[str] = ..., chat_id: _Optional[str] = ..., chat_name: _Optional[str] = ..., sender: _Optional[_Union[_people_pb2.Person, _Mapping]] = ..., from_me: _Optional[bool] = ..., t_ms: _Optional[int] = ..., status: _Optional[_Union[MessageStatus, str]] = ..., fallback: _Optional[str] = ..., text: _Optional[str] = ..., mentions: _Optional[_Iterable[_Union[Mention, _Mapping]]] = ..., reply_to: _Optional[_Union[Quote, _Mapping]] = ..., reactions: _Optional[_Iterable[_Union[Reaction, _Mapping]]] = ..., edited: _Optional[bool] = ..., revoked: _Optional[bool] = ..., revoked_by: _Optional[_Union[_people_pb2.Person, _Mapping]] = ..., starred: _Optional[bool] = ..., forwarded: _Optional[bool] = ..., forwarded_many: _Optional[bool] = ..., pinned_until_ms: _Optional[int] = ..., edit_until_ms: _Optional[int] = ..., kept: _Optional[bool] = ..., view_once: _Optional[bool] = ..., error: _Optional[str] = ..., text_truncated: _Optional[bool] = ..., reaction_counts: _Optional[_Iterable[_Union[ReactionCount, _Mapping]]] = ..., viewed: _Optional[bool] = ..., text_body: _Optional[_Union[Text, _Mapping]] = ..., image: _Optional[_Union[Image, _Mapping]] = ..., video: _Optional[_Union[Video, _Mapping]] = ..., gif: _Optional[_Union[Gif, _Mapping]] = ..., voice: _Optional[_Union[Voice, _Mapping]] = ..., audio: _Optional[_Union[Audio, _Mapping]] = ..., document: _Optional[_Union[Document, _Mapping]] = ..., video_note: _Optional[_Union[VideoNote, _Mapping]] = ..., sticker: _Optional[_Union[Sticker, _Mapping]] = ..., location: _Optional[_Union[Location, _Mapping]] = ..., live_location: _Optional[_Union[LiveLocation, _Mapping]] = ..., contacts: _Optional[_Union[Contacts, _Mapping]] = ..., poll: _Optional[_Union[Poll, _Mapping]] = ..., group_invite: _Optional[_Union[GroupInvite, _Mapping]] = ..., event: _Optional[_Union[ScheduledEvent, _Mapping]] = ..., album: _Optional[_Union[Album, _Mapping]] = ..., interactive: _Optional[_Union[Interactive, _Mapping]] = ..., product: _Optional[_Union[Product, _Mapping]] = ..., order: _Optional[_Union[Order, _Mapping]] = ..., payment: _Optional[_Union[Payment, _Mapping]] = ..., sticker_pack: _Optional[_Union[StickerPackShare, _Mapping]] = ..., call_log: _Optional[_Union[CallLog, _Mapping]] = ..., system: _Optional[_Union[System, _Mapping]] = ..., waiting: _Optional[_Union[Waiting, _Mapping]] = ..., unsupported: _Optional[_Union[Unsupported, _Mapping]] = ...) -> None: ...
 
 class Mention(_message.Message):
     __slots__ = ("person", "start", "end")
@@ -1088,6 +1090,20 @@ class ScheduleCancel(_message.Message):
     ID_FIELD_NUMBER: _ClassVar[int]
     id: int
     def __init__(self, id: _Optional[int] = ...) -> None: ...
+
+class StatusView(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class StatusMutedView(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class StatusMutedRow(_message.Message):
+    __slots__ = ("sender_id",)
+    SENDER_ID_FIELD_NUMBER: _ClassVar[int]
+    sender_id: str
+    def __init__(self, sender_id: _Optional[str] = ...) -> None: ...
 
 class SendResult(_message.Message):
     __slots__ = ("message_id",)

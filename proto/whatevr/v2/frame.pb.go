@@ -6620,6 +6620,15 @@ func (x *Upsert) GetChatFolder() *ChatFolderRow {
 	return nil
 }
 
+func (x *Upsert) GetStatusMuted() *StatusMutedRow {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Item.(*upsert_StatusMuted); ok {
+			return x.StatusMuted
+		}
+	}
+	return nil
+}
+
 func (x *Upsert) SetId(v string) {
 	x.xxx_hidden_Id = v
 }
@@ -6839,6 +6848,14 @@ func (x *Upsert) SetChatFolder(v *ChatFolderRow) {
 	x.xxx_hidden_Item = &upsert_ChatFolder{v}
 }
 
+func (x *Upsert) SetStatusMuted(v *StatusMutedRow) {
+	if v == nil {
+		x.xxx_hidden_Item = nil
+		return
+	}
+	x.xxx_hidden_Item = &upsert_StatusMuted{v}
+}
+
 func (x *Upsert) HasItem() bool {
 	if x == nil {
 		return false
@@ -7054,6 +7071,14 @@ func (x *Upsert) HasChatFolder() bool {
 	return ok
 }
 
+func (x *Upsert) HasStatusMuted() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Item.(*upsert_StatusMuted)
+	return ok
+}
+
 func (x *Upsert) ClearItem() {
 	x.xxx_hidden_Item = nil
 }
@@ -7214,6 +7239,12 @@ func (x *Upsert) ClearChatFolder() {
 	}
 }
 
+func (x *Upsert) ClearStatusMuted() {
+	if _, ok := x.xxx_hidden_Item.(*upsert_StatusMuted); ok {
+		x.xxx_hidden_Item = nil
+	}
+}
+
 const Upsert_Item_not_set_case case_Upsert_Item = 0
 const Upsert_Connection_case case_Upsert_Item = 10
 const Upsert_Login_case case_Upsert_Item = 11
@@ -7241,6 +7272,7 @@ const Upsert_PollVote_case case_Upsert_Item = 32
 const Upsert_Responder_case case_Upsert_Item = 33
 const Upsert_Log_case case_Upsert_Item = 34
 const Upsert_ChatFolder_case case_Upsert_Item = 35
+const Upsert_StatusMuted_case case_Upsert_Item = 36
 
 func (x *Upsert) WhichItem() case_Upsert_Item {
 	if x == nil {
@@ -7299,6 +7331,8 @@ func (x *Upsert) WhichItem() case_Upsert_Item {
 		return Upsert_Log_case
 	case *upsert_ChatFolder:
 		return Upsert_ChatFolder_case
+	case *upsert_StatusMuted:
+		return Upsert_StatusMuted_case
 	default:
 		return Upsert_Item_not_set_case
 	}
@@ -7337,6 +7371,7 @@ type Upsert_builder struct {
 	Responder    *Responder
 	Log          *LogRow
 	ChatFolder   *ChatFolderRow
+	StatusMuted  *StatusMutedRow
 	// -- end of xxx_hidden_Item
 }
 
@@ -7423,6 +7458,9 @@ func (b0 Upsert_builder) Build() *Upsert {
 	}
 	if b.ChatFolder != nil {
 		x.xxx_hidden_Item = &upsert_ChatFolder{b.ChatFolder}
+	}
+	if b.StatusMuted != nil {
+		x.xxx_hidden_Item = &upsert_StatusMuted{b.StatusMuted}
 	}
 	return m0
 }
@@ -7545,6 +7583,10 @@ type upsert_ChatFolder struct {
 	ChatFolder *ChatFolderRow `protobuf:"bytes,35,opt,name=chat_folder,json=chatFolder,oneof"`
 }
 
+type upsert_StatusMuted struct {
+	StatusMuted *StatusMutedRow `protobuf:"bytes,36,opt,name=status_muted,json=statusMuted,oneof"`
+}
+
 func (*upsert_Connection) isUpsert_Item() {}
 
 func (*upsert_Login) isUpsert_Item() {}
@@ -7596,6 +7638,8 @@ func (*upsert_Responder) isUpsert_Item() {}
 func (*upsert_Log) isUpsert_Item() {}
 
 func (*upsert_ChatFolder) isUpsert_Item() {}
+
+func (*upsert_StatusMuted) isUpsert_Item() {}
 
 type Remove struct {
 	state                 protoimpl.MessageState `protogen:"opaque.v1"`
@@ -8115,6 +8159,24 @@ func (x *Subscribe) GetLogs() *LogsView {
 	return nil
 }
 
+func (x *Subscribe) GetStatus() *StatusView {
+	if x != nil {
+		if x, ok := x.xxx_hidden_View.(*subscribe_Status); ok {
+			return x.Status
+		}
+	}
+	return nil
+}
+
+func (x *Subscribe) GetStatusMuted() *StatusMutedView {
+	if x != nil {
+		if x, ok := x.xxx_hidden_View.(*subscribe_StatusMuted); ok {
+			return x.StatusMuted
+		}
+	}
+	return nil
+}
+
 func (x *Subscribe) SetLimit(v uint32) {
 	x.xxx_hidden_Limit = v
 }
@@ -8373,6 +8435,22 @@ func (x *Subscribe) SetLogs(v *LogsView) {
 		return
 	}
 	x.xxx_hidden_View = &subscribe_Logs{v}
+}
+
+func (x *Subscribe) SetStatus(v *StatusView) {
+	if v == nil {
+		x.xxx_hidden_View = nil
+		return
+	}
+	x.xxx_hidden_View = &subscribe_Status{v}
+}
+
+func (x *Subscribe) SetStatusMuted(v *StatusMutedView) {
+	if v == nil {
+		x.xxx_hidden_View = nil
+		return
+	}
+	x.xxx_hidden_View = &subscribe_StatusMuted{v}
 }
 
 func (x *Subscribe) HasView() bool {
@@ -8638,6 +8716,22 @@ func (x *Subscribe) HasLogs() bool {
 	return ok
 }
 
+func (x *Subscribe) HasStatus() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_View.(*subscribe_Status)
+	return ok
+}
+
+func (x *Subscribe) HasStatusMuted() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_View.(*subscribe_StatusMuted)
+	return ok
+}
+
 func (x *Subscribe) ClearView() {
 	x.xxx_hidden_View = nil
 }
@@ -8834,6 +8928,18 @@ func (x *Subscribe) ClearLogs() {
 	}
 }
 
+func (x *Subscribe) ClearStatus() {
+	if _, ok := x.xxx_hidden_View.(*subscribe_Status); ok {
+		x.xxx_hidden_View = nil
+	}
+}
+
+func (x *Subscribe) ClearStatusMuted() {
+	if _, ok := x.xxx_hidden_View.(*subscribe_StatusMuted); ok {
+		x.xxx_hidden_View = nil
+	}
+}
+
 const Subscribe_View_not_set_case case_Subscribe_View = 0
 const Subscribe_Connection_case case_Subscribe_View = 10
 const Subscribe_Login_case case_Subscribe_View = 11
@@ -8867,6 +8973,8 @@ const Subscribe_Reactions_case case_Subscribe_View = 36
 const Subscribe_PollVotes_case case_Subscribe_View = 37
 const Subscribe_EventResponses_case case_Subscribe_View = 38
 const Subscribe_Logs_case case_Subscribe_View = 39
+const Subscribe_Status_case case_Subscribe_View = 42
+const Subscribe_StatusMuted_case case_Subscribe_View = 43
 
 func (x *Subscribe) WhichView() case_Subscribe_View {
 	if x == nil {
@@ -8937,6 +9045,10 @@ func (x *Subscribe) WhichView() case_Subscribe_View {
 		return Subscribe_EventResponses_case
 	case *subscribe_Logs:
 		return Subscribe_Logs_case
+	case *subscribe_Status:
+		return Subscribe_Status_case
+	case *subscribe_StatusMuted:
+		return Subscribe_StatusMuted_case
 	default:
 		return Subscribe_View_not_set_case
 	}
@@ -8980,6 +9092,8 @@ type Subscribe_builder struct {
 	PollVotes      *PollVotesView
 	EventResponses *EventResponsesView
 	Logs           *LogsView
+	Status         *StatusView
+	StatusMuted    *StatusMutedView
 	// -- end of xxx_hidden_View
 }
 
@@ -9083,6 +9197,12 @@ func (b0 Subscribe_builder) Build() *Subscribe {
 	}
 	if b.Logs != nil {
 		x.xxx_hidden_View = &subscribe_Logs{b.Logs}
+	}
+	if b.Status != nil {
+		x.xxx_hidden_View = &subscribe_Status{b.Status}
+	}
+	if b.StatusMuted != nil {
+		x.xxx_hidden_View = &subscribe_StatusMuted{b.StatusMuted}
 	}
 	return m0
 }
@@ -9229,6 +9349,14 @@ type subscribe_Logs struct {
 	Logs *LogsView `protobuf:"bytes,39,opt,name=logs,oneof"`
 }
 
+type subscribe_Status struct {
+	Status *StatusView `protobuf:"bytes,42,opt,name=status,oneof"`
+}
+
+type subscribe_StatusMuted struct {
+	StatusMuted *StatusMutedView `protobuf:"bytes,43,opt,name=status_muted,json=statusMuted,oneof"`
+}
+
 func (*subscribe_Connection) isSubscribe_View() {}
 
 func (*subscribe_Login) isSubscribe_View() {}
@@ -9292,6 +9420,10 @@ func (*subscribe_PollVotes) isSubscribe_View() {}
 func (*subscribe_EventResponses) isSubscribe_View() {}
 
 func (*subscribe_Logs) isSubscribe_View() {}
+
+func (*subscribe_Status) isSubscribe_View() {}
+
+func (*subscribe_StatusMuted) isSubscribe_View() {}
 
 type SubscribeResult struct {
 	state               protoimpl.MessageState `protogen:"opaque.v1"`
@@ -9682,7 +9814,7 @@ const file_whatevr_v2_frame_proto_rawDesc = "" +
 	"\x06Change\x12,\n" +
 	"\x06upsert\x18\x01 \x01(\v2\x12.whatevr.v2.UpsertH\x00R\x06upsert\x12,\n" +
 	"\x06remove\x18\x02 \x01(\v2\x12.whatevr.v2.RemoveH\x00R\x06removeB\b\n" +
-	"\x06change\"\xab\v\n" +
+	"\x06change\"\xec\v\n" +
 	"\x06Upsert\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04sort\x18\x02 \x01(\fR\x04sort\x12;\n" +
@@ -9715,7 +9847,8 @@ const file_whatevr_v2_frame_proto_rawDesc = "" +
 	"\tresponder\x18! \x01(\v2\x15.whatevr.v2.ResponderH\x00R\tresponder\x12&\n" +
 	"\x03log\x18\" \x01(\v2\x12.whatevr.v2.LogRowH\x00R\x03log\x12<\n" +
 	"\vchat_folder\x18# \x01(\v2\x19.whatevr.v2.ChatFolderRowH\x00R\n" +
-	"chatFolderB\x06\n" +
+	"chatFolder\x12?\n" +
+	"\fstatus_muted\x18$ \x01(\v2\x1a.whatevr.v2.StatusMutedRowH\x00R\vstatusMutedB\x06\n" +
 	"\x04item\"9\n" +
 	"\x06Remove\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x1f\n" +
@@ -9724,7 +9857,7 @@ const file_whatevr_v2_frame_proto_rawDesc = "" +
 	"\x05Ready\x12\x1c\n" +
 	"\texhausted\x18\x01 \x01(\bR\texhausted\"#\n" +
 	"\bOpenChat\x12\x17\n" +
-	"\achat_id\x18\x01 \x01(\tR\x06chatId\"\xcd\x0e\n" +
+	"\achat_id\x18\x01 \x01(\tR\x06chatId\"\xc1\x0f\n" +
 	"\tSubscribe\x12\x14\n" +
 	"\x05limit\x18\x01 \x01(\rR\x05limit\x12<\n" +
 	"\n" +
@@ -9764,7 +9897,9 @@ const file_whatevr_v2_frame_proto_rawDesc = "" +
 	"\n" +
 	"poll_votes\x18% \x01(\v2\x19.whatevr.v2.PollVotesViewH\x00R\tpollVotes\x12I\n" +
 	"\x0fevent_responses\x18& \x01(\v2\x1e.whatevr.v2.EventResponsesViewH\x00R\x0eeventResponses\x12*\n" +
-	"\x04logs\x18' \x01(\v2\x14.whatevr.v2.LogsViewH\x00R\x04logsB\x06\n" +
+	"\x04logs\x18' \x01(\v2\x14.whatevr.v2.LogsViewH\x00R\x04logs\x120\n" +
+	"\x06status\x18* \x01(\v2\x16.whatevr.v2.StatusViewH\x00R\x06status\x12@\n" +
+	"\fstatus_muted\x18+ \x01(\v2\x1b.whatevr.v2.StatusMutedViewH\x00R\vstatusMutedB\x06\n" +
 	"\x04view\"@\n" +
 	"\x0fSubscribeResult\x12\x10\n" +
 	"\x03sub\x18\x01 \x01(\x04R\x03sub\x12\x1b\n" +
@@ -9953,38 +10088,41 @@ var file_whatevr_v2_frame_proto_goTypes = []any{
 	(*Responder)(nil),                      // 148: whatevr.v2.Responder
 	(*LogRow)(nil),                         // 149: whatevr.v2.LogRow
 	(*ChatFolderRow)(nil),                  // 150: whatevr.v2.ChatFolderRow
-	(*ConnectionView)(nil),                 // 151: whatevr.v2.ConnectionView
-	(*LoginView)(nil),                      // 152: whatevr.v2.LoginView
-	(*SyncView)(nil),                       // 153: whatevr.v2.SyncView
-	(*ProblemsView)(nil),                   // 154: whatevr.v2.ProblemsView
-	(*ChatsView)(nil),                      // 155: whatevr.v2.ChatsView
-	(*ChatView)(nil),                       // 156: whatevr.v2.ChatView
-	(*MessagesView)(nil),                   // 157: whatevr.v2.MessagesView
-	(*TypingView)(nil),                     // 158: whatevr.v2.TypingView
-	(*PresenceView)(nil),                   // 159: whatevr.v2.PresenceView
-	(*ReceiptsView)(nil),                   // 160: whatevr.v2.ReceiptsView
-	(*SelfView)(nil),                       // 161: whatevr.v2.SelfView
-	(*ContactView)(nil),                    // 162: whatevr.v2.ContactView
-	(*GroupView)(nil),                      // 163: whatevr.v2.GroupView
-	(*GroupMembersView)(nil),               // 164: whatevr.v2.GroupMembersView
-	(*PrivacyView)(nil),                    // 165: whatevr.v2.PrivacyView
-	(*PreferencesView)(nil),                // 166: whatevr.v2.PreferencesView
-	(*BlocklistView)(nil),                  // 167: whatevr.v2.BlocklistView
-	(*StarredView)(nil),                    // 168: whatevr.v2.StarredView
-	(*PinnedView)(nil),                     // 169: whatevr.v2.PinnedView
-	(*LiveLocationsView)(nil),              // 170: whatevr.v2.LiveLocationsView
-	(*ChatMediaView)(nil),                  // 171: whatevr.v2.ChatMediaView
-	(*ChatLinksView)(nil),                  // 172: whatevr.v2.ChatLinksView
-	(*ChatFoldersView)(nil),                // 173: whatevr.v2.ChatFoldersView
-	(*StickersView)(nil),                   // 174: whatevr.v2.StickersView
-	(*StickerPacksView)(nil),               // 175: whatevr.v2.StickerPacksView
-	(*StickerPackView)(nil),                // 176: whatevr.v2.StickerPackView
-	(*TransfersView)(nil),                  // 177: whatevr.v2.TransfersView
-	(*NotificationsView)(nil),              // 178: whatevr.v2.NotificationsView
-	(*ReactionsView)(nil),                  // 179: whatevr.v2.ReactionsView
-	(*PollVotesView)(nil),                  // 180: whatevr.v2.PollVotesView
-	(*EventResponsesView)(nil),             // 181: whatevr.v2.EventResponsesView
-	(*LogsView)(nil),                       // 182: whatevr.v2.LogsView
+	(*StatusMutedRow)(nil),                 // 151: whatevr.v2.StatusMutedRow
+	(*ConnectionView)(nil),                 // 152: whatevr.v2.ConnectionView
+	(*LoginView)(nil),                      // 153: whatevr.v2.LoginView
+	(*SyncView)(nil),                       // 154: whatevr.v2.SyncView
+	(*ProblemsView)(nil),                   // 155: whatevr.v2.ProblemsView
+	(*ChatsView)(nil),                      // 156: whatevr.v2.ChatsView
+	(*ChatView)(nil),                       // 157: whatevr.v2.ChatView
+	(*MessagesView)(nil),                   // 158: whatevr.v2.MessagesView
+	(*TypingView)(nil),                     // 159: whatevr.v2.TypingView
+	(*PresenceView)(nil),                   // 160: whatevr.v2.PresenceView
+	(*ReceiptsView)(nil),                   // 161: whatevr.v2.ReceiptsView
+	(*SelfView)(nil),                       // 162: whatevr.v2.SelfView
+	(*ContactView)(nil),                    // 163: whatevr.v2.ContactView
+	(*GroupView)(nil),                      // 164: whatevr.v2.GroupView
+	(*GroupMembersView)(nil),               // 165: whatevr.v2.GroupMembersView
+	(*PrivacyView)(nil),                    // 166: whatevr.v2.PrivacyView
+	(*PreferencesView)(nil),                // 167: whatevr.v2.PreferencesView
+	(*BlocklistView)(nil),                  // 168: whatevr.v2.BlocklistView
+	(*StarredView)(nil),                    // 169: whatevr.v2.StarredView
+	(*PinnedView)(nil),                     // 170: whatevr.v2.PinnedView
+	(*LiveLocationsView)(nil),              // 171: whatevr.v2.LiveLocationsView
+	(*ChatMediaView)(nil),                  // 172: whatevr.v2.ChatMediaView
+	(*ChatLinksView)(nil),                  // 173: whatevr.v2.ChatLinksView
+	(*ChatFoldersView)(nil),                // 174: whatevr.v2.ChatFoldersView
+	(*StickersView)(nil),                   // 175: whatevr.v2.StickersView
+	(*StickerPacksView)(nil),               // 176: whatevr.v2.StickerPacksView
+	(*StickerPackView)(nil),                // 177: whatevr.v2.StickerPackView
+	(*TransfersView)(nil),                  // 178: whatevr.v2.TransfersView
+	(*NotificationsView)(nil),              // 179: whatevr.v2.NotificationsView
+	(*ReactionsView)(nil),                  // 180: whatevr.v2.ReactionsView
+	(*PollVotesView)(nil),                  // 181: whatevr.v2.PollVotesView
+	(*EventResponsesView)(nil),             // 182: whatevr.v2.EventResponsesView
+	(*LogsView)(nil),                       // 183: whatevr.v2.LogsView
+	(*StatusView)(nil),                     // 184: whatevr.v2.StatusView
+	(*StatusMutedView)(nil),                // 185: whatevr.v2.StatusMutedView
 }
 var file_whatevr_v2_frame_proto_depIdxs = []int32{
 	3,   // 0: whatevr.v2.Frame.request:type_name -> whatevr.v2.Request
@@ -10136,44 +10274,47 @@ var file_whatevr_v2_frame_proto_depIdxs = []int32{
 	148, // 146: whatevr.v2.Upsert.responder:type_name -> whatevr.v2.Responder
 	149, // 147: whatevr.v2.Upsert.log:type_name -> whatevr.v2.LogRow
 	150, // 148: whatevr.v2.Upsert.chat_folder:type_name -> whatevr.v2.ChatFolderRow
-	151, // 149: whatevr.v2.Subscribe.connection:type_name -> whatevr.v2.ConnectionView
-	152, // 150: whatevr.v2.Subscribe.login:type_name -> whatevr.v2.LoginView
-	153, // 151: whatevr.v2.Subscribe.sync:type_name -> whatevr.v2.SyncView
-	154, // 152: whatevr.v2.Subscribe.problems:type_name -> whatevr.v2.ProblemsView
-	155, // 153: whatevr.v2.Subscribe.chats:type_name -> whatevr.v2.ChatsView
-	156, // 154: whatevr.v2.Subscribe.chat:type_name -> whatevr.v2.ChatView
-	157, // 155: whatevr.v2.Subscribe.messages:type_name -> whatevr.v2.MessagesView
-	158, // 156: whatevr.v2.Subscribe.typing:type_name -> whatevr.v2.TypingView
-	159, // 157: whatevr.v2.Subscribe.presence:type_name -> whatevr.v2.PresenceView
-	160, // 158: whatevr.v2.Subscribe.receipts:type_name -> whatevr.v2.ReceiptsView
-	161, // 159: whatevr.v2.Subscribe.self:type_name -> whatevr.v2.SelfView
-	162, // 160: whatevr.v2.Subscribe.contact:type_name -> whatevr.v2.ContactView
-	163, // 161: whatevr.v2.Subscribe.group:type_name -> whatevr.v2.GroupView
-	164, // 162: whatevr.v2.Subscribe.group_members:type_name -> whatevr.v2.GroupMembersView
-	165, // 163: whatevr.v2.Subscribe.privacy:type_name -> whatevr.v2.PrivacyView
-	166, // 164: whatevr.v2.Subscribe.preferences:type_name -> whatevr.v2.PreferencesView
-	167, // 165: whatevr.v2.Subscribe.blocklist:type_name -> whatevr.v2.BlocklistView
-	168, // 166: whatevr.v2.Subscribe.starred:type_name -> whatevr.v2.StarredView
-	169, // 167: whatevr.v2.Subscribe.pinned:type_name -> whatevr.v2.PinnedView
-	170, // 168: whatevr.v2.Subscribe.live_locations:type_name -> whatevr.v2.LiveLocationsView
-	171, // 169: whatevr.v2.Subscribe.chat_media:type_name -> whatevr.v2.ChatMediaView
-	172, // 170: whatevr.v2.Subscribe.chat_links:type_name -> whatevr.v2.ChatLinksView
-	173, // 171: whatevr.v2.Subscribe.chat_folders:type_name -> whatevr.v2.ChatFoldersView
-	174, // 172: whatevr.v2.Subscribe.stickers:type_name -> whatevr.v2.StickersView
-	175, // 173: whatevr.v2.Subscribe.sticker_packs:type_name -> whatevr.v2.StickerPacksView
-	176, // 174: whatevr.v2.Subscribe.sticker_pack:type_name -> whatevr.v2.StickerPackView
-	177, // 175: whatevr.v2.Subscribe.transfers:type_name -> whatevr.v2.TransfersView
-	178, // 176: whatevr.v2.Subscribe.notifications:type_name -> whatevr.v2.NotificationsView
-	179, // 177: whatevr.v2.Subscribe.reactions:type_name -> whatevr.v2.ReactionsView
-	180, // 178: whatevr.v2.Subscribe.poll_votes:type_name -> whatevr.v2.PollVotesView
-	181, // 179: whatevr.v2.Subscribe.event_responses:type_name -> whatevr.v2.EventResponsesView
-	182, // 180: whatevr.v2.Subscribe.logs:type_name -> whatevr.v2.LogsView
-	1,   // 181: whatevr.v2.Extend.direction:type_name -> whatevr.v2.Direction
-	182, // [182:182] is the sub-list for method output_type
-	182, // [182:182] is the sub-list for method input_type
-	182, // [182:182] is the sub-list for extension type_name
-	182, // [182:182] is the sub-list for extension extendee
-	0,   // [0:182] is the sub-list for field type_name
+	151, // 149: whatevr.v2.Upsert.status_muted:type_name -> whatevr.v2.StatusMutedRow
+	152, // 150: whatevr.v2.Subscribe.connection:type_name -> whatevr.v2.ConnectionView
+	153, // 151: whatevr.v2.Subscribe.login:type_name -> whatevr.v2.LoginView
+	154, // 152: whatevr.v2.Subscribe.sync:type_name -> whatevr.v2.SyncView
+	155, // 153: whatevr.v2.Subscribe.problems:type_name -> whatevr.v2.ProblemsView
+	156, // 154: whatevr.v2.Subscribe.chats:type_name -> whatevr.v2.ChatsView
+	157, // 155: whatevr.v2.Subscribe.chat:type_name -> whatevr.v2.ChatView
+	158, // 156: whatevr.v2.Subscribe.messages:type_name -> whatevr.v2.MessagesView
+	159, // 157: whatevr.v2.Subscribe.typing:type_name -> whatevr.v2.TypingView
+	160, // 158: whatevr.v2.Subscribe.presence:type_name -> whatevr.v2.PresenceView
+	161, // 159: whatevr.v2.Subscribe.receipts:type_name -> whatevr.v2.ReceiptsView
+	162, // 160: whatevr.v2.Subscribe.self:type_name -> whatevr.v2.SelfView
+	163, // 161: whatevr.v2.Subscribe.contact:type_name -> whatevr.v2.ContactView
+	164, // 162: whatevr.v2.Subscribe.group:type_name -> whatevr.v2.GroupView
+	165, // 163: whatevr.v2.Subscribe.group_members:type_name -> whatevr.v2.GroupMembersView
+	166, // 164: whatevr.v2.Subscribe.privacy:type_name -> whatevr.v2.PrivacyView
+	167, // 165: whatevr.v2.Subscribe.preferences:type_name -> whatevr.v2.PreferencesView
+	168, // 166: whatevr.v2.Subscribe.blocklist:type_name -> whatevr.v2.BlocklistView
+	169, // 167: whatevr.v2.Subscribe.starred:type_name -> whatevr.v2.StarredView
+	170, // 168: whatevr.v2.Subscribe.pinned:type_name -> whatevr.v2.PinnedView
+	171, // 169: whatevr.v2.Subscribe.live_locations:type_name -> whatevr.v2.LiveLocationsView
+	172, // 170: whatevr.v2.Subscribe.chat_media:type_name -> whatevr.v2.ChatMediaView
+	173, // 171: whatevr.v2.Subscribe.chat_links:type_name -> whatevr.v2.ChatLinksView
+	174, // 172: whatevr.v2.Subscribe.chat_folders:type_name -> whatevr.v2.ChatFoldersView
+	175, // 173: whatevr.v2.Subscribe.stickers:type_name -> whatevr.v2.StickersView
+	176, // 174: whatevr.v2.Subscribe.sticker_packs:type_name -> whatevr.v2.StickerPacksView
+	177, // 175: whatevr.v2.Subscribe.sticker_pack:type_name -> whatevr.v2.StickerPackView
+	178, // 176: whatevr.v2.Subscribe.transfers:type_name -> whatevr.v2.TransfersView
+	179, // 177: whatevr.v2.Subscribe.notifications:type_name -> whatevr.v2.NotificationsView
+	180, // 178: whatevr.v2.Subscribe.reactions:type_name -> whatevr.v2.ReactionsView
+	181, // 179: whatevr.v2.Subscribe.poll_votes:type_name -> whatevr.v2.PollVotesView
+	182, // 180: whatevr.v2.Subscribe.event_responses:type_name -> whatevr.v2.EventResponsesView
+	183, // 181: whatevr.v2.Subscribe.logs:type_name -> whatevr.v2.LogsView
+	184, // 182: whatevr.v2.Subscribe.status:type_name -> whatevr.v2.StatusView
+	185, // 183: whatevr.v2.Subscribe.status_muted:type_name -> whatevr.v2.StatusMutedView
+	1,   // 184: whatevr.v2.Extend.direction:type_name -> whatevr.v2.Direction
+	185, // [185:185] is the sub-list for method output_type
+	185, // [185:185] is the sub-list for method input_type
+	185, // [185:185] is the sub-list for extension type_name
+	185, // [185:185] is the sub-list for extension extendee
+	0,   // [0:185] is the sub-list for field type_name
 }
 
 func init() { file_whatevr_v2_frame_proto_init() }
@@ -10349,6 +10490,7 @@ func file_whatevr_v2_frame_proto_init() {
 		(*upsert_Responder)(nil),
 		(*upsert_Log)(nil),
 		(*upsert_ChatFolder)(nil),
+		(*upsert_StatusMuted)(nil),
 	}
 	file_whatevr_v2_frame_proto_msgTypes[14].OneofWrappers = []any{
 		(*subscribe_Connection)(nil),
@@ -10383,6 +10525,8 @@ func file_whatevr_v2_frame_proto_init() {
 		(*subscribe_PollVotes)(nil),
 		(*subscribe_EventResponses)(nil),
 		(*subscribe_Logs)(nil),
+		(*subscribe_Status)(nil),
+		(*subscribe_StatusMuted)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

@@ -3564,8 +3564,8 @@ void ProtocolController::openStatus()
     QJsonObject params{{QStringLiteral("limit"), kStatusPageSize}};
     m_statusSub = m_client->subscribe(QStringLiteral("status"), params, m_statusModel);
     m_mutedStatusSub = m_client->subscribe(QStringLiteral("status.muted"), {}, m_mutedStatusModel);
-    // No v2 arms: settle ready-empty instead of spinning if the daemon ever
-    // fails these (entry points are hidden until the API exists).
+    // A rejected subscribe must not leave the tab spinning: settle
+    // ready-empty instead (entry points stay hidden until the API exists).
     connect(m_statusSub, &Subscription::failed, this, [this](const QString &, const QString &) {
         m_statusModel->onReady(false, true);
         Q_EMIT statusChanged();

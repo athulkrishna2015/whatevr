@@ -42,6 +42,8 @@ const (
 	KindSchedule = "schedule"
 	// user-made chat lists, see FolderHead
 	KindFolder = "folder"
+	// status mute flips, see StatusMuteHead
+	KindStatusMute = "status_mute"
 	// what this daemon fetched or did for the sticker picker
 	KindSticker = "sticker"
 	// the id this daemon gave an address the first time it showed it. read
@@ -442,4 +444,10 @@ type FolderHead struct {
 	Name   string `json:"name,omitempty"`
 	Chat   string `json:"chat,omitempty"`
 	Folder int64  `json:"folder,omitempty"`
+}
+
+// StatusMuteHead is one status-mute flip for a sender.
+type StatusMuteHead struct {
+	Sender string `json:"sender"`
+	Muted  bool   `json:"muted"`
 }

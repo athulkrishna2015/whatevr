@@ -253,6 +253,11 @@ func (db *DB) setup(ctx context.Context) error {
 			hash     BLOB NOT NULL,
 			PRIMARY KEY (chat, target, hash)
 		)`,
+		// Senders whose statuses stay muted; flips arrive as inputs and
+		// from the phone, so this table needs no rebuild to appear.
+		`CREATE TABLE IF NOT EXISTS status_muted (
+			sender TEXT PRIMARY KEY
+		)`,
 		`CREATE TABLE IF NOT EXISTS chat_favorite (
 			key      TEXT PRIMARY KEY,
 			on_flag  INTEGER NOT NULL DEFAULT 0,

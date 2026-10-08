@@ -1288,6 +1288,33 @@ private Q_SLOTS:
         QVERIFY(failedSpy.isEmpty());
     }
 
+    // The status tab lists broadcast rows with their viewed flags, and the
+    // muted senders alongside.
+    void statusListsRowsAndMuted()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats(
+            {chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});
+        QJsonObject statusRow = messageRow(QStringLiteral("s1"), QStringLiteral("0001"));
+        statusRow.insert(QStringLiteral("viewed"), true);
+        daemon.setCollection(QStringLiteral("status"), {statusRow});
+        daemon.setCollection(QStringLiteral("status.muted"),
+                             {QJsonObject{{QStringLiteral("id"), QStringLiteral("b@s")}}});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_COMPARE(daemon.chatsSubscribeCount, 2);
+
+        ctrl.openStatus();
+        auto *status = qobject_cast<QAbstractItemModel *>(ctrl.statusModel());
+        QVERIFY(status);
+        QTRY_COMPARE(status->rowCount(), 1);
+        auto *muted = qobject_cast<QAbstractItemModel *>(ctrl.mutedStatusModel());
+        QVERIFY(muted);
+        QTRY_COMPARE(muted->rowCount(), 1);
+    }
+
     // Edit history lists superseded bodies through editHistoryReady.
     void messageEditHistory()
     {

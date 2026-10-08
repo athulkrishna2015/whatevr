@@ -76,6 +76,13 @@ func inputsFor(evt any) ([]core.Input, error) {
 		return one(core.KindBlocklist, h, nil)
 	case *events.PrivacySettings:
 		return one(core.KindPrivacy, privacyHead(evt), nil)
+	case *events.UserStatusMute:
+		if evt.JID.IsEmpty() || evt.Action == nil {
+			return nil, nil
+		}
+		return one(core.KindStatusMute, core.StatusMuteHead{
+			Sender: jid(evt.JID), Muted: evt.Action.GetMuted(),
+		}, nil)
 	case *events.GroupInfo:
 		return one(core.KindGroupInfo, groupChange(evt), nil)
 	case *events.JoinedGroup:

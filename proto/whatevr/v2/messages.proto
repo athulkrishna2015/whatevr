@@ -132,6 +132,8 @@ message MessageRow {
   // every reaction by emoji. reactions holds at most a few of them, the
   // reactions view has everyone
   repeated ReactionCount reaction_counts = 25;
+  // a status the user opened; only the status views set it
+  bool viewed = 26;
 
   oneof body {
     Text text_body = 30;
@@ -731,6 +733,16 @@ message ScheduledMessage {
 
 message ScheduleCancel {
   int64 id = 1;
+}
+
+// contact statuses (stories), newest first, over the status broadcast rows
+message StatusView {}
+
+// sender ids with status mute enabled, one row per sender
+message StatusMutedView {}
+
+message StatusMutedRow {
+  string sender_id = 1;
 }
 
 message SendResult {

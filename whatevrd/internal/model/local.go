@@ -44,12 +44,13 @@ var localDomain = core.Domain{
 		)`,
 	},
 	Folds: map[string]core.FoldFunc{
-		core.KindLocal:    foldLocal,
-		core.KindAvatar:   foldAvatar,
-		core.KindPrefs:    foldPrefs,
-		core.KindFavorite: foldFavorite,
-		core.KindSchedule: foldSchedule,
-		core.KindFolder:   foldFolder,
+		core.KindLocal:      foldLocal,
+		core.KindAvatar:     foldAvatar,
+		core.KindPrefs:      foldPrefs,
+		core.KindFavorite:   foldFavorite,
+		core.KindSchedule:   foldSchedule,
+		core.KindFolder:     foldFolder,
+		core.KindStatusMute: foldStatusMute,
 	},
 }
 
@@ -445,4 +446,54 @@ func foldFolder(tx *core.Tx, in core.Input) error {
 	tx.Touch("folders", "")
 	tx.Touch("chat", h.Chat)
 	return nil
+}
+
+// foldStatusMute tracks senders whose statuses stay muted.
+func foldStatusMute(tx *core.Tx, in core.Input) error {
+	h, err := head[core.StatusMuteHead](in)
+	if err != nil {
+		return err
+	}
+	if h.Sender == "" {
+		return nil
+	}
+	if h.Muted {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO status_muted (sender) VALUES (?)`, h.Sender); err != nil {
+			return err
+		}
+	} else if _, err := tx.Exec(`DELETE FROM status_muted WHERE sender = ?`, h.Sender); err != nil {
+		return err
+	}
+	tx.Touch("status", "")
+	return nil
+}
+
+// StatusViewOp is the local op marking a status opened.
+const StatusViewOp = "viewed"
+
+// StatusMuted lists senders whose statuses stay muted.
+func (r *Reader) StatusMuted(ctx context.Context) ([]string, error) {
+	return strs(ctx, r.db, `SELECT sender FROM status_muted ORDER BY sender`)
+}
+
+// StatusViewed says which of ids were opened, by message id.
+func (r *Reader) StatusViewed(ctx context.Context, chat string, ids []string) (map[string]bool, error) {
+	if len(ids) == 0 {
+		return map[string]bool{}, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT id FROM msg_local WHERE chat = ? AND op = ? AND id IN (`+placeholders(len(ids))+`)`,
+		append([]any{chat, StatusViewOp}, anys(ids)...)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
 }

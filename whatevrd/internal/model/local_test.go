@@ -253,3 +253,27 @@ func TestEditHistoryKeepsEveryVersion(t *testing.T) {
 		t.Fatalf("history %+v %v", edits, err)
 	}
 }
+
+func TestStatusMuteAndViewedFlags(t *testing.T) {
+	db := openModel(t)
+	ctx := context.Background()
+	feed(t, db, []core.Input{
+		in(core.KindStatusMute, core.StatusMuteHead{Sender: "b@s", Muted: true}, nil, at(1)),
+		in(core.KindLocal, core.LocalHead{Chat: "status@broadcast", ID: "s1", Op: StatusViewOp}, nil, at(2)),
+	})
+	r := NewReader(db.Read())
+	muted, err := r.StatusMuted(ctx)
+	if err != nil || len(muted) != 1 || muted[0] != "b@s" {
+		t.Fatalf("muted %+v %v", muted, err)
+	}
+	seen, err := r.StatusViewed(ctx, "status@broadcast", []string{"s1", "s2"})
+	if err != nil || !seen["s1"] || seen["s2"] {
+		t.Fatalf("viewed %+v %v", seen, err)
+	}
+	feed(t, db, []core.Input{
+		in(core.KindStatusMute, core.StatusMuteHead{Sender: "b@s", Muted: false}, nil, at(3)),
+	})
+	if rest, err := r.StatusMuted(ctx); err != nil || len(rest) != 0 {
+		t.Fatalf("after unmute %+v %v", rest, err)
+	}
+}
