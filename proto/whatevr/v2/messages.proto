@@ -814,6 +814,21 @@ message EventRsvp {
 }
 
 // joins the group an invite row offers, or just says where it is
+// a message's superseded bodies, oldest first; the live row holds the
+// current version. only bodies folded since retention landed are there
+message MessageEditHistory {
+  string message_id = 1;
+}
+
+message MessageEditHistoryResult {
+  repeated MessageEditVersion edits = 1;
+}
+
+message MessageEditVersion {
+  string text = 1;
+  int64 edited_at = 2;
+}
+
 message GroupJoinInvite {
   string message_id = 1;
 }

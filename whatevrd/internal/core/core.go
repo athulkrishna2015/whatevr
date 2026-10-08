@@ -242,6 +242,17 @@ func (db *DB) setup(ctx context.Context) error {
 			text     TEXT NOT NULL,
 			send_at  INTEGER NOT NULL
 		)`,
+		// Every superseded edit body, for the edit history: the live row only
+		// keeps the newest. Sealed replays share no seq, so the body hash
+		// dedups them.
+		`CREATE TABLE IF NOT EXISTS f_edit_hist (
+			chat     TEXT NOT NULL,
+			target   TEXT NOT NULL,
+			t        INTEGER NOT NULL,
+			body     BLOB NOT NULL,
+			hash     BLOB NOT NULL,
+			PRIMARY KEY (chat, target, hash)
+		)`,
 		`CREATE TABLE IF NOT EXISTS chat_favorite (
 			key      TEXT PRIMARY KEY,
 			on_flag  INTEGER NOT NULL DEFAULT 0,

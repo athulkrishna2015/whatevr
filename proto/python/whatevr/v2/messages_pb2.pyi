@@ -1201,6 +1201,26 @@ class EventRsvp(_message.Message):
     extra_guests: int
     def __init__(self, message_id: _Optional[str] = ..., response: _Optional[_Union[Rsvp, str]] = ..., extra_guests: _Optional[int] = ...) -> None: ...
 
+class MessageEditHistory(_message.Message):
+    __slots__ = ("message_id",)
+    MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]
+    message_id: str
+    def __init__(self, message_id: _Optional[str] = ...) -> None: ...
+
+class MessageEditHistoryResult(_message.Message):
+    __slots__ = ("edits",)
+    EDITS_FIELD_NUMBER: _ClassVar[int]
+    edits: _containers.RepeatedCompositeFieldContainer[MessageEditVersion]
+    def __init__(self, edits: _Optional[_Iterable[_Union[MessageEditVersion, _Mapping]]] = ...) -> None: ...
+
+class MessageEditVersion(_message.Message):
+    __slots__ = ("text", "edited_at")
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    EDITED_AT_FIELD_NUMBER: _ClassVar[int]
+    text: str
+    edited_at: int
+    def __init__(self, text: _Optional[str] = ..., edited_at: _Optional[int] = ...) -> None: ...
+
 class GroupJoinInvite(_message.Message):
     __slots__ = ("message_id",)
     MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]

@@ -86,6 +86,7 @@ message Request {
     PollVote poll_vote = 69;
     EventRsvp event_rsvp = 70;
     GroupJoinInvite group_join_invite = 71;
+    MessageEditHistory message_edit_history = 83;
     GroupCreate group_create = 73;
     GroupLeave group_leave = 74;
     GroupSetName group_set_name = 75;
@@ -152,6 +153,7 @@ message Response {
 
     MessageForwardResult message_forward = 66;
     GroupJoinInviteResult group_join_invite = 71;
+    MessageEditHistoryResult message_edit_history = 83;
     GroupCreateResult group_create = 73;
     GroupInviteLinkResult group_invite_link = 78;
     MessageTextResult message_text = 72;

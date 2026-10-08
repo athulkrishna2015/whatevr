@@ -340,6 +340,19 @@ V2ResponseTranslation translateV2Response(const whatevr::v2::Response &response)
         out.result = result;
         break;
     }
+    case whatevr::v2::Response::kMessageEditHistory: {
+        QJsonArray edits;
+        for (const auto &version : response.message_edit_history().edits()) {
+            QJsonObject item;
+            item.insert(QStringLiteral("text"), v2s(version.text()));
+            item.insert(QStringLiteral("edited_at"), static_cast<qint64>(version.edited_at()));
+            edits.append(item);
+        }
+        QJsonObject result;
+        result.insert(QStringLiteral("edits"), edits);
+        out.result = result;
+        break;
+    }
     case whatevr::v2::Response::kMessageForward: {
         // v1 answers the whole array; keep the singular alias some callers use.
         QJsonArray forwardedIds;
@@ -1087,6 +1100,11 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
         react->set_emoji(get("emoji").toString().toStdString());
         return true;
     }
+    if (method == QLatin1String("message.edit_history")) {
+        request->mutable_message_edit_history()->set_message_id(
+            get("message_id").toString().toStdString());
+        return true;
+    }
     if (method == QLatin1String("message.edit")) {
         auto *edit = request->mutable_message_edit();
         edit->set_message_id(get("message_id").toString().toStdString());
@@ -1457,6 +1475,18 @@ bool v2ResponseFromV1(const QString &method, std::uint64_t id, const QJsonObject
             out->mutable_chat_ensure_direct()->set_chat_id(str("chat_id"));
         } else {
             out->mutable_group_join_invite()->set_chat_id(str("chat_id"));
+        }
+        return true;
+    }
+    if (method == QLatin1String("message.edit_history")) {
+        auto *history = out->mutable_message_edit_history();
+        for (const QJsonValue &row : result.value(QStringLiteral("edits")).toArray()) {
+            const QJsonObject item = row.toObject();
+            whatevr::v2::MessageEditVersion version;
+            version.set_text(item.value(QStringLiteral("text")).toString().toStdString());
+            version.set_edited_at(
+                static_cast<std::int64_t>(item.value(QStringLiteral("edited_at")).toInteger()));
+            *history->add_edits() = version;
         }
         return true;
     }
@@ -2146,6 +2176,10 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
         out->method = QStringLiteral("message.react");
         params.insert(QStringLiteral("message_id"), v2s(request.message_react().message_id()));
         params.insert(QStringLiteral("emoji"), v2s(request.message_react().emoji()));
+        break;
+    case Method::kMessageEditHistory:
+        out->method = QStringLiteral("message.edit_history");
+        params.insert(QStringLiteral("message_id"), v2s(request.message_edit_history().message_id()));
         break;
     case Method::kMessageEdit:
         out->method = QStringLiteral("message.edit");

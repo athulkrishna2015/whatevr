@@ -5,6 +5,10 @@ import (
 	"encoding/json"
 	"testing"
 
+	"go.mau.fi/whatsmeow/proto/waCommon"
+	"go.mau.fi/whatsmeow/proto/waE2E"
+	"google.golang.org/protobuf/proto"
+
 	"whatevrd/internal/core"
 )
 
@@ -225,4 +229,27 @@ func mustWorld(t *testing.T, r *Reader) *World {
 		t.Fatal(err)
 	}
 	return w
+}
+
+func TestEditHistoryKeepsEveryVersion(t *testing.T) {
+	edit := func(text string, sec int) core.Input {
+		return msgIn("E1", ashaPN, mePN, "", true, sec, &waE2E.Message{ProtocolMessage: &waE2E.ProtocolMessage{
+			Type:          waE2E.ProtocolMessage_MESSAGE_EDIT.Enum(),
+			Key:           &waCommon.MessageKey{RemoteJID: proto.String(ashaPN), ID: proto.String("M2"), FromMe: proto.Bool(true)},
+			EditedMessage: &waE2E.Message{Conversation: proto.String(text)},
+			TimestampMS:   proto.Int64(at(sec).UnixMilli()),
+		}})
+	}
+	db := openModel(t)
+	ctx := context.Background()
+	feed(t, db, []core.Input{
+		msgIn("M2", ashaPN, mePN, "", true, 11, text("v0")),
+		edit("v1", 12),
+		edit("v2", 13),
+	})
+	r := NewReader(db.Read())
+	edits, err := r.Edits(ctx, []string{ashaPN}, "M2")
+	if err != nil || len(edits) != 2 || edits[0].Text != "v1" || edits[1].Text != "v2" {
+		t.Fatalf("history %+v %v", edits, err)
+	}
 }

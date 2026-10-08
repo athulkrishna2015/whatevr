@@ -88,6 +88,11 @@ func (c *Client) message(ctx context.Context, ref Ref) (model.Message, *model.Wo
 	return m, w, nil
 }
 
+// Edits returns a message's superseded bodies, oldest first.
+func (c *Client) Edits(ctx context.Context, addrs []string, id string) ([]model.Edit, error) {
+	return c.r.Edits(ctx, addrs, id)
+}
+
 // Draft is what a send says besides its body.
 type Draft struct {
 	Chat     string

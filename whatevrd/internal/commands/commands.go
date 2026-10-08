@@ -71,6 +71,7 @@ func Register(o Options) *Opener {
 		arm(v2.Request_ChatEnsureDirect_case):         x.ensureDirect,
 		arm(v2.Request_MessageReact_case):             x.react,
 		arm(v2.Request_MessageEdit_case):              x.edit,
+		arm(v2.Request_MessageEditHistory_case):       x.editHistory,
 		arm(v2.Request_MessageRevoke_case):            x.revoke,
 		arm(v2.Request_MessageDelete_case):            x.deleteForMe,
 		arm(v2.Request_MessageStar_case):              x.star,
@@ -610,6 +611,28 @@ func onMessage(tok string, fn func(whatsapp.Ref) error) (*v2.Response, error) {
 func (x *commands) react(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
 	p := req.GetMessageReact()
 	return onMessage(p.GetMessageId(), func(r whatsapp.Ref) error { return x.c.React(ctx, r, p.GetEmoji()) })
+}
+
+func (x *commands) editHistory(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	ref, err := message(req.GetMessageEditHistory().GetMessageId())
+	if err != nil {
+		return nil, err
+	}
+	w, err := x.rs.World(ctx)
+	if err != nil {
+		return nil, err
+	}
+	edits, err := x.c.Edits(ctx, w.Addrs(w.Now(model.Norm(ref.Chat))), ref.ID)
+	if err != nil {
+		return nil, wire(err)
+	}
+	res := v2.MessageEditHistoryResult_builder{}.Build()
+	for _, e := range edits {
+		res.SetEdits(append(res.GetEdits(), v2.MessageEditVersion_builder{Text: e.Text, EditedAt: e.T}.Build()))
+	}
+	resp := &v2.Response{}
+	resp.SetMessageEditHistory(res)
+	return resp, nil
 }
 
 func (x *commands) edit(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {

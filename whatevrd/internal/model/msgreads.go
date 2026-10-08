@@ -609,6 +609,47 @@ func (r *Reader) list(ctx context.Context, q string, args ...any) ([]Message, er
 	return out, r.facts(ctx, out)
 }
 
+// Edit is one superseded body of a message, oldest first.
+type Edit struct {
+	Text string
+	T    int64
+}
+
+// Edits returns a message's superseded bodies, oldest first. Only bodies
+// folded since history retention landed are there; older edits are gone
+// with the rows that superseded them.
+func (r *Reader) Edits(ctx context.Context, addrs []string, target string) ([]Edit, error) {
+	if len(addrs) == 0 || target == "" {
+		return nil, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT t, body FROM f_edit_hist WHERE target = ? AND chat IN (`+placeholders(len(addrs))+`) ORDER BY t, rowid`, append(anys([]string{target}), anys(addrs)...)...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Edit
+	for rows.Next() {
+		var t int64
+		var body []byte
+		if err := rows.Scan(&t, &body); err != nil {
+			return nil, err
+		}
+		var m waE2E.Message
+		if proto.Unmarshal(body, &m) != nil {
+			continue
+		}
+		text := strings.TrimSpace(m.GetConversation())
+		if text == "" {
+			text = strings.TrimSpace(m.GetExtendedTextMessage().GetText())
+		}
+		if text == "" {
+			continue
+		}
+		out = append(out, Edit{Text: text, T: t})
+	}
+	return out, rows.Err()
+}
+
 // MessageChat is the address a message id lives under, for ids that come
 // without their chat.
 func (r *Reader) MessageChat(ctx context.Context, id string) (string, bool, error) {

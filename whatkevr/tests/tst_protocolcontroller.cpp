@@ -460,6 +460,15 @@ private:
                                       {QStringLiteral("errors"), QJsonArray{}}});
             }
             Q_EMIT commandReceived();
+        } else if (method == QLatin1String("message.edit_history")) {
+            lastCommandMethod = method;
+            lastCommandParams = params;
+            reply(id, QJsonObject{{QStringLiteral("edits"),
+                                    QJsonArray{QJsonObject{{QStringLiteral("text"),
+                                                             QStringLiteral("first")},
+                                                            {QStringLiteral("edited_at"),
+                                                             QJsonValue(1700000000000.0)}}}}});
+            Q_EMIT commandReceived();
         } else if (method.startsWith(QLatin1String("message."))) {
             lastCommandMethod = method;
             lastCommandParams = params;
@@ -1233,6 +1242,28 @@ private Q_SLOTS:
         QCOMPARE(daemon.lastCommandMethod, QStringLiteral("community.link"));
         QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("community_id")).toString(),
                  QStringLiteral("c@g.us"));
+    }
+
+    // Edit history lists superseded bodies through editHistoryReady.
+    void messageEditHistory()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats(
+            {chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_COMPARE(daemon.chatsSubscribeCount, 2);
+
+        QSignalSpy commandSpy(&daemon, &FakeDaemon::commandReceived);
+        QSignalSpy historySpy(&ctrl, &ProtocolController::editHistoryReady);
+        ctrl.requestEditHistory(QStringLiteral("a@s/m1"));
+        QVERIFY(commandSpy.wait());
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("message.edit_history"));
+        QTRY_COMPARE(historySpy.count(), 1);
+        QCOMPARE(historySpy.first().first().toString(), QStringLiteral("a@s/m1"));
+        QCOMPARE(historySpy.first().at(1).toList().size(), 1);
     }
 
     // `privacy.set_default_timer` carries the seconds through.

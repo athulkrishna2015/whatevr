@@ -1252,6 +1252,10 @@ func putEdit(tx *core.Tx, f fact, target string, body []byte) error {
 		return scrubBody(tx, f.seq, -1, -1)
 	}
 	sum := sha256.Sum256(body)
+	if _, err := tx.Exec(`INSERT OR IGNORE INTO f_edit_hist (chat, target, t, body, hash) VALUES (?, ?, ?, ?, ?)`,
+		f.chat, target, f.t, body, sum[:]); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(`INSERT INTO f_edit (chat, target, by, by_alt, t, hash, body, seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (chat, target, by) DO UPDATE SET by_alt = excluded.by_alt, t = excluded.t, hash = excluded.hash,
 			body = excluded.body, seq = excluded.seq
