@@ -101,6 +101,13 @@ message Request {
     GroupSetLocked group_set_locked = 82;
     CommunityLink community_link = 84;
     CommunityUnlink community_unlink = 85;
+    StatusMarkViewed status_mark_viewed = 86;
+    StatusPost status_post = 87;
+    StatusDownload status_download = 88;
+    StatusReply status_reply = 89;
+    StatusMuteSender status_mute_sender = 96;
+    StatusViewers status_viewers = 97;
+    StatusDelete status_delete = 98;
     MessageText message_text = 72;
 
     // 90-99: media
@@ -160,6 +167,8 @@ message Response {
     MessageEditHistoryResult message_edit_history = 83;
     GroupCreateResult group_create = 73;
     GroupInviteLinkResult group_invite_link = 78;
+    StatusPostResult status_post = 87;
+    StatusViewersResult status_viewers = 97;
     MessageTextResult message_text = 72;
 
     MediaStreamResult media_stream = 91;

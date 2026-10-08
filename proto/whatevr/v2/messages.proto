@@ -745,6 +745,56 @@ message StatusMutedRow {
   string sender_id = 1;
 }
 
+// publishes a text or media status. exactly one of text or path is set;
+// path reuses the send classifier (photo, video, audio; no documents)
+message StatusPost {
+  string text = 1;
+  string path = 2;
+  string caption = 3;
+  uint32 background = 4;
+  int32 font = 5;
+}
+
+message StatusPostResult {
+  string status_id = 1;
+}
+
+message StatusMarkViewed {
+  string status_id = 1;
+}
+
+message StatusDownload {
+  string status_id = 1;
+}
+
+message StatusReply {
+  string status_id = 1;
+  string text = 2;
+}
+
+message StatusMuteSender {
+  string sender_id = 1;
+  bool muted = 2;
+}
+
+message StatusViewers {
+  string status_id = 1;
+}
+
+message StatusViewersResult {
+  repeated StatusViewer viewers = 1;
+}
+
+message StatusViewer {
+  string jid = 1;
+  string name = 2;
+  int64 viewed_at = 3;
+}
+
+message StatusDelete {
+  string status_id = 1;
+}
+
 message SendResult {
   string message_id = 1;
 }

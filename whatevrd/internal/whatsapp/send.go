@@ -195,7 +195,9 @@ func (c *Client) context(ctx context.Context, cli *whatsmeow.Client, d Draft) (*
 		if err != nil {
 			return nil, err
 		}
-		if w.Now(model.Norm(m.Chat)) != w.Now(model.Norm(d.Chat)) {
+		if w.Now(model.Norm(m.Chat)) != w.Now(model.Norm(d.Chat)) && m.Chat != statusChat {
+			// a status answers in its author's DM, carrying the status as
+			// its quote the way official clients reply to stories
 			return nil, Errorf(ErrInvalid, "the reply is not in this chat")
 		}
 		ci = &waE2E.ContextInfo{StanzaID: proto.String(m.ID), QuotedMessage: quoted(m)}

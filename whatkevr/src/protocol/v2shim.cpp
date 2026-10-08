@@ -365,6 +365,26 @@ V2ResponseTranslation translateV2Response(const whatevr::v2::Response &response)
         out.result = result;
         break;
     }
+    case whatevr::v2::Response::kStatusPost: {
+        QJsonObject result;
+        result.insert(QStringLiteral("status_id"), v2s(response.status_post().status_id()));
+        out.result = result;
+        break;
+    }
+    case whatevr::v2::Response::kStatusViewers: {
+        QJsonArray viewers;
+        for (const auto &viewer : response.status_viewers().viewers()) {
+            QJsonObject item;
+            item.insert(QStringLiteral("jid"), v2s(viewer.jid()));
+            item.insert(QStringLiteral("name"), v2s(viewer.name()));
+            item.insert(QStringLiteral("viewed_at"), static_cast<qint64>(viewer.viewed_at()));
+            viewers.append(item);
+        }
+        QJsonObject result;
+        result.insert(QStringLiteral("viewers"), viewers);
+        out.result = result;
+        break;
+    }
     case whatevr::v2::Response::kMessageForward: {
         // v1 answers the whole array; keep the singular alias some callers use.
         QJsonArray forwardedIds;
@@ -1129,6 +1149,49 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
         return true;
     }
 
+    // Statuses.
+    if (method == QLatin1String("status.mark_viewed")) {
+        request->mutable_status_mark_viewed()->set_status_id(
+            get("status_id").toString().toStdString());
+        return true;
+    }
+    if (method == QLatin1String("status.post")) {
+        auto *post = request->mutable_status_post();
+        post->set_text(get("text").toString().toStdString());
+        post->set_path(get("path").toString().toStdString());
+        post->set_caption(get("caption").toString().toStdString());
+        post->set_background(static_cast<std::uint32_t>(get("background").toInt()));
+        post->set_font(get("font").toInt());
+        return true;
+    }
+    if (method == QLatin1String("status.download")) {
+        request->mutable_status_download()->set_status_id(
+            get("status_id").toString().toStdString());
+        return true;
+    }
+    if (method == QLatin1String("status.reply")) {
+        auto *reply = request->mutable_status_reply();
+        reply->set_status_id(get("status_id").toString().toStdString());
+        reply->set_text(get("text").toString().toStdString());
+        return true;
+    }
+    if (method == QLatin1String("status.mute_sender")) {
+        auto *mute = request->mutable_status_mute_sender();
+        mute->set_sender_id(get("sender_id").toString().toStdString());
+        mute->set_muted(get("muted").toBool());
+        return true;
+    }
+    if (method == QLatin1String("status.viewers")) {
+        request->mutable_status_viewers()->set_status_id(
+            get("status_id").toString().toStdString());
+        return true;
+    }
+    if (method == QLatin1String("status.delete")) {
+        request->mutable_status_delete()->set_status_id(
+            get("status_id").toString().toStdString());
+        return true;
+    }
+
     // Messages.
     if (method == QLatin1String("message.react")) {
         auto *react = request->mutable_message_react();
@@ -1530,6 +1593,23 @@ bool v2ResponseFromV1(const QString &method, std::uint64_t id, const QJsonObject
             version.set_edited_at(
                 static_cast<std::int64_t>(item.value(QStringLiteral("edited_at")).toInteger()));
             *history->add_edits() = version;
+        }
+        return true;
+    }
+    if (method == QLatin1String("status.post")) {
+        out->mutable_status_post()->set_status_id(str("status_id"));
+        return true;
+    }
+    if (method == QLatin1String("status.viewers")) {
+        auto *viewers = out->mutable_status_viewers();
+        for (const QJsonValue &row : result.value(QStringLiteral("viewers")).toArray()) {
+            const QJsonObject item = row.toObject();
+            whatevr::v2::StatusViewer viewer;
+            viewer.set_jid(item.value(QStringLiteral("jid")).toString().toStdString());
+            viewer.set_name(item.value(QStringLiteral("name")).toString().toStdString());
+            viewer.set_viewed_at(
+                static_cast<std::int64_t>(item.value(QStringLiteral("viewed_at")).toInteger()));
+            *viewers->add_viewers() = viewer;
         }
         return true;
     }
@@ -2235,6 +2315,48 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
         out->method = QStringLiteral("schedule.cancel");
         params.insert(QStringLiteral("id"),
                       static_cast<qint64>(request.schedule_cancel().id()));
+        break;
+    case Method::kStatusMarkViewed:
+        out->method = QStringLiteral("status.mark_viewed");
+        params.insert(QStringLiteral("status_id"), v2s(request.status_mark_viewed().status_id()));
+        break;
+    case Method::kStatusPost: {
+        out->method = QStringLiteral("status.post");
+        const auto &post = request.status_post();
+        if (!post.text().empty()) {
+            params.insert(QStringLiteral("text"), v2s(post.text()));
+        }
+        if (!post.path().empty()) {
+            params.insert(QStringLiteral("path"), v2s(post.path()));
+        }
+        if (!post.caption().empty()) {
+            params.insert(QStringLiteral("caption"), v2s(post.caption()));
+        }
+        params.insert(QStringLiteral("background"), static_cast<qint64>(post.background()));
+        params.insert(QStringLiteral("font"), post.font());
+        break;
+    }
+    case Method::kStatusDownload:
+        out->method = QStringLiteral("status.download");
+        params.insert(QStringLiteral("status_id"), v2s(request.status_download().status_id()));
+        break;
+    case Method::kStatusReply:
+        out->method = QStringLiteral("status.reply");
+        params.insert(QStringLiteral("status_id"), v2s(request.status_reply().status_id()));
+        params.insert(QStringLiteral("text"), v2s(request.status_reply().text()));
+        break;
+    case Method::kStatusMuteSender:
+        out->method = QStringLiteral("status.mute_sender");
+        params.insert(QStringLiteral("sender_id"), v2s(request.status_mute_sender().sender_id()));
+        params.insert(QStringLiteral("muted"), request.status_mute_sender().muted());
+        break;
+    case Method::kStatusViewers:
+        out->method = QStringLiteral("status.viewers");
+        params.insert(QStringLiteral("status_id"), v2s(request.status_viewers().status_id()));
+        break;
+    case Method::kStatusDelete:
+        out->method = QStringLiteral("status.delete");
+        params.insert(QStringLiteral("status_id"), v2s(request.status_delete().status_id()));
         break;
     case Method::kMessageReact:
         out->method = QStringLiteral("message.react");

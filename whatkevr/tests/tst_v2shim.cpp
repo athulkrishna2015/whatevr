@@ -111,7 +111,10 @@ private Q_SLOTS:
         whatevr::v2::Request request;
         QVERIFY(buildV2Subscribe(1, QStringLiteral("chat_folders"), {}, &request));
         QVERIFY(request.subscribe().has_chat_folders());
-        QVERIFY(!buildV2Subscribe(1, QStringLiteral("status"), {}, &request));
+        QVERIFY(buildV2Subscribe(1, QStringLiteral("status"), {}, &request));
+        QVERIFY(request.subscribe().has_status());
+        QVERIFY(buildV2Subscribe(1, QStringLiteral("status.muted"), {}, &request));
+        QVERIFY(request.subscribe().has_status_muted());
         QVERIFY(!buildV2Subscribe(1, QStringLiteral("chats"),
                                    QJsonObject{{QStringLiteral("filter"), QStringLiteral("unread")}},
                                    &request));
@@ -218,7 +221,10 @@ private Q_SLOTS:
                                QJsonObject{{QStringLiteral("name"), QStringLiteral("Work")}},
                                &request));
         QVERIFY(request.has_chat_folder_create());
-        QVERIFY(!buildV2Request(1, QStringLiteral("status.post"), {}, &request));
+        QVERIFY(buildV2Request(1, QStringLiteral("status.post"),
+                               QJsonObject{{QStringLiteral("text"), QStringLiteral("hi")}},
+                               &request));
+        QVERIFY(request.has_status_post());
         QVERIFY(buildV2Request(1, QStringLiteral("daemon.shutdown"), {}, &request));
         QVERIFY(request.has_daemon_shutdown());
     }

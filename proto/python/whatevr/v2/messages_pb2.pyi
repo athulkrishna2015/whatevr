@@ -1105,6 +1105,82 @@ class StatusMutedRow(_message.Message):
     sender_id: str
     def __init__(self, sender_id: _Optional[str] = ...) -> None: ...
 
+class StatusPost(_message.Message):
+    __slots__ = ("text", "path", "caption", "background", "font")
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    CAPTION_FIELD_NUMBER: _ClassVar[int]
+    BACKGROUND_FIELD_NUMBER: _ClassVar[int]
+    FONT_FIELD_NUMBER: _ClassVar[int]
+    text: str
+    path: str
+    caption: str
+    background: int
+    font: int
+    def __init__(self, text: _Optional[str] = ..., path: _Optional[str] = ..., caption: _Optional[str] = ..., background: _Optional[int] = ..., font: _Optional[int] = ...) -> None: ...
+
+class StatusPostResult(_message.Message):
+    __slots__ = ("status_id",)
+    STATUS_ID_FIELD_NUMBER: _ClassVar[int]
+    status_id: str
+    def __init__(self, status_id: _Optional[str] = ...) -> None: ...
+
+class StatusMarkViewed(_message.Message):
+    __slots__ = ("status_id",)
+    STATUS_ID_FIELD_NUMBER: _ClassVar[int]
+    status_id: str
+    def __init__(self, status_id: _Optional[str] = ...) -> None: ...
+
+class StatusDownload(_message.Message):
+    __slots__ = ("status_id",)
+    STATUS_ID_FIELD_NUMBER: _ClassVar[int]
+    status_id: str
+    def __init__(self, status_id: _Optional[str] = ...) -> None: ...
+
+class StatusReply(_message.Message):
+    __slots__ = ("status_id", "text")
+    STATUS_ID_FIELD_NUMBER: _ClassVar[int]
+    TEXT_FIELD_NUMBER: _ClassVar[int]
+    status_id: str
+    text: str
+    def __init__(self, status_id: _Optional[str] = ..., text: _Optional[str] = ...) -> None: ...
+
+class StatusMuteSender(_message.Message):
+    __slots__ = ("sender_id", "muted")
+    SENDER_ID_FIELD_NUMBER: _ClassVar[int]
+    MUTED_FIELD_NUMBER: _ClassVar[int]
+    sender_id: str
+    muted: bool
+    def __init__(self, sender_id: _Optional[str] = ..., muted: _Optional[bool] = ...) -> None: ...
+
+class StatusViewers(_message.Message):
+    __slots__ = ("status_id",)
+    STATUS_ID_FIELD_NUMBER: _ClassVar[int]
+    status_id: str
+    def __init__(self, status_id: _Optional[str] = ...) -> None: ...
+
+class StatusViewersResult(_message.Message):
+    __slots__ = ("viewers",)
+    VIEWERS_FIELD_NUMBER: _ClassVar[int]
+    viewers: _containers.RepeatedCompositeFieldContainer[StatusViewer]
+    def __init__(self, viewers: _Optional[_Iterable[_Union[StatusViewer, _Mapping]]] = ...) -> None: ...
+
+class StatusViewer(_message.Message):
+    __slots__ = ("jid", "name", "viewed_at")
+    JID_FIELD_NUMBER: _ClassVar[int]
+    NAME_FIELD_NUMBER: _ClassVar[int]
+    VIEWED_AT_FIELD_NUMBER: _ClassVar[int]
+    jid: str
+    name: str
+    viewed_at: int
+    def __init__(self, jid: _Optional[str] = ..., name: _Optional[str] = ..., viewed_at: _Optional[int] = ...) -> None: ...
+
+class StatusDelete(_message.Message):
+    __slots__ = ("status_id",)
+    STATUS_ID_FIELD_NUMBER: _ClassVar[int]
+    status_id: str
+    def __init__(self, status_id: _Optional[str] = ...) -> None: ...
+
 class SendResult(_message.Message):
     __slots__ = ("message_id",)
     MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]

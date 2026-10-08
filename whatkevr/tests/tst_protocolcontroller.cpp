@@ -570,6 +570,32 @@ private:
                 reply(id, QJsonObject{});
             }
             Q_EMIT commandReceived();
+        } else if (method == QLatin1String("status.post")) {
+            lastCommandMethod = method;
+            lastCommandParams = params;
+            reply(id, QJsonObject{{QStringLiteral("status_id"),
+                                    QStringLiteral("status@broadcast/s9")}});
+            Q_EMIT commandReceived();
+        } else if (method == QLatin1String("status.viewers")) {
+            lastCommandMethod = method;
+            lastCommandParams = params;
+            reply(id, QJsonObject{{QStringLiteral("viewers"),
+                                    QJsonArray{QJsonObject{{QStringLiteral("jid"),
+                                                             QStringLiteral("b@s")},
+                                                            {QStringLiteral("name"),
+                                                             QStringLiteral("Bob")},
+                                                            {QStringLiteral("viewed_at"),
+                                                             QJsonValue(1700000000.0)}}}}});
+            Q_EMIT commandReceived();
+        } else if (method == QLatin1String("status.mark_viewed")
+                   || method == QLatin1String("status.download")
+                   || method == QLatin1String("status.reply")
+                   || method == QLatin1String("status.mute_sender")
+                   || method == QLatin1String("status.delete")) {
+            lastCommandMethod = method;
+            lastCommandParams = params;
+            reply(id, QJsonObject{});
+            Q_EMIT commandReceived();
         } else if (method == QLatin1String("community.link")
                    || method == QLatin1String("community.unlink")) {
             lastCommandMethod = method;
@@ -1286,6 +1312,44 @@ private Q_SLOTS:
         QTRY_COMPARE(commandSpy.count(), sets + 1);
         QCOMPARE(daemon.lastCommandMethod, QStringLiteral("daemon.backup_set_passphrase"));
         QVERIFY(failedSpy.isEmpty());
+    }
+
+    // Status commands reach the daemon: posting answers an id, viewers
+    // parse, and fire-and-forget ones ack quietly.
+    void statusPostViewersAndMute()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats(
+            {chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_COMPARE(daemon.chatsSubscribeCount, 2);
+
+        QSignalSpy commandSpy(&daemon, &FakeDaemon::commandReceived);
+        ctrl.postStatusText(QStringLiteral("hello"), 0, 0);
+        QVERIFY(commandSpy.wait());
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("status.post"));
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("text")).toString(),
+                 QStringLiteral("hello"));
+
+        QSignalSpy viewersSpy(&ctrl, &ProtocolController::statusViewersReady);
+        ctrl.requestStatusViewers(QStringLiteral("status@broadcast/s1"));
+        QVERIFY(viewersSpy.wait());
+        QCOMPARE(viewersSpy.first().first().toString(), QStringLiteral("status@broadcast/s1"));
+        QCOMPARE(viewersSpy.first().at(1).toList().size(), 1);
+
+        const int mutes = commandSpy.count();
+        ctrl.setStatusMuteSender(QStringLiteral("b@s"), true);
+        QTRY_COMPARE(commandSpy.count(), mutes + 1);
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("status.mute_sender"));
+        QVERIFY(daemon.lastCommandParams.value(QStringLiteral("muted")).toBool());
+
+        const int deletes = commandSpy.count();
+        ctrl.deleteStatus(QStringLiteral("status@broadcast/s1"));
+        QTRY_COMPARE(commandSpy.count(), deletes + 1);
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("status.delete"));
     }
 
     // The status tab lists broadcast rows with their viewed flags, and the

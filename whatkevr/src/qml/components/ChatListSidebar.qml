@@ -222,9 +222,6 @@ Item {
         }
 
         QQC2.ToolButton {
-            // Status needs the v2-missing `status` views: hidden until the
-            // daemon grows them rather than a permanently loading page.
-            visible: false
             Layout.alignment: Qt.AlignHCenter
             icon.name: "camera-photo-symbolic"
             display: QQC2.AbstractButton.IconOnly

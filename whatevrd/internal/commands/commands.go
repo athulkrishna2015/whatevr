@@ -97,6 +97,13 @@ func Register(o Options) *Opener {
 		arm(v2.Request_GroupSetLocked_case):            x.groupSetLocked,
 		arm(v2.Request_CommunityLink_case):             x.communityLink,
 		arm(v2.Request_CommunityUnlink_case):           x.communityUnlink,
+		arm(v2.Request_StatusMarkViewed_case):          x.statusViewed,
+		arm(v2.Request_StatusPost_case):                x.statusPost,
+		arm(v2.Request_StatusDownload_case):            x.statusDownload,
+		arm(v2.Request_StatusReply_case):               x.statusReply,
+		arm(v2.Request_StatusMuteSender_case):          x.statusMute,
+		arm(v2.Request_StatusViewers_case):             x.statusViewers,
+		arm(v2.Request_StatusDelete_case):              x.statusDelete,
 		arm(v2.Request_MediaDownload_case):             x.download,
 		arm(v2.Request_MediaStream_case):               x.stream,
 		arm(v2.Request_MediaCancelDownload_case):       x.cancelDownload,
@@ -906,6 +913,107 @@ func (x *commands) communityUnlink(ctx context.Context, s *server.Session, req *
 		return nil, err
 	}
 	return nil, wire(x.c.UnlinkCommunityGroup(ctx, community, group))
+}
+
+func (x *commands) statusToken(id string) (string, error) {
+	if strings.TrimSpace(id) == "" {
+		return "", invalid("status_id is required")
+	}
+	return strings.TrimSpace(id), nil
+}
+
+func (x *commands) statusPost(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetStatusPost()
+	var ref whatsapp.Ref
+	var err error
+	if strings.TrimSpace(p.GetPath()) != "" {
+		ref, err = x.c.PostStatusMedia(ctx, p.GetPath(), p.GetCaption())
+	} else {
+		ref, err = x.c.PostStatusText(ctx, p.GetText(), p.GetBackground(), p.GetFont())
+	}
+	if err != nil {
+		return nil, wire(err)
+	}
+	resp := &v2.Response{}
+	resp.SetStatusPost(v2.StatusPostResult_builder{StatusId: token(ref)}.Build())
+	return resp, nil
+}
+
+func (x *commands) statusViewed(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	tok, err := x.statusToken(req.GetStatusMarkViewed().GetStatusId())
+	if err != nil {
+		return nil, err
+	}
+	return nil, wire(x.c.MarkStatusViewed(ctx, tok))
+}
+
+func (x *commands) statusDownload(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	tok, err := x.statusToken(req.GetStatusDownload().GetStatusId())
+	if err != nil {
+		return nil, err
+	}
+	ref, err := message(tok)
+	if err != nil {
+		return nil, err
+	}
+	return nil, wire(x.c.Download(ctx, ref))
+}
+
+func (x *commands) statusReply(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetStatusReply()
+	tok, err := x.statusToken(p.GetStatusId())
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(p.GetText()) == "" {
+		return nil, invalid("reply text is required")
+	}
+	ref, err := x.c.ReplyToStatus(ctx, tok, p.GetText())
+	if err != nil {
+		return nil, wire(err)
+	}
+	return sent(ref, nil)
+}
+
+func (x *commands) statusMute(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetStatusMuteSender()
+	if strings.TrimSpace(p.GetSenderId()) == "" {
+		return nil, invalid("sender_id is required")
+	}
+	return nil, wire(x.c.SetStatusMuted(ctx, p.GetSenderId(), p.GetMuted()))
+}
+
+func (x *commands) statusViewers(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	tok, err := x.statusToken(req.GetStatusViewers().GetStatusId())
+	if err != nil {
+		return nil, err
+	}
+	receipts, err := x.c.StatusViewers(ctx, tok)
+	if err != nil {
+		return nil, wire(err)
+	}
+	w, err := x.rs.World(ctx)
+	if err != nil {
+		return nil, err
+	}
+	res := v2.StatusViewersResult_builder{}.Build()
+	for _, r := range receipts {
+		name, _ := w.Name(w.Now(model.Norm(r.Who)))
+		res.SetViewers(append(res.GetViewers(), v2.StatusViewer_builder{
+			Jid: r.Who, Name: name, ViewedAt: r.T,
+		}.Build()))
+	}
+	resp := &v2.Response{}
+	resp.SetStatusViewers(res)
+	return resp, nil
+}
+
+func (x *commands) statusDelete(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	tok, err := x.statusToken(req.GetStatusDelete().GetStatusId())
+	if err != nil {
+		return nil, err
+	}
+	return nil, wire(x.c.DeleteStatus(ctx, tok))
 }
 
 func (x *commands) joinInvite(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
