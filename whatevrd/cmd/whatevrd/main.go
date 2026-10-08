@@ -260,6 +260,8 @@ func runDaemon(mockFlagSet *mockFlagSet, captureFlagSet *captureFlagSet) {
 		Frontends: frontends.DefaultDirs(),
 		// a mock run never starts a real frontend behind a test's back
 		Launch: !mockSilencesNotifications(mock),
+		// the quit path: the frontend asks, the daemon acks, then exits
+		Shutdown: stop,
 		Hint: func(title, body string) {
 			if notifier != nil {
 				notifier.Show(live.Notification{ID: "whatevr-hint", Title: title, Body: body, T: time.Now()})

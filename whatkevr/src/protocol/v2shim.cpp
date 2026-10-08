@@ -869,6 +869,10 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
             get("passphrase").toString().toStdString());
         return true;
     }
+    if (method == QLatin1String("daemon.shutdown")) {
+        request->mutable_daemon_shutdown();
+        return true;
+    }
     if (method == QLatin1String("daemon.reconnect")) {
         request->mutable_daemon_reconnect();
         return true;
@@ -1958,6 +1962,9 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
         out->method = QStringLiteral("daemon.backup_set_passphrase");
         params.insert(QStringLiteral("passphrase"),
                       v2s(request.daemon_backup_set_passphrase().passphrase()));
+        break;
+    case Method::kDaemonShutdown:
+        out->method = QStringLiteral("daemon.shutdown");
         break;
     case Method::kDaemonReconnect:
         out->method = QStringLiteral("daemon.reconnect");

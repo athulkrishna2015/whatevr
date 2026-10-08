@@ -152,6 +152,9 @@ message DaemonReconnect {}
 
 message AccountLogout {}
 
+// the daemon acks, then exits on its own timer
+message DaemonShutdown {}
+
 // writes a backup bundle (message store + session + media) to path. a
 // passphrase encrypts it; use_keyring reads that passphrase from the OS
 // keyring instead of the wire

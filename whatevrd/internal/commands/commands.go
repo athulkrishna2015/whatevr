@@ -37,23 +37,27 @@ type Options struct {
 	Launch bool
 	// Hint tells the user why nothing opened, nil to only log it
 	Hint func(title, body string)
+	// Shutdown stops the daemon after the shutdown ack goes out, nil to
+	// refuse shutdowns (tests and tools)
+	Shutdown func()
 }
 
 type commands struct {
-	srv    *server.Server
-	c      *whatsapp.Client
-	rs     *views.Reads
-	log    zerolog.Logger
-	dirs   frontends.Dirs
-	launch bool
-	hint   func(title, body string)
-	opener *Opener
+	srv      *server.Server
+	shutdown func()
+	c        *whatsapp.Client
+	rs       *views.Reads
+	log      zerolog.Logger
+	dirs     frontends.Dirs
+	launch   bool
+	hint     func(title, body string)
+	opener   *Opener
 }
 
 // Register serves every command on o.Server and has it tell the client
 // what the frontends show. the opener is for clicks from outside the socket.
 func Register(o Options) *Opener {
-	x := &commands{srv: o.Server, c: o.Client, rs: o.Reads, log: o.Log, dirs: o.Frontends, launch: o.Launch, hint: o.Hint}
+	x := &commands{srv: o.Server, c: o.Client, rs: o.Reads, log: o.Log, dirs: o.Frontends, launch: o.Launch, hint: o.Hint, shutdown: o.Shutdown}
 	x.opener = &Opener{x: x}
 	type arm = protoreflect.FieldNumber
 	off := map[arm]server.Method{
@@ -101,6 +105,7 @@ func Register(o Options) *Opener {
 		arm(v2.Request_MediaSave_case):                 x.saveMedia,
 		arm(v2.Request_DaemonBackupExport_case):        x.backupExport,
 		arm(v2.Request_DaemonBackupSetPassphrase_case): x.backupSetPassphrase,
+		arm(v2.Request_DaemonShutdown_case):            x.shutdownDaemon,
 		arm(v2.Request_LogMessage_case):                x.logMessage,
 		arm(v2.Request_PrivacySet_case):                x.privacy,
 		arm(v2.Request_PrivacySetDefaultTimer_case):    x.defaultTimer,
@@ -270,6 +275,25 @@ func (x *commands) backupExport(ctx context.Context, s *server.Session, req *v2.
 	resp := &v2.Response{}
 	resp.SetDaemonBackupExport(v2.DaemonBackupExportResult_builder{Path: path, SizeBytes: uint64(size)}.Build())
 	return resp, nil
+}
+
+func (x *commands) shutdownDaemon(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	if x.shutdown == nil {
+		return nil, invalid("shutdown is not available")
+	}
+	// The ack goes out on return; the daemon exits just after, on its own
+	// timer so the frontend's quit never blocks on a dead socket.
+	go func() {
+		timer := time.NewTimer(time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+			x.shutdown()
+		}
+	}()
+	return nil, nil
 }
 
 func (x *commands) backupSetPassphrase(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {

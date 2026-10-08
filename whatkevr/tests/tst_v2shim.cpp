@@ -219,7 +219,8 @@ private Q_SLOTS:
                                &request));
         QVERIFY(request.has_chat_folder_create());
         QVERIFY(!buildV2Request(1, QStringLiteral("status.post"), {}, &request));
-        QVERIFY(!buildV2Request(1, QStringLiteral("daemon.shutdown"), {}, &request));
+        QVERIFY(buildV2Request(1, QStringLiteral("daemon.shutdown"), {}, &request));
+        QVERIFY(request.has_daemon_shutdown());
     }
 
     void requestSendText()

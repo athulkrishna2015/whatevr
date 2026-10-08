@@ -46,6 +46,7 @@ message Request {
     LogMessage log_message = 25;
     DaemonBackupExport daemon_backup_export = 26;
     DaemonBackupSetPassphrase daemon_backup_set_passphrase = 27;
+    DaemonShutdown daemon_shutdown = 28;
 
     // 30-49: chats
     ChatMarkRead chat_mark_read = 30;

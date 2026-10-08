@@ -209,6 +209,10 @@ class AccountLogout(_message.Message):
     __slots__ = ()
     def __init__(self) -> None: ...
 
+class DaemonShutdown(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
 class DaemonBackupExport(_message.Message):
     __slots__ = ("path", "passphrase", "use_keyring")
     PATH_FIELD_NUMBER: _ClassVar[int]
