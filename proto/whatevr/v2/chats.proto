@@ -129,3 +129,13 @@ message ChatMarkAllRead {}
 message ChatMarkAllReadResult {
   int32 count = 1;
 }
+
+// writes the chat transcript (.txt, official format) to a caller-owned path
+message ChatExport {
+  string chat_id = 1;
+  string path = 2;
+}
+
+message ChatExportResult {
+  string path = 1;
+}

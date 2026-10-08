@@ -1438,6 +1438,135 @@ func (b0 ChatMarkAllReadResult_builder) Build() *ChatMarkAllReadResult {
 	return m0
 }
 
+// writes the chat transcript (.txt, official format) to a caller-owned path
+type ChatExport struct {
+	state             protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ChatId string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId"`
+	xxx_hidden_Path   string                 `protobuf:"bytes,2,opt,name=path"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *ChatExport) Reset() {
+	*x = ChatExport{}
+	mi := &file_whatevr_v2_chats_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChatExport) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChatExport) ProtoMessage() {}
+
+func (x *ChatExport) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_chats_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ChatExport) GetChatId() string {
+	if x != nil {
+		return x.xxx_hidden_ChatId
+	}
+	return ""
+}
+
+func (x *ChatExport) GetPath() string {
+	if x != nil {
+		return x.xxx_hidden_Path
+	}
+	return ""
+}
+
+func (x *ChatExport) SetChatId(v string) {
+	x.xxx_hidden_ChatId = v
+}
+
+func (x *ChatExport) SetPath(v string) {
+	x.xxx_hidden_Path = v
+}
+
+type ChatExport_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ChatId string
+	Path   string
+}
+
+func (b0 ChatExport_builder) Build() *ChatExport {
+	m0 := &ChatExport{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_ChatId = b.ChatId
+	x.xxx_hidden_Path = b.Path
+	return m0
+}
+
+type ChatExportResult struct {
+	state           protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_Path string                 `protobuf:"bytes,1,opt,name=path"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *ChatExportResult) Reset() {
+	*x = ChatExportResult{}
+	mi := &file_whatevr_v2_chats_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChatExportResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChatExportResult) ProtoMessage() {}
+
+func (x *ChatExportResult) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_chats_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ChatExportResult) GetPath() string {
+	if x != nil {
+		return x.xxx_hidden_Path
+	}
+	return ""
+}
+
+func (x *ChatExportResult) SetPath(v string) {
+	x.xxx_hidden_Path = v
+}
+
+type ChatExportResult_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	Path string
+}
+
+func (b0 ChatExportResult_builder) Build() *ChatExportResult {
+	m0 := &ChatExportResult{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_Path = b.Path
+	return m0
+}
+
 var File_whatevr_v2_chats_proto protoreflect.FileDescriptor
 
 const file_whatevr_v2_chats_proto_rawDesc = "" +
@@ -1505,7 +1634,13 @@ const file_whatevr_v2_chats_proto_rawDesc = "" +
 	"\bfavorite\x18\x02 \x01(\bR\bfavorite\"\x11\n" +
 	"\x0fChatMarkAllRead\"-\n" +
 	"\x15ChatMarkAllReadResult\x12\x14\n" +
-	"\x05count\x18\x01 \x01(\x05R\x05count*\x88\x01\n" +
+	"\x05count\x18\x01 \x01(\x05R\x05count\"9\n" +
+	"\n" +
+	"ChatExport\x12\x17\n" +
+	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x12\n" +
+	"\x04path\x18\x02 \x01(\tR\x04path\"&\n" +
+	"\x10ChatExportResult\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path*\x88\x01\n" +
 	"\n" +
 	"ChatFilter\x12\x1b\n" +
 	"\x17CHAT_FILTER_UNSPECIFIED\x10\x00\x12\x13\n" +
@@ -1526,7 +1661,7 @@ const file_whatevr_v2_chats_proto_rawDesc = "" +
 	"Whatevr\\V2\xe2\x02\x16Whatevr\\V2\\GPBMetadata\xea\x02\vWhatevr::V2\x92\x03\x02\b\x02b\beditionsp\xe9\a"
 
 var file_whatevr_v2_chats_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_whatevr_v2_chats_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
+var file_whatevr_v2_chats_proto_msgTypes = make([]protoimpl.MessageInfo, 18)
 var file_whatevr_v2_chats_proto_goTypes = []any{
 	(ChatFilter)(0),                // 0: whatevr.v2.ChatFilter
 	(ChatType)(0),                  // 1: whatevr.v2.ChatType
@@ -1546,15 +1681,17 @@ var file_whatevr_v2_chats_proto_goTypes = []any{
 	(*ChatFavorite)(nil),           // 15: whatevr.v2.ChatFavorite
 	(*ChatMarkAllRead)(nil),        // 16: whatevr.v2.ChatMarkAllRead
 	(*ChatMarkAllReadResult)(nil),  // 17: whatevr.v2.ChatMarkAllReadResult
-	(MessageStatus)(0),             // 18: whatevr.v2.MessageStatus
-	(*Address)(nil),                // 19: whatevr.v2.Address
+	(*ChatExport)(nil),             // 18: whatevr.v2.ChatExport
+	(*ChatExportResult)(nil),       // 19: whatevr.v2.ChatExportResult
+	(MessageStatus)(0),             // 20: whatevr.v2.MessageStatus
+	(*Address)(nil),                // 21: whatevr.v2.Address
 }
 var file_whatevr_v2_chats_proto_depIdxs = []int32{
 	0,  // 0: whatevr.v2.ChatsView.filter:type_name -> whatevr.v2.ChatFilter
 	1,  // 1: whatevr.v2.ChatRow.type:type_name -> whatevr.v2.ChatType
 	5,  // 2: whatevr.v2.ChatRow.preview:type_name -> whatevr.v2.ChatPreview
-	18, // 3: whatevr.v2.ChatPreview.status:type_name -> whatevr.v2.MessageStatus
-	19, // 4: whatevr.v2.ChatEnsureDirect.person:type_name -> whatevr.v2.Address
+	20, // 3: whatevr.v2.ChatPreview.status:type_name -> whatevr.v2.MessageStatus
+	21, // 4: whatevr.v2.ChatEnsureDirect.person:type_name -> whatevr.v2.Address
 	5,  // [5:5] is the sub-list for method output_type
 	5,  // [5:5] is the sub-list for method input_type
 	5,  // [5:5] is the sub-list for extension type_name
@@ -1575,7 +1712,7 @@ func file_whatevr_v2_chats_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_whatevr_v2_chats_proto_rawDesc), len(file_whatevr_v2_chats_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   16,
+			NumMessages:   18,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

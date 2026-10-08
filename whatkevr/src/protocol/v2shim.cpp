@@ -289,6 +289,12 @@ V2ResponseTranslation translateV2Response(const whatevr::v2::Response &response)
         out.result = result;
         break;
     }
+    case whatevr::v2::Response::kChatExport: {
+        QJsonObject result;
+        result.insert(QStringLiteral("path"), v2s(response.chat_export().path()));
+        out.result = result;
+        break;
+    }
     case whatevr::v2::Response::kMessageForward: {
         // v1 answers the whole array; keep the singular alias some callers use.
         QJsonArray forwardedIds;
@@ -803,6 +809,12 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
         request->mutable_chat_mark_all_read();
         return true;
     }
+    if (method == QLatin1String("chat.export")) {
+        auto *exp = request->mutable_chat_export();
+        exp->set_chat_id(get("chat_id").toString().toStdString());
+        exp->set_path(get("path").toString().toStdString());
+        return true;
+    }
     if (method == QLatin1String("chat.pin")) {
         auto *pin = request->mutable_chat_pin();
         pin->set_chat_id(get("chat_id").toString().toStdString());
@@ -1233,6 +1245,10 @@ bool v2ResponseFromV1(const QString &method, std::uint64_t id, const QJsonObject
     if (method == QLatin1String("chat.mark_all_read")) {
         out->mutable_chat_mark_all_read()->set_count(
             static_cast<std::int32_t>(result.value(QStringLiteral("count")).toInt()));
+        return true;
+    }
+    if (method == QLatin1String("chat.export")) {
+        out->mutable_chat_export()->set_path(str("path"));
         return true;
     }
     if (method == QLatin1String("chat.ensure_direct")
@@ -1689,6 +1705,11 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
     }
     case Method::kChatMarkAllRead:
         out->method = QStringLiteral("chat.mark_all_read");
+        break;
+    case Method::kChatExport:
+        out->method = QStringLiteral("chat.export");
+        params.insert(QStringLiteral("chat_id"), v2s(request.chat_export().chat_id()));
+        params.insert(QStringLiteral("path"), v2s(request.chat_export().path()));
         break;
     case Method::kChatPin:
         out->method = QStringLiteral("chat.pin");

@@ -565,7 +565,12 @@ private:
         } else if (method.startsWith(QLatin1String("chat."))) {
             lastCommandMethod = method;
             lastCommandParams = params;
-            reply(id, QJsonObject{});
+            if (method == QLatin1String("chat.export")) {
+                reply(id, QJsonObject{{QStringLiteral("path"),
+                                        params.value(QStringLiteral("path"))}});
+            } else {
+                reply(id, QJsonObject{});
+            }
             Q_EMIT commandReceived();
         } else {
             reply(id, QJsonObject{});
@@ -1029,6 +1034,31 @@ private Q_SLOTS:
                  QStringLiteral("/tmp/opencode/save-test.bin"));
         QTRY_COMPARE(savedSpy.count(), 1);
         QCOMPARE(savedSpy.first().first().toString(), QStringLiteral("/tmp/opencode/save-test.bin"));
+    }
+
+    // `chat.export` carries the chat and destination; the echoed path
+    // surfaces through chatExported.
+    void exportChat()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats(
+            {chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_COMPARE(daemon.chatsSubscribeCount, 2);
+
+        QSignalSpy commandSpy(&daemon, &FakeDaemon::commandReceived);
+        QSignalSpy exportedSpy(&ctrl, &ProtocolController::chatExported);
+        ctrl.exportChat(QStringLiteral("a@s"),
+                        QUrl::fromLocalFile(QStringLiteral("/tmp/opencode/export-test.txt")));
+        QVERIFY(commandSpy.wait());
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("chat.export"));
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("chat_id")).toString(),
+                 QStringLiteral("a@s"));
+        QTRY_COMPARE(exportedSpy.count(), 1);
+        QCOMPARE(exportedSpy.first().first().toString(), QStringLiteral("/tmp/opencode/export-test.txt"));
     }
 
     // DN6: the chat list is a *window*, not the whole roster. Both `chats`

@@ -573,6 +573,15 @@ func (x *Request) GetChatMarkAllRead() *ChatMarkAllRead {
 	return nil
 }
 
+func (x *Request) GetChatExport() *ChatExport {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Method.(*request_ChatExport); ok {
+			return x.ChatExport
+		}
+	}
+	return nil
+}
+
 func (x *Request) GetSendText() *SendText {
 	if x != nil {
 		if x, ok := x.xxx_hidden_Method.(*request_SendText); ok {
@@ -1089,6 +1098,14 @@ func (x *Request) SetChatMarkAllRead(v *ChatMarkAllRead) {
 	x.xxx_hidden_Method = &request_ChatMarkAllRead{v}
 }
 
+func (x *Request) SetChatExport(v *ChatExport) {
+	if v == nil {
+		x.xxx_hidden_Method = nil
+		return
+	}
+	x.xxx_hidden_Method = &request_ChatExport{v}
+}
+
 func (x *Request) SetSendText(v *SendText) {
 	if v == nil {
 		x.xxx_hidden_Method = nil
@@ -1568,6 +1585,14 @@ func (x *Request) HasChatMarkAllRead() bool {
 	return ok
 }
 
+func (x *Request) HasChatExport() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Method.(*request_ChatExport)
+	return ok
+}
+
 func (x *Request) HasSendText() bool {
 	if x == nil {
 		return false
@@ -2006,6 +2031,12 @@ func (x *Request) ClearChatMarkAllRead() {
 	}
 }
 
+func (x *Request) ClearChatExport() {
+	if _, ok := x.xxx_hidden_Method.(*request_ChatExport); ok {
+		x.xxx_hidden_Method = nil
+	}
+}
+
 func (x *Request) ClearSendText() {
 	if _, ok := x.xxx_hidden_Method.(*request_SendText); ok {
 		x.xxx_hidden_Method = nil
@@ -2266,6 +2297,7 @@ const Request_ChatRequestOlder_case case_Request_Method = 35
 const Request_ChatEnsureDirect_case case_Request_Method = 36
 const Request_ChatFavorite_case case_Request_Method = 37
 const Request_ChatMarkAllRead_case case_Request_Method = 38
+const Request_ChatExport_case case_Request_Method = 39
 const Request_SendText_case case_Request_Method = 50
 const Request_SendMedia_case case_Request_Method = 51
 const Request_SendSticker_case case_Request_Method = 52
@@ -2350,6 +2382,8 @@ func (x *Request) WhichMethod() case_Request_Method {
 		return Request_ChatFavorite_case
 	case *request_ChatMarkAllRead:
 		return Request_ChatMarkAllRead_case
+	case *request_ChatExport:
+		return Request_ChatExport_case
 	case *request_SendText:
 		return Request_SendText_case
 	case *request_SendMedia:
@@ -2463,6 +2497,7 @@ type Request_builder struct {
 	ChatEnsureDirect *ChatEnsureDirect
 	ChatFavorite     *ChatFavorite
 	ChatMarkAllRead  *ChatMarkAllRead
+	ChatExport       *ChatExport
 	// 50-59: sends
 	SendText     *SendText
 	SendMedia    *SendMedia
@@ -2572,6 +2607,9 @@ func (b0 Request_builder) Build() *Request {
 	}
 	if b.ChatMarkAllRead != nil {
 		x.xxx_hidden_Method = &request_ChatMarkAllRead{b.ChatMarkAllRead}
+	}
+	if b.ChatExport != nil {
+		x.xxx_hidden_Method = &request_ChatExport{b.ChatExport}
 	}
 	if b.SendText != nil {
 		x.xxx_hidden_Method = &request_SendText{b.SendText}
@@ -2789,6 +2827,10 @@ type request_ChatMarkAllRead struct {
 	ChatMarkAllRead *ChatMarkAllRead `protobuf:"bytes,38,opt,name=chat_mark_all_read,json=chatMarkAllRead,oneof"`
 }
 
+type request_ChatExport struct {
+	ChatExport *ChatExport `protobuf:"bytes,39,opt,name=chat_export,json=chatExport,oneof"`
+}
+
 type request_SendText struct {
 	// 50-59: sends
 	SendText *SendText `protobuf:"bytes,50,opt,name=send_text,json=sendText,oneof"`
@@ -2992,6 +3034,8 @@ func (*request_ChatFavorite) isRequest_Method() {}
 
 func (*request_ChatMarkAllRead) isRequest_Method() {}
 
+func (*request_ChatExport) isRequest_Method() {}
+
 func (*request_SendText) isRequest_Method() {}
 
 func (*request_SendMedia) isRequest_Method() {}
@@ -3177,6 +3221,15 @@ func (x *Response) GetChatMarkAllRead() *ChatMarkAllReadResult {
 	return nil
 }
 
+func (x *Response) GetChatExport() *ChatExportResult {
+	if x != nil {
+		if x, ok := x.xxx_hidden_Result.(*response_ChatExport); ok {
+			return x.ChatExport
+		}
+	}
+	return nil
+}
+
 func (x *Response) GetSend() *SendResult {
 	if x != nil {
 		if x, ok := x.xxx_hidden_Result.(*response_Send); ok {
@@ -3354,6 +3407,14 @@ func (x *Response) SetChatMarkAllRead(v *ChatMarkAllReadResult) {
 	x.xxx_hidden_Result = &response_ChatMarkAllRead{v}
 }
 
+func (x *Response) SetChatExport(v *ChatExportResult) {
+	if v == nil {
+		x.xxx_hidden_Result = nil
+		return
+	}
+	x.xxx_hidden_Result = &response_ChatExport{v}
+}
+
 func (x *Response) SetSend(v *SendResult) {
 	if v == nil {
 		x.xxx_hidden_Result = nil
@@ -3521,6 +3582,14 @@ func (x *Response) HasChatMarkAllRead() bool {
 	return ok
 }
 
+func (x *Response) HasChatExport() bool {
+	if x == nil {
+		return false
+	}
+	_, ok := x.xxx_hidden_Result.(*response_ChatExport)
+	return ok
+}
+
 func (x *Response) HasSend() bool {
 	if x == nil {
 		return false
@@ -3671,6 +3740,12 @@ func (x *Response) ClearChatMarkAllRead() {
 	}
 }
 
+func (x *Response) ClearChatExport() {
+	if _, ok := x.xxx_hidden_Result.(*response_ChatExport); ok {
+		x.xxx_hidden_Result = nil
+	}
+}
+
 func (x *Response) ClearSend() {
 	if _, ok := x.xxx_hidden_Result.(*response_Send); ok {
 		x.xxx_hidden_Result = nil
@@ -3757,6 +3832,7 @@ const Response_Done_case case_Response_Result = 12
 const Response_ChatEnsureDirect_case case_Response_Result = 36
 const Response_ChatRequestOlder_case case_Response_Result = 35
 const Response_ChatMarkAllRead_case case_Response_Result = 38
+const Response_ChatExport_case case_Response_Result = 39
 const Response_Send_case case_Response_Result = 50
 const Response_MessageForward_case case_Response_Result = 66
 const Response_GroupJoinInvite_case case_Response_Result = 71
@@ -3790,6 +3866,8 @@ func (x *Response) WhichResult() case_Response_Result {
 		return Response_ChatRequestOlder_case
 	case *response_ChatMarkAllRead:
 		return Response_ChatMarkAllRead_case
+	case *response_ChatExport:
+		return Response_ChatExport_case
 	case *response_Send:
 		return Response_Send_case
 	case *response_MessageForward:
@@ -3833,6 +3911,7 @@ type Response_builder struct {
 	ChatEnsureDirect         *ChatEnsureDirectResult
 	ChatRequestOlder         *ChatRequestOlderResult
 	ChatMarkAllRead          *ChatMarkAllReadResult
+	ChatExport               *ChatExportResult
 	Send                     *SendResult
 	MessageForward           *MessageForwardResult
 	GroupJoinInvite          *GroupJoinInviteResult
@@ -3874,6 +3953,9 @@ func (b0 Response_builder) Build() *Response {
 	}
 	if b.ChatMarkAllRead != nil {
 		x.xxx_hidden_Result = &response_ChatMarkAllRead{b.ChatMarkAllRead}
+	}
+	if b.ChatExport != nil {
+		x.xxx_hidden_Result = &response_ChatExport{b.ChatExport}
 	}
 	if b.Send != nil {
 		x.xxx_hidden_Result = &response_Send{b.Send}
@@ -3959,6 +4041,10 @@ type response_ChatMarkAllRead struct {
 	ChatMarkAllRead *ChatMarkAllReadResult `protobuf:"bytes,38,opt,name=chat_mark_all_read,json=chatMarkAllRead,oneof"`
 }
 
+type response_ChatExport struct {
+	ChatExport *ChatExportResult `protobuf:"bytes,39,opt,name=chat_export,json=chatExport,oneof"`
+}
+
 type response_Send struct {
 	Send *SendResult `protobuf:"bytes,50,opt,name=send,oneof"`
 }
@@ -4024,6 +4110,8 @@ func (*response_ChatEnsureDirect) isResponse_Result() {}
 func (*response_ChatRequestOlder) isResponse_Result() {}
 
 func (*response_ChatMarkAllRead) isResponse_Result() {}
+
+func (*response_ChatExport) isResponse_Result() {}
 
 func (*response_Send) isResponse_Result() {}
 
@@ -8021,7 +8109,7 @@ const file_whatevr_v2_frame_proto_rawDesc = "" +
 	"\arequest\x18\x01 \x01(\v2\x13.whatevr.v2.RequestH\x00R\arequest\x122\n" +
 	"\bresponse\x18\x02 \x01(\v2\x14.whatevr.v2.ResponseH\x00R\bresponse\x12)\n" +
 	"\x05event\x18\x03 \x01(\v2\x11.whatevr.v2.EventH\x00R\x05eventB\a\n" +
-	"\x05frame\"\x85\x1f\n" +
+	"\x05frame\"\xc0\x1f\n" +
 	"\aRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12)\n" +
 	"\x05hello\x18\n" +
@@ -8045,7 +8133,9 @@ const file_whatevr_v2_frame_proto_rawDesc = "" +
 	"\x12chat_request_older\x18# \x01(\v2\x1c.whatevr.v2.ChatRequestOlderH\x00R\x10chatRequestOlder\x12L\n" +
 	"\x12chat_ensure_direct\x18$ \x01(\v2\x1c.whatevr.v2.ChatEnsureDirectH\x00R\x10chatEnsureDirect\x12?\n" +
 	"\rchat_favorite\x18% \x01(\v2\x18.whatevr.v2.ChatFavoriteH\x00R\fchatFavorite\x12J\n" +
-	"\x12chat_mark_all_read\x18& \x01(\v2\x1b.whatevr.v2.ChatMarkAllReadH\x00R\x0fchatMarkAllRead\x123\n" +
+	"\x12chat_mark_all_read\x18& \x01(\v2\x1b.whatevr.v2.ChatMarkAllReadH\x00R\x0fchatMarkAllRead\x129\n" +
+	"\vchat_export\x18' \x01(\v2\x16.whatevr.v2.ChatExportH\x00R\n" +
+	"chatExport\x123\n" +
 	"\tsend_text\x182 \x01(\v2\x14.whatevr.v2.SendTextH\x00R\bsendText\x126\n" +
 	"\n" +
 	"send_media\x183 \x01(\v2\x15.whatevr.v2.SendMediaH\x00R\tsendMedia\x12<\n" +
@@ -8093,7 +8183,7 @@ const file_whatevr_v2_frame_proto_rawDesc = "" +
 	"\x0fsearch_stickers\x18z \x01(\v2\x1a.whatevr.v2.SearchStickersH\x00R\x0esearchStickers\x12O\n" +
 	"\x13contact_check_phone\x18{ \x01(\v2\x1d.whatevr.v2.ContactCheckPhoneH\x00R\x11contactCheckPhone\x12?\n" +
 	"\rfrontend_list\x18| \x01(\v2\x18.whatevr.v2.FrontendListH\x00R\ffrontendListB\b\n" +
-	"\x06method\"\x98\v\n" +
+	"\x06method\"\xd9\v\n" +
 	"\bResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x04R\x02id\x12)\n" +
 	"\x05error\x18\x02 \x01(\v2\x11.whatevr.v2.ErrorH\x00R\x05error\x12/\n" +
@@ -8103,7 +8193,9 @@ const file_whatevr_v2_frame_proto_rawDesc = "" +
 	"\x04done\x18\f \x01(\v2\x10.whatevr.v2.DoneH\x00R\x04done\x12R\n" +
 	"\x12chat_ensure_direct\x18$ \x01(\v2\".whatevr.v2.ChatEnsureDirectResultH\x00R\x10chatEnsureDirect\x12R\n" +
 	"\x12chat_request_older\x18# \x01(\v2\".whatevr.v2.ChatRequestOlderResultH\x00R\x10chatRequestOlder\x12P\n" +
-	"\x12chat_mark_all_read\x18& \x01(\v2!.whatevr.v2.ChatMarkAllReadResultH\x00R\x0fchatMarkAllRead\x12,\n" +
+	"\x12chat_mark_all_read\x18& \x01(\v2!.whatevr.v2.ChatMarkAllReadResultH\x00R\x0fchatMarkAllRead\x12?\n" +
+	"\vchat_export\x18' \x01(\v2\x1c.whatevr.v2.ChatExportResultH\x00R\n" +
+	"chatExport\x12,\n" +
 	"\x04send\x182 \x01(\v2\x16.whatevr.v2.SendResultH\x00R\x04send\x12K\n" +
 	"\x0fmessage_forward\x18B \x01(\v2 .whatevr.v2.MessageForwardResultH\x00R\x0emessageForward\x12O\n" +
 	"\x11group_join_invite\x18G \x01(\v2!.whatevr.v2.GroupJoinInviteResultH\x00R\x0fgroupJoinInvite\x12B\n" +
@@ -8304,120 +8396,122 @@ var file_whatevr_v2_frame_proto_goTypes = []any{
 	(*ChatEnsureDirect)(nil),               // 32: whatevr.v2.ChatEnsureDirect
 	(*ChatFavorite)(nil),                   // 33: whatevr.v2.ChatFavorite
 	(*ChatMarkAllRead)(nil),                // 34: whatevr.v2.ChatMarkAllRead
-	(*SendText)(nil),                       // 35: whatevr.v2.SendText
-	(*SendMedia)(nil),                      // 36: whatevr.v2.SendMedia
-	(*SendSticker)(nil),                    // 37: whatevr.v2.SendSticker
-	(*SendPoll)(nil),                       // 38: whatevr.v2.SendPoll
-	(*SendContact)(nil),                    // 39: whatevr.v2.SendContact
-	(*SendLocation)(nil),                   // 40: whatevr.v2.SendLocation
-	(*SendCancel)(nil),                     // 41: whatevr.v2.SendCancel
-	(*MessageReact)(nil),                   // 42: whatevr.v2.MessageReact
-	(*MessageEdit)(nil),                    // 43: whatevr.v2.MessageEdit
-	(*MessageRevoke)(nil),                  // 44: whatevr.v2.MessageRevoke
-	(*MessageDelete)(nil),                  // 45: whatevr.v2.MessageDelete
-	(*MessageStar)(nil),                    // 46: whatevr.v2.MessageStar
-	(*MessagePin)(nil),                     // 47: whatevr.v2.MessagePin
-	(*MessageForward)(nil),                 // 48: whatevr.v2.MessageForward
-	(*MessageMarkPlayed)(nil),              // 49: whatevr.v2.MessageMarkPlayed
-	(*MessageRequestFromPhone)(nil),        // 50: whatevr.v2.MessageRequestFromPhone
-	(*PollVote)(nil),                       // 51: whatevr.v2.PollVote
-	(*EventRsvp)(nil),                      // 52: whatevr.v2.EventRsvp
-	(*GroupJoinInvite)(nil),                // 53: whatevr.v2.GroupJoinInvite
-	(*MessageText)(nil),                    // 54: whatevr.v2.MessageText
-	(*MediaDownload)(nil),                  // 55: whatevr.v2.MediaDownload
-	(*MediaStream)(nil),                    // 56: whatevr.v2.MediaStream
-	(*MediaCancelDownload)(nil),            // 57: whatevr.v2.MediaCancelDownload
-	(*MediaRead)(nil),                      // 58: whatevr.v2.MediaRead
-	(*MediaFetchProfilePicture)(nil),       // 59: whatevr.v2.MediaFetchProfilePicture
-	(*MediaSave)(nil),                      // 60: whatevr.v2.MediaSave
-	(*PrivacySet)(nil),                     // 61: whatevr.v2.PrivacySet
-	(*PreferencesSet)(nil),                 // 62: whatevr.v2.PreferencesSet
-	(*SelfSetAbout)(nil),                   // 63: whatevr.v2.SelfSetAbout
-	(*ContactBlock)(nil),                   // 64: whatevr.v2.ContactBlock
-	(*StickerFavorite)(nil),                // 65: whatevr.v2.StickerFavorite
-	(*StickerDownload)(nil),                // 66: whatevr.v2.StickerDownload
-	(*StickerPackInstall)(nil),             // 67: whatevr.v2.StickerPackInstall
-	(*StickerPacksRefresh)(nil),            // 68: whatevr.v2.StickerPacksRefresh
-	(*NotificationDismiss)(nil),            // 69: whatevr.v2.NotificationDismiss
-	(*SearchChats)(nil),                    // 70: whatevr.v2.SearchChats
-	(*SearchMessages)(nil),                 // 71: whatevr.v2.SearchMessages
-	(*SearchStickers)(nil),                 // 72: whatevr.v2.SearchStickers
-	(*ContactCheckPhone)(nil),              // 73: whatevr.v2.ContactCheckPhone
-	(*FrontendList)(nil),                   // 74: whatevr.v2.FrontendList
-	(*ChatEnsureDirectResult)(nil),         // 75: whatevr.v2.ChatEnsureDirectResult
-	(*ChatRequestOlderResult)(nil),         // 76: whatevr.v2.ChatRequestOlderResult
-	(*ChatMarkAllReadResult)(nil),          // 77: whatevr.v2.ChatMarkAllReadResult
-	(*SendResult)(nil),                     // 78: whatevr.v2.SendResult
-	(*MessageForwardResult)(nil),           // 79: whatevr.v2.MessageForwardResult
-	(*GroupJoinInviteResult)(nil),          // 80: whatevr.v2.GroupJoinInviteResult
-	(*MessageTextResult)(nil),              // 81: whatevr.v2.MessageTextResult
-	(*MediaStreamResult)(nil),              // 82: whatevr.v2.MediaStreamResult
-	(*MediaReadResult)(nil),                // 83: whatevr.v2.MediaReadResult
-	(*MediaFetchProfilePictureResult)(nil), // 84: whatevr.v2.MediaFetchProfilePictureResult
-	(*MediaSaveResult)(nil),                // 85: whatevr.v2.MediaSaveResult
-	(*SearchChatsResult)(nil),              // 86: whatevr.v2.SearchChatsResult
-	(*SearchMessagesResult)(nil),           // 87: whatevr.v2.SearchMessagesResult
-	(*SearchStickersResult)(nil),           // 88: whatevr.v2.SearchStickersResult
-	(*ContactCheckPhoneResult)(nil),        // 89: whatevr.v2.ContactCheckPhoneResult
-	(*FrontendListResult)(nil),             // 90: whatevr.v2.FrontendListResult
-	(*MediaStreamUpdate)(nil),              // 91: whatevr.v2.MediaStreamUpdate
-	(*Activate)(nil),                       // 92: whatevr.v2.Activate
-	(*ConnectionRow)(nil),                  // 93: whatevr.v2.ConnectionRow
-	(*LoginRow)(nil),                       // 94: whatevr.v2.LoginRow
-	(*SyncRow)(nil),                        // 95: whatevr.v2.SyncRow
-	(*ProblemRow)(nil),                     // 96: whatevr.v2.ProblemRow
-	(*ChatRow)(nil),                        // 97: whatevr.v2.ChatRow
-	(*MessageRow)(nil),                     // 98: whatevr.v2.MessageRow
-	(*TypingRow)(nil),                      // 99: whatevr.v2.TypingRow
-	(*PresenceRow)(nil),                    // 100: whatevr.v2.PresenceRow
-	(*ReceiptRow)(nil),                     // 101: whatevr.v2.ReceiptRow
-	(*SelfRow)(nil),                        // 102: whatevr.v2.SelfRow
-	(*ContactRow)(nil),                     // 103: whatevr.v2.ContactRow
-	(*GroupRow)(nil),                       // 104: whatevr.v2.GroupRow
-	(*GroupMemberRow)(nil),                 // 105: whatevr.v2.GroupMemberRow
-	(*PrivacyRow)(nil),                     // 106: whatevr.v2.PrivacyRow
-	(*PreferencesRow)(nil),                 // 107: whatevr.v2.PreferencesRow
-	(*BlockedRow)(nil),                     // 108: whatevr.v2.BlockedRow
-	(*LiveLocationRow)(nil),                // 109: whatevr.v2.LiveLocationRow
-	(*StickerRow)(nil),                     // 110: whatevr.v2.StickerRow
-	(*StickerPackRow)(nil),                 // 111: whatevr.v2.StickerPackRow
-	(*TransferRow)(nil),                    // 112: whatevr.v2.TransferRow
-	(*NotificationRow)(nil),                // 113: whatevr.v2.NotificationRow
-	(*Reaction)(nil),                       // 114: whatevr.v2.Reaction
-	(*PollVoteRow)(nil),                    // 115: whatevr.v2.PollVoteRow
-	(*Responder)(nil),                      // 116: whatevr.v2.Responder
-	(*LogRow)(nil),                         // 117: whatevr.v2.LogRow
-	(*ConnectionView)(nil),                 // 118: whatevr.v2.ConnectionView
-	(*LoginView)(nil),                      // 119: whatevr.v2.LoginView
-	(*SyncView)(nil),                       // 120: whatevr.v2.SyncView
-	(*ProblemsView)(nil),                   // 121: whatevr.v2.ProblemsView
-	(*ChatsView)(nil),                      // 122: whatevr.v2.ChatsView
-	(*ChatView)(nil),                       // 123: whatevr.v2.ChatView
-	(*MessagesView)(nil),                   // 124: whatevr.v2.MessagesView
-	(*TypingView)(nil),                     // 125: whatevr.v2.TypingView
-	(*PresenceView)(nil),                   // 126: whatevr.v2.PresenceView
-	(*ReceiptsView)(nil),                   // 127: whatevr.v2.ReceiptsView
-	(*SelfView)(nil),                       // 128: whatevr.v2.SelfView
-	(*ContactView)(nil),                    // 129: whatevr.v2.ContactView
-	(*GroupView)(nil),                      // 130: whatevr.v2.GroupView
-	(*GroupMembersView)(nil),               // 131: whatevr.v2.GroupMembersView
-	(*PrivacyView)(nil),                    // 132: whatevr.v2.PrivacyView
-	(*PreferencesView)(nil),                // 133: whatevr.v2.PreferencesView
-	(*BlocklistView)(nil),                  // 134: whatevr.v2.BlocklistView
-	(*StarredView)(nil),                    // 135: whatevr.v2.StarredView
-	(*PinnedView)(nil),                     // 136: whatevr.v2.PinnedView
-	(*LiveLocationsView)(nil),              // 137: whatevr.v2.LiveLocationsView
-	(*ChatMediaView)(nil),                  // 138: whatevr.v2.ChatMediaView
-	(*ChatLinksView)(nil),                  // 139: whatevr.v2.ChatLinksView
-	(*StickersView)(nil),                   // 140: whatevr.v2.StickersView
-	(*StickerPacksView)(nil),               // 141: whatevr.v2.StickerPacksView
-	(*StickerPackView)(nil),                // 142: whatevr.v2.StickerPackView
-	(*TransfersView)(nil),                  // 143: whatevr.v2.TransfersView
-	(*NotificationsView)(nil),              // 144: whatevr.v2.NotificationsView
-	(*ReactionsView)(nil),                  // 145: whatevr.v2.ReactionsView
-	(*PollVotesView)(nil),                  // 146: whatevr.v2.PollVotesView
-	(*EventResponsesView)(nil),             // 147: whatevr.v2.EventResponsesView
-	(*LogsView)(nil),                       // 148: whatevr.v2.LogsView
+	(*ChatExport)(nil),                     // 35: whatevr.v2.ChatExport
+	(*SendText)(nil),                       // 36: whatevr.v2.SendText
+	(*SendMedia)(nil),                      // 37: whatevr.v2.SendMedia
+	(*SendSticker)(nil),                    // 38: whatevr.v2.SendSticker
+	(*SendPoll)(nil),                       // 39: whatevr.v2.SendPoll
+	(*SendContact)(nil),                    // 40: whatevr.v2.SendContact
+	(*SendLocation)(nil),                   // 41: whatevr.v2.SendLocation
+	(*SendCancel)(nil),                     // 42: whatevr.v2.SendCancel
+	(*MessageReact)(nil),                   // 43: whatevr.v2.MessageReact
+	(*MessageEdit)(nil),                    // 44: whatevr.v2.MessageEdit
+	(*MessageRevoke)(nil),                  // 45: whatevr.v2.MessageRevoke
+	(*MessageDelete)(nil),                  // 46: whatevr.v2.MessageDelete
+	(*MessageStar)(nil),                    // 47: whatevr.v2.MessageStar
+	(*MessagePin)(nil),                     // 48: whatevr.v2.MessagePin
+	(*MessageForward)(nil),                 // 49: whatevr.v2.MessageForward
+	(*MessageMarkPlayed)(nil),              // 50: whatevr.v2.MessageMarkPlayed
+	(*MessageRequestFromPhone)(nil),        // 51: whatevr.v2.MessageRequestFromPhone
+	(*PollVote)(nil),                       // 52: whatevr.v2.PollVote
+	(*EventRsvp)(nil),                      // 53: whatevr.v2.EventRsvp
+	(*GroupJoinInvite)(nil),                // 54: whatevr.v2.GroupJoinInvite
+	(*MessageText)(nil),                    // 55: whatevr.v2.MessageText
+	(*MediaDownload)(nil),                  // 56: whatevr.v2.MediaDownload
+	(*MediaStream)(nil),                    // 57: whatevr.v2.MediaStream
+	(*MediaCancelDownload)(nil),            // 58: whatevr.v2.MediaCancelDownload
+	(*MediaRead)(nil),                      // 59: whatevr.v2.MediaRead
+	(*MediaFetchProfilePicture)(nil),       // 60: whatevr.v2.MediaFetchProfilePicture
+	(*MediaSave)(nil),                      // 61: whatevr.v2.MediaSave
+	(*PrivacySet)(nil),                     // 62: whatevr.v2.PrivacySet
+	(*PreferencesSet)(nil),                 // 63: whatevr.v2.PreferencesSet
+	(*SelfSetAbout)(nil),                   // 64: whatevr.v2.SelfSetAbout
+	(*ContactBlock)(nil),                   // 65: whatevr.v2.ContactBlock
+	(*StickerFavorite)(nil),                // 66: whatevr.v2.StickerFavorite
+	(*StickerDownload)(nil),                // 67: whatevr.v2.StickerDownload
+	(*StickerPackInstall)(nil),             // 68: whatevr.v2.StickerPackInstall
+	(*StickerPacksRefresh)(nil),            // 69: whatevr.v2.StickerPacksRefresh
+	(*NotificationDismiss)(nil),            // 70: whatevr.v2.NotificationDismiss
+	(*SearchChats)(nil),                    // 71: whatevr.v2.SearchChats
+	(*SearchMessages)(nil),                 // 72: whatevr.v2.SearchMessages
+	(*SearchStickers)(nil),                 // 73: whatevr.v2.SearchStickers
+	(*ContactCheckPhone)(nil),              // 74: whatevr.v2.ContactCheckPhone
+	(*FrontendList)(nil),                   // 75: whatevr.v2.FrontendList
+	(*ChatEnsureDirectResult)(nil),         // 76: whatevr.v2.ChatEnsureDirectResult
+	(*ChatRequestOlderResult)(nil),         // 77: whatevr.v2.ChatRequestOlderResult
+	(*ChatMarkAllReadResult)(nil),          // 78: whatevr.v2.ChatMarkAllReadResult
+	(*ChatExportResult)(nil),               // 79: whatevr.v2.ChatExportResult
+	(*SendResult)(nil),                     // 80: whatevr.v2.SendResult
+	(*MessageForwardResult)(nil),           // 81: whatevr.v2.MessageForwardResult
+	(*GroupJoinInviteResult)(nil),          // 82: whatevr.v2.GroupJoinInviteResult
+	(*MessageTextResult)(nil),              // 83: whatevr.v2.MessageTextResult
+	(*MediaStreamResult)(nil),              // 84: whatevr.v2.MediaStreamResult
+	(*MediaReadResult)(nil),                // 85: whatevr.v2.MediaReadResult
+	(*MediaFetchProfilePictureResult)(nil), // 86: whatevr.v2.MediaFetchProfilePictureResult
+	(*MediaSaveResult)(nil),                // 87: whatevr.v2.MediaSaveResult
+	(*SearchChatsResult)(nil),              // 88: whatevr.v2.SearchChatsResult
+	(*SearchMessagesResult)(nil),           // 89: whatevr.v2.SearchMessagesResult
+	(*SearchStickersResult)(nil),           // 90: whatevr.v2.SearchStickersResult
+	(*ContactCheckPhoneResult)(nil),        // 91: whatevr.v2.ContactCheckPhoneResult
+	(*FrontendListResult)(nil),             // 92: whatevr.v2.FrontendListResult
+	(*MediaStreamUpdate)(nil),              // 93: whatevr.v2.MediaStreamUpdate
+	(*Activate)(nil),                       // 94: whatevr.v2.Activate
+	(*ConnectionRow)(nil),                  // 95: whatevr.v2.ConnectionRow
+	(*LoginRow)(nil),                       // 96: whatevr.v2.LoginRow
+	(*SyncRow)(nil),                        // 97: whatevr.v2.SyncRow
+	(*ProblemRow)(nil),                     // 98: whatevr.v2.ProblemRow
+	(*ChatRow)(nil),                        // 99: whatevr.v2.ChatRow
+	(*MessageRow)(nil),                     // 100: whatevr.v2.MessageRow
+	(*TypingRow)(nil),                      // 101: whatevr.v2.TypingRow
+	(*PresenceRow)(nil),                    // 102: whatevr.v2.PresenceRow
+	(*ReceiptRow)(nil),                     // 103: whatevr.v2.ReceiptRow
+	(*SelfRow)(nil),                        // 104: whatevr.v2.SelfRow
+	(*ContactRow)(nil),                     // 105: whatevr.v2.ContactRow
+	(*GroupRow)(nil),                       // 106: whatevr.v2.GroupRow
+	(*GroupMemberRow)(nil),                 // 107: whatevr.v2.GroupMemberRow
+	(*PrivacyRow)(nil),                     // 108: whatevr.v2.PrivacyRow
+	(*PreferencesRow)(nil),                 // 109: whatevr.v2.PreferencesRow
+	(*BlockedRow)(nil),                     // 110: whatevr.v2.BlockedRow
+	(*LiveLocationRow)(nil),                // 111: whatevr.v2.LiveLocationRow
+	(*StickerRow)(nil),                     // 112: whatevr.v2.StickerRow
+	(*StickerPackRow)(nil),                 // 113: whatevr.v2.StickerPackRow
+	(*TransferRow)(nil),                    // 114: whatevr.v2.TransferRow
+	(*NotificationRow)(nil),                // 115: whatevr.v2.NotificationRow
+	(*Reaction)(nil),                       // 116: whatevr.v2.Reaction
+	(*PollVoteRow)(nil),                    // 117: whatevr.v2.PollVoteRow
+	(*Responder)(nil),                      // 118: whatevr.v2.Responder
+	(*LogRow)(nil),                         // 119: whatevr.v2.LogRow
+	(*ConnectionView)(nil),                 // 120: whatevr.v2.ConnectionView
+	(*LoginView)(nil),                      // 121: whatevr.v2.LoginView
+	(*SyncView)(nil),                       // 122: whatevr.v2.SyncView
+	(*ProblemsView)(nil),                   // 123: whatevr.v2.ProblemsView
+	(*ChatsView)(nil),                      // 124: whatevr.v2.ChatsView
+	(*ChatView)(nil),                       // 125: whatevr.v2.ChatView
+	(*MessagesView)(nil),                   // 126: whatevr.v2.MessagesView
+	(*TypingView)(nil),                     // 127: whatevr.v2.TypingView
+	(*PresenceView)(nil),                   // 128: whatevr.v2.PresenceView
+	(*ReceiptsView)(nil),                   // 129: whatevr.v2.ReceiptsView
+	(*SelfView)(nil),                       // 130: whatevr.v2.SelfView
+	(*ContactView)(nil),                    // 131: whatevr.v2.ContactView
+	(*GroupView)(nil),                      // 132: whatevr.v2.GroupView
+	(*GroupMembersView)(nil),               // 133: whatevr.v2.GroupMembersView
+	(*PrivacyView)(nil),                    // 134: whatevr.v2.PrivacyView
+	(*PreferencesView)(nil),                // 135: whatevr.v2.PreferencesView
+	(*BlocklistView)(nil),                  // 136: whatevr.v2.BlocklistView
+	(*StarredView)(nil),                    // 137: whatevr.v2.StarredView
+	(*PinnedView)(nil),                     // 138: whatevr.v2.PinnedView
+	(*LiveLocationsView)(nil),              // 139: whatevr.v2.LiveLocationsView
+	(*ChatMediaView)(nil),                  // 140: whatevr.v2.ChatMediaView
+	(*ChatLinksView)(nil),                  // 141: whatevr.v2.ChatLinksView
+	(*StickersView)(nil),                   // 142: whatevr.v2.StickersView
+	(*StickerPacksView)(nil),               // 143: whatevr.v2.StickerPacksView
+	(*StickerPackView)(nil),                // 144: whatevr.v2.StickerPackView
+	(*TransfersView)(nil),                  // 145: whatevr.v2.TransfersView
+	(*NotificationsView)(nil),              // 146: whatevr.v2.NotificationsView
+	(*ReactionsView)(nil),                  // 147: whatevr.v2.ReactionsView
+	(*PollVotesView)(nil),                  // 148: whatevr.v2.PollVotesView
+	(*EventResponsesView)(nil),             // 149: whatevr.v2.EventResponsesView
+	(*LogsView)(nil),                       // 150: whatevr.v2.LogsView
 }
 var file_whatevr_v2_frame_proto_depIdxs = []int32{
 	3,   // 0: whatevr.v2.Frame.request:type_name -> whatevr.v2.Request
@@ -8442,137 +8536,139 @@ var file_whatevr_v2_frame_proto_depIdxs = []int32{
 	32,  // 19: whatevr.v2.Request.chat_ensure_direct:type_name -> whatevr.v2.ChatEnsureDirect
 	33,  // 20: whatevr.v2.Request.chat_favorite:type_name -> whatevr.v2.ChatFavorite
 	34,  // 21: whatevr.v2.Request.chat_mark_all_read:type_name -> whatevr.v2.ChatMarkAllRead
-	35,  // 22: whatevr.v2.Request.send_text:type_name -> whatevr.v2.SendText
-	36,  // 23: whatevr.v2.Request.send_media:type_name -> whatevr.v2.SendMedia
-	37,  // 24: whatevr.v2.Request.send_sticker:type_name -> whatevr.v2.SendSticker
-	38,  // 25: whatevr.v2.Request.send_poll:type_name -> whatevr.v2.SendPoll
-	39,  // 26: whatevr.v2.Request.send_contact:type_name -> whatevr.v2.SendContact
-	40,  // 27: whatevr.v2.Request.send_location:type_name -> whatevr.v2.SendLocation
-	41,  // 28: whatevr.v2.Request.send_cancel:type_name -> whatevr.v2.SendCancel
-	42,  // 29: whatevr.v2.Request.message_react:type_name -> whatevr.v2.MessageReact
-	43,  // 30: whatevr.v2.Request.message_edit:type_name -> whatevr.v2.MessageEdit
-	44,  // 31: whatevr.v2.Request.message_revoke:type_name -> whatevr.v2.MessageRevoke
-	45,  // 32: whatevr.v2.Request.message_delete:type_name -> whatevr.v2.MessageDelete
-	46,  // 33: whatevr.v2.Request.message_star:type_name -> whatevr.v2.MessageStar
-	47,  // 34: whatevr.v2.Request.message_pin:type_name -> whatevr.v2.MessagePin
-	48,  // 35: whatevr.v2.Request.message_forward:type_name -> whatevr.v2.MessageForward
-	49,  // 36: whatevr.v2.Request.message_mark_played:type_name -> whatevr.v2.MessageMarkPlayed
-	50,  // 37: whatevr.v2.Request.message_request_from_phone:type_name -> whatevr.v2.MessageRequestFromPhone
-	51,  // 38: whatevr.v2.Request.poll_vote:type_name -> whatevr.v2.PollVote
-	52,  // 39: whatevr.v2.Request.event_rsvp:type_name -> whatevr.v2.EventRsvp
-	53,  // 40: whatevr.v2.Request.group_join_invite:type_name -> whatevr.v2.GroupJoinInvite
-	54,  // 41: whatevr.v2.Request.message_text:type_name -> whatevr.v2.MessageText
-	55,  // 42: whatevr.v2.Request.media_download:type_name -> whatevr.v2.MediaDownload
-	56,  // 43: whatevr.v2.Request.media_stream:type_name -> whatevr.v2.MediaStream
-	57,  // 44: whatevr.v2.Request.media_cancel_download:type_name -> whatevr.v2.MediaCancelDownload
-	58,  // 45: whatevr.v2.Request.media_read:type_name -> whatevr.v2.MediaRead
-	59,  // 46: whatevr.v2.Request.media_fetch_profile_picture:type_name -> whatevr.v2.MediaFetchProfilePicture
-	60,  // 47: whatevr.v2.Request.media_save:type_name -> whatevr.v2.MediaSave
-	61,  // 48: whatevr.v2.Request.privacy_set:type_name -> whatevr.v2.PrivacySet
-	62,  // 49: whatevr.v2.Request.preferences_set:type_name -> whatevr.v2.PreferencesSet
-	63,  // 50: whatevr.v2.Request.self_set_about:type_name -> whatevr.v2.SelfSetAbout
-	64,  // 51: whatevr.v2.Request.contact_block:type_name -> whatevr.v2.ContactBlock
-	65,  // 52: whatevr.v2.Request.sticker_favorite:type_name -> whatevr.v2.StickerFavorite
-	66,  // 53: whatevr.v2.Request.sticker_download:type_name -> whatevr.v2.StickerDownload
-	67,  // 54: whatevr.v2.Request.sticker_pack_install:type_name -> whatevr.v2.StickerPackInstall
-	68,  // 55: whatevr.v2.Request.sticker_packs_refresh:type_name -> whatevr.v2.StickerPacksRefresh
-	69,  // 56: whatevr.v2.Request.notification_dismiss:type_name -> whatevr.v2.NotificationDismiss
-	70,  // 57: whatevr.v2.Request.search_chats:type_name -> whatevr.v2.SearchChats
-	71,  // 58: whatevr.v2.Request.search_messages:type_name -> whatevr.v2.SearchMessages
-	72,  // 59: whatevr.v2.Request.search_stickers:type_name -> whatevr.v2.SearchStickers
-	73,  // 60: whatevr.v2.Request.contact_check_phone:type_name -> whatevr.v2.ContactCheckPhone
-	74,  // 61: whatevr.v2.Request.frontend_list:type_name -> whatevr.v2.FrontendList
-	6,   // 62: whatevr.v2.Response.error:type_name -> whatevr.v2.Error
-	8,   // 63: whatevr.v2.Response.hello:type_name -> whatevr.v2.HelloResult
-	17,  // 64: whatevr.v2.Response.subscribe:type_name -> whatevr.v2.SubscribeResult
-	5,   // 65: whatevr.v2.Response.done:type_name -> whatevr.v2.Done
-	75,  // 66: whatevr.v2.Response.chat_ensure_direct:type_name -> whatevr.v2.ChatEnsureDirectResult
-	76,  // 67: whatevr.v2.Response.chat_request_older:type_name -> whatevr.v2.ChatRequestOlderResult
-	77,  // 68: whatevr.v2.Response.chat_mark_all_read:type_name -> whatevr.v2.ChatMarkAllReadResult
-	78,  // 69: whatevr.v2.Response.send:type_name -> whatevr.v2.SendResult
-	79,  // 70: whatevr.v2.Response.message_forward:type_name -> whatevr.v2.MessageForwardResult
-	80,  // 71: whatevr.v2.Response.group_join_invite:type_name -> whatevr.v2.GroupJoinInviteResult
-	81,  // 72: whatevr.v2.Response.message_text:type_name -> whatevr.v2.MessageTextResult
-	82,  // 73: whatevr.v2.Response.media_stream:type_name -> whatevr.v2.MediaStreamResult
-	83,  // 74: whatevr.v2.Response.media_read:type_name -> whatevr.v2.MediaReadResult
-	84,  // 75: whatevr.v2.Response.media_fetch_profile_picture:type_name -> whatevr.v2.MediaFetchProfilePictureResult
-	85,  // 76: whatevr.v2.Response.media_save:type_name -> whatevr.v2.MediaSaveResult
-	86,  // 77: whatevr.v2.Response.search_chats:type_name -> whatevr.v2.SearchChatsResult
-	87,  // 78: whatevr.v2.Response.search_messages:type_name -> whatevr.v2.SearchMessagesResult
-	88,  // 79: whatevr.v2.Response.search_stickers:type_name -> whatevr.v2.SearchStickersResult
-	89,  // 80: whatevr.v2.Response.contact_check_phone:type_name -> whatevr.v2.ContactCheckPhoneResult
-	90,  // 81: whatevr.v2.Response.frontend_list:type_name -> whatevr.v2.FrontendListResult
-	0,   // 82: whatevr.v2.Error.code:type_name -> whatevr.v2.ErrorCode
-	10,  // 83: whatevr.v2.Event.update:type_name -> whatevr.v2.ViewUpdate
-	15,  // 84: whatevr.v2.Event.open_chat:type_name -> whatevr.v2.OpenChat
-	91,  // 85: whatevr.v2.Event.media_stream_update:type_name -> whatevr.v2.MediaStreamUpdate
-	92,  // 86: whatevr.v2.Event.activate:type_name -> whatevr.v2.Activate
-	11,  // 87: whatevr.v2.ViewUpdate.changes:type_name -> whatevr.v2.Change
-	14,  // 88: whatevr.v2.ViewUpdate.ready:type_name -> whatevr.v2.Ready
-	12,  // 89: whatevr.v2.Change.upsert:type_name -> whatevr.v2.Upsert
-	13,  // 90: whatevr.v2.Change.remove:type_name -> whatevr.v2.Remove
-	93,  // 91: whatevr.v2.Upsert.connection:type_name -> whatevr.v2.ConnectionRow
-	94,  // 92: whatevr.v2.Upsert.login:type_name -> whatevr.v2.LoginRow
-	95,  // 93: whatevr.v2.Upsert.sync:type_name -> whatevr.v2.SyncRow
-	96,  // 94: whatevr.v2.Upsert.problem:type_name -> whatevr.v2.ProblemRow
-	97,  // 95: whatevr.v2.Upsert.chat:type_name -> whatevr.v2.ChatRow
-	98,  // 96: whatevr.v2.Upsert.message:type_name -> whatevr.v2.MessageRow
-	99,  // 97: whatevr.v2.Upsert.typing:type_name -> whatevr.v2.TypingRow
-	100, // 98: whatevr.v2.Upsert.presence:type_name -> whatevr.v2.PresenceRow
-	101, // 99: whatevr.v2.Upsert.receipt:type_name -> whatevr.v2.ReceiptRow
-	102, // 100: whatevr.v2.Upsert.self:type_name -> whatevr.v2.SelfRow
-	103, // 101: whatevr.v2.Upsert.contact:type_name -> whatevr.v2.ContactRow
-	104, // 102: whatevr.v2.Upsert.group:type_name -> whatevr.v2.GroupRow
-	105, // 103: whatevr.v2.Upsert.group_member:type_name -> whatevr.v2.GroupMemberRow
-	106, // 104: whatevr.v2.Upsert.privacy:type_name -> whatevr.v2.PrivacyRow
-	107, // 105: whatevr.v2.Upsert.preferences:type_name -> whatevr.v2.PreferencesRow
-	108, // 106: whatevr.v2.Upsert.blocked:type_name -> whatevr.v2.BlockedRow
-	109, // 107: whatevr.v2.Upsert.live_location:type_name -> whatevr.v2.LiveLocationRow
-	110, // 108: whatevr.v2.Upsert.sticker:type_name -> whatevr.v2.StickerRow
-	111, // 109: whatevr.v2.Upsert.sticker_pack:type_name -> whatevr.v2.StickerPackRow
-	112, // 110: whatevr.v2.Upsert.transfer:type_name -> whatevr.v2.TransferRow
-	113, // 111: whatevr.v2.Upsert.notification:type_name -> whatevr.v2.NotificationRow
-	114, // 112: whatevr.v2.Upsert.reaction:type_name -> whatevr.v2.Reaction
-	115, // 113: whatevr.v2.Upsert.poll_vote:type_name -> whatevr.v2.PollVoteRow
-	116, // 114: whatevr.v2.Upsert.responder:type_name -> whatevr.v2.Responder
-	117, // 115: whatevr.v2.Upsert.log:type_name -> whatevr.v2.LogRow
-	118, // 116: whatevr.v2.Subscribe.connection:type_name -> whatevr.v2.ConnectionView
-	119, // 117: whatevr.v2.Subscribe.login:type_name -> whatevr.v2.LoginView
-	120, // 118: whatevr.v2.Subscribe.sync:type_name -> whatevr.v2.SyncView
-	121, // 119: whatevr.v2.Subscribe.problems:type_name -> whatevr.v2.ProblemsView
-	122, // 120: whatevr.v2.Subscribe.chats:type_name -> whatevr.v2.ChatsView
-	123, // 121: whatevr.v2.Subscribe.chat:type_name -> whatevr.v2.ChatView
-	124, // 122: whatevr.v2.Subscribe.messages:type_name -> whatevr.v2.MessagesView
-	125, // 123: whatevr.v2.Subscribe.typing:type_name -> whatevr.v2.TypingView
-	126, // 124: whatevr.v2.Subscribe.presence:type_name -> whatevr.v2.PresenceView
-	127, // 125: whatevr.v2.Subscribe.receipts:type_name -> whatevr.v2.ReceiptsView
-	128, // 126: whatevr.v2.Subscribe.self:type_name -> whatevr.v2.SelfView
-	129, // 127: whatevr.v2.Subscribe.contact:type_name -> whatevr.v2.ContactView
-	130, // 128: whatevr.v2.Subscribe.group:type_name -> whatevr.v2.GroupView
-	131, // 129: whatevr.v2.Subscribe.group_members:type_name -> whatevr.v2.GroupMembersView
-	132, // 130: whatevr.v2.Subscribe.privacy:type_name -> whatevr.v2.PrivacyView
-	133, // 131: whatevr.v2.Subscribe.preferences:type_name -> whatevr.v2.PreferencesView
-	134, // 132: whatevr.v2.Subscribe.blocklist:type_name -> whatevr.v2.BlocklistView
-	135, // 133: whatevr.v2.Subscribe.starred:type_name -> whatevr.v2.StarredView
-	136, // 134: whatevr.v2.Subscribe.pinned:type_name -> whatevr.v2.PinnedView
-	137, // 135: whatevr.v2.Subscribe.live_locations:type_name -> whatevr.v2.LiveLocationsView
-	138, // 136: whatevr.v2.Subscribe.chat_media:type_name -> whatevr.v2.ChatMediaView
-	139, // 137: whatevr.v2.Subscribe.chat_links:type_name -> whatevr.v2.ChatLinksView
-	140, // 138: whatevr.v2.Subscribe.stickers:type_name -> whatevr.v2.StickersView
-	141, // 139: whatevr.v2.Subscribe.sticker_packs:type_name -> whatevr.v2.StickerPacksView
-	142, // 140: whatevr.v2.Subscribe.sticker_pack:type_name -> whatevr.v2.StickerPackView
-	143, // 141: whatevr.v2.Subscribe.transfers:type_name -> whatevr.v2.TransfersView
-	144, // 142: whatevr.v2.Subscribe.notifications:type_name -> whatevr.v2.NotificationsView
-	145, // 143: whatevr.v2.Subscribe.reactions:type_name -> whatevr.v2.ReactionsView
-	146, // 144: whatevr.v2.Subscribe.poll_votes:type_name -> whatevr.v2.PollVotesView
-	147, // 145: whatevr.v2.Subscribe.event_responses:type_name -> whatevr.v2.EventResponsesView
-	148, // 146: whatevr.v2.Subscribe.logs:type_name -> whatevr.v2.LogsView
-	1,   // 147: whatevr.v2.Extend.direction:type_name -> whatevr.v2.Direction
-	148, // [148:148] is the sub-list for method output_type
-	148, // [148:148] is the sub-list for method input_type
-	148, // [148:148] is the sub-list for extension type_name
-	148, // [148:148] is the sub-list for extension extendee
-	0,   // [0:148] is the sub-list for field type_name
+	35,  // 22: whatevr.v2.Request.chat_export:type_name -> whatevr.v2.ChatExport
+	36,  // 23: whatevr.v2.Request.send_text:type_name -> whatevr.v2.SendText
+	37,  // 24: whatevr.v2.Request.send_media:type_name -> whatevr.v2.SendMedia
+	38,  // 25: whatevr.v2.Request.send_sticker:type_name -> whatevr.v2.SendSticker
+	39,  // 26: whatevr.v2.Request.send_poll:type_name -> whatevr.v2.SendPoll
+	40,  // 27: whatevr.v2.Request.send_contact:type_name -> whatevr.v2.SendContact
+	41,  // 28: whatevr.v2.Request.send_location:type_name -> whatevr.v2.SendLocation
+	42,  // 29: whatevr.v2.Request.send_cancel:type_name -> whatevr.v2.SendCancel
+	43,  // 30: whatevr.v2.Request.message_react:type_name -> whatevr.v2.MessageReact
+	44,  // 31: whatevr.v2.Request.message_edit:type_name -> whatevr.v2.MessageEdit
+	45,  // 32: whatevr.v2.Request.message_revoke:type_name -> whatevr.v2.MessageRevoke
+	46,  // 33: whatevr.v2.Request.message_delete:type_name -> whatevr.v2.MessageDelete
+	47,  // 34: whatevr.v2.Request.message_star:type_name -> whatevr.v2.MessageStar
+	48,  // 35: whatevr.v2.Request.message_pin:type_name -> whatevr.v2.MessagePin
+	49,  // 36: whatevr.v2.Request.message_forward:type_name -> whatevr.v2.MessageForward
+	50,  // 37: whatevr.v2.Request.message_mark_played:type_name -> whatevr.v2.MessageMarkPlayed
+	51,  // 38: whatevr.v2.Request.message_request_from_phone:type_name -> whatevr.v2.MessageRequestFromPhone
+	52,  // 39: whatevr.v2.Request.poll_vote:type_name -> whatevr.v2.PollVote
+	53,  // 40: whatevr.v2.Request.event_rsvp:type_name -> whatevr.v2.EventRsvp
+	54,  // 41: whatevr.v2.Request.group_join_invite:type_name -> whatevr.v2.GroupJoinInvite
+	55,  // 42: whatevr.v2.Request.message_text:type_name -> whatevr.v2.MessageText
+	56,  // 43: whatevr.v2.Request.media_download:type_name -> whatevr.v2.MediaDownload
+	57,  // 44: whatevr.v2.Request.media_stream:type_name -> whatevr.v2.MediaStream
+	58,  // 45: whatevr.v2.Request.media_cancel_download:type_name -> whatevr.v2.MediaCancelDownload
+	59,  // 46: whatevr.v2.Request.media_read:type_name -> whatevr.v2.MediaRead
+	60,  // 47: whatevr.v2.Request.media_fetch_profile_picture:type_name -> whatevr.v2.MediaFetchProfilePicture
+	61,  // 48: whatevr.v2.Request.media_save:type_name -> whatevr.v2.MediaSave
+	62,  // 49: whatevr.v2.Request.privacy_set:type_name -> whatevr.v2.PrivacySet
+	63,  // 50: whatevr.v2.Request.preferences_set:type_name -> whatevr.v2.PreferencesSet
+	64,  // 51: whatevr.v2.Request.self_set_about:type_name -> whatevr.v2.SelfSetAbout
+	65,  // 52: whatevr.v2.Request.contact_block:type_name -> whatevr.v2.ContactBlock
+	66,  // 53: whatevr.v2.Request.sticker_favorite:type_name -> whatevr.v2.StickerFavorite
+	67,  // 54: whatevr.v2.Request.sticker_download:type_name -> whatevr.v2.StickerDownload
+	68,  // 55: whatevr.v2.Request.sticker_pack_install:type_name -> whatevr.v2.StickerPackInstall
+	69,  // 56: whatevr.v2.Request.sticker_packs_refresh:type_name -> whatevr.v2.StickerPacksRefresh
+	70,  // 57: whatevr.v2.Request.notification_dismiss:type_name -> whatevr.v2.NotificationDismiss
+	71,  // 58: whatevr.v2.Request.search_chats:type_name -> whatevr.v2.SearchChats
+	72,  // 59: whatevr.v2.Request.search_messages:type_name -> whatevr.v2.SearchMessages
+	73,  // 60: whatevr.v2.Request.search_stickers:type_name -> whatevr.v2.SearchStickers
+	74,  // 61: whatevr.v2.Request.contact_check_phone:type_name -> whatevr.v2.ContactCheckPhone
+	75,  // 62: whatevr.v2.Request.frontend_list:type_name -> whatevr.v2.FrontendList
+	6,   // 63: whatevr.v2.Response.error:type_name -> whatevr.v2.Error
+	8,   // 64: whatevr.v2.Response.hello:type_name -> whatevr.v2.HelloResult
+	17,  // 65: whatevr.v2.Response.subscribe:type_name -> whatevr.v2.SubscribeResult
+	5,   // 66: whatevr.v2.Response.done:type_name -> whatevr.v2.Done
+	76,  // 67: whatevr.v2.Response.chat_ensure_direct:type_name -> whatevr.v2.ChatEnsureDirectResult
+	77,  // 68: whatevr.v2.Response.chat_request_older:type_name -> whatevr.v2.ChatRequestOlderResult
+	78,  // 69: whatevr.v2.Response.chat_mark_all_read:type_name -> whatevr.v2.ChatMarkAllReadResult
+	79,  // 70: whatevr.v2.Response.chat_export:type_name -> whatevr.v2.ChatExportResult
+	80,  // 71: whatevr.v2.Response.send:type_name -> whatevr.v2.SendResult
+	81,  // 72: whatevr.v2.Response.message_forward:type_name -> whatevr.v2.MessageForwardResult
+	82,  // 73: whatevr.v2.Response.group_join_invite:type_name -> whatevr.v2.GroupJoinInviteResult
+	83,  // 74: whatevr.v2.Response.message_text:type_name -> whatevr.v2.MessageTextResult
+	84,  // 75: whatevr.v2.Response.media_stream:type_name -> whatevr.v2.MediaStreamResult
+	85,  // 76: whatevr.v2.Response.media_read:type_name -> whatevr.v2.MediaReadResult
+	86,  // 77: whatevr.v2.Response.media_fetch_profile_picture:type_name -> whatevr.v2.MediaFetchProfilePictureResult
+	87,  // 78: whatevr.v2.Response.media_save:type_name -> whatevr.v2.MediaSaveResult
+	88,  // 79: whatevr.v2.Response.search_chats:type_name -> whatevr.v2.SearchChatsResult
+	89,  // 80: whatevr.v2.Response.search_messages:type_name -> whatevr.v2.SearchMessagesResult
+	90,  // 81: whatevr.v2.Response.search_stickers:type_name -> whatevr.v2.SearchStickersResult
+	91,  // 82: whatevr.v2.Response.contact_check_phone:type_name -> whatevr.v2.ContactCheckPhoneResult
+	92,  // 83: whatevr.v2.Response.frontend_list:type_name -> whatevr.v2.FrontendListResult
+	0,   // 84: whatevr.v2.Error.code:type_name -> whatevr.v2.ErrorCode
+	10,  // 85: whatevr.v2.Event.update:type_name -> whatevr.v2.ViewUpdate
+	15,  // 86: whatevr.v2.Event.open_chat:type_name -> whatevr.v2.OpenChat
+	93,  // 87: whatevr.v2.Event.media_stream_update:type_name -> whatevr.v2.MediaStreamUpdate
+	94,  // 88: whatevr.v2.Event.activate:type_name -> whatevr.v2.Activate
+	11,  // 89: whatevr.v2.ViewUpdate.changes:type_name -> whatevr.v2.Change
+	14,  // 90: whatevr.v2.ViewUpdate.ready:type_name -> whatevr.v2.Ready
+	12,  // 91: whatevr.v2.Change.upsert:type_name -> whatevr.v2.Upsert
+	13,  // 92: whatevr.v2.Change.remove:type_name -> whatevr.v2.Remove
+	95,  // 93: whatevr.v2.Upsert.connection:type_name -> whatevr.v2.ConnectionRow
+	96,  // 94: whatevr.v2.Upsert.login:type_name -> whatevr.v2.LoginRow
+	97,  // 95: whatevr.v2.Upsert.sync:type_name -> whatevr.v2.SyncRow
+	98,  // 96: whatevr.v2.Upsert.problem:type_name -> whatevr.v2.ProblemRow
+	99,  // 97: whatevr.v2.Upsert.chat:type_name -> whatevr.v2.ChatRow
+	100, // 98: whatevr.v2.Upsert.message:type_name -> whatevr.v2.MessageRow
+	101, // 99: whatevr.v2.Upsert.typing:type_name -> whatevr.v2.TypingRow
+	102, // 100: whatevr.v2.Upsert.presence:type_name -> whatevr.v2.PresenceRow
+	103, // 101: whatevr.v2.Upsert.receipt:type_name -> whatevr.v2.ReceiptRow
+	104, // 102: whatevr.v2.Upsert.self:type_name -> whatevr.v2.SelfRow
+	105, // 103: whatevr.v2.Upsert.contact:type_name -> whatevr.v2.ContactRow
+	106, // 104: whatevr.v2.Upsert.group:type_name -> whatevr.v2.GroupRow
+	107, // 105: whatevr.v2.Upsert.group_member:type_name -> whatevr.v2.GroupMemberRow
+	108, // 106: whatevr.v2.Upsert.privacy:type_name -> whatevr.v2.PrivacyRow
+	109, // 107: whatevr.v2.Upsert.preferences:type_name -> whatevr.v2.PreferencesRow
+	110, // 108: whatevr.v2.Upsert.blocked:type_name -> whatevr.v2.BlockedRow
+	111, // 109: whatevr.v2.Upsert.live_location:type_name -> whatevr.v2.LiveLocationRow
+	112, // 110: whatevr.v2.Upsert.sticker:type_name -> whatevr.v2.StickerRow
+	113, // 111: whatevr.v2.Upsert.sticker_pack:type_name -> whatevr.v2.StickerPackRow
+	114, // 112: whatevr.v2.Upsert.transfer:type_name -> whatevr.v2.TransferRow
+	115, // 113: whatevr.v2.Upsert.notification:type_name -> whatevr.v2.NotificationRow
+	116, // 114: whatevr.v2.Upsert.reaction:type_name -> whatevr.v2.Reaction
+	117, // 115: whatevr.v2.Upsert.poll_vote:type_name -> whatevr.v2.PollVoteRow
+	118, // 116: whatevr.v2.Upsert.responder:type_name -> whatevr.v2.Responder
+	119, // 117: whatevr.v2.Upsert.log:type_name -> whatevr.v2.LogRow
+	120, // 118: whatevr.v2.Subscribe.connection:type_name -> whatevr.v2.ConnectionView
+	121, // 119: whatevr.v2.Subscribe.login:type_name -> whatevr.v2.LoginView
+	122, // 120: whatevr.v2.Subscribe.sync:type_name -> whatevr.v2.SyncView
+	123, // 121: whatevr.v2.Subscribe.problems:type_name -> whatevr.v2.ProblemsView
+	124, // 122: whatevr.v2.Subscribe.chats:type_name -> whatevr.v2.ChatsView
+	125, // 123: whatevr.v2.Subscribe.chat:type_name -> whatevr.v2.ChatView
+	126, // 124: whatevr.v2.Subscribe.messages:type_name -> whatevr.v2.MessagesView
+	127, // 125: whatevr.v2.Subscribe.typing:type_name -> whatevr.v2.TypingView
+	128, // 126: whatevr.v2.Subscribe.presence:type_name -> whatevr.v2.PresenceView
+	129, // 127: whatevr.v2.Subscribe.receipts:type_name -> whatevr.v2.ReceiptsView
+	130, // 128: whatevr.v2.Subscribe.self:type_name -> whatevr.v2.SelfView
+	131, // 129: whatevr.v2.Subscribe.contact:type_name -> whatevr.v2.ContactView
+	132, // 130: whatevr.v2.Subscribe.group:type_name -> whatevr.v2.GroupView
+	133, // 131: whatevr.v2.Subscribe.group_members:type_name -> whatevr.v2.GroupMembersView
+	134, // 132: whatevr.v2.Subscribe.privacy:type_name -> whatevr.v2.PrivacyView
+	135, // 133: whatevr.v2.Subscribe.preferences:type_name -> whatevr.v2.PreferencesView
+	136, // 134: whatevr.v2.Subscribe.blocklist:type_name -> whatevr.v2.BlocklistView
+	137, // 135: whatevr.v2.Subscribe.starred:type_name -> whatevr.v2.StarredView
+	138, // 136: whatevr.v2.Subscribe.pinned:type_name -> whatevr.v2.PinnedView
+	139, // 137: whatevr.v2.Subscribe.live_locations:type_name -> whatevr.v2.LiveLocationsView
+	140, // 138: whatevr.v2.Subscribe.chat_media:type_name -> whatevr.v2.ChatMediaView
+	141, // 139: whatevr.v2.Subscribe.chat_links:type_name -> whatevr.v2.ChatLinksView
+	142, // 140: whatevr.v2.Subscribe.stickers:type_name -> whatevr.v2.StickersView
+	143, // 141: whatevr.v2.Subscribe.sticker_packs:type_name -> whatevr.v2.StickerPacksView
+	144, // 142: whatevr.v2.Subscribe.sticker_pack:type_name -> whatevr.v2.StickerPackView
+	145, // 143: whatevr.v2.Subscribe.transfers:type_name -> whatevr.v2.TransfersView
+	146, // 144: whatevr.v2.Subscribe.notifications:type_name -> whatevr.v2.NotificationsView
+	147, // 145: whatevr.v2.Subscribe.reactions:type_name -> whatevr.v2.ReactionsView
+	148, // 146: whatevr.v2.Subscribe.poll_votes:type_name -> whatevr.v2.PollVotesView
+	149, // 147: whatevr.v2.Subscribe.event_responses:type_name -> whatevr.v2.EventResponsesView
+	150, // 148: whatevr.v2.Subscribe.logs:type_name -> whatevr.v2.LogsView
+	1,   // 149: whatevr.v2.Extend.direction:type_name -> whatevr.v2.Direction
+	150, // [150:150] is the sub-list for method output_type
+	150, // [150:150] is the sub-list for method input_type
+	150, // [150:150] is the sub-list for extension type_name
+	150, // [150:150] is the sub-list for extension extendee
+	0,   // [0:150] is the sub-list for field type_name
 }
 
 func init() { file_whatevr_v2_frame_proto_init() }
@@ -8616,6 +8712,7 @@ func file_whatevr_v2_frame_proto_init() {
 		(*request_ChatEnsureDirect)(nil),
 		(*request_ChatFavorite)(nil),
 		(*request_ChatMarkAllRead)(nil),
+		(*request_ChatExport)(nil),
 		(*request_SendText)(nil),
 		(*request_SendMedia)(nil),
 		(*request_SendSticker)(nil),
@@ -8665,6 +8762,7 @@ func file_whatevr_v2_frame_proto_init() {
 		(*response_ChatEnsureDirect)(nil),
 		(*response_ChatRequestOlder)(nil),
 		(*response_ChatMarkAllRead)(nil),
+		(*response_ChatExport)(nil),
 		(*response_Send)(nil),
 		(*response_MessageForward)(nil),
 		(*response_GroupJoinInvite)(nil),

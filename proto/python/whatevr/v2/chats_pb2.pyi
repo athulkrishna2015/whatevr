@@ -183,3 +183,17 @@ class ChatMarkAllReadResult(_message.Message):
     COUNT_FIELD_NUMBER: _ClassVar[int]
     count: int
     def __init__(self, count: _Optional[int] = ...) -> None: ...
+
+class ChatExport(_message.Message):
+    __slots__ = ("chat_id", "path")
+    CHAT_ID_FIELD_NUMBER: _ClassVar[int]
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    chat_id: str
+    path: str
+    def __init__(self, chat_id: _Optional[str] = ..., path: _Optional[str] = ...) -> None: ...
+
+class ChatExportResult(_message.Message):
+    __slots__ = ("path",)
+    PATH_FIELD_NUMBER: _ClassVar[int]
+    path: str
+    def __init__(self, path: _Optional[str] = ...) -> None: ...
