@@ -98,18 +98,33 @@ Kirigami.ApplicationWindow {
     }
 
     // Frontend-owned tray icon (the v2 daemon exports none): left-click
-    // toggles the window, right-click opens the tray menu at the icon.
+    // toggles the window, right-click opens the native menu above.
     TrayIcon {
         id: trayIcon
 
+        Component.onCompleted: {
+            const prefs = Whatevr.ProtocolController.appPreferences
+            trayIcon.setNotificationsMuted(!(prefs.notifications_enabled ?? true))
+        }
         onToggleWindowRequested: {
             if (root.hiddenToTray)
                 root.activateWindow()
             else
                 root.hideToTray()
         }
-        onTrayMenuRequested: pos => trayMenuWindow.showAt(pos.x, pos.y)
+        onMuteNotificationsRequested: muted => {
+            Whatevr.ProtocolController.setAppPreference("notifications_enabled", !muted)
+            trayIcon.setNotificationsMuted(muted)
+        }
         onQuitRequested: root.quitApplication()
+    }
+
+    Connections {
+        target: Whatevr.ProtocolController
+        function onAppPreferencesChanged() {
+            const prefs = Whatevr.ProtocolController.appPreferences
+            trayIcon.setNotificationsMuted(!(prefs.notifications_enabled ?? true))
+        }
     }
 
     SettingsView {
