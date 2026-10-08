@@ -8,6 +8,8 @@ import (
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 
+	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
+
 	"whatevrd/internal/core"
 	"whatevrd/internal/live"
 	"whatevrd/internal/model"
@@ -46,7 +48,8 @@ func newNotes(c *Client) *notes {
 // message is a live message, on whatsmeow's goroutine: it only queues.
 func (n *notes) message(evt *events.Message) {
 	chat := evt.Info.Chat
-	if chat.Server == types.BroadcastServer || chat.Server == types.NewsletterServer {
+	if chat.Server == types.BroadcastServer {
+		// statuses are browsed, not pushed
 		return
 	}
 	if evt.Info.IsFromMe {
@@ -93,7 +96,18 @@ func (n *notes) look(ctx context.Context, evt *events.Message) {
 		return
 	}
 	ch, ok, err := c.r.ChatIn(ctx, w, chat)
-	if err != nil || !ok || ch.Muted {
+	if err != nil {
+		return
+	}
+	if !ok {
+		// newsletters are not chats: channel posts notify from the
+		// directory row instead, followers expect to hear about them
+		if strings.HasSuffix(chat, "@newsletter") {
+			n.channel(ctx, w, p, evt)
+		}
+		return
+	}
+	if ch.Muted {
 		return
 	}
 	if p.GetMuteArchivedChats() && ch.Archived {
@@ -140,6 +154,83 @@ func (n *notes) look(ctx context.Context, evt *events.Message) {
 			note.Count += x.Count
 		}
 	}
+	c.live.Notify(note)
+	if c.o.Notifier != nil && !c.FrontendNotifies() {
+		c.o.Notifier.Show(note)
+	}
+}
+
+// channel notifies a new channel post like a chat message: fresh globally
+// enabled, channel unmuted. Channel posts are browsed, but unlike statuses
+// they push: followers expect to hear about new broadcasts.
+func (n *notes) channel(ctx context.Context, w *model.World, p *v2.Preferences, evt *events.Message) {
+	c := n.c
+	key := w.Now(model.Norm(evt.Info.Chat.String()))
+	title := key
+	muted := false
+	if channels, err := c.r.Channels(ctx); err == nil {
+		for _, ch := range channels {
+			if ch.JID == key {
+				if ch.Name != "" {
+					title = ch.Name
+				}
+				muted = ch.Muted
+				break
+			}
+		}
+	}
+	if muted {
+		return
+	}
+	m, _, err := c.message(ctx, Ref{Chat: key, ID: string(evt.Info.ID)})
+	if err != nil || m.FromMe {
+		return
+	}
+	line := "New post"
+	if sm, _, ok := NewDecoder(WorldNames(w), c.o.Paths.MediaCacheDir).Model(ctx, w, m); ok {
+		if preview := appstore.MessagePreviewLine(sm); preview != "" {
+			line = preview
+		}
+	}
+	if !p.GetNotificationPreview() {
+		line = ""
+	}
+	note := live.Notification{ID: key, Chat: key, Message: string(evt.Info.ID), Title: title,
+		Body: line, T: evt.Info.Timestamp, Sound: p.GetNotificationSound()}
+	c.live.Notify(note)
+	if c.o.Notifier != nil && !c.FrontendNotifies() {
+		c.o.Notifier.Show(note)
+	}
+}
+
+// callOffer notifies an incoming call: the desktop cannot answer (whatsmeow
+// has no media stack), so the popup says to answer on the phone. Unlike chat
+// messages, calls have no stored row at ring time, so this crafts the popup
+// directly.
+func (n *notes) callOffer(chat, callID string, video, group bool, t time.Time) {
+	c := n.c
+	ctx := context.Background()
+	p := c.prefs(ctx)
+	if !p.GetNotifications() || time.Since(t) > noteFresh {
+		return
+	}
+	label := "📞 Incoming voice call — answer on your phone"
+	if video {
+		label = "📹 Incoming video call — answer on your phone"
+	} else if group {
+		label = "📞 Incoming group call — answer on your phone"
+	}
+	if !p.GetNotificationPreview() {
+		label = ""
+	}
+	title := chat
+	if w, err := c.world(); err == nil {
+		if ch, ok, err := c.r.ChatIn(ctx, w, chat); err == nil && ok && ch.Name != "" {
+			title = ch.Name
+		}
+	}
+	note := live.Notification{ID: "call:" + callID, Chat: chat, Title: title,
+		Body: label, T: t, Sound: p.GetNotificationSound()}
 	c.live.Notify(note)
 	if c.o.Notifier != nil && !c.FrontendNotifies() {
 		c.o.Notifier.Show(note)

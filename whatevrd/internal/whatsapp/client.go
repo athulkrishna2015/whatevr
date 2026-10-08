@@ -360,6 +360,15 @@ func (c *Client) event(cli *whatsmeow.Client, raw any) {
 	case *events.Message:
 		c.notes.message(evt)
 		c.media.arrived(evt)
+	case *events.CallOffer:
+		if !evt.From.IsEmpty() && evt.CallID != "" {
+			c.notes.callOffer(c.chatKey(evt.From), evt.CallID, false, false, evt.Timestamp)
+		}
+	case *events.CallOfferNotice:
+		if !evt.GroupJID.IsEmpty() && evt.CallID != "" {
+			c.notes.callOffer(c.chatKey(evt.GroupJID), evt.CallID,
+				strings.EqualFold(evt.Media, "video"), true, evt.Timestamp)
+		}
 	case *events.Receipt:
 		if evt.IsFromMe && (evt.Type == types.ReceiptTypeRead || evt.Type == types.ReceiptTypeReadSelf) {
 			c.notes.read(c.chatKey(evt.Chat))
