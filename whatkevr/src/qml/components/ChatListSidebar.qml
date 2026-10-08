@@ -244,9 +244,6 @@ Item {
         QQC2.ToolButton {
             id: callsButton
 
-            // Calls need the v2-missing `calls` views: hidden until the
-            // daemon grows them rather than a permanently loading page.
-            visible: false
             Layout.alignment: Qt.AlignHCenter
             icon.name: "call-start-symbolic"
             display: QQC2.AbstractButton.IconOnly

@@ -273,6 +273,8 @@ func (rs *Reads) Register(srv *server.Server) {
 		protoreflect.FieldNumber(v2.Subscribe_ChatFolders_case):    {rs.foldersView, rowBytes},
 		protoreflect.FieldNumber(v2.Subscribe_Status_case):         {rs.statusView, messageBytes},
 		protoreflect.FieldNumber(v2.Subscribe_StatusMuted_case):    {rs.statusMutedView, rowBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Calls_case):           {rs.callsView, rowBytes},
+		protoreflect.FieldNumber(v2.Subscribe_CallHistory_case):     {rs.callHistoryView, messageBytes},
 		protoreflect.FieldNumber(v2.Subscribe_Stickers_case):       {rs.stickersView, rowBytes},
 		protoreflect.FieldNumber(v2.Subscribe_StickerPacks_case):   {rs.stickerPacksView, rowBytes},
 		protoreflect.FieldNumber(v2.Subscribe_StickerPack_case):    {rs.stickerPackView, rowBytes},

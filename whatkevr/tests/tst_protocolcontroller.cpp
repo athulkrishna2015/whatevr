@@ -596,6 +596,11 @@ private:
             lastCommandParams = params;
             reply(id, QJsonObject{});
             Q_EMIT commandReceived();
+        } else if (method == QLatin1String("call.reject")) {
+            lastCommandMethod = method;
+            lastCommandParams = params;
+            reply(id, QJsonObject{});
+            Q_EMIT commandReceived();
         } else if (method == QLatin1String("community.link")
                    || method == QLatin1String("community.unlink")) {
             lastCommandMethod = method;
@@ -1280,6 +1285,34 @@ private Q_SLOTS:
         QCOMPARE(daemon.lastCommandMethod, QStringLiteral("community.link"));
         QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("community_id")).toString(),
                  QStringLiteral("c@g.us"));
+    }
+
+    // The calls tab lists the ringing set, and history pages call-log rows.
+    void callsRingingAndHistory()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats(
+            {chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});
+        daemon.setCollection(QStringLiteral("call_history"),
+                             {messageRow(QStringLiteral("c1"), QStringLiteral("0001"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_COMPARE(daemon.chatsSubscribeCount, 2);
+
+        ctrl.openCalls();
+        ctrl.openCallHistory();
+        auto *history = qobject_cast<QAbstractItemModel *>(ctrl.callHistoryModel());
+        QVERIFY(history);
+        QTRY_COMPARE(history->rowCount(), 1);
+
+        QSignalSpy commandSpy(&daemon, &FakeDaemon::commandReceived);
+        ctrl.rejectCall(QStringLiteral("a@s"));
+        QVERIFY(commandSpy.wait());
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("call.reject"));
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("chat_id")).toString(),
+                 QStringLiteral("a@s"));
     }
 
     // Backups export through backupExported; the passphrase stores quietly.

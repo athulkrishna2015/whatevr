@@ -130,6 +130,10 @@ bool buildV2Subscribe(std::uint64_t id, const QString &view, const QJsonObject &
         subscribe->mutable_status();
     } else if (view == QLatin1String("status.muted")) {
         subscribe->mutable_status_muted();
+    } else if (view == QLatin1String("calls")) {
+        subscribe->mutable_calls();
+    } else if (view == QLatin1String("call_history")) {
+        subscribe->mutable_call_history();
     } else if (view == QLatin1String("typing")) {
         subscribe->mutable_typing();
     } else if (view == QLatin1String("transfers")) {
@@ -772,6 +776,25 @@ QJsonObject translateV2Item(const whatevr::v2::Upsert &upsert)
         return translateV2StickerRow(upsert.sticker());
     case whatevr::v2::Upsert::kStickerPack:
         return translateV2StickerPackRow(upsert.sticker_pack());
+    case whatevr::v2::Upsert::kCall: {
+        QJsonObject item;
+        item.insert(QStringLiteral("id"), v2s(upsert.call().id()));
+        item.insert(QStringLiteral("chat_id"), v2s(upsert.call().chat_id()));
+        QJsonObject caller;
+        caller.insert(QStringLiteral("id"), v2s(upsert.call().caller().id()));
+        caller.insert(QStringLiteral("name"), v2s(upsert.call().caller().name()));
+        if (!upsert.call().caller().avatar_path().empty()) {
+            caller.insert(QStringLiteral("avatar_path"),
+                          v2s(upsert.call().caller().avatar_path()));
+        }
+        item.insert(QStringLiteral("caller"), caller);
+        if (upsert.call().video()) {
+            item.insert(QStringLiteral("video"), true);
+        }
+        item.insert(QStringLiteral("started_at"),
+                    static_cast<qint64>(upsert.call().started_ms() / 1000));
+        return item;
+    }
     case whatevr::v2::Upsert::kStatusMuted: {
         QJsonObject item;
         item.insert(QStringLiteral("id"), v2s(upsert.status_muted().sender_id()));
@@ -1193,6 +1216,11 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
     }
 
     // Messages.
+    if (method == QLatin1String("call.reject")) {
+        request->mutable_call_reject()->set_chat_id(
+            get("chat_id").toString().toStdString());
+        return true;
+    }
     if (method == QLatin1String("message.react")) {
         auto *react = request->mutable_message_react();
         react->set_message_id(get("message_id").toString().toStdString());
@@ -1999,6 +2027,12 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
         case View::kStatusMuted:
             params.insert(QStringLiteral("view"), QStringLiteral("status.muted"));
             break;
+        case View::kCalls:
+            params.insert(QStringLiteral("view"), QStringLiteral("calls"));
+            break;
+        case View::kCallHistory:
+            params.insert(QStringLiteral("view"), QStringLiteral("call_history"));
+            break;
         case View::kStickers:
             params.insert(QStringLiteral("view"), QStringLiteral("stickers"));
             switch (subscribe.stickers().source()) {
@@ -2357,6 +2391,10 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
     case Method::kStatusDelete:
         out->method = QStringLiteral("status.delete");
         params.insert(QStringLiteral("status_id"), v2s(request.status_delete().status_id()));
+        break;
+    case Method::kCallReject:
+        out->method = QStringLiteral("call.reject");
+        params.insert(QStringLiteral("chat_id"), v2s(request.call_reject().chat_id()));
         break;
     case Method::kMessageReact:
         out->method = QStringLiteral("message.react");
@@ -3399,6 +3437,14 @@ bool v2UpsertRowFromJson(const QString &view, const QJsonObject &item, whatevr::
     if (view == QLatin1String("status.muted")) {
         auto *row = out->mutable_status_muted();
         row->set_sender_id(str("id"));
+        return true;
+    }
+    if (view == QLatin1String("call_history")) {
+        whatevr::v2::MessageRow row;
+        if (!v2MessageRowFromJson(item, &row)) {
+            return false;
+        }
+        *out->mutable_message() = row;
         return true;
     }
     if (view == QLatin1String("messages") || view == QLatin1String("starred")

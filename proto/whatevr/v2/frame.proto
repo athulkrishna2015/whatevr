@@ -108,6 +108,7 @@ message Request {
     StatusMuteSender status_mute_sender = 96;
     StatusViewers status_viewers = 97;
     StatusDelete status_delete = 98;
+    CallReject call_reject = 99;
     MessageText message_text = 72;
 
     // 90-99: media
@@ -295,6 +296,7 @@ message Upsert {
     LogRow log = 34;
     ChatFolderRow chat_folder = 35;
     StatusMutedRow status_muted = 36;
+    CallRow call = 37;
   }
 }
 
@@ -355,6 +357,8 @@ message Subscribe {
     LogsView logs = 39;
     StatusView status = 42;
     StatusMutedView status_muted = 43;
+    CallsView calls = 44;
+    CallHistoryView call_history = 45;
   }
 }
 

@@ -180,3 +180,46 @@ func (c *Client) ReplyToStatus(ctx context.Context, token, text string) (Ref, er
 	}
 	return c.SendText(ctx, Draft{Chat: m.Sender, ReplyTo: &Ref{Chat: m.Chat, ID: m.ID}}, strings.TrimSpace(text))
 }
+
+// RejectCall rejects the latest ringing call in a chat, if any. Rejecting a
+// call that already ended is a silent no-op.
+func (c *Client) RejectCall(ctx context.Context, chat string) error {
+	if strings.TrimSpace(chat) == "" {
+		return Errorf(ErrInvalid, "chat_id is required")
+	}
+	w, err := c.world()
+	if err != nil {
+		return err
+	}
+	key := w.Now(model.Norm(chat))
+	ringing, err := c.r.Ringing(ctx)
+	if err != nil {
+		return err
+	}
+	var match *model.RingingCall
+	for i, call := range ringing {
+		from := call.From
+		if call.Group != "" {
+			from = call.Group
+		}
+		if w.Now(model.Norm(from)) == key {
+			match = &ringing[i]
+			break
+		}
+	}
+	if match == nil {
+		return nil
+	}
+	cli, err := c.connected()
+	if err != nil {
+		return err
+	}
+	from, err := types.ParseJID(match.From)
+	if err != nil {
+		return Errorf(ErrInvalid, "call from %q", match.From)
+	}
+	if err := cli.RejectCall(ctx, from, match.ID); err != nil {
+		return Errorf(ErrRejected, "%v", err)
+	}
+	return nil
+}

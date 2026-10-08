@@ -1181,6 +1181,34 @@ class StatusDelete(_message.Message):
     status_id: str
     def __init__(self, status_id: _Optional[str] = ...) -> None: ...
 
+class CallsView(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class CallHistoryView(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class CallRow(_message.Message):
+    __slots__ = ("id", "chat_id", "caller", "video", "started_ms")
+    ID_FIELD_NUMBER: _ClassVar[int]
+    CHAT_ID_FIELD_NUMBER: _ClassVar[int]
+    CALLER_FIELD_NUMBER: _ClassVar[int]
+    VIDEO_FIELD_NUMBER: _ClassVar[int]
+    STARTED_MS_FIELD_NUMBER: _ClassVar[int]
+    id: str
+    chat_id: str
+    caller: _people_pb2.Person
+    video: bool
+    started_ms: int
+    def __init__(self, id: _Optional[str] = ..., chat_id: _Optional[str] = ..., caller: _Optional[_Union[_people_pb2.Person, _Mapping]] = ..., video: _Optional[bool] = ..., started_ms: _Optional[int] = ...) -> None: ...
+
+class CallReject(_message.Message):
+    __slots__ = ("chat_id",)
+    CHAT_ID_FIELD_NUMBER: _ClassVar[int]
+    chat_id: str
+    def __init__(self, chat_id: _Optional[str] = ...) -> None: ...
+
 class SendResult(_message.Message):
     __slots__ = ("message_id",)
     MESSAGE_ID_FIELD_NUMBER: _ClassVar[int]

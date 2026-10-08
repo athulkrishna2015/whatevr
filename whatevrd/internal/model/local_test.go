@@ -277,3 +277,21 @@ func TestStatusMuteAndViewedFlags(t *testing.T) {
 		t.Fatalf("after unmute %+v %v", rest, err)
 	}
 }
+
+func TestRingingListsOffersWithoutAnEnd(t *testing.T) {
+	call := func(id, event string, sec int) core.Input {
+		return in(core.KindCall, core.CallHead{ID: id, From: ashaPN, T: at(sec).UnixMilli(), Event: event}, nil, at(sec))
+	}
+	db := openModel(t)
+	ctx := context.Background()
+	feed(t, db, []core.Input{
+		call("c1", "offer", 1),
+		call("c2", "offer", 2),
+		call("c2", "terminate", 3),
+	})
+	r := NewReader(db.Read())
+	ringing, err := r.Ringing(ctx)
+	if err != nil || len(ringing) != 1 || ringing[0].ID != "c1" {
+		t.Fatalf("ringing %+v %v", ringing, err)
+	}
+}

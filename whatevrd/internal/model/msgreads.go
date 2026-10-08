@@ -650,6 +650,16 @@ func (r *Reader) Edits(ctx context.Context, addrs []string, target string) ([]Ed
 	return out, rows.Err()
 }
 
+// CallLog lists call-log rows across chats, newest first.
+func (r *Reader) CallLog(ctx context.Context, from Cursor, limit int) ([]Message, error) {
+	if from == (Cursor{}) {
+		from = Cursor{T: tMax}
+	}
+	return r.list(ctx, `SELECT `+msgCols+` FROM msg m WHERE m.kind = 'callLogMesssage'
+		AND (m.t, m.ord, m.id) < (?, ?, ?) ORDER BY m.t DESC, m.ord DESC, m.id DESC LIMIT ?`,
+		from.T, from.Ord, from.ID, limit)
+}
+
 // MessageChat is the address a message id lives under, for ids that come
 // without their chat.
 func (r *Reader) MessageChat(ctx context.Context, id string) (string, bool, error) {

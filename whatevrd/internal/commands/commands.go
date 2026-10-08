@@ -85,6 +85,7 @@ func Register(o Options) *Opener {
 		arm(v2.Request_MessageRequestFromPhone_case):   x.requestFromPhone,
 		arm(v2.Request_PollVote_case):                  x.vote,
 		arm(v2.Request_EventRsvp_case):                 x.rsvp,
+		arm(v2.Request_CallReject_case):               x.callReject,
 		arm(v2.Request_GroupJoinInvite_case):           x.joinInvite,
 		arm(v2.Request_GroupCreate_case):               x.groupCreate,
 		arm(v2.Request_GroupLeave_case):                x.groupLeave,
@@ -1014,6 +1015,14 @@ func (x *commands) statusDelete(ctx context.Context, s *server.Session, req *v2.
 		return nil, err
 	}
 	return nil, wire(x.c.DeleteStatus(ctx, tok))
+}
+
+func (x *commands) callReject(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	key, err := x.chat(ctx, req.GetCallReject().GetChatId())
+	if err != nil {
+		return nil, err
+	}
+	return nil, wire(x.c.RejectCall(ctx, key))
 }
 
 func (x *commands) joinInvite(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {

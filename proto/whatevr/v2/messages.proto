@@ -795,6 +795,26 @@ message StatusDelete {
   string status_id = 1;
 }
 
+// what rings right now, one row per live call
+message CallsView {}
+
+// every chat's call-log rows, newest first
+message CallHistoryView {}
+
+// one live call: answer on your phone, or reject it here
+message CallRow {
+  // the call id
+  string id = 1;
+  string chat_id = 2;
+  Person caller = 3;
+  bool video = 4;
+  int64 started_ms = 5;
+}
+
+message CallReject {
+  string chat_id = 1;
+}
+
 message SendResult {
   string message_id = 1;
 }

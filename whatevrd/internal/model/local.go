@@ -341,6 +341,37 @@ func (r *Reader) Folders(ctx context.Context) ([]Folder, error) {
 	return out, rows.Err()
 }
 
+// RingingCall is a call ringing now: offered with no accept, reject or
+// terminate after it.
+type RingingCall struct {
+	ID    string
+	From  string
+	T     int64
+	Video bool
+	Group string
+}
+
+// Ringing lists the calls ringing now, oldest first.
+func (r *Reader) Ringing(ctx context.Context) ([]RingingCall, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT o.id, o.from_, o.t, o.video, o.grp FROM call o
+		WHERE o.event = 'offer' AND NOT EXISTS (SELECT 1 FROM call e
+			WHERE e.id = o.id AND e.event IN ('accept', 'reject', 'terminate'))
+		ORDER BY o.t, o.id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RingingCall
+	for rows.Next() {
+		var c RingingCall
+		if err := rows.Scan(&c.ID, &c.From, &c.T, &c.Video, &c.Group); err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
 // AvatarPaths is every picture file an avatar row names.
 func (r *Reader) AvatarPaths(ctx context.Context) (map[string]bool, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT DISTINCT path FROM avatar_try WHERE path != ''`)
