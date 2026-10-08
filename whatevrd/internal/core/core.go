@@ -222,6 +222,13 @@ func (db *DB) setup(ctx context.Context) error {
 			key   TEXT PRIMARY KEY,
 			value TEXT NOT NULL
 		)`,
+		// Local display flags need no rebuild to appear: this table is
+		// created on every open, and the favorite fold fills it.
+		`CREATE TABLE IF NOT EXISTS chat_favorite (
+			key      TEXT PRIMARY KEY,
+			on_flag  INTEGER NOT NULL DEFAULT 0,
+			t        INTEGER NOT NULL DEFAULT 0
+		)`,
 		// an input whose fold failed. it is skipped, not retried, so one bad
 		// input cannot wedge every input after it; a rebuild tries it again.
 		`CREATE TABLE IF NOT EXISTS fold_failures (

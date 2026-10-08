@@ -27,6 +27,7 @@ const (
 	ChatFilter_CHAT_FILTER_ALL         ChatFilter = 1
 	ChatFilter_CHAT_FILTER_DIRECT      ChatFilter = 2
 	ChatFilter_CHAT_FILTER_GROUPS      ChatFilter = 3
+	ChatFilter_CHAT_FILTER_FAVORITE    ChatFilter = 4
 )
 
 // Enum value maps for ChatFilter.
@@ -36,12 +37,14 @@ var (
 		1: "CHAT_FILTER_ALL",
 		2: "CHAT_FILTER_DIRECT",
 		3: "CHAT_FILTER_GROUPS",
+		4: "CHAT_FILTER_FAVORITE",
 	}
 	ChatFilter_value = map[string]int32{
 		"CHAT_FILTER_UNSPECIFIED": 0,
 		"CHAT_FILTER_ALL":         1,
 		"CHAT_FILTER_DIRECT":      2,
 		"CHAT_FILTER_GROUPS":      3,
+		"CHAT_FILTER_FAVORITE":    4,
 	}
 )
 
@@ -267,6 +270,7 @@ type ChatRow struct {
 	xxx_hidden_EphemeralSecs    uint32                 `protobuf:"varint,14,opt,name=ephemeral_secs,json=ephemeralSecs"`
 	xxx_hidden_ReadOnly         bool                   `protobuf:"varint,15,opt,name=read_only,json=readOnly"`
 	xxx_hidden_LoadingOlder     bool                   `protobuf:"varint,16,opt,name=loading_older,json=loadingOlder"`
+	xxx_hidden_Favorite         bool                   `protobuf:"varint,17,opt,name=favorite"`
 	unknownFields               protoimpl.UnknownFields
 	sizeCache                   protoimpl.SizeCache
 }
@@ -408,6 +412,13 @@ func (x *ChatRow) GetLoadingOlder() bool {
 	return false
 }
 
+func (x *ChatRow) GetFavorite() bool {
+	if x != nil {
+		return x.xxx_hidden_Favorite
+	}
+	return false
+}
+
 func (x *ChatRow) SetId(v string) {
 	x.xxx_hidden_Id = v
 }
@@ -472,6 +483,10 @@ func (x *ChatRow) SetLoadingOlder(v bool) {
 	x.xxx_hidden_LoadingOlder = v
 }
 
+func (x *ChatRow) SetFavorite(v bool) {
+	x.xxx_hidden_Favorite = v
+}
+
 func (x *ChatRow) HasPreview() bool {
 	if x == nil {
 		return false
@@ -509,6 +524,8 @@ type ChatRow_builder struct {
 	ReadOnly bool
 	// a chat_request_older is out
 	LoadingOlder bool
+	// favorited on this device
+	Favorite bool
 }
 
 func (b0 ChatRow_builder) Build() *ChatRow {
@@ -531,6 +548,7 @@ func (b0 ChatRow_builder) Build() *ChatRow {
 	x.xxx_hidden_EphemeralSecs = b.EphemeralSecs
 	x.xxx_hidden_ReadOnly = b.ReadOnly
 	x.xxx_hidden_LoadingOlder = b.LoadingOlder
+	x.xxx_hidden_Favorite = b.Favorite
 	return m0
 }
 
@@ -1247,6 +1265,78 @@ func (b0 ChatEnsureDirectResult_builder) Build() *ChatEnsureDirectResult {
 	return m0
 }
 
+// favorite a chat on this device; local display policy like pins
+type ChatFavorite struct {
+	state               protoimpl.MessageState `protogen:"opaque.v1"`
+	xxx_hidden_ChatId   string                 `protobuf:"bytes,1,opt,name=chat_id,json=chatId"`
+	xxx_hidden_Favorite bool                   `protobuf:"varint,2,opt,name=favorite"`
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
+}
+
+func (x *ChatFavorite) Reset() {
+	*x = ChatFavorite{}
+	mi := &file_whatevr_v2_chats_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ChatFavorite) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ChatFavorite) ProtoMessage() {}
+
+func (x *ChatFavorite) ProtoReflect() protoreflect.Message {
+	mi := &file_whatevr_v2_chats_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+func (x *ChatFavorite) GetChatId() string {
+	if x != nil {
+		return x.xxx_hidden_ChatId
+	}
+	return ""
+}
+
+func (x *ChatFavorite) GetFavorite() bool {
+	if x != nil {
+		return x.xxx_hidden_Favorite
+	}
+	return false
+}
+
+func (x *ChatFavorite) SetChatId(v string) {
+	x.xxx_hidden_ChatId = v
+}
+
+func (x *ChatFavorite) SetFavorite(v bool) {
+	x.xxx_hidden_Favorite = v
+}
+
+type ChatFavorite_builder struct {
+	_ [0]func() // Prevents comparability and use of unkeyed literals for the builder.
+
+	ChatId   string
+	Favorite bool
+}
+
+func (b0 ChatFavorite_builder) Build() *ChatFavorite {
+	m0 := &ChatFavorite{}
+	b, x := &b0, m0
+	_, _ = b, x
+	x.xxx_hidden_ChatId = b.ChatId
+	x.xxx_hidden_Favorite = b.Favorite
+	return m0
+}
+
 var File_whatevr_v2_chats_proto protoreflect.FileDescriptor
 
 const file_whatevr_v2_chats_proto_rawDesc = "" +
@@ -1257,7 +1347,7 @@ const file_whatevr_v2_chats_proto_rawDesc = "" +
 	"\x06filter\x18\x01 \x01(\x0e2\x16.whatevr.v2.ChatFilterR\x06filter\x12\x1a\n" +
 	"\barchived\x18\x02 \x01(\bR\barchived\"#\n" +
 	"\bChatView\x12\x17\n" +
-	"\achat_id\x18\x01 \x01(\tR\x06chatId\"\x81\x04\n" +
+	"\achat_id\x18\x01 \x01(\tR\x06chatId\"\x9d\x04\n" +
 	"\aChatRow\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12(\n" +
@@ -1276,7 +1366,8 @@ const file_whatevr_v2_chats_proto_rawDesc = "" +
 	"\x11history_exhausted\x18\r \x01(\bR\x10historyExhausted\x12%\n" +
 	"\x0eephemeral_secs\x18\x0e \x01(\rR\rephemeralSecs\x12\x1b\n" +
 	"\tread_only\x18\x0f \x01(\bR\breadOnly\x12#\n" +
-	"\rloading_older\x18\x10 \x01(\bR\floadingOlder\"m\n" +
+	"\rloading_older\x18\x10 \x01(\bR\floadingOlder\x12\x1a\n" +
+	"\bfavorite\x18\x11 \x01(\bR\bfavorite\"m\n" +
 	"\vChatPreview\x12\x12\n" +
 	"\x04text\x18\x01 \x01(\tR\x04text\x12\x17\n" +
 	"\afrom_me\x18\x02 \x01(\bR\x06fromMe\x121\n" +
@@ -1307,13 +1398,17 @@ const file_whatevr_v2_chats_proto_rawDesc = "" +
 	"\x10ChatEnsureDirect\x12+\n" +
 	"\x06person\x18\x01 \x01(\v2\x13.whatevr.v2.AddressR\x06person\"1\n" +
 	"\x16ChatEnsureDirectResult\x12\x17\n" +
-	"\achat_id\x18\x01 \x01(\tR\x06chatId*n\n" +
+	"\achat_id\x18\x01 \x01(\tR\x06chatId\"C\n" +
+	"\fChatFavorite\x12\x17\n" +
+	"\achat_id\x18\x01 \x01(\tR\x06chatId\x12\x1a\n" +
+	"\bfavorite\x18\x02 \x01(\bR\bfavorite*\x88\x01\n" +
 	"\n" +
 	"ChatFilter\x12\x1b\n" +
 	"\x17CHAT_FILTER_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fCHAT_FILTER_ALL\x10\x01\x12\x16\n" +
 	"\x12CHAT_FILTER_DIRECT\x10\x02\x12\x16\n" +
-	"\x12CHAT_FILTER_GROUPS\x10\x03*\x9c\x01\n" +
+	"\x12CHAT_FILTER_GROUPS\x10\x03\x12\x18\n" +
+	"\x14CHAT_FILTER_FAVORITE\x10\x04*\x9c\x01\n" +
 	"\bChatType\x12\x19\n" +
 	"\x15CHAT_TYPE_UNSPECIFIED\x10\x00\x12\x14\n" +
 	"\x10CHAT_TYPE_DIRECT\x10\x01\x12\x13\n" +
@@ -1327,7 +1422,7 @@ const file_whatevr_v2_chats_proto_rawDesc = "" +
 	"Whatevr\\V2\xe2\x02\x16Whatevr\\V2\\GPBMetadata\xea\x02\vWhatevr::V2\x92\x03\x02\b\x02b\beditionsp\xe9\a"
 
 var file_whatevr_v2_chats_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_whatevr_v2_chats_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_whatevr_v2_chats_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_whatevr_v2_chats_proto_goTypes = []any{
 	(ChatFilter)(0),                // 0: whatevr.v2.ChatFilter
 	(ChatType)(0),                  // 1: whatevr.v2.ChatType
@@ -1344,15 +1439,16 @@ var file_whatevr_v2_chats_proto_goTypes = []any{
 	(*ChatRequestOlderResult)(nil), // 12: whatevr.v2.ChatRequestOlderResult
 	(*ChatEnsureDirect)(nil),       // 13: whatevr.v2.ChatEnsureDirect
 	(*ChatEnsureDirectResult)(nil), // 14: whatevr.v2.ChatEnsureDirectResult
-	(MessageStatus)(0),             // 15: whatevr.v2.MessageStatus
-	(*Address)(nil),                // 16: whatevr.v2.Address
+	(*ChatFavorite)(nil),           // 15: whatevr.v2.ChatFavorite
+	(MessageStatus)(0),             // 16: whatevr.v2.MessageStatus
+	(*Address)(nil),                // 17: whatevr.v2.Address
 }
 var file_whatevr_v2_chats_proto_depIdxs = []int32{
 	0,  // 0: whatevr.v2.ChatsView.filter:type_name -> whatevr.v2.ChatFilter
 	1,  // 1: whatevr.v2.ChatRow.type:type_name -> whatevr.v2.ChatType
 	5,  // 2: whatevr.v2.ChatRow.preview:type_name -> whatevr.v2.ChatPreview
-	15, // 3: whatevr.v2.ChatPreview.status:type_name -> whatevr.v2.MessageStatus
-	16, // 4: whatevr.v2.ChatEnsureDirect.person:type_name -> whatevr.v2.Address
+	16, // 3: whatevr.v2.ChatPreview.status:type_name -> whatevr.v2.MessageStatus
+	17, // 4: whatevr.v2.ChatEnsureDirect.person:type_name -> whatevr.v2.Address
 	5,  // [5:5] is the sub-list for method output_type
 	5,  // [5:5] is the sub-list for method input_type
 	5,  // [5:5] is the sub-list for extension type_name
@@ -1373,7 +1469,7 @@ func file_whatevr_v2_chats_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_whatevr_v2_chats_proto_rawDesc), len(file_whatevr_v2_chats_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   13,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

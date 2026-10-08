@@ -57,6 +57,12 @@ func (c *Client) SetDefaultFrontend(ctx context.Context, id string) error {
 	return c.storePrefs(ctx, p)
 }
 
+// SetChatFavorite favorites a chat on this device. local display policy,
+// like pins: nothing crosses to WhatsApp.
+func (c *Client) SetChatFavorite(ctx context.Context, key string, on bool) error {
+	return c.append(ctx, core.KindFavorite, core.FavoriteHead{Chat: key, On: on}, nil)
+}
+
 // SetPreferences sets the fields set has; the rest stay.
 func (c *Client) SetPreferences(ctx context.Context, set *v2.PreferencesSet) error {
 	p := c.prefs(ctx)

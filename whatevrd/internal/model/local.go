@@ -43,10 +43,35 @@ var localDomain = core.Domain{
 		)`,
 	},
 	Folds: map[string]core.FoldFunc{
-		core.KindLocal:  foldLocal,
-		core.KindAvatar: foldAvatar,
-		core.KindPrefs:  foldPrefs,
+		core.KindLocal:    foldLocal,
+		core.KindAvatar:   foldAvatar,
+		core.KindPrefs:    foldPrefs,
+		core.KindFavorite: foldFavorite,
 	},
+}
+
+// foldFavorite records one chat's favorite flag. The table lives outside the
+// domain schema (see core setup's always-run statements) so existing
+// databases grow it on open instead of needing a rebuild.
+func foldFavorite(tx *core.Tx, in core.Input) error {
+	h, err := head[core.FavoriteHead](in)
+	if err != nil {
+		return err
+	}
+	if h.Chat == "" {
+		return nil
+	}
+	on := 0
+	if h.On {
+		on = 1
+	}
+	if _, err := tx.Exec(`INSERT INTO chat_favorite (key, on_flag, t) VALUES (?, ?, ?)
+		ON CONFLICT (key) DO UPDATE SET on_flag = excluded.on_flag, t = excluded.t
+		WHERE excluded.t >= chat_favorite.t`, h.Chat, on, in.At.UnixMilli()); err != nil {
+		return err
+	}
+	tx.Touch("chat", h.Chat)
+	return nil
 }
 
 func foldLocal(tx *core.Tx, in core.Input) error {

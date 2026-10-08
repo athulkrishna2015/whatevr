@@ -193,9 +193,6 @@ Item {
         }
 
         QQC2.ToolButton {
-            // Favorites need per-chat favorite rows, which protocol v2 does
-            // not serve: hidden until the daemon grows them.
-            visible: false
             Layout.alignment: Qt.AlignHCenter
             icon.name: "favorite"
             display: QQC2.AbstractButton.IconOnly

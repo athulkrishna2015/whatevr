@@ -88,9 +88,11 @@ bool v2ChatFilter(const QString &filter, whatevr::v2::ChatFilter *out)
         *out = ChatFilter::CHAT_FILTER_DIRECT;
     } else if (filter == QLatin1String("groups")) {
         *out = ChatFilter::CHAT_FILTER_GROUPS;
+    } else if (filter == QLatin1String("favorite")) {
+        *out = ChatFilter::CHAT_FILTER_FAVORITE;
     } else {
-        // unread/favorite filters are v1-only; the daemon never served them
-        // either (normalizeChatFilter rejected everything past groups).
+        // unread has no server filter; the Unread sidebar filter runs over
+        // `all` through the unread proxy instead.
         return false;
     }
     return true;
@@ -493,6 +495,7 @@ QJsonObject translateV2ChatRow(const whatevr::v2::ChatRow &row)
     }
     item.insert(QStringLiteral("unread"), static_cast<qint64>(row.unread()));
     item.insert(QStringLiteral("pinned"), row.pinned());
+    item.insert(QStringLiteral("favorite"), row.favorite());
     item.insert(QStringLiteral("archived"), row.archived());
     item.insert(QStringLiteral("muted"), row.muted());
     if (row.mute_end_ms() > 0) {
@@ -788,6 +791,12 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
         auto *pin = request->mutable_chat_pin();
         pin->set_chat_id(get("chat_id").toString().toStdString());
         pin->set_pinned(get("pinned").toBool());
+        return true;
+    }
+    if (method == QLatin1String("chat.favorite")) {
+        auto *favorite = request->mutable_chat_favorite();
+        favorite->set_chat_id(get("chat_id").toString().toStdString());
+        favorite->set_favorite(get("favorite").toBool());
         return true;
     }
     if (method == QLatin1String("chat.archive")) {
@@ -1453,6 +1462,9 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
             case whatevr::v2::CHAT_FILTER_GROUPS:
                 params.insert(QStringLiteral("filter"), QStringLiteral("groups"));
                 break;
+            case whatevr::v2::CHAT_FILTER_FAVORITE:
+                params.insert(QStringLiteral("filter"), QStringLiteral("favorite"));
+                break;
             default:
                 params.insert(QStringLiteral("filter"), QStringLiteral("all"));
                 break;
@@ -1610,6 +1622,11 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
         out->method = QStringLiteral("chat.pin");
         params.insert(QStringLiteral("chat_id"), v2s(request.chat_pin().chat_id()));
         params.insert(QStringLiteral("pinned"), request.chat_pin().pinned());
+        break;
+    case Method::kChatFavorite:
+        out->method = QStringLiteral("chat.favorite");
+        params.insert(QStringLiteral("chat_id"), v2s(request.chat_favorite().chat_id()));
+        params.insert(QStringLiteral("favorite"), request.chat_favorite().favorite());
         break;
     case Method::kChatArchive:
         out->method = QStringLiteral("chat.archive");

@@ -91,8 +91,7 @@ func TestAvatarsCountTheFailuresSinceTheLastAnswer(t *testing.T) {
 	})
 }
 
-func TestPrefsKeepTheNewest(t *testing.T) {
-	ins := []core.Input{
+func TestPrefsKeepTheNewest(t *testing.T) {	ins := []core.Input{
 		in(core.KindPrefs, core.PrefsHead{Prefs: json.RawMessage(`{"a":1}`)}, nil, at(1)),
 		in(core.KindPrefs, core.PrefsHead{Prefs: json.RawMessage(`{"a":2}`)}, nil, at(2)),
 	}
@@ -106,4 +105,43 @@ func TestPrefsKeepTheNewest(t *testing.T) {
 	if p, err := r.Prefs(context.Background()); p != nil || err != nil {
 		t.Fatalf("no prefs read %s %v", p, err)
 	}
+}
+
+func TestFavoriteFlagsChatsAndFiltersThem(t *testing.T) {
+	fav := func(chat string, on bool, sec int) core.Input {
+		return in(core.KindFavorite, core.FavoriteHead{Chat: chat, On: on}, nil, at(sec))
+	}
+	ins := []core.Input{
+		msgIn("M1", ashaL, ashaL, ashaPN, false, 10, text("hi")),
+		msgIn("M2", grp, boL, boPN, false, 11, text("hi")),
+		fav(ashaL, true, 20),
+	}
+	both(t, ins, func(t *testing.T, db *core.DB, r *Reader) {
+		ctx := context.Background()
+		w, err := r.World(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		all, err := r.ChatsIn(ctx, w, ChatFilter{Any: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		byKey := map[string]Chat{}
+		for _, c := range all {
+			byKey[c.Key] = c
+		}
+		if !byKey[ashaL].Favorite {
+			t.Fatalf("ashaL not favorited: %+v", byKey[ashaL])
+		}
+		if byKey[grp].Favorite {
+			t.Fatalf("group favorited: %+v", byKey[grp])
+		}
+		only, err := r.ChatsIn(ctx, w, ChatFilter{Any: true, Kind: "favorite"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(only) != 1 || only[0].Key != ashaL || !only[0].Favorite {
+			t.Fatalf("favorite filter: %+v", only)
+		}
+	})
 }

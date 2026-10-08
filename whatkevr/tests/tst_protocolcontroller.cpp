@@ -933,6 +933,33 @@ private Q_SLOTS:
         QTRY_COMPARE(proxy->rowCount(), 1);
     }
 
+    // Favorites are daemon-side on protocol v2: filter 4 subscribes the
+    // `favorite` filter and toggling sends `chat.favorite`.
+    void favoriteFilterAndToggle()
+    {
+        FakeDaemon daemon(m_path);
+        daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
+        daemon.setActiveChats(
+            {chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});
+
+        ProtocolController ctrl(m_path, nullptr);
+        ctrl.start();
+        QTRY_COMPARE(daemon.chatsSubscribeCount, 2);
+
+        ctrl.setChatFilter(4);
+        QTRY_COMPARE(daemon.chatsSubscribeCount, 4);
+        QCOMPARE(daemon.lastChatsParams.value(QStringLiteral("filter")).toString(),
+                 QStringLiteral("favorite"));
+
+        QSignalSpy commandSpy(&daemon, &FakeDaemon::commandReceived);
+        ctrl.setChatFavorite(QStringLiteral("a@s"), true);
+        QVERIFY(commandSpy.wait());
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("chat.favorite"));
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("chat_id")).toString(),
+                 QStringLiteral("a@s"));
+        QVERIFY(daemon.lastCommandParams.value(QStringLiteral("favorite")).toBool());
+    }
+
     // DN6: the chat list is a *window*, not the whole roster. Both `chats`
     // subscriptions carry a `limit`, and the next page is asked for with an
     // `older` extend — one at a time, and never past the daemon's exhaustion.
@@ -2118,8 +2145,7 @@ private Q_SLOTS:
 
     // Protocol v2 has no batch request: the controller walks the files
     // through sequential `send.media` requests behind the in-flight guard.
-    void sendMediaBatchSendsSequentially()
-    {
+    void sendMediaBatchSendsSequentially()    {
         FakeDaemon daemon(m_path);
         daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
         daemon.setActiveChats({chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"))});

@@ -36,6 +36,8 @@ const (
 	KindLocal  = "local"
 	KindAvatar = "avatar"
 	KindPrefs  = "prefs"
+	// a chat the user favorited on this device
+	KindFavorite = "favorite"
 	// what this daemon fetched or did for the sticker picker
 	KindSticker = "sticker"
 	// the id this daemon gave an address the first time it showed it. read
@@ -408,4 +410,10 @@ const (
 // PrefsHead is every preference after a change.
 type PrefsHead struct {
 	Prefs json.RawMessage `json:"prefs"`
+}
+
+// FavoriteHead is one chat's favorite flag after a change.
+type FavoriteHead struct {
+	Chat string `json:"chat"`
+	On   bool   `json:"on"`
 }

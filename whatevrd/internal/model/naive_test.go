@@ -51,12 +51,22 @@ func (r *Reader) naiveChatsIn(ctx context.Context, w *World, f ChatFilter) ([]Ch
 	if f.Limit > 0 && len(out) > f.Limit {
 		out = out[:f.Limit]
 	}
+	favs, err := r.favorites(ctx)
+	if err != nil {
+		return nil, err
+	}
+	kept := out[:0]
 	for i := range out {
+		out[i].Favorite = favs[out[i].Key]
+		if f.Kind == "favorite" && !out[i].Favorite {
+			continue
+		}
 		if err := r.naiveUnread(ctx, w, &out[i], all); err != nil {
 			return nil, err
 		}
+		kept = append(kept, out[i])
 	}
-	return out, nil
+	return kept, nil
 }
 
 // chatStates reads the state of every address that is a chat, or of one

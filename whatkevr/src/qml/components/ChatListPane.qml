@@ -610,9 +610,6 @@ Kirigami.Page {
                      }
 
                      MenuItem {
-                         // Per-chat favorites have no v2 row or command: hidden
-                         // until the daemon grows them.
-                         visible: false
                          text: chatList.contextChatFavorite
                                ? Whatevr.I18n.i18nc("@action:menu", "Remove from favorites")
                                : Whatevr.I18n.i18nc("@action:menu", "Add to favorites")

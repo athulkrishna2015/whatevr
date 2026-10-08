@@ -505,6 +505,7 @@ type Chat struct {
 	LastT    int64
 	Pinned   bool
 	PinT     int64
+	Favorite bool
 	Archived bool
 	Muted    bool
 	MuteEnd  int64
@@ -524,7 +525,7 @@ type Chat struct {
 }
 
 type ChatFilter struct {
-	// Kind is "", "direct" or "groups"
+	// Kind is "", "direct", "groups" or "favorite"
 	Kind     string
 	Archived bool
 	// Any takes archived and unarchived alike
@@ -583,6 +584,8 @@ func (r *Reader) ChatsIn(ctx context.Context, w *World, f ChatFilter) ([]Chat, e
 		q += ` AND grp = 0`
 	case "groups":
 		q += ` AND grp = 1`
+	case "favorite":
+		q += ` AND key IN (SELECT key FROM chat_favorite WHERE on_flag = 1)`
 	}
 	q += ` ORDER BY pinned DESC, pin_t DESC, last_t DESC, key`
 	name := strings.ToLower(strings.TrimSpace(f.Name))
@@ -597,11 +600,16 @@ func (r *Reader) ChatsIn(ctx context.Context, w *World, f ChatFilter) ([]Chat, e
 	defer rows.Close()
 	now := r.now().UnixMilli()
 	var out []Chat
+	favs, err := r.favorites(ctx)
+	if err != nil {
+		return nil, err
+	}
 	for rows.Next() {
 		c, err := scanRow(rows)
 		if err != nil {
 			return nil, err
 		}
+		c.Favorite = favs[c.Key]
 		dress(w, &c, now)
 		if name != "" && !strings.Contains(strings.ToLower(c.Name), name) {
 			continue
@@ -621,6 +629,25 @@ func second(c Chat) [2]int64 {
 		pin = 1 + c.PinT/1000
 	}
 	return [2]int64{pin, c.LastT / 1000}
+}
+
+// favorites maps chat keys to their favorite flag. The table is tiny; one
+// query per list beats a join in every list query.
+func (r *Reader) favorites(ctx context.Context) (map[string]bool, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT key FROM chat_favorite WHERE on_flag = 1`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		out[key] = true
+	}
+	return out, rows.Err()
 }
 
 // Chat is one chat by any of its addresses, with its unread count.
@@ -647,6 +674,11 @@ func (r *Reader) ChatIn(ctx context.Context, w *World, addr string) (Chat, bool,
 		return Chat{}, false, err
 	case c.deleted:
 		return Chat{}, false, nil
+	}
+	if favs, err := r.favorites(ctx); err != nil {
+		return Chat{}, false, err
+	} else {
+		c.Favorite = favs[c.Key]
 	}
 	// an address nothing came under yet goes where its first message would
 	idle := w.Addrs(key)

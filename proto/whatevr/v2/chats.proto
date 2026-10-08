@@ -17,6 +17,7 @@ enum ChatFilter {
   CHAT_FILTER_ALL = 1;
   CHAT_FILTER_DIRECT = 2;
   CHAT_FILTER_GROUPS = 3;
+  CHAT_FILTER_FAVORITE = 4;
 }
 
 // the same row chats sends, outside any filter or window
@@ -48,6 +49,8 @@ message ChatRow {
   bool read_only = 15;
   // a chat_request_older is out
   bool loading_older = 16;
+  // favorited on this device
+  bool favorite = 17;
 }
 
 enum ChatType {
@@ -112,4 +115,10 @@ message ChatEnsureDirect {
 
 message ChatEnsureDirectResult {
   string chat_id = 1;
+}
+
+// favorite a chat on this device; local display policy like pins
+message ChatFavorite {
+  string chat_id = 1;
+  bool favorite = 2;
 }

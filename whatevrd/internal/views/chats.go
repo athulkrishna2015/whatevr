@@ -25,6 +25,8 @@ func (rs *Reads) chatsView(ctx context.Context, s *server.Session, req *v2.Subsc
 		f.Kind = "direct"
 	case v2.ChatFilter_CHAT_FILTER_GROUPS:
 		f.Kind = "groups"
+	case v2.ChatFilter_CHAT_FILTER_FAVORITE:
+		f.Kind = "favorite"
 	}
 	w := &win{params: req}
 	w.items = func(ctx context.Context, max int) ([]*v2.Upsert, error) {
@@ -144,6 +146,7 @@ func (c *rc) chatRow(gen uint64, ch model.Chat) *v2.ChatRow {
 		Unread:           uint32(max(ch.Unread, 0)),
 		MarkedUnread:     ch.MarkedUnread,
 		Pinned:           ch.Pinned,
+		Favorite:         ch.Favorite,
 		Archived:         ch.Archived,
 		Muted:            ch.Muted,
 		MuteEndMs:        toMS(ch.MuteEnd),

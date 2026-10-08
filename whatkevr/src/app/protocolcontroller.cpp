@@ -753,12 +753,11 @@ void ProtocolController::subscribeChats()
     // first so the list never briefly shows the previous filter (rule 1: the
     // frontend does no filtering itself — the daemon returns exactly the window).
     //
-    // Protocol v2 serves no unread/favorite filters. The Unread sidebar filter
+    // Protocol v2 serves no unread filter. The Unread sidebar filter
     // subscribes `all` and reads through unreadChatsModel (a local proxy over
-    // the loaded window); Favorites has no v2 data at all and its button is
-    // hidden, so filter 4 can no longer arrive here — but clamp defensively.
+    // the loaded window); every other filter is daemon-side.
     const QString effectiveFilter =
-        (m_chatFilter == 3 || m_chatFilter == 4) ? QStringLiteral("all") : chatFilterName();
+        m_chatFilter == 3 ? QStringLiteral("all") : chatFilterName();
     delete m_chatsSub;
     delete m_archivedSub;
     m_chatsSub = nullptr;

@@ -53,6 +53,7 @@ message Request {
     ChatTyping chat_typing = 34;
     ChatRequestOlder chat_request_older = 35;
     ChatEnsureDirect chat_ensure_direct = 36;
+    ChatFavorite chat_favorite = 37;
 
     // 50-59: sends
     SendText send_text = 50;

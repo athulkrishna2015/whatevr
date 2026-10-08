@@ -14,6 +14,7 @@ class ChatFilter(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     CHAT_FILTER_ALL: _ClassVar[ChatFilter]
     CHAT_FILTER_DIRECT: _ClassVar[ChatFilter]
     CHAT_FILTER_GROUPS: _ClassVar[ChatFilter]
+    CHAT_FILTER_FAVORITE: _ClassVar[ChatFilter]
 
 class ChatType(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
@@ -27,6 +28,7 @@ CHAT_FILTER_UNSPECIFIED: ChatFilter
 CHAT_FILTER_ALL: ChatFilter
 CHAT_FILTER_DIRECT: ChatFilter
 CHAT_FILTER_GROUPS: ChatFilter
+CHAT_FILTER_FAVORITE: ChatFilter
 CHAT_TYPE_UNSPECIFIED: ChatType
 CHAT_TYPE_DIRECT: ChatType
 CHAT_TYPE_GROUP: ChatType
@@ -49,7 +51,7 @@ class ChatView(_message.Message):
     def __init__(self, chat_id: _Optional[str] = ...) -> None: ...
 
 class ChatRow(_message.Message):
-    __slots__ = ("id", "name", "type", "avatar_path", "preview", "last_ms", "unread", "marked_unread", "pinned", "archived", "muted", "mute_end_ms", "history_exhausted", "ephemeral_secs", "read_only", "loading_older")
+    __slots__ = ("id", "name", "type", "avatar_path", "preview", "last_ms", "unread", "marked_unread", "pinned", "archived", "muted", "mute_end_ms", "history_exhausted", "ephemeral_secs", "read_only", "loading_older", "favorite")
     ID_FIELD_NUMBER: _ClassVar[int]
     NAME_FIELD_NUMBER: _ClassVar[int]
     TYPE_FIELD_NUMBER: _ClassVar[int]
@@ -66,6 +68,7 @@ class ChatRow(_message.Message):
     EPHEMERAL_SECS_FIELD_NUMBER: _ClassVar[int]
     READ_ONLY_FIELD_NUMBER: _ClassVar[int]
     LOADING_OLDER_FIELD_NUMBER: _ClassVar[int]
+    FAVORITE_FIELD_NUMBER: _ClassVar[int]
     id: str
     name: str
     type: ChatType
@@ -82,7 +85,8 @@ class ChatRow(_message.Message):
     ephemeral_secs: int
     read_only: bool
     loading_older: bool
-    def __init__(self, id: _Optional[str] = ..., name: _Optional[str] = ..., type: _Optional[_Union[ChatType, str]] = ..., avatar_path: _Optional[str] = ..., preview: _Optional[_Union[ChatPreview, _Mapping]] = ..., last_ms: _Optional[int] = ..., unread: _Optional[int] = ..., marked_unread: _Optional[bool] = ..., pinned: _Optional[bool] = ..., archived: _Optional[bool] = ..., muted: _Optional[bool] = ..., mute_end_ms: _Optional[int] = ..., history_exhausted: _Optional[bool] = ..., ephemeral_secs: _Optional[int] = ..., read_only: _Optional[bool] = ..., loading_older: _Optional[bool] = ...) -> None: ...
+    favorite: bool
+    def __init__(self, id: _Optional[str] = ..., name: _Optional[str] = ..., type: _Optional[_Union[ChatType, str]] = ..., avatar_path: _Optional[str] = ..., preview: _Optional[_Union[ChatPreview, _Mapping]] = ..., last_ms: _Optional[int] = ..., unread: _Optional[int] = ..., marked_unread: _Optional[bool] = ..., pinned: _Optional[bool] = ..., archived: _Optional[bool] = ..., muted: _Optional[bool] = ..., mute_end_ms: _Optional[int] = ..., history_exhausted: _Optional[bool] = ..., ephemeral_secs: _Optional[int] = ..., read_only: _Optional[bool] = ..., loading_older: _Optional[bool] = ..., favorite: _Optional[bool] = ...) -> None: ...
 
 class ChatPreview(_message.Message):
     __slots__ = ("text", "from_me", "status")
@@ -161,3 +165,11 @@ class ChatEnsureDirectResult(_message.Message):
     CHAT_ID_FIELD_NUMBER: _ClassVar[int]
     chat_id: str
     def __init__(self, chat_id: _Optional[str] = ...) -> None: ...
+
+class ChatFavorite(_message.Message):
+    __slots__ = ("chat_id", "favorite")
+    CHAT_ID_FIELD_NUMBER: _ClassVar[int]
+    FAVORITE_FIELD_NUMBER: _ClassVar[int]
+    chat_id: str
+    favorite: bool
+    def __init__(self, chat_id: _Optional[str] = ..., favorite: _Optional[bool] = ...) -> None: ...

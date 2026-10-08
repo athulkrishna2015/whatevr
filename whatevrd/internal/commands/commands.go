@@ -61,6 +61,7 @@ func Register(o Options) *Opener {
 		arm(v2.Request_AccountLogout_case):            x.logout,
 		arm(v2.Request_ChatMarkRead_case):             x.markRead,
 		arm(v2.Request_ChatPin_case):                  x.chatPin,
+		arm(v2.Request_ChatFavorite_case):             x.chatFavorite,
 		arm(v2.Request_ChatArchive_case):              x.chatArchive,
 		arm(v2.Request_ChatMute_case):                 x.chatMute,
 		arm(v2.Request_ChatTyping_case):               x.typing,
@@ -244,6 +245,15 @@ func (x *commands) chatPin(ctx context.Context, s *server.Session, req *v2.Reque
 		return nil, err
 	}
 	return nil, wire(x.c.PinChat(ctx, key, p.GetPinned()))
+}
+
+func (x *commands) chatFavorite(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetChatFavorite()
+	key, err := x.chat(ctx, p.GetChatId())
+	if err != nil {
+		return nil, err
+	}
+	return nil, wire(x.c.SetChatFavorite(ctx, key, p.GetFavorite()))
 }
 
 func (x *commands) chatArchive(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
