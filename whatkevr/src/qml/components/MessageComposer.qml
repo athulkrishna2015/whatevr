@@ -906,12 +906,30 @@ Frame {
                         }
 
                         if (event.matches(StandardKey.Paste) && !root.editing) {
-                            if (Whatevr.ProtocolController.sendClipboardImage(root.inputPlainText(), root.replyToMessageId)) {
+                            // Images stage through the same confirm + basic-edit
+                            // dialog as attached and dropped files: nothing
+                            // sends until Send is pressed. Text paste falls
+                            // through when the clipboard holds no image.
+                            const pastedImage = Whatevr.ProtocolController.takeClipboardImage()
+                            if (pastedImage.toString().length > 0) {
+                                attachConfirmDialog.stage([pastedImage.toString()], "", root.viewOnceSend)
                                 event.accepted = true
                                 root.setComposing(false)
-                                root.replyConsumed()
-                                input.clear()
                                 root.hideSuggestions()
+                                return
+                            }
+                            const pastedFiles = Whatevr.ProtocolController.takeClipboardFileUrls()
+                            if (pastedFiles.length === 1 && !String(pastedFiles[0])) {
+                                // GIF probe already reported its own error.
+                                event.accepted = true
+                                return
+                            }
+                            if (pastedFiles.length > 0) {
+                                attachConfirmDialog.stage(pastedFiles, "", root.viewOnceSend)
+                                event.accepted = true
+                                root.setComposing(false)
+                                root.hideSuggestions()
+                                return
                             }
                             return
                         }

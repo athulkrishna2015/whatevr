@@ -718,6 +718,13 @@ public:
     // clipboard had nothing sendable, so the caller can fall back to a normal
     // paste-as-text.
     Q_INVOKABLE bool sendClipboardImage(const QString &caption, const QString &replyToMessageId);
+    // Staging twins of sendClipboardImage: instead of sending immediately,
+    // they hand the clipboard's image back as file URL(s) so QML can route a
+    // paste through AttachConfirmDialog.stage() — the same caption + basic
+    // edit (crop/rotate/draw) path as picked files and drops. Empty when the
+    // clipboard holds nothing sendable.
+    Q_INVOKABLE QUrl takeClipboardImage();
+    Q_INVOKABLE QVariantList takeClipboardFileUrls();
     // Maps to `send.poll`; follows the send.text/send.media in-flight shape so
     // the composer shows the same ack/error behaviour. replyToMessageId may be empty.
     Q_INVOKABLE void sendPoll(const QString &question, const QStringList &options, bool multiSelect, const QString &replyToMessageId);

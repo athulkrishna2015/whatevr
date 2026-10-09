@@ -153,6 +153,8 @@ bool buildV2Subscribe(std::uint64_t id, const QString &view, const QJsonObject &
         subscribe->mutable_privacy();
     } else if (view == QLatin1String("blocklist")) {
         subscribe->mutable_blocklist();
+    } else if (view == QLatin1String("contacts")) {
+        subscribe->mutable_contacts();
     } else if (view == QLatin1String("chat")) {
         subscribe->mutable_chat()->set_chat_id(
             params.value(QStringLiteral("chat_id")).toString().toStdString());
@@ -462,8 +464,13 @@ V2ResponseTranslation translateV2Response(const whatevr::v2::Response &response)
         for (const auto &row : response.search_chats().chats()) {
             chats.append(translateV2ChatRow(row));
         }
+        QJsonArray contacts;
+        for (const auto &row : response.search_chats().contacts()) {
+            contacts.append(translateV2ContactRow(row));
+        }
         QJsonObject result;
         result.insert(QStringLiteral("chats"), chats);
+        result.insert(QStringLiteral("contacts"), contacts);
         out.result = result;
         break;
     }
@@ -1775,6 +1782,12 @@ bool v2ResponseFromV1(const QString &method, std::uint64_t id, const QJsonObject
                 *search->add_chats() = chat;
             }
         }
+        for (const QJsonValue &row : result.value(QStringLiteral("contacts")).toArray()) {
+            whatevr::v2::ContactRow contact;
+            if (v2ContactRowFromJson(row.toObject(), &contact)) {
+                *search->add_contacts() = contact;
+            }
+        }
         return true;
     }
     if (method == QLatin1String("search.messages")) {
@@ -1847,6 +1860,29 @@ bool v2ChatRowFromJson(const QJsonObject &item, whatevr::v2::ChatRow *out)
     out->set_archived(item.value(QStringLiteral("archived")).toBool());
     out->set_muted(item.value(QStringLiteral("muted")).toBool());
     out->set_history_exhausted(item.value(QStringLiteral("history_exhausted")).toBool());
+    out->set_avatar_path(str("avatar_path"));
+    return true;
+}
+
+bool v2ContactRowFromJson(const QJsonObject &item, whatevr::v2::ContactRow *out)
+{
+    if (!item.contains(QStringLiteral("id")) && !item.contains(QStringLiteral("jid"))) {
+        return false;
+    }
+    const auto str = [&](const char *key) {
+        return item.value(QLatin1StringView(key)).toString().toStdString();
+    };
+    const std::string id = item.contains(QStringLiteral("id")) ? str("id") : str("jid");
+    out->set_id(id);
+    out->set_phone(str("phone"));
+    const std::string name = str("name");
+    // Fixture contacts carry one display name; prefer an explicit saved name
+    // when the fixture has one.
+    out->set_saved_name(item.contains(QStringLiteral("saved_name")) ? str("saved_name") : name);
+    out->set_push_name(str("push_name"));
+    out->set_business_name(str("business_name"));
+    out->set_business(item.value(QStringLiteral("is_business")).toBool());
+    out->set_about(str("about"));
     out->set_avatar_path(str("avatar_path"));
     return true;
 }
@@ -3568,6 +3604,14 @@ bool v2UpsertRowFromJson(const QString &view, const QJsonObject &item, whatevr::
             return false;
         }
         *out->mutable_chat() = row;
+        return true;
+    }
+    if (view == QLatin1String("contacts")) {
+        whatevr::v2::ContactRow row;
+        if (!v2ContactRowFromJson(item, &row)) {
+            return false;
+        }
+        *out->mutable_contact() = row;
         return true;
     }
     if (view == QLatin1String("status")) {

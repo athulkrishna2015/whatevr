@@ -105,27 +105,77 @@ func (rs *Reads) contactView(ctx context.Context, s *server.Session, req *v2.Sub
 		}
 		// a number that turned out to have a lid follows it
 		k := c.w.Now(key)
-		saved, push, business := c.w.Names(k)
-		blocked, err := rs.r.Blocked(ctx)
+		row := c.contactRow(k, c.blockedSet(ctx))
+		if err := c.finish(); err != nil {
+			return nil, err
+		}
+		it := &v2.Upsert{}
+		it.SetContact(row)
+		return one(it), nil
+	}
+	w.wake = func(c core.Change) bool { return touches(c, "person", "appstate", "blocklist", live.TouchAbout) }
+	return w, nil, nil
+}
+
+// contactsView is every saved contact: the phone's address book as whatsapp
+// syncs it (appstate contact names, history-sync inline names where those
+// are missing), in saved-name order. Starting a chat with one is
+// chat_ensure_direct with its id.
+func (rs *Reads) contactsView(ctx context.Context, s *server.Session, req *v2.Subscribe) (server.Window, *v2.SubscribeResult, error) {
+	w := &win{params: req}
+	w.items = func(ctx context.Context, max int) ([]*v2.Upsert, error) {
+		c, err := rs.begin(ctx)
 		if err != nil {
 			return nil, err
 		}
-		row := v2.ContactRow_builder{
-			Phone: phone(c.w.PN(k)), SavedName: saved, PushName: push, BusinessName: business,
-			Business: business != "", About: rs.about(c.w, k),
-		}.Build()
-		for _, b := range blocked {
-			if c.w.Now(b) == k {
-				row.SetBlocked(true)
-			}
+		blocked := c.blockedSet(ctx)
+		var out []*v2.Upsert
+		for _, sc := range c.w.SavedContacts() {
+			row := c.contactRow(sc.Key, blocked)
+			it := &v2.Upsert{}
+			c.wait(sc.Key, func(id, av string) { it.SetId(id); row.SetId(id); row.SetAvatarPath(av) })
+			it.SetSort(contactSort(sc.Saved, sc.Key))
+			it.SetContact(row)
+			out = append(out, it)
 		}
-		c.wait(k, func(id, av string) { row.SetId(id); row.SetAvatarPath(av) })
-		it := &v2.Upsert{}
-		it.SetContact(row)
-		return one(it), c.finish()
+		if err := c.finish(); err != nil {
+			return nil, err
+		}
+		return limited(sorted(out), max), nil
 	}
-	w.wake = func(c core.Change) bool { return touches(c, "person", "blocklist", live.TouchAbout) }
-	return w, nil, nil
+	w.wake = func(c core.Change) bool { return touches(c, "person", "appstate", "blocklist", live.TouchAbout) }
+	w.replaced = rs.replaced
+	return merging{w}, nil, nil
+}
+
+// contactRow is key as a contact card row, its id and avatar arriving with
+// the read's finish.
+func (c *rc) contactRow(key string, blocked map[string]bool) *v2.ContactRow {
+	saved, push, business := c.w.Names(key)
+	row := v2.ContactRow_builder{
+		Phone: phone(c.w.PN(key)), SavedName: saved, PushName: push, BusinessName: business,
+		Business: business != "", About: c.Reads.about(c.w, key), Blocked: blocked[c.w.Now(key)],
+	}.Build()
+	c.wait(key, func(id, av string) { row.SetId(id); row.SetAvatarPath(av) })
+	return row
+}
+
+// blockedSet is every person on the blocklist, folded to Now.
+func (c *rc) blockedSet(ctx context.Context) map[string]bool {
+	out := map[string]bool{}
+	blocked, err := c.r.Blocked(ctx)
+	if err != nil {
+		return out
+	}
+	for _, b := range blocked {
+		out[c.w.Now(b)] = true
+	}
+	return out
+}
+
+// contactSort orders saved contacts by name, then key.
+func contactSort(saved, key string) []byte {
+	return append(append([]byte(strings.ToLower(saved)), 0), key...)
 }
 
 func (rs *Reads) blocklistView(ctx context.Context, s *server.Session, req *v2.Subscribe) (server.Window, *v2.SubscribeResult, error) {

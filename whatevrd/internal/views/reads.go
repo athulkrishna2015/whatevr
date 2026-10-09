@@ -260,6 +260,7 @@ func (rs *Reads) Register(srv *server.Server) {
 		protoreflect.FieldNumber(v2.Subscribe_Receipts_case):        {rs.receiptsView, personBytes},
 		protoreflect.FieldNumber(v2.Subscribe_Self_case):            {rs.selfView, objectBytes},
 		protoreflect.FieldNumber(v2.Subscribe_Contact_case):         {rs.contactView, objectBytes},
+		protoreflect.FieldNumber(v2.Subscribe_Contacts_case):        {rs.contactsView, personBytes},
 		protoreflect.FieldNumber(v2.Subscribe_Group_case):           {rs.groupView, objectBytes},
 		protoreflect.FieldNumber(v2.Subscribe_GroupMembers_case):    {rs.groupMembersView, personBytes},
 		protoreflect.FieldNumber(v2.Subscribe_Privacy_case):         {rs.privacyView, objectBytes},

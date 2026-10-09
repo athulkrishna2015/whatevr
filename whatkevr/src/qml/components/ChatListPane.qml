@@ -719,6 +719,9 @@ Kirigami.Page {
                         if (section === "number") {
                             return Whatevr.I18n.i18nc("@title:group search results", "Phone number")
                         }
+                        if (section === "contact") {
+                            return Whatevr.I18n.i18nc("@title:group search results", "Contacts")
+                        }
                         return Whatevr.I18n.i18nc("@title:group search results", "Chats")
                     }
                 }
@@ -755,6 +758,12 @@ Kirigami.Page {
                         Whatevr.ProtocolController.startDirectChat(jidArg)
                         root.hideSearch()
                     }
+                    onContactActivated: jidArg => {
+                        // A saved contact without a chat row yet: same landing
+                        // as a phone number, through `chat.ensure_direct`.
+                        Whatevr.ProtocolController.startDirectChat(jidArg)
+                        root.hideSearch()
+                    }
                 }
 
                 BusyIndicator {
@@ -770,7 +779,7 @@ Kirigami.Page {
                     visible: !Whatevr.ProtocolController.searchBusy && searchList.count === 0
                     icon.name: "search-symbolic"
                     text: Whatevr.I18n.i18nc("@info", "No results")
-                    explanation: Whatevr.I18n.i18nc("@info", "No chats or messages match your search.")
+                    explanation: Whatevr.I18n.i18nc("@info", "No chats, contacts or messages match your search.")
                 }
             }
         }

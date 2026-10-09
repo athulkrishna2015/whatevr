@@ -14,9 +14,9 @@
 // frontend renders and throws away — PROTOCOL.md's Queries section allows
 // exactly this frontend-only state.
 //
-// Each of the three result sets keeps the daemon's own order and lives in its
-// own section (phone number, chats, messages); the model never sorts, merges,
-// or deduplicates across them. Roles match the ones the search delegate has
+// Each of the result sets keeps the daemon's own order and lives in its own
+// section (phone number, chats, contacts, messages); the model never sorts,
+// merges, or deduplicates across them. Roles match the ones the search delegate has
 // always bound to, so it is a pure data-source swap.
 class ProtocolSearchModel final : public QAbstractListModel
 {
@@ -48,15 +48,17 @@ public:
     [[nodiscard]] QHash<int, QByteArray> roleNames() const override;
 
     // Each setter takes the daemon rows verbatim: `search.chats`' `chats`
-    // array, `search.messages`' `messages` array (message items plus
+    // and `contacts` arrays, `search.messages`' `messages` array (message items plus
     // `chat_name`), and the `contacts.check_phone` result object.
     void setChats(const QJsonArray &chats);
+    void setContacts(const QJsonArray &contacts);
     void setMessages(const QJsonArray &messages);
     void setNumber(const QJsonObject &result);
     void clearNumber();
     void clear();
 
     [[nodiscard]] int chatCount() const { return static_cast<int>(m_chats.size()); }
+    [[nodiscard]] int contactCount() const { return static_cast<int>(m_contacts.size()); }
     [[nodiscard]] int messageCount() const { return static_cast<int>(m_messages.size()); }
     [[nodiscard]] int numberCount() const { return static_cast<int>(m_number.size()); }
 
@@ -66,6 +68,7 @@ private:
     struct Row {
         bool isMessage = false;
         bool isNumber = false;
+        bool isContact = false;
         QString avatarLocalPath = {};
         QString initials = {};
         QString title = {};
@@ -83,5 +86,6 @@ private:
 
     QList<Row> m_number;
     QList<Row> m_chats;
+    QList<Row> m_contacts;
     QList<Row> m_messages;
 };

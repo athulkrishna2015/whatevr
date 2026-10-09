@@ -42,6 +42,11 @@ message ContactView {
   Address person = 1;
 }
 
+// every saved contact (the phone's address book as whatsapp syncs it),
+// in saved-name order; a frontend filters it presentation-side to browse,
+// or searches it through search_chats' contacts
+message ContactsView {}
+
 message ContactRow {
   string id = 1;
   string phone = 2;

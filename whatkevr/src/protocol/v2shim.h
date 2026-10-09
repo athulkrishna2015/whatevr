@@ -74,6 +74,7 @@ void v2ErrorResponse(std::uint64_t id, const QString &code, const QString &messa
                      whatevr::v2::Response *out);
 // Fixture rows to v2 rows, for test doubles serving v1 JSON fixtures.
 bool v2ChatRowFromJson(const QJsonObject &item, whatevr::v2::ChatRow *out);
+bool v2ContactRowFromJson(const QJsonObject &item, whatevr::v2::ContactRow *out);
 bool v2MessageRowFromJson(const QJsonObject &item, whatevr::v2::MessageRow *out);
 // A fixture item for `view` to its v2 upsert row. False for views the fake
 // never serves (v1-only views fail at subscribe time instead).

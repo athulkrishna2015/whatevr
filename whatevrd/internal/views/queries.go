@@ -2,6 +2,7 @@ package views
 
 import (
 	"context"
+	"sort"
 	"strings"
 
 	v2 "github.com/codelif/whatevr/proto/whatevr/v2"
@@ -46,17 +47,79 @@ func (rs *Reads) searchChats(ctx context.Context, s *server.Session, req *v2.Req
 		for i, ch := range chats {
 			rows[i] = c.chatRow(gen, ch)
 		}
+		// saved contacts the query names that no chat row above already
+		// shows, in saved-name order: the "start a chat" half of search.
+		shown := map[string]bool{}
+		for _, ch := range chats {
+			shown[ch.Key] = true
+		}
+		contactRows := c.matchingContacts(query, shown, limit)
 		if err := c.finish(); err != nil {
 			return nil, err
 		}
 		for _, r := range rows {
 			Fit(r, chatBytes)
 		}
+		for _, r := range contactRows {
+			Fit(r, personBytes)
+		}
 		res.SetChats(rows)
+		res.SetContacts(contactRows)
 	}
 	resp := &v2.Response{}
 	resp.SetSearchChats(res)
 	return resp, nil
+}
+
+// matchingContacts is up to limit saved contacts matching query that shown
+// leaves out, in saved-name order, with their ids and avatars waited.
+func (c *rc) matchingContacts(query string, shown map[string]bool, limit int) []*v2.ContactRow {
+	needle := strings.ToLower(query)
+	var digits strings.Builder
+	for _, r := range query {
+		if r >= '0' && r <= '9' {
+			digits.WriteRune(r)
+		}
+	}
+	wantDigits := digits.String()
+	blocked := c.blockedSet(c.ctx)
+	var matched []model.SavedContact
+	for _, sc := range c.w.SavedContacts() {
+		if shown[sc.Key] {
+			continue
+		}
+		if !strings.Contains(strings.ToLower(sc.Saved), needle) {
+			if wantDigits == "" || !strings.Contains(contactDigits(c.w.PN(sc.Key)), wantDigits) {
+				continue
+			}
+		}
+		matched = append(matched, sc)
+	}
+	sort.Slice(matched, func(i, j int) bool {
+		if strings.ToLower(matched[i].Saved) != strings.ToLower(matched[j].Saved) {
+			return strings.ToLower(matched[i].Saved) < strings.ToLower(matched[j].Saved)
+		}
+		return matched[i].Key < matched[j].Key
+	})
+	if len(matched) > limit {
+		matched = matched[:limit]
+	}
+	rows := make([]*v2.ContactRow, len(matched))
+	for i, sc := range matched {
+		rows[i] = c.contactRow(sc.Key, blocked)
+	}
+	return rows
+}
+
+// contactDigits is the dialable digits of a number address.
+func contactDigits(pn string) string {
+	var out strings.Builder
+	for _, r := range pn {
+		if r >= '0' && r <= '9' {
+			out.WriteRune(r)
+		}
+	}
+	return out.String()
 }
 
 func (rs *Reads) searchMessages(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {

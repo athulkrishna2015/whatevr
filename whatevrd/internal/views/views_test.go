@@ -14,6 +14,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/proto/waSyncAction"
 	"google.golang.org/protobuf/encoding/protodelim"
 	"google.golang.org/protobuf/proto"
 
@@ -302,6 +303,66 @@ func TestSearchMessagesNamesTheChat(t *testing.T) {
 	res := f.read().GetResponse().GetSearchMessages()
 	if len(res.GetMessages()) != 1 || res.GetMessages()[0].GetChatName() == "" || res.GetMore() {
 		t.Fatalf("search %v", res)
+	}
+}
+
+// savedContact is the phone naming someone in the address book.
+func savedContact(index []string, full string, sec int) core.Input {
+	b, err := proto.Marshal(&waSyncAction.SyncActionValue{ContactAction: &waSyncAction.ContactAction{FullName: proto.String(full)}})
+	if err != nil {
+		panic(err)
+	}
+	return in(core.KindAppState, core.AppStateHead{Collection: "regular_high", Version: uint64(sec), Op: "set", Index: index}, b, sec)
+}
+
+func TestContactsViewAndSearchListSavedContacts(t *testing.T) {
+	f := open(t, append(scenario(),
+		savedContact([]string{"contact", ashaPN}, "Asha Saved", 40),
+		savedContact([]string{"contact", boPN}, "Bobby Tables", 41),
+	)...)
+	_, rows := f.subscribe(func(s *v2.Subscribe) { s.SetContacts(&v2.ContactsView{}) })
+	if len(rows) != 2 {
+		t.Fatalf("contacts %d", len(rows))
+	}
+	a, b := rows[0].GetContact(), rows[1].GetContact()
+	if a.GetSavedName() != "Asha Saved" || b.GetSavedName() != "Bobby Tables" {
+		t.Fatalf("names %q %q", a.GetSavedName(), b.GetSavedName())
+	}
+	if rows[0].GetId() == "" || rows[0].GetId() == rows[1].GetId() {
+		t.Fatalf("ids %q %q", rows[0].GetId(), rows[1].GetId())
+	}
+
+	// a saved contact without a chat row is answered beside the chats
+	f.send(func(r *v2.Request) { r.SetSearchChats(v2.SearchChats_builder{Query: "bobby"}.Build()) })
+	res := f.read().GetResponse().GetSearchChats()
+	found := false
+	for _, c := range res.GetContacts() {
+		if c.GetSavedName() == "Bobby Tables" {
+			found = true
+		}
+		if c.GetId() == "" {
+			t.Fatalf("contact without id %v", c)
+		}
+	}
+	if !found {
+		t.Fatalf("search %v", res)
+	}
+	for _, c := range res.GetContacts() {
+		if c.GetSavedName() == "Asha Saved" {
+			t.Fatalf("asha repeated %v", res)
+		}
+	}
+
+	// a saved contact that already has a chat row is not repeated
+	f.send(func(r *v2.Request) { r.SetSearchChats(v2.SearchChats_builder{Query: "asha"}.Build()) })
+	res = f.read().GetResponse().GetSearchChats()
+	if len(res.GetChats()) == 0 {
+		t.Fatal("no chat for asha")
+	}
+	for _, c := range res.GetContacts() {
+		if c.GetSavedName() == "Asha Saved" {
+			t.Fatalf("asha repeated %v", res)
+		}
 	}
 }
 

@@ -305,6 +305,7 @@ Object views send one item with an empty id.
 | `receipts` | `message_id` | one per recipient | delivered, read and played times, live while open |
 | `self` | none | object | our own phone, push name, about, avatar |
 | `contact` | `person` | object | a contact card; local facts first, `about` when fetched |
+| `contacts` | none | one per saved contact | the phone's address book as whatsapp syncs it (appstate names, history inline names where those are missing), in saved-name order; start one with `chat_ensure_direct` |
 | `group` | `chat_id` | object | subject, description, avatar, created, owner, member count, my role, announce/locked/approval, community, `error` when whatsapp won't describe it |
 | `group_members` | `chat_id` | one per member | person and role |
 | `reactions` | `message_id` | one per person who reacted | id is the person; emoji and time, newest first |
@@ -418,7 +419,7 @@ results are whole rows inside the response.
 
 | method | params | result |
 | --- | --- | --- |
-| `search_chats` | `query`, `limit` | `chats`, in list order |
+| `search_chats` | `query`, `limit` | `chats`, in list order, plus `contacts`: saved contacts matching the query that no chat row already shows, in saved-name order |
 | `search_messages` | `query`, `chat_id` (empty for all), `limit`, `before` | `messages` with `chat_name`, newest first; `more` says another page exists, asked for with `before` set to the last id |
 | `search_stickers` | `query`, `limit` | `stickers`, daemon-ordered |
 | `contact_check_phone` | `phone` | `registered`, the normalized `phone`, `person_id`, `name`, `business` |

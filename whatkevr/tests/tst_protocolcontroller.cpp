@@ -218,6 +218,7 @@ public:
     // Canned query results (D5). Queries are one-shot request/response, not
     // views, so the fake just answers with whatever the test seeded.
     void setSearchChats(const QJsonArray &chats) { m_searchChats = chats; }
+    void setSearchContacts(const QJsonArray &contacts) { m_searchContacts = contacts; }
     void setSearchMessages(const QJsonArray &messages) { m_searchMessages = messages; }
     void setSearchStickers(const QJsonArray &stickers) { m_searchStickers = stickers; }
     void setCheckPhone(const QJsonObject &result) { m_checkPhone = result; }
@@ -505,7 +506,8 @@ private:
             queryMethods.append(method);
             lastQueryParams.insert(method, params);
             if (method == QLatin1String("search.chats")) {
-                reply(id, QJsonObject{{QStringLiteral("chats"), m_searchChats}});
+                reply(id, QJsonObject{{QStringLiteral("chats"), m_searchChats},
+                                      {QStringLiteral("contacts"), m_searchContacts}});
             } else if (method == QLatin1String("search.messages")) {
                 reply(id, QJsonObject{{QStringLiteral("messages"), m_searchMessages},
                                       {QStringLiteral("has_more"), false}});
@@ -779,6 +781,7 @@ private:
     bool m_rejectNextSend = false;
     bool m_rejectMessageCommands = false;
     QJsonArray m_searchChats;
+    QJsonArray m_searchContacts;
     QJsonArray m_searchMessages;
     QJsonArray m_searchStickers;
     QJsonObject m_checkPhone;
@@ -3115,6 +3118,10 @@ private Q_SLOTS:
         daemon.setItem(QStringLiteral("connection"), connectionItem(QStringLiteral("online")));
         daemon.setSearchChats({chatRow(QStringLiteral("a@s"), QStringLiteral("Alice"), QStringLiteral("1-000"),
                                        QJsonObject{{QStringLiteral("preview"), QStringLiteral("hi there")}})});
+        daemon.setSearchContacts({QJsonObject{{QStringLiteral("id"), QStringLiteral("c@s")},
+                                              {QStringLiteral("jid"), QStringLiteral("c@s")},
+                                              {QStringLiteral("saved_name"), QStringLiteral("Alicia")},
+                                              {QStringLiteral("phone"), QStringLiteral("1555000111")}}});
         daemon.setSearchMessages({messageRow(QStringLiteral("m1"), QStringLiteral("0001"))});
 
         ProtocolController ctrl(m_path, nullptr);
@@ -3125,7 +3132,7 @@ private Q_SLOTS:
         ctrl.setSearchQuery(QStringLiteral("ali"));
         QVERIFY(ctrl.searchActive());
         auto *model = ctrl.searchResultsModel();
-        QTRY_COMPARE(model->rowCount(), 2);
+        QTRY_COMPARE(model->rowCount(), 3);
         QTRY_VERIFY(!ctrl.searchBusy());
         // A name search never hits the phone lookup.
         QVERIFY(!daemon.queryMethods.contains(QStringLiteral("contacts.check_phone")));
@@ -3145,9 +3152,13 @@ private Q_SLOTS:
         QCOMPARE(roleValue(0, "kind").toString(), QStringLiteral("chat"));
         QCOMPARE(roleValue(0, "title").toString(), QStringLiteral("Alice"));
         QCOMPARE(roleValue(0, "subtitle").toString(), QStringLiteral("hi there"));
-        QCOMPARE(roleValue(1, "kind").toString(), QStringLiteral("message"));
-        QCOMPARE(roleValue(1, "messageId").toString(), QStringLiteral("m1"));
-        QCOMPARE(roleValue(1, "senderName").toString(), QStringLiteral("Alice"));
+        QCOMPARE(roleValue(1, "kind").toString(), QStringLiteral("contact"));
+        QCOMPARE(roleValue(1, "title").toString(), QStringLiteral("Alicia"));
+        QCOMPARE(roleValue(1, "subtitle").toString(), QStringLiteral("1555000111"));
+        QCOMPARE(roleValue(1, "jid").toString(), QStringLiteral("c@s"));
+        QCOMPARE(roleValue(2, "kind").toString(), QStringLiteral("message"));
+        QCOMPARE(roleValue(2, "messageId").toString(), QStringLiteral("m1"));
+        QCOMPARE(roleValue(2, "senderName").toString(), QStringLiteral("Alice"));
 
         // A number-shaped query adds the phone row above both sections.
         daemon.setCheckPhone(QJsonObject{{QStringLiteral("registered"), true},
@@ -3155,7 +3166,7 @@ private Q_SLOTS:
                                          {QStringLiteral("display_name"), QStringLiteral("Ravi")},
                                          {QStringLiteral("phone"), QStringLiteral("+91 98765 43210")}});
         ctrl.setSearchQuery(QStringLiteral("+91 98765 43210"));
-        QTRY_COMPARE(model->rowCount(), 3);
+        QTRY_COMPARE(model->rowCount(), 4);
         QCOMPARE(roleValue(0, "kind").toString(), QStringLiteral("number"));
         QCOMPARE(roleValue(0, "jid").toString(), QStringLiteral("911@s"));
         QVERIFY(roleValue(0, "registered").toBool());

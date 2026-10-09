@@ -2370,6 +2370,82 @@ bool ProtocolController::sendClipboardImage(const QString &caption, const QStrin
     return false;
 }
 
+QUrl ProtocolController::takeClipboardImage()
+{
+    const QClipboard *clipboard = QGuiApplication::clipboard();
+    if (!clipboard) {
+        return {};
+    }
+    const QMimeData *mimeData = clipboard->mimeData();
+    if (!mimeData || !mimeData->hasImage()) {
+        return {};
+    }
+    const QImage image = qvariant_cast<QImage>(mimeData->imageData());
+    if (image.isNull()) {
+        return {};
+    }
+
+    QString cacheRoot = QStandardPaths::writableLocation(QStandardPaths::CacheLocation);
+    if (cacheRoot.isEmpty()) {
+        cacheRoot = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    }
+    if (cacheRoot.isEmpty()) {
+        m_composerErrorText = i18nc("@info", "Unable to paste image");
+        Q_EMIT composerChanged();
+        return {};
+    }
+
+    QDir cacheDir(cacheRoot);
+    if (!cacheDir.mkpath(QStringLiteral("clipboard"))) {
+        m_composerErrorText = i18nc("@info", "Unable to paste image");
+        Q_EMIT composerChanged();
+        return {};
+    }
+
+    const QString fileName = QStringLiteral("pasted-%1-%2.png")
+        .arg(QDateTime::currentMSecsSinceEpoch())
+        .arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    const QString filePath = cacheDir.filePath(QStringLiteral("clipboard/%1").arg(fileName));
+    if (!image.save(filePath, "PNG")) {
+        m_composerErrorText = i18nc("@info", "Unable to paste image");
+        Q_EMIT composerChanged();
+        return {};
+    }
+    return QUrl::fromLocalFile(filePath);
+}
+
+QVariantList ProtocolController::takeClipboardFileUrls()
+{
+    QVariantList out;
+    const QClipboard *clipboard = QGuiApplication::clipboard();
+    if (!clipboard) {
+        return out;
+    }
+    const QMimeData *mimeData = clipboard->mimeData();
+    if (!mimeData || !mimeData->hasUrls()) {
+        return out;
+    }
+    for (const QUrl &url : mimeData->urls()) {
+        if (!url.isLocalFile()) {
+            continue;
+        }
+        const QString suffix = QFileInfo(url.toLocalFile()).suffix().toLower();
+        if (suffix == QLatin1String("png") || suffix == QLatin1String("jpg")
+            || suffix == QLatin1String("jpeg") || suffix == QLatin1String("webp")) {
+            out.append(url.toString());
+            return out;
+        }
+        if (suffix == QLatin1String("gif")) {
+            m_composerErrorText = i18nc("@info", "GIFs can't be sent yet — WhatsApp treats them as short videos");
+            Q_EMIT composerChanged();
+            // Claim the paste so it does not fall through to text.
+            out.append(QString());
+            return out;
+        }
+    }
+    return out;
+}
+
 void ProtocolController::sendPoll(const QString &question, const QStringList &options, bool multiSelect, const QString &replyToMessageId)
 {
     const QString trimmed = question.trimmed();
@@ -3340,6 +3416,7 @@ void ProtocolController::runSearch()
         }
         if (!error.isError()) {
             m_searchResultsModel->setChats(result.value(QStringLiteral("chats")).toArray());
+            m_searchResultsModel->setContacts(result.value(QStringLiteral("contacts")).toArray());
         }
         halfLanded();
     });
