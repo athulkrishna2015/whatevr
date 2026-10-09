@@ -218,23 +218,21 @@ jobs:
 
       # setup-go's Go lives outside the msys2 shell's PATH, so build under
       # pwsh with the ucrt64 toolchain prepended instead. The msys2 root is
-      # the action's temp dir (RUNNER_TEMP\setup-msys2\msys64), not C:\msys64,
-      # so resolve it at runtime; Strawberry Perl's gcc/pkg-config otherwise
-      # shadow the toolchain.
+      # RUNNER_TEMP\msys64 (the setup-msys2 dir only holds its launcher),
+      # not C:\msys64, so resolve it at runtime; Strawberry Perl's
+      # gcc/pkg-config otherwise shadow the toolchain.
       - name: Add ucrt64 toolchain to PATH
         run: |
-          $msys64 = Join-Path $env:RUNNER_TEMP 'setup-msys2\msys64'
+          $msys64 = Join-Path $env:RUNNER_TEMP 'msys64'
           Join-Path $msys64 'ucrt64\bin' >> $env:GITHUB_PATH
           "MSYS64=$msys64" >> $env:GITHUB_ENV
 
       - name: Diagnose jpeg files
         run: |
           "MSYS64=$env:MSYS64"
-          Test-Path 'D:\a\_temp\setup-msys2\msys64\ucrt64\bin\gcc.exe'
-          Test-Path 'C:\msys64\ucrt64\bin\gcc.exe'
-          Test-Path 'C:\msys64'
-          Get-ChildItem "$env:MSYS64\ucrt64\bin" -ErrorAction SilentlyContinue | Measure-Object | ForEach-Object { "ucrt64 bin count: $($_.Count)" }
-          & "$env:RUNNER_TEMP\setup-msys2\msys2.cmd" --% -c "cygpath -w /; ls /ucrt64/bin/gcc.exe /ucrt64/include/turbojpeg.h"
+          Test-Path "$env:MSYS64\ucrt64\bin\gcc.exe"
+          Test-Path "$env:MSYS64\ucrt64\include\turbojpeg.h"
+          Test-Path "$env:MSYS64\ucrt64\lib\pkgconfig\libturbojpeg.pc"
           exit 0
 
       - name: Provide libturbojpeg.pc
