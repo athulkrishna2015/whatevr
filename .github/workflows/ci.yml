@@ -225,7 +225,7 @@ jobs:
         run: |
           $msys64 = Join-Path $env:RUNNER_TEMP 'setup-msys2\msys64'
           Join-Path $msys64 'ucrt64\bin' >> $env:GITHUB_PATH
-          "PKG_CONFIG=$(Join-Path $msys64 'usr\bin\pkgconf.exe')" >> $env:GITHUB_ENV
+          "PKG_CONFIG=$(Join-Path $msys64 'ucrt64\bin\pkgconf.exe')" >> $env:GITHUB_ENV
           "PKG_CONFIG_PATH=$(Join-Path $msys64 'ucrt64\lib\pkgconfig')" >> $env:GITHUB_ENV
 
       - name: Build daemon with cgo and SQLite FTS5
