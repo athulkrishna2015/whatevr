@@ -161,7 +161,8 @@ func TestEveryOtherKindKeepsItsFacts(t *testing.T) {
 	}
 }
 
-func TestAppStateIsOneInputPerMutationAndWhereTheCollectionGotTo(t *testing.T) {	pin := &waSyncAction.SyncActionValue{PinAction: &waSyncAction.PinAction{Pinned: proto.Bool(true)}}
+func TestAppStateIsOneInputPerMutationAndWhereTheCollectionGotTo(t *testing.T) {
+	pin := &waSyncAction.SyncActionValue{PinAction: &waSyncAction.PinAction{Pinned: proto.Bool(true)}}
 	ins, err := appStateInputs(appstate.WAPatchRegularLow, 7, []appstate.Mutation{
 		{Operation: waServerSync.SyncdMutation_SET, Index: []string{"pin_v1", asha.String()}, Version: 5, Action: pin, PatchVersion: 6},
 		{Operation: waServerSync.SyncdMutation_REMOVE, Index: []string{"pin_v1", ashaL.String()}, Version: 5, PatchVersion: 7},
