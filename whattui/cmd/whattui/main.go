@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"syscall"
 	"time"
 
 	"github.com/codelif/whatevr/platform"
@@ -66,7 +67,7 @@ func run(socket string, showCaps bool) (err error) {
 		}
 	}()
 
-	dumpStacksOnDiagnosticSignal()
+	dumpStacksOn(syscall.SIGUSR1)
 
 	caps := term.Detect(vx)
 	if showCaps {

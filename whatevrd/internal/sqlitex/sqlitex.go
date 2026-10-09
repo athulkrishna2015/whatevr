@@ -1,6 +1,4 @@
 // Package sqlitex is what every sqlite database of the daemon opens with.
-//go:build cgo
-
 package sqlitex
 
 /*

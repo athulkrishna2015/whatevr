@@ -14,8 +14,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coreos/go-systemd/v22/journal"
 	"github.com/mattn/go-isatty"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/journald"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
@@ -133,7 +135,10 @@ func WithContext(ctx context.Context, l zerolog.Logger) context.Context {
 }
 
 func stderrWriter(f *os.File) io.Writer {
-	return platformStderrWriter(f, consoleWriter(f))
+	if ok, err := journal.StderrIsJournalStream(); err == nil && ok && f == os.Stderr {
+		return journald.NewJournalDWriter()
+	}
+	return consoleWriter(f)
 }
 
 func consoleWriter(f *os.File) io.Writer {

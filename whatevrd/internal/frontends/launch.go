@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"syscall"
 )
 
 // ErrNoTerminal is a terminal frontend with no terminal to run it in.
@@ -42,7 +43,8 @@ func start(argv []string) error {
 	}
 	argv = escapeService(append([]string{path}, argv[1:]...))
 	cmd := exec.Command(argv[0], argv[1:]...)
-	configureChild(cmd)
+	// its own session: stopping the daemon must not take the frontend along
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return err
 	}
