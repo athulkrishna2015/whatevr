@@ -19,6 +19,16 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.12.0" date="2026-10-09">
+      <description>
+        <p><em>Saved contacts in search</em></p>
+        <p>The phone's address book is now searchable. <code>search.chats</code> answers matching saved contacts beside the chat rows, in a Contacts section after Chats, and a new <code>contacts</code> view lists the whole address book in saved-name order for browsing. Tapping one starts the chat through the existing <code>chat.ensure_direct</code>, so its row arrives through the <code>chats</code> view like any other new chat. A number that is not saved still resolves through the phone lookup as before.</p>
+        <p><em>Paste stages before sending</em></p>
+        <p>Pasting an image now stages it in the attachment dialog instead of sending immediately, so pasted images get the same caption and basic edits (crop, rotate, draw) as attached and dropped files. Nothing leaves the device until Send is pressed.</p>
+        <p><em>Windows daemon build</em></p>
+        <p>The daemon cross-compiles for Windows again: build-tagged portability shims for the platform-specific pieces and a working libjpeg-turbo lookup for the thumbnail decoder.</p>
+      </description>
+    </release>
     <release version="0.11.8" date="2026-10-09">
       <description>
         <p><em>Fixed</em></p>
