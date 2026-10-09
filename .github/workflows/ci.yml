@@ -229,8 +229,13 @@ jobs:
 
       - name: Diagnose jpeg files
         run: |
-          Get-ChildItem "$env:MSYS64\ucrt64\include\*jpeg*", "$env:MSYS64\ucrt64\lib\*jpeg*" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
-          & "$env:RUNNER_TEMP\setup-msys2\msys2.cmd" -c 'pacman -Ql mingw-w64-ucrt-x86_64-libjpeg-turbo | grep -Ei "include/|pkgconfig|\.a$"'
+          "MSYS64=$env:MSYS64"
+          "PATH=$env:PATH"
+          Get-ChildItem "$env:MSYS64\ucrt64\bin" -ErrorAction SilentlyContinue | ForEach-Object { $_.Name } | Out-String -Width 400
+          Get-ChildItem "$env:MSYS64\ucrt64\include\*jpeg*", "$env:MSYS64\ucrt64\lib\*jpeg*", "$env:MSYS64\ucrt64\lib\pkgconfig\*jpeg*", "$env:MSYS64\ucrt64\lib\pkgconfig\*turbo*" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+          where.exe gcc
+          & "$env:RUNNER_TEMP\setup-msys2\msys2.cmd" --% -c "pacman -Ql mingw-w64-ucrt-x86_64-libjpeg-turbo"
+          exit 0
 
       - name: Provide libturbojpeg.pc
         # The ucrt64 libjpeg-turbo package ships no .pc file where any
