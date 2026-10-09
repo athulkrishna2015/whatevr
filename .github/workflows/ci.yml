@@ -217,9 +217,16 @@ jobs:
           update: false
 
       # setup-go's Go lives outside the msys2 shell's PATH, so build under
-      # pwsh with the ucrt64 toolchain prepended instead.
+      # pwsh with the ucrt64 toolchain prepended instead. The msys2 root is
+      # the action's temp dir (RUNNER_TEMP\setup-msys2\msys64), not C:\msys64,
+      # so resolve it at runtime; Strawberry Perl's gcc/pkg-config otherwise
+      # shadow the toolchain.
       - name: Add ucrt64 toolchain to PATH
-        run: echo "C:\msys64\ucrt64\bin" >> $env:GITHUB_PATH
+        run: |
+          $msys64 = Join-Path $env:RUNNER_TEMP 'setup-msys2\msys64'
+          Join-Path $msys64 'ucrt64\bin' >> $env:GITHUB_PATH
+          "PKG_CONFIG=$(Join-Path $msys64 'usr\bin\pkgconf.exe')" >> $env:GITHUB_ENV
+          "PKG_CONFIG_PATH=$(Join-Path $msys64 'ucrt64\lib\pkgconfig')" >> $env:GITHUB_ENV
 
       - name: Build daemon with cgo and SQLite FTS5
         working-directory: whatevrd
@@ -229,11 +236,6 @@ jobs:
           CGO_ENABLED: 1
           CC: gcc
           GOMAXPROCS: 2
-          # ucrt64/bin carries no pkg-config-compatible binary (Strawberry
-          # Perl's shadows it), so use MSYS2's own pkgconf by absolute
-          # path and point it at ucrt64's .pc dir for libturbojpeg.
-          PKG_CONFIG: C:\msys64\usr\bin\pkgconf.exe
-          PKG_CONFIG_PATH: C:\msys64\ucrt64\lib\pkgconfig
         run: go build -tags sqlite_fts5 -o ..\build\whatevrd-windows-amd64.exe .\cmd\whatevrd
 
       - name: Build terminal frontend
