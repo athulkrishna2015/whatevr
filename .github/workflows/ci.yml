@@ -225,8 +225,18 @@ jobs:
         run: |
           $msys64 = Join-Path $env:RUNNER_TEMP 'setup-msys2\msys64'
           Join-Path $msys64 'ucrt64\bin' >> $env:GITHUB_PATH
-          "PKG_CONFIG=$(Join-Path $msys64 'ucrt64\bin\pkgconf.exe')" >> $env:GITHUB_ENV
-          "PKG_CONFIG_PATH=$(Join-Path $msys64 'ucrt64\lib\pkgconfig')" >> $env:GITHUB_ENV
+          "MSYS64=$msys64" >> $env:GITHUB_ENV
+
+      # Whatever provides pkg-config moves between MSYS2 revisions, so find
+      # the binary instead of guessing its name and directory; the .pc dir
+      # is stable.
+      - name: Locate pkg-config under msys2
+        run: |
+          $pc = Get-ChildItem -Path $env:MSYS64 -Recurse -Include 'pkgconf.exe', 'pkg-config.exe' -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -match '\\(usr|ucrt64)\\bin\\' } | Select-Object -First 1
+          if (-not $pc) { throw "no pkg-config under $env:MSYS64" }
+          "PKG_CONFIG=$($pc.FullName)" >> $env:GITHUB_ENV
+          "PKG_CONFIG_PATH=$(Join-Path $env:MSYS64 'ucrt64\lib\pkgconfig')" >> $env:GITHUB_ENV
 
       - name: Build daemon with cgo and SQLite FTS5
         working-directory: whatevrd
