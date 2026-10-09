@@ -55,7 +55,7 @@ int ProtocolSearchModel::rowCount(const QModelIndex &parent) const
     if (parent.isValid()) {
         return 0;
     }
-    return static_cast<int>(m_number.size() + m_chats.size() + m_messages.size());
+    return static_cast<int>(m_number.size() + m_chats.size() + m_contacts.size() + m_messages.size());
 }
 
 QVariant ProtocolSearchModel::data(const QModelIndex &index, int role) const
@@ -65,18 +65,25 @@ QVariant ProtocolSearchModel::data(const QModelIndex &index, int role) const
     }
     const int row = index.row();
     const Row *itemPtr = nullptr;
-    if (row < m_number.size()) {
-        itemPtr = &m_number.at(row);
-    } else if (row - m_number.size() < m_chats.size()) {
-        itemPtr = &m_chats.at(row - m_number.size());
+    int rest = row;
+    if (rest < m_number.size()) {
+        itemPtr = &m_number.at(rest);
+    } else if ((rest -= m_number.size()) < m_chats.size()) {
+        itemPtr = &m_chats.at(rest);
+    } else if ((rest -= m_chats.size()) < m_contacts.size()) {
+        itemPtr = &m_contacts.at(rest);
     } else {
-        itemPtr = &m_messages.at(row - m_number.size() - m_chats.size());
+        rest -= m_contacts.size();
+        itemPtr = &m_messages.at(rest);
     }
     const Row &item = *itemPtr;
     switch (role) {
     case KindRole:
         if (item.isNumber) {
             return QStringLiteral("number");
+        }
+        if (item.isContact) {
+            return QStringLiteral("contact");
         }
         return item.isMessage ? QStringLiteral("message") : QStringLiteral("chat");
     case AvatarLocalPathRole:
@@ -151,6 +158,35 @@ void ProtocolSearchModel::setChats(const QJsonArray &chats)
     endResetModel();
 }
 
+void ProtocolSearchModel::setContacts(const QJsonArray &contacts)
+{
+    QList<Row> rows;
+    rows.reserve(static_cast<int>(contacts.size()));
+    for (const auto &value : contacts) {
+        const QJsonObject contact = value.toObject();
+        QString name = contact.value(QStringLiteral("saved_name")).toString().trimmed();
+        if (name.isEmpty()) {
+            name = contact.value(QStringLiteral("push_name")).toString().trimmed();
+        }
+        const QString phone = contact.value(QStringLiteral("phone")).toString().trimmed();
+        if (name.isEmpty()) {
+            name = phone;
+        }
+        const QString jid = contact.value(QStringLiteral("jid")).toString().trimmed();
+        rows.append(Row{
+            .isContact = true,
+            .avatarLocalPath = contact.value(QStringLiteral("avatar_path")).toString(),
+            .initials = initialsForName(name),
+            .title = name,
+            .subtitle = phone,
+            .jid = jid.isEmpty() ? contact.value(QStringLiteral("id")).toString() : jid,
+        });
+    }
+    beginResetModel();
+    m_contacts = std::move(rows);
+    endResetModel();
+}
+
 void ProtocolSearchModel::setMessages(const QJsonArray &messages)
 {
     QList<Row> rows;
@@ -215,12 +251,13 @@ void ProtocolSearchModel::clearNumber()
 
 void ProtocolSearchModel::clear()
 {
-    if (m_number.isEmpty() && m_chats.isEmpty() && m_messages.isEmpty()) {
+    if (m_number.isEmpty() && m_chats.isEmpty() && m_contacts.isEmpty() && m_messages.isEmpty()) {
         return;
     }
     beginResetModel();
     m_number.clear();
     m_chats.clear();
+    m_contacts.clear();
     m_messages.clear();
     endResetModel();
 }

@@ -430,6 +430,45 @@ func (w *World) Names(key string) (saved, push, business string) {
 	return saved, push, business
 }
 
+// SavedContact is one person the phone's address book names.
+type SavedContact struct {
+	Key   string
+	Saved string
+}
+
+// SavedContacts is every person with a saved name: the appstate contact
+// name first, the history-sync inline name otherwise (the same saved name
+// Names reports). Addresses that folded into one person report once, under
+// Now. The account itself and groups are left out; the caller sorts.
+func (w *World) SavedContacts() []SavedContact {
+	seen := map[string]bool{}
+	var out []SavedContact
+	add := func(addr, saved string) {
+		if strings.TrimSpace(saved) == "" {
+			return
+		}
+		key := w.Now(addr)
+		if !isPN(key) && !isLID(key) {
+			return
+		}
+		if w.IsSelf(key) || seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, SavedContact{Key: key, Saved: strings.TrimSpace(saved)})
+	}
+	for a, s := range w.contacts.all() {
+		add(a, s)
+	}
+	for a, ns := range w.names.all() {
+		if s, ok := w.contacts.lookup(a); ok && strings.TrimSpace(s) != "" {
+			continue
+		}
+		add(a, ns[NameInline])
+	}
+	return out
+}
+
 // Username is the key of whoever goes by username u, "" for nobody.
 func (w *World) Username(u string) string {
 	u = strings.TrimPrefix(strings.TrimSpace(u), "@")

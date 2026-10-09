@@ -4,6 +4,7 @@ package whatevr.v2;
 
 import "whatevr/v2/chats.proto";
 import "whatevr/v2/messages.proto";
+import "whatevr/v2/people.proto";
 import "whatevr/v2/stickers.proto";
 
 option features.field_presence = IMPLICIT;
@@ -18,6 +19,9 @@ message SearchChats {
 
 message SearchChatsResult {
   repeated ChatRow chats = 1;
+  // saved contacts matching the query that are not already shown as chats,
+  // in saved-name order; start one with chat_ensure_direct
+  repeated ContactRow contacts = 2;
 }
 
 // newest first, paged backwards by before

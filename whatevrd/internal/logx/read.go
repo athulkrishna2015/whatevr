@@ -10,7 +10,6 @@ import (
 	"io"
 	"os"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -151,9 +150,7 @@ func sameFile(f *os.File, path string) bool {
 		// mid rotation, the new file isn't there yet
 		return true
 	}
-	as, aok := a.Sys().(*syscall.Stat_t)
-	bs, bok := b.Sys().(*syscall.Stat_t)
-	return !aok || !bok || (as.Dev == bs.Dev && as.Ino == bs.Ino)
+	return os.SameFile(a, b)
 }
 
 func (p *printer) line(line []byte) {

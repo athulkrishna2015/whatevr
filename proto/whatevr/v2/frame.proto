@@ -344,6 +344,7 @@ message Subscribe {
     ReceiptsView receipts = 19;
     SelfView self = 20;
     ContactView contact = 21;
+    ContactsView contacts = 48;
     GroupView group = 22;
     GroupMembersView group_members = 23;
     PrivacyView privacy = 24;

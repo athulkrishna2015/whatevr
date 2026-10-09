@@ -7,6 +7,17 @@ PROTOCOL.md (stable at version 1: additive changes only).
 
 ### Added
 
+- Saved contacts from the phone are searchable and start chats: `search.chats`
+  answers matching saved contacts (appstate names, history inline names where
+  those are missing) alongside chat rows, in a Contacts section after Chats,
+  and a new `contacts` view lists the whole address book in saved-name order
+  for browsing. Starting one goes through the existing `chat.ensure_direct`,
+  so its row arrives through the `chats` view like any other new chat.
+- Pasting an image now stages it in the attachment dialog instead of sending
+  immediately, so pasted images get the same caption and basic edits
+  (crop, rotate, draw) as attached and dropped files. Nothing leaves the
+  device until Send is pressed.
+
 - Received photos and videos can be turned in the full-screen viewer, with
   toolbar buttons, `R` / `Shift+R`, and a reset. Turning is a view change, so
   it costs nothing and is undone by turning back — the alternative for a

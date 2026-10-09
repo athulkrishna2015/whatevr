@@ -29,6 +29,7 @@ QQC2.ItemDelegate {
 
     readonly property bool isMessage: kind === "message"
     readonly property bool isNumber: kind === "number"
+    readonly property bool isContact: kind === "contact"
     readonly property string query: Whatevr.ProtocolController.searchQuery
     readonly property color highlightBg: Kirigami.Theme.highlightColor
     readonly property color highlightFg: Kirigami.Theme.highlightedTextColor
@@ -36,6 +37,7 @@ QQC2.ItemDelegate {
     signal chatActivated(string chatId)
     signal messageActivated(string chatId, string messageId)
     signal numberActivated(string jid)
+    signal contactActivated(string jid)
 
     width: ListView.view ? ListView.view.width : implicitWidth
     padding: Kirigami.Units.largeSpacing
@@ -48,6 +50,8 @@ QQC2.ItemDelegate {
             if (root.registered) {
                 root.numberActivated(root.jid)
             }
+        } else if (root.isContact) {
+            root.contactActivated(root.jid)
         } else if (root.isMessage) {
             root.messageActivated(root.chatId, root.messageId)
         } else {
