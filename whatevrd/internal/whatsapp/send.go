@@ -18,7 +18,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"go.mau.fi/whatsmeow"
@@ -472,7 +471,7 @@ func openOutbound(path string) (*os.File, int64, error) {
 	case info.Size() > maxSendBytes:
 		return nil, 0, Errorf(ErrInvalid, "the file is over 2 GiB")
 	}
-	if st, ok := info.Sys().(*syscall.Stat_t); !ok || st.Uid != uint32(os.Geteuid()) {
+	if !ownedByCurrentUser(info) {
 		return nil, 0, Errorf(ErrRejected, "the file belongs to someone else")
 	}
 	f, err := os.Open(path)
