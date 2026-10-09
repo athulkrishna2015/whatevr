@@ -227,10 +227,28 @@ jobs:
           Join-Path $msys64 'ucrt64\bin' >> $env:GITHUB_PATH
           "MSYS64=$msys64" >> $env:GITHUB_ENV
 
-      - name: Diagnose jpeg pkg-config files
+      - name: Provide libturbojpeg.pc
+        # The ucrt64 libjpeg-turbo package ships no .pc file where any
+        # pkg-config looks, so write a minimal one into RUNNER_TEMP and
+        # point pkg-config at it. Headers and the import library come from
+        # the package itself.
         run: |
-          Get-ChildItem "$env:MSYS64\ucrt64\lib\pkgconfig", "$env:MSYS64\ucrt64\share\pkgconfig" -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match 'jpeg|turbo' } | ForEach-Object { $_.FullName }
+          $pc = Join-Path $env:RUNNER_TEMP 'pc'
+          New-Item -ItemType Directory -Force $pc | Out-Null
+          $root = (Join-Path $env:MSYS64 'ucrt64') -replace '\\', '/'
+          @"
+          prefix=$root
+          exec_prefix=`${prefix}
+          libdir=`${prefix}/lib
+          includedir=`${prefix}/include
+          Name: libturbojpeg
+          Description: TurboJPEG library
+          Version: 3.2.0
+          Libs: -L`$`{libdir} -lturbojpeg
+          Cflags: -I`$`{includedir}
+          "@ | Out-File (Join-Path $pc 'libturbojpeg.pc') -Encoding ascii
+          "PKG_CONFIG_PATH=$pc" >> $env:GITHUB_ENV
+          Get-ChildItem "$env:MSYS64\ucrt64\include\turbojpeg.h", "$env:MSYS64\ucrt64\lib\libturbojpeg*" | ForEach-Object { $_.FullName }
 
       - name: Build daemon with cgo and SQLite FTS5
         working-directory: whatevrd
@@ -240,9 +258,9 @@ jobs:
           CGO_ENABLED: 1
           CC: gcc
           GOMAXPROCS: 2
-          # The stock pkg-config on PATH (Strawberry Perl's) runs fine; it
-          # only needs the ucrt64 .pc dirs so turbojpeg finds libturbojpeg.
-          PKG_CONFIG_PATH: ${{ env.MSYS64 }}\ucrt64\lib\pkgconfig;${{ env.MSYS64 }}\ucrt64\share\pkgconfig
+          # The stock pkg-config on PATH (Strawberry Perl's) runs fine;
+          # PKG_CONFIG_PATH (set by the step above) gives it our .pc file.
+          PKG_CONFIG_PATH: ${{ env.PKG_CONFIG_PATH }}
         run: go build -tags sqlite_fts5 -o ..\build\whatevrd-windows-amd64.exe .\cmd\whatevrd
 
       - name: Build terminal frontend
