@@ -229,6 +229,10 @@ jobs:
           CGO_ENABLED: 1
           CC: gcc
           GOMAXPROCS: 2
+          # Strawberry Perl ships its own pkg-config first on PATH; point Go
+          # at ucrt64's pkgconf and its .pc dir so turbojpeg finds libturbojpeg.
+          PKG_CONFIG: C:\msys64\ucrt64\bin\pkgconf.exe
+          PKG_CONFIG_PATH: C:\msys64\ucrt64\lib\pkgconfig
         run: go build -tags sqlite_fts5 -o ..\build\whatevrd-windows-amd64.exe .\cmd\whatevrd
 
       - name: Build terminal frontend
