@@ -19,6 +19,55 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.11.8" date="2026-10-09">
+      <description>
+        <p><em>Fixed</em></p>
+        <ul>
+          <li>Protocol client lifecycle: subscription lists are copied before reset and re-subscribe walks, closing use-after-free and skipped-subscription windows on reconnect races.</li>
+          <li>View updates re-check sink liveness on every change, so a handler that evicts a window mid-update cannot be called after free.</li>
+          <li>Subscribe responses without a subscription id no longer register a colliding id-0 route; the subscription fails loudly instead.</li>
+          <li>Socket short writes now fail the connection instead of silently desynchronizing the frame stream.</li>
+          <li>Pre-hello queue failures are async like every other failure path.</li>
+          <li>Stale-subscription cleanup checks id presence instead of stringifying the value, so numeric ids actually unsubscribe.</li>
+          <li><code>event.rsvp</code> with an unknown response fails fast instead of sending UNSPECIFIED.</li>
+          <li>Negative subscribe limits are clamped instead of wrapping on the wire.</li>
+          <li>Daemon: unchecked history-notification type assertion, poison group ids retried forever, wiped preferences lost silently on read error, per-typist timer pileup, hung requests on closing connections, live-row scan errors, history slice aliasing, monotonic fold sequence, corrupt fold checkpoints, singleton chat-view id churn, empty send sequences, and CLI hangs on out-of-band errors.</li>
+        </ul>
+        <p><em>Changed</em></p>
+        <ul>
+          <li>Unread sidebar filter works again via a local proxy over the <code>all</code> subscription; failed subscribes settle instead of spinning.</li>
+          <li>Multi-file sends go out as sequential <code>send.media</code> requests; <code>send.media_batch</code> quality is dropped (no v2 field).</li>
+          <li>The startup <code>status</code> mode shows a neutral splash, not the stories StatusPage; the Status tab remains on the rail.</li>
+          <li>Channel posts use the same <code>ProtocolMessageModel</code> + <code>ChatBubble</code> presentation as conversations, so images/video load and open in the normal viewers.</li>
+          <li>Typing indicators are a frontend-local setting (no v2 preference field); anti-delete, keep-archived, and archived-mute toggles are disabled with notes until the daemon grows those preferences.</li>
+          <li>Tray right-click is the native menu (Show/Hide, notifications mute, Quit); the QML menu had positioning bugs.</li>
+          <li><code>privacy.set</code> value <code>none</code> canonicalizes to <code>nobody</code>; search sticker results use the library row shape; message sticker rows carry the library key for favorite/download actions.</li>
+          <li>Sync type/phase map to the v1 vocabulary the strip renders.</li>
+          <li>Restored v1 preferences on protocol 2 (new <code>Preferences</code>/<code>PreferencesSet</code> fields): archived-mute (daemon notifier skips archived chats), anti-delete (revoke tombstones keep content with the Deleted mark), keep-archived (appstate unarchives dropped at ingest).</li>
+          <li>New <code>LogsView</code>/<code>LogRow</code> over the daemon run log plus <code>log_message</code> command (restores the Logs tab and frontend log forwarding).</li>
+          <li>New <code>ChatLinksView</code>: the gallery Links tab lists link-carrying messages again.</li>
+        </ul>
+        <p><em>Ported from v1 since</em></p>
+        <ul>
+          <li>Chat folders (<code>chat_folders</code> view, <code>chat_folder.*</code> commands, folder filter on chats).</li>
+          <li>Favorites filter and per-chat favorite (<code>chat.favorite</code>, device-local like pins).</li>
+          <li>Status/stories (feed and muted views, post text/media, viewed flags, mutes, replies, viewers, delete).</li>
+          <li>Calls and call history (ringing set from the call log, <code>call.reject</code>).</li>
+          <li>Channels (directory and local message views with media, follow/unfollow/mute/viewed/react/refresh; server ids retained for viewed/react).</li>
+          <li>Groups and communities (create, invite links, members, photo, announce/locked, link/unlink).</li>
+          <li>Schedules (<code>schedule.text/list/cancel</code> with a daemon-side due sender).</li>
+          <li>Backups (<code>daemon.backup_export</code>, keyring passphrase) and <code>daemon.shutdown</code>.</li>
+          <li>Sends (<code>send.poll/contact/location/cancel</code>), <code>chat.mark_all_read</code>, <code>chat.export</code>, <code>media.save</code>, <code>message.edit_history</code> (bodies retained from this update on), <code>privacy.set_default_timer</code>.</li>
+        </ul>
+        <p><em>Still missing</em></p>
+        <ul>
+          <li><code>send.media_batch</code> on the daemon (Qt sends multi-file sequentially instead).</li>
+          <li><code>group.join_link</code> and <code>community.subgroups</code> (no frontend calls them yet).</li>
+          <li>Status text background/font styling (received and stored, but Qt never rendered it).</li>
+          <li>Media byte counters.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.11.7" date="2026-10-08">
       <description>
         <p><em>Added</em></p>
