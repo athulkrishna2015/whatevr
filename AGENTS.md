@@ -17,6 +17,11 @@ Finish or kill one before starting the next.
 
 ### Daemon (Go)
 
+CI's `Windows cross-compile` job checks the daemon and terminal frontend on
+Windows. The production daemon uses cgo/SQLite FTS5; Windows CI provisions
+MinGW GCC for that build. A CGO-disabled daemon compile is only a portability
+check, not a shippable Windows daemon.
+
 ```sh
 GOMAXPROCS=2 go -C whatevrd build -tags sqlite_fts5 ./...
 GOMAXPROCS=2 go -C whatevrd vet -tags sqlite_fts5 ./...

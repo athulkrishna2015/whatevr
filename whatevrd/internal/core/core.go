@@ -20,7 +20,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/mattn/go-sqlite3"
 	"github.com/rs/zerolog"
 
 	"whatevrd/internal/sqlitex"
@@ -45,28 +44,6 @@ var ErrClosed = errors.New("core: closed")
 // ErrLocked is Open on a file another DB, this process's or another's, has
 // open.
 var ErrLocked = errors.New("open elsewhere")
-
-func init() {
-	sql.Register(driverName, &sqlite3.SQLiteDriver{ConnectHook: sqlitex.StablePlans})
-	sql.Register(readDriverName, &sqlite3.SQLiteDriver{
-		ConnectHook: func(conn *sqlite3.SQLiteConn) error {
-			if err := sqlitex.StablePlans(conn); err != nil {
-				return err
-			}
-			for _, pragma := range []string{
-				`PRAGMA busy_timeout = 5000`,
-				`PRAGMA query_only = ON`,
-				`PRAGMA foreign_keys = ON`,
-				`PRAGMA mmap_size = 0`,
-			} {
-				if _, err := conn.Exec(pragma, nil); err != nil {
-					return err
-				}
-			}
-			return nil
-		},
-	})
-}
 
 type Options struct {
 	// Clock stamps each input's receive time. nil is the system clock.

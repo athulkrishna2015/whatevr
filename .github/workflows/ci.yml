@@ -29,6 +29,8 @@ jobs:
       build: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.build == 'true' }}
       qt: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.qt == 'true' }}
       aur: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.aur == 'true' }}
+      windows: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.go == 'true' || steps.filter.outputs.whattui == 'true' || steps.filter.outputs.build == 'true' }}
+      windows: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.go == 'true' || steps.filter.outputs.whattui == 'true' || steps.filter.outputs.build == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -186,6 +188,87 @@ jobs:
         run: |
           go vet ./...
           go test ./...
+
+  windows-cross:
+    name: Windows cross-compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: changes
+    if: ${{ needs.changes.outputs.windows == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: whatevrd/go.mod
+          cache-dependency-path: |
+            whatevrd/go.sum
+            whattui/go.sum
+
+      # The production daemon uses go-sqlite3 with cgo. Cross-compile it
+      # against MinGW to catch Windows-only Go/source issues; CGO-off is a
+      # portability check, not a shippable daemon binary.
+      - name: Install MinGW-w64
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq gcc-mingw-w64-x86-64
+
+      - name: Cross-compile daemon and terminal frontend
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: 0
+          GOMAXPROCS: 2
+        run: |
+          go -C whatevrd build -o "$RUNNER_TEMP/whatevrd-windows.exe" ./cmd/whatevrd
+          go -C whattui build -o "$RUNNER_TEMP/whattui-windows.exe" ./cmd/whattui
+
+  windows-cross:
+    name: Windows cross-compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: changes
+    if: ${{ needs.changes.outputs.windows == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: whatevrd/go.mod
+          cache-dependency-path: |
+            whatevrd/go.sum
+            whattui/go.sum
+
+      - name: Install MinGW-w64 for cgo
+        uses: msys2/setup-msys2@v2
+        with:
+          install: mingw-w64-ucrt-x86_64-gcc
+          update: false
+
+      - name: Build daemon for Windows
+        working-directory: whatevrd
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: 1
+          CC: C:\msys64\ucrt64\bin\gcc.exe
+        run: go build -tags sqlite_fts5 -o ..\build\whatevrd-windows-amd64.exe .\cmd\whatevrd
+
+      - name: Build terminal frontend for Windows
+        working-directory: whattui
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: 0
+        run: go build -o ..\build\whattui-windows-amd64.exe .\cmd\whattui
 
   whattui:
     name: Terminal frontend
