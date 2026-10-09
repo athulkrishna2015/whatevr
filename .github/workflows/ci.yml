@@ -29,6 +29,7 @@ jobs:
       build: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.build == 'true' }}
       qt: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.qt == 'true' }}
       aur: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.aur == 'true' }}
+      windows: ${{ steps.force.outputs.run == 'true' || steps.filter.outputs.go == 'true' || steps.filter.outputs.whattui == 'true' || steps.filter.outputs.build == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -186,6 +187,55 @@ jobs:
         run: |
           go vet ./...
           go test ./...
+
+  windows-go:
+    name: Windows Go cross-compile
+    runs-on: windows-latest
+    timeout-minutes: 20
+    needs: changes
+    if: ${{ needs.changes.outputs.windows == 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: whatevrd/go.mod
+          cache-dependency-path: |
+            whatevrd/go.sum
+            whattui/go.sum
+
+      - name: Install MinGW-w64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc
+          update: false
+
+      - name: Build daemon with cgo and SQLite FTS5
+        shell: msys2 {0}
+        working-directory: whatevrd
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: 1
+          CC: gcc
+          GOMAXPROCS: 2
+        run: go build -tags sqlite_fts5 -o ../build/whatevrd-windows-amd64.exe ./cmd/whatevrd
+
+      - name: Build terminal frontend
+        shell: msys2 {0}
+        working-directory: whattui
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: 0
+          GOMAXPROCS: 2
+        run: go build -o ../build/whattui-windows-amd64.exe ./cmd/whattui
 
   whattui:
     name: Terminal frontend
