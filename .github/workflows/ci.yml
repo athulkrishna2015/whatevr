@@ -227,6 +227,11 @@ jobs:
           Join-Path $msys64 'ucrt64\bin' >> $env:GITHUB_PATH
           "MSYS64=$msys64" >> $env:GITHUB_ENV
 
+      - name: Diagnose jpeg files
+        run: |
+          Get-ChildItem "$env:MSYS64\ucrt64\include\*jpeg*", "$env:MSYS64\ucrt64\lib\*jpeg*" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+          & "$env:RUNNER_TEMP\setup-msys2\msys2.cmd" -c 'pacman -Ql mingw-w64-ucrt-x86_64-libjpeg-turbo | grep -Ei "include/|pkgconfig|\.a$"'
+
       - name: Provide libturbojpeg.pc
         # The ucrt64 libjpeg-turbo package ships no .pc file where any
         # pkg-config looks, so write a minimal one into RUNNER_TEMP and
