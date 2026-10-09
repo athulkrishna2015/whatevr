@@ -230,9 +230,9 @@ jobs:
           CC: gcc
           GOMAXPROCS: 2
           # ucrt64/bin carries no pkg-config-compatible binary (Strawberry
-          # Perl's shadows it), so use MSYS2's own pkg-config by absolute
+          # Perl's shadows it), so use MSYS2's own pkgconf by absolute
           # path and point it at ucrt64's .pc dir for libturbojpeg.
-          PKG_CONFIG: C:\msys64\usr\bin\pkg-config.exe
+          PKG_CONFIG: C:\msys64\usr\bin\pkgconf.exe
           PKG_CONFIG_PATH: C:\msys64\ucrt64\lib\pkgconfig
         run: go build -tags sqlite_fts5 -o ..\build\whatevrd-windows-amd64.exe .\cmd\whatevrd
 
