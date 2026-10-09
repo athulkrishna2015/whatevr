@@ -213,13 +213,50 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
-          install: mingw-w64-ucrt-x86_64-gcc
+          install: mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-libjpeg-turbo mingw-w64-ucrt-x86_64-pkgconf pkg-config
           update: false
 
       # setup-go's Go lives outside the msys2 shell's PATH, so build under
-      # pwsh with the ucrt64 toolchain prepended instead.
+      # pwsh with the ucrt64 toolchain prepended instead. The msys2 root is
+      # RUNNER_TEMP\msys64 (the setup-msys2 dir only holds its launcher),
+      # not C:\msys64, so resolve it at runtime; Strawberry Perl's
+      # gcc/pkg-config otherwise shadow the toolchain.
       - name: Add ucrt64 toolchain to PATH
-        run: echo "C:\msys64\ucrt64\bin" >> $env:GITHUB_PATH
+        run: |
+          $msys64 = Join-Path $env:RUNNER_TEMP 'msys64'
+          Join-Path $msys64 'ucrt64\bin' >> $env:GITHUB_PATH
+          "MSYS64=$msys64" >> $env:GITHUB_ENV
+
+      - name: Diagnose jpeg files
+        run: |
+          "MSYS64=$env:MSYS64"
+          Test-Path "$env:MSYS64\ucrt64\bin\gcc.exe"
+          Test-Path "$env:MSYS64\ucrt64\include\turbojpeg.h"
+          Test-Path "$env:MSYS64\ucrt64\lib\pkgconfig\libturbojpeg.pc"
+          exit 0
+
+      - name: Provide libturbojpeg.pc
+        # The ucrt64 libjpeg-turbo package ships no .pc file where any
+        # pkg-config looks, so write a minimal one into RUNNER_TEMP and
+        # point pkg-config at it. Headers and the import library come from
+        # the package itself.
+        run: |
+          $pc = Join-Path $env:RUNNER_TEMP 'pc'
+          New-Item -ItemType Directory -Force $pc | Out-Null
+          $root = (Join-Path $env:MSYS64 'ucrt64') -replace '\\', '/'
+          @"
+          prefix=$root
+          exec_prefix=`${prefix}
+          libdir=`${prefix}/lib
+          includedir=`${prefix}/include
+          Name: libturbojpeg
+          Description: TurboJPEG library
+          Version: 3.2.0
+          Libs: -L`$`{libdir} -lturbojpeg
+          Cflags: -I`$`{includedir}
+          "@ | Out-File (Join-Path $pc 'libturbojpeg.pc') -Encoding ascii
+          "PKG_CONFIG_PATH=$pc" >> $env:GITHUB_ENV
+          Get-ChildItem "$env:MSYS64\ucrt64\include\turbojpeg.h", "$env:MSYS64\ucrt64\lib\libturbojpeg*" | ForEach-Object { $_.FullName }
 
       - name: Build daemon with cgo and SQLite FTS5
         working-directory: whatevrd
@@ -229,6 +266,9 @@ jobs:
           CGO_ENABLED: 1
           CC: gcc
           GOMAXPROCS: 2
+          # The stock pkg-config on PATH (Strawberry Perl's) runs fine;
+          # PKG_CONFIG_PATH (set by the step above) gives it our .pc file.
+          PKG_CONFIG_PATH: ${{ env.PKG_CONFIG_PATH }}
         run: go build -tags sqlite_fts5 -o ..\build\whatevrd-windows-amd64.exe .\cmd\whatevrd
 
       - name: Build terminal frontend
