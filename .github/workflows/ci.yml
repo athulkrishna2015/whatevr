@@ -213,7 +213,7 @@ jobs:
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
-          install: mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-libjpeg-turbo mingw-w64-ucrt-x86_64-pkgconf
+          install: mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-libjpeg-turbo mingw-w64-ucrt-x86_64-pkgconf pkg-config
           update: false
 
       # setup-go's Go lives outside the msys2 shell's PATH, so build under
@@ -229,10 +229,10 @@ jobs:
           CGO_ENABLED: 1
           CC: gcc
           GOMAXPROCS: 2
-          # Strawberry Perl ships its own pkg-config first on PATH; resolve
-          # ucrt64's pkgconf by name (ucrt64/bin is prepended to PATH above)
-          # and point it at ucrt64's .pc dir so turbojpeg finds libturbojpeg.
-          PKG_CONFIG: pkgconf
+          # ucrt64/bin carries no pkg-config-compatible binary (Strawberry
+          # Perl's shadows it), so use MSYS2's own pkg-config by absolute
+          # path and point it at ucrt64's .pc dir for libturbojpeg.
+          PKG_CONFIG: C:\msys64\usr\bin\pkg-config.exe
           PKG_CONFIG_PATH: C:\msys64\ucrt64\lib\pkgconfig
         run: go build -tags sqlite_fts5 -o ..\build\whatevrd-windows-amd64.exe .\cmd\whatevrd
 
