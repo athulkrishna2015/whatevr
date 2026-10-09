@@ -227,6 +227,11 @@ jobs:
           Join-Path $msys64 'ucrt64\bin' >> $env:GITHUB_PATH
           "MSYS64=$msys64" >> $env:GITHUB_ENV
 
+      - name: Diagnose jpeg pkg-config files
+        run: |
+          Get-ChildItem "$env:MSYS64\ucrt64\lib\pkgconfig", "$env:MSYS64\ucrt64\share\pkgconfig" -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match 'jpeg|turbo' } | ForEach-Object { $_.FullName }
+
       - name: Build daemon with cgo and SQLite FTS5
         working-directory: whatevrd
         env:
@@ -236,8 +241,8 @@ jobs:
           CC: gcc
           GOMAXPROCS: 2
           # The stock pkg-config on PATH (Strawberry Perl's) runs fine; it
-          # only needs the ucrt64 .pc dir so turbojpeg finds libturbojpeg.
-          PKG_CONFIG_PATH: ${{ env.MSYS64 }}\ucrt64\lib\pkgconfig
+          # only needs the ucrt64 .pc dirs so turbojpeg finds libturbojpeg.
+          PKG_CONFIG_PATH: ${{ env.MSYS64 }}\ucrt64\lib\pkgconfig;${{ env.MSYS64 }}\ucrt64\share\pkgconfig
         run: go build -tags sqlite_fts5 -o ..\build\whatevrd-windows-amd64.exe .\cmd\whatevrd
 
       - name: Build terminal frontend
