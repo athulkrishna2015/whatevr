@@ -216,8 +216,12 @@ jobs:
           install: mingw-w64-ucrt-x86_64-gcc
           update: false
 
+      # setup-go's Go lives outside the msys2 shell's PATH, so build under
+      # pwsh with the ucrt64 toolchain prepended instead.
+      - name: Add ucrt64 toolchain to PATH
+        run: echo "C:\msys64\ucrt64\bin" >> $env:GITHUB_PATH
+
       - name: Build daemon with cgo and SQLite FTS5
-        shell: msys2 {0}
         working-directory: whatevrd
         env:
           GOOS: windows
@@ -225,17 +229,16 @@ jobs:
           CGO_ENABLED: 1
           CC: gcc
           GOMAXPROCS: 2
-        run: go build -tags sqlite_fts5 -o ../build/whatevrd-windows-amd64.exe ./cmd/whatevrd
+        run: go build -tags sqlite_fts5 -o ..\build\whatevrd-windows-amd64.exe .\cmd\whatevrd
 
       - name: Build terminal frontend
-        shell: msys2 {0}
         working-directory: whattui
         env:
           GOOS: windows
           GOARCH: amd64
           CGO_ENABLED: 0
           GOMAXPROCS: 2
-        run: go build -o ../build/whattui-windows-amd64.exe ./cmd/whattui
+        run: go build -o ..\build\whattui-windows-amd64.exe .\cmd\whattui
 
   whattui:
     name: Terminal frontend
