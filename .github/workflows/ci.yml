@@ -210,7 +210,10 @@ jobs:
             whattui/go.sum
 
       - name: Install MinGW-w64 for cgo
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq gcc-mingw-w64-x86-64
+        uses: msys2/setup-msys2@v2
+        with:
+          install: mingw-w64-ucrt-x86_64-gcc
+          update: false
 
       - name: Build daemon for Windows
         working-directory: whatevrd
@@ -218,9 +221,8 @@ jobs:
           GOOS: windows
           GOARCH: amd64
           CGO_ENABLED: 1
-          CC: x86_64-w64-mingw32-gcc
-          GOMAXPROCS: 2
-        run: go build -tags sqlite_fts5 -o ../build/whatevrd-windows-amd64.exe ./cmd/whatevrd
+          CC: C:\msys64\ucrt64\bin\gcc.exe
+        run: go build -tags sqlite_fts5 -o ..\build\whatevrd-windows-amd64.exe .\cmd\whatevrd
 
       - name: Build terminal frontend for Windows
         working-directory: whattui
@@ -228,8 +230,7 @@ jobs:
           GOOS: windows
           GOARCH: amd64
           CGO_ENABLED: 0
-          GOMAXPROCS: 2
-        run: go build -o ../build/whattui-windows-amd64.exe ./cmd/whattui
+        run: go build -o ..\build\whattui-windows-amd64.exe .\cmd\whattui
 
   whattui:
     name: Terminal frontend
