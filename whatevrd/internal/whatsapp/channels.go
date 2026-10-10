@@ -195,6 +195,36 @@ func (c *Client) ReactToChannelMessage(ctx context.Context, id string, serverID 
 	return nil
 }
 
+// ResolveChannelInvite looks up a channel invite code or link without
+// following it, for opening a channel from a link.
+func (c *Client) ResolveChannelInvite(ctx context.Context, invite string) (jid, name string, err error) {
+	code := strings.TrimSpace(invite)
+	if code == "" {
+		return "", "", Errorf(ErrInvalid, "invite is required")
+	}
+	for _, prefix := range []string{"https://whatsapp.com/channel/", "http://whatsapp.com/channel/", "whatsapp.com/channel/"} {
+		code = strings.TrimPrefix(code, prefix)
+	}
+	if i := strings.Index(code, "/"); i >= 0 {
+		code = code[:i]
+	}
+	if strings.TrimSpace(code) == "" {
+		return "", "", Errorf(ErrInvalid, "invite is required")
+	}
+	cli, err := c.connected()
+	if err != nil {
+		return "", "", err
+	}
+	info, err := cli.GetNewsletterInfoWithInvite(ctx, strings.TrimSpace(code))
+	if err != nil {
+		return "", "", Errorf(ErrRejected, "%v", err)
+	}
+	if info == nil || info.ID.IsEmpty() {
+		return "", "", Errorf(ErrNotFound, "no channel for that invite")
+	}
+	return info.ID.String(), strings.TrimSpace(info.ThreadMeta.Name.Text), nil
+}
+
 // ChannelMessagesRefresh pulls a channel's latest posts from the server and
 // logs the ones not seen yet, so opening a channel shows what is there even
 // when no push arrived (muted channels rarely get any). Fetched posts carry
@@ -212,9 +242,19 @@ func (c *Client) RefreshChannelPosts(ctx context.Context, id string) error {
 	if err != nil {
 		return Errorf(ErrRejected, "%v", err)
 	}
+	fetched, stored := 0, 0
+	var maxServerID int64
+	var maxT int64
 	for _, m := range msgs {
 		if m == nil || m.Message == nil || m.MessageID == "" {
 			continue
+		}
+		fetched++
+		if s := int64(m.MessageServerID); s > maxServerID {
+			maxServerID = s
+		}
+		if t := m.Timestamp.Unix(); t > maxT {
+			maxT = t
 		}
 		evt := &events.Message{
 			Info: types.MessageInfo{
@@ -226,10 +266,13 @@ func (c *Client) RefreshChannelPosts(ctx context.Context, id string) error {
 			Message:    m.Message,
 			RawMessage: m.Message,
 		}
+		c.log.Info().Str("channel", id).Int64("server_id", int64(m.MessageServerID)).Str("msg_id", string(m.MessageID)).Str("type", m.Type).Msg("whatsapp: channel post fetched")
 		if err := c.ingest.Event(ctx, evt); err != nil {
 			return err
 		}
+		stored++
 	}
+	c.log.Info().Str("channel", id).Int("fetched", len(msgs)).Int("stored", stored).Int("usable", fetched).Int64("max_server_id", maxServerID).Int64("max_t", maxT).Msg("whatsapp: channel posts refreshed")
 	c.waitLogged(ctx)
 	return nil
 }

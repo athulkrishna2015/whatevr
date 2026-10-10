@@ -4170,6 +4170,44 @@ void ProtocolController::refreshChannelMessages(const QString &jid)
     });
 }
 
+void ProtocolController::openChannelLink(const QString &url)
+{
+    static const QRegularExpression inviteLink(
+        QStringLiteral("whatsapp\\.com/channel/([^/?#]+)(?:/(\\d+))?"));
+    const QRegularExpressionMatch match = inviteLink.match(url);
+    const QString invite = match.captured(1).trimmed();
+    const QString post = match.captured(2);
+    if (invite.isEmpty()) {
+        return;
+    }
+    m_client->request(QStringLiteral("channel.resolve_invite"), {{QStringLiteral("invite"), invite}},
+                      [this, post](const QJsonObject &result, const ProtocolError &error) {
+        if (error.isError()) {
+            Q_EMIT messageActionFailed(error.message.isEmpty()
+                                           ? i18nc("@info", "Unable to open the channel link")
+                                           : error.message);
+            return;
+        }
+        const QString jid = result.value(QStringLiteral("jid")).toString();
+        if (jid.isEmpty()) {
+            Q_EMIT messageActionFailed(i18nc("@info", "Unable to open the channel link"));
+            return;
+        }
+        m_pendingChannelPostId = post;
+        openChannelMessages(jid, result.value(QStringLiteral("name")).toString());
+        Q_EMIT channelMessagesChanged();
+    });
+}
+
+void ProtocolController::clearPendingChannelPost()
+{
+    if (m_pendingChannelPostId.isEmpty()) {
+        return;
+    }
+    m_pendingChannelPostId.clear();
+    Q_EMIT channelMessagesChanged();
+}
+
 void ProtocolController::closeChannelMessages()
 {
     if (!m_channelMessagesSub) {

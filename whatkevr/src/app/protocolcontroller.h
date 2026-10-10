@@ -272,6 +272,9 @@ class ProtocolController final : public QObject
     Q_PROPERTY(bool channelMessagesLoading READ channelMessagesLoading NOTIFY channelMessagesChanged FINAL)
     Q_PROPERTY(QString selectedChannelJid READ selectedChannelJid NOTIFY channelMessagesChanged FINAL)
     Q_PROPERTY(QString selectedChannelName READ selectedChannelName NOTIFY channelMessagesChanged FINAL)
+    // A channel post a link asked to jump to (server id), held until the
+    // channel page scrolls it into view, then cleared.
+    Q_PROPERTY(QString pendingChannelPostId READ pendingChannelPostId NOTIFY channelMessagesChanged FINAL)
 
     // Per-chat media and links gallery: the `chat_media` and `chat_links` views,
     // subscribed while the gallery page is open. Rows are ordinary `messages`
@@ -579,6 +582,12 @@ public:
     Q_INVOKABLE void closeChannels();
     Q_INVOKABLE void openChannelMessages(const QString &jid, const QString &name);
     Q_INVOKABLE void closeChannelMessages();
+    // Opens a https://whatsapp.com/channel/<invite>[/<post>] link: resolves
+    // the invite without following, opens the channel, and jumps to the
+    // linked post when one is named.
+    Q_INVOKABLE void openChannelLink(const QString &url);
+    [[nodiscard]] QString pendingChannelPostId() const { return m_pendingChannelPostId; }
+    Q_INVOKABLE void clearPendingChannelPost();
     // Pulls the channel's latest posts from the server into the local rows;
     // openChannelMessages already does this on every open.
     Q_INVOKABLE void refreshChannelMessages(const QString &jid);
@@ -1383,6 +1392,7 @@ private:
     bool m_channelMessagesLoading = false;
     QString m_selectedChannelJid;
     QString m_selectedChannelName;
+    QString m_pendingChannelPostId;
 
     // message id -> the selection a tap asked for, held only until `poll.vote`
     // answers. Never persisted, never merged with the daemon's tally.

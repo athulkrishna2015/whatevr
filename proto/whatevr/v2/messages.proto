@@ -877,6 +877,17 @@ message ChannelMessagesRefresh {
   string channel_id = 1;
 }
 
+// resolve a channel invite code or link to its JID without following;
+// the frontend opens the channel (and optionally one post) from the answer
+message ChannelResolveInvite {
+  string invite = 1;
+}
+
+message ChannelResolveInviteResult {
+  string jid = 1;
+  string name = 2;
+}
+
 message ChannelReact {
   string channel_id = 1;
   int64 server_id = 2;

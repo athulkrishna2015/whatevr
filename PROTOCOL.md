@@ -423,6 +423,7 @@ results are whole rows inside the response.
 | `search_messages` | `query`, `chat_id` (empty for all), `limit`, `before` | `messages` with `chat_name`, newest first; `more` says another page exists, asked for with `before` set to the last id |
 | `search_stickers` | `query`, `limit` | `stickers`, daemon-ordered |
 | `contact_check_phone` | `phone` | `registered`, the normalized `phone`, `person_id`, `name`, `business` |
+| `channel_resolve_invite` | `invite` | the channel invite code or link resolved without following: `jid`, `name` |
 | `frontend_list` | none | `frontends`: each one's `id`, `name`, `terminal`, `source`, `connected`, `is_default`, by id |
 
 ## Messages

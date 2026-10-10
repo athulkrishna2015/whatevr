@@ -116,6 +116,7 @@ message Request {
     ChannelMarkViewed channel_mark_viewed = 119;
     ChannelReact channel_react = 125;
     ChannelMessagesRefresh channel_messages_refresh = 126;
+    ChannelResolveInvite channel_resolve_invite = 127;
     MessageText message_text = 72;
 
     // 90-99: media
@@ -190,6 +191,7 @@ message Response {
     SearchStickersResult search_stickers = 122;
     ContactCheckPhoneResult contact_check_phone = 123;
     FrontendListResult frontend_list = 124;
+    ChannelResolveInviteResult channel_resolve_invite = 127;
   }
 }
 

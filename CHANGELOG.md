@@ -7,6 +7,11 @@ PROTOCOL.md (stable at version 1: additive changes only).
 
 ### Added
 
+- Channel invite links open in place: tapping a
+  `whatsapp.com/channel/<invite>[/<post>]` link in a message resolves the
+  channel without following it, opens its timeline, and scrolls the linked
+  post into view once its row arrives.
+
 - Channel pages pull the latest posts from the server on open: a new
   `channel.messages_refresh` command fetches the newest posts and stores the
   unseen ones, so muted channels (which rarely get pushes) show what is

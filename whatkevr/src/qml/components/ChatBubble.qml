@@ -1434,6 +1434,8 @@ Item {
                             root.mentionClicked(link.substring("wamention:".length))
                         } else if (link.startsWith("wamention-all:")) {
                             root.mentionAllClicked()
+                        } else if (link.includes("whatsapp.com/channel/")) {
+                            Whatevr.ProtocolController.openChannelLink(link)
                         } else {
                             Qt.openUrlExternally(link)
                         }
