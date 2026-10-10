@@ -212,10 +212,12 @@ func (c *Client) RefreshChannelPosts(ctx context.Context, id string) error {
 	if err != nil {
 		return Errorf(ErrRejected, "%v", err)
 	}
+	fetched, stored := 0, 0
 	for _, m := range msgs {
 		if m == nil || m.Message == nil || m.MessageID == "" {
 			continue
 		}
+		fetched++
 		evt := &events.Message{
 			Info: types.MessageInfo{
 				MessageSource: types.MessageSource{Chat: jid, Sender: jid},
@@ -229,7 +231,9 @@ func (c *Client) RefreshChannelPosts(ctx context.Context, id string) error {
 		if err := c.ingest.Event(ctx, evt); err != nil {
 			return err
 		}
+		stored++
 	}
+	c.log.Info().Str("channel", id).Int("fetched", len(msgs)).Int("stored", stored).Int("usable", fetched).Msg("whatsapp: channel posts refreshed")
 	c.waitLogged(ctx)
 	return nil
 }
