@@ -1010,6 +1010,9 @@ public:
     void messageSent();
     void scheduledMessagesChanged();
     void openChatRequested(const QString &chatId);
+    // A channel link resolved: show the channel's timeline (the page
+    // subscribes on creation or channel change).
+    void openChannelMessagesRequested(const QString &jid, const QString &name);
     // Raise and focus the window: a second launch, or a deep link arriving
     // before the chat shell exists.
     void activateWindowRequested();

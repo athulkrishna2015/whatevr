@@ -223,6 +223,8 @@ Now with that, here is the current feature map for whatevrd.
 | Message search | ✅ | |
 | Chat search | ✅ | |
 | Contact search/new chat | ✅ | |
+| Saved contacts in search results | ✅ | Contacts section after chats; tap starts the chat |
+| Pre-send image editing | ✅ | Crop, rotate and draw for attached, dropped and pasted images |
 | Voice messages | ❌ | |
 | Audio playback | ❌ | |
 | Video playback | ❌ | |
@@ -255,7 +257,9 @@ Now with that, here is the current feature map for whatevrd.
 | Favorites filter and per-chat favorite | ✅ | `CHAT_FILTER_FAVORITE` plus `chat.favorite` |
 | Status/stories tab | ✅ | Served by the `status` and `status.muted` views |
 | Calls tab and call history | ✅ | Ringing set from the call log plus `call_history` and `call.reject` |
-| Channels tab | ✅ | Served by the `channels`/`channel_messages` views and `channel.*` commands |
+| Channels tab | ✅ | Served by the `channels`/`channel_messages` views and `channel.*` commands; refresh on open, in-list switching, post links |
+| Channel post refresh on open | ✅ | `channel.messages_refresh` pulls the latest posts server-side |
+| Channel post links | ✅ | `whatsapp.com/channel` links open the timeline at the linked post |
 | Daemon logs viewer | ✅ | Served by the `logs` view over the run log |
 | Chat media links tab | ✅ | Served by the new `chat_links` view |
 | Keep-archived / anti-delete / archived-mute prefs | ✅ | Native v2 preference fields |

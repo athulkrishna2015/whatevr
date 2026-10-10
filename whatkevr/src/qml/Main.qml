@@ -125,6 +125,10 @@ Kirigami.ApplicationWindow {
             const prefs = Whatevr.ProtocolController.appPreferences
             trayIcon.setNotificationsMuted(!(prefs.notifications_enabled ?? true))
         }
+        // A channel link tapped in a bubble lands here after resolving.
+        function onOpenChannelMessagesRequested(jid, name) {
+            showChannelMessages(jid, name)
+        }
     }
 
     SettingsView {

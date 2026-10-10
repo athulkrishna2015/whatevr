@@ -75,6 +75,9 @@ Status key: **have** · **new** (this cycle) · **missing** (planned, safe) ·
 - Group create/manage/members/invites/permissions: **have**.
 - Community directory + link/unlink: **have** (API-level; no browser tab).
 - Channels tab (follow/unfollow/mute/messages/views): **have**.
+- Channel posts refresh from the server on open (`channel.messages_refresh`),
+  in-list switching without closing, and `whatsapp.com/channel` post links
+  that open the timeline at the linked post: **have**.
 - Channel message loading, older-history paging, viewed receipts, and post reactions: **new**.
 
 ## Privacy, settings, desktop

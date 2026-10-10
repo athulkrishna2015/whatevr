@@ -1372,10 +1372,14 @@ private Q_SLOTS:
         QTest::qWait(50);
         QCOMPARE(daemon.subscribeCountByView.value(QStringLiteral("channel_messages")), 2);
 
-        // A channel link resolves without following, opens the channel and
-        // holds the linked post for the page to scroll to.
+        // A channel link resolves without following, navigates through the
+        // open-channel signal, and holds the linked post for the page to
+        // scroll to.
+        QSignalSpy channelOpenSpy(&ctrl, &ProtocolController::openChannelMessagesRequested);
         ctrl.openChannelLink(QStringLiteral("https://whatsapp.com/channel/AbCdEfGhIjKlMnOpQrStUv/30376"));
-        QTRY_COMPARE(ctrl.selectedChannelJid(), QStringLiteral("9@newsletter"));
+        QTRY_COMPARE(channelOpenSpy.count(), 1);
+        QCOMPARE(channelOpenSpy.first().at(0).toString(), QStringLiteral("9@newsletter"));
+        QCOMPARE(channelOpenSpy.first().at(1).toString(), QStringLiteral("Linked"));
         QCOMPARE(ctrl.pendingChannelPostId(), QStringLiteral("30376"));
         QCOMPARE(daemon.m_resolveInvite.value(QStringLiteral("invite")).toString(),
                  QStringLiteral("AbCdEfGhIjKlMnOpQrStUv"));
