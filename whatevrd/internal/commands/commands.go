@@ -93,6 +93,7 @@ func Register(o Options) *Opener {
 		arm(v2.Request_ChannelMarkViewed_case):         x.channelViewed,
 		arm(v2.Request_ChannelReact_case):              x.channelReact,
 		arm(v2.Request_ChannelMessagesRefresh_case):    x.channelMessagesRefresh,
+		arm(v2.Request_ChannelResolveInvite_case):      x.channelResolveInvite,
 		arm(v2.Request_GroupJoinInvite_case):           x.joinInvite,
 		arm(v2.Request_GroupCreate_case):               x.groupCreate,
 		arm(v2.Request_GroupLeave_case):                x.groupLeave,
@@ -1096,6 +1097,19 @@ func (x *commands) channelMessagesRefresh(ctx context.Context, s *server.Session
 		return nil, invalid("channel_id is required")
 	}
 	return nil, wire(x.c.RefreshChannelPosts(ctx, req.GetChannelMessagesRefresh().GetChannelId()))
+}
+
+func (x *commands) channelResolveInvite(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	if strings.TrimSpace(req.GetChannelResolveInvite().GetInvite()) == "" {
+		return nil, invalid("invite is required")
+	}
+	jid, name, err := x.c.ResolveChannelInvite(ctx, req.GetChannelResolveInvite().GetInvite())
+	if err != nil {
+		return nil, wire(err)
+	}
+	resp := &v2.Response{}
+	resp.SetChannelResolveInvite(v2.ChannelResolveInviteResult_builder{Jid: jid, Name: name}.Build())
+	return resp, nil
 }
 
 func (x *commands) joinInvite(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {

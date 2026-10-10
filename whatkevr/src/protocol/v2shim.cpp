@@ -494,6 +494,14 @@ V2ResponseTranslation translateV2Response(const whatevr::v2::Response &response)
         out.result = result;
         break;
     }
+    case whatevr::v2::Response::kChannelResolveInvite: {
+        const auto &invite = response.channel_resolve_invite();
+        QJsonObject result;
+        result.insert(QStringLiteral("jid"), v2s(invite.jid()));
+        result.insert(QStringLiteral("name"), v2s(invite.name()));
+        out.result = result;
+        break;
+    }
     case whatevr::v2::Response::kSearchStickers: {
         QJsonArray stickers;
         for (const auto &row : response.search_stickers().stickers()) {
@@ -1319,6 +1327,11 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
             get("channel_id").toString().toStdString());
         return true;
     }
+    if (method == QLatin1String("channel.resolve_invite")) {
+        request->mutable_channel_resolve_invite()->set_invite(
+            get("invite").toString().toStdString());
+        return true;
+    }
     if (method == QLatin1String("message.react")) {
         auto *react = request->mutable_message_react();
         react->set_message_id(get("message_id").toString().toStdString());
@@ -1822,6 +1835,12 @@ bool v2ResponseFromV1(const QString &method, std::uint64_t id, const QJsonObject
         phone->set_person_id(str("jid"));
         phone->set_name(str("display_name"));
         phone->set_phone(str("phone"));
+        return true;
+    }
+    if (method == QLatin1String("channel.resolve_invite")) {
+        auto *invite = out->mutable_channel_resolve_invite();
+        invite->set_jid(str("jid"));
+        invite->set_name(str("name"));
         return true;
     }
     if (method == QLatin1String("send.text") || method == QLatin1String("send.media")
@@ -2585,6 +2604,11 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
         out->method = QStringLiteral("channel.messages_refresh");
         params.insert(QStringLiteral("channel_id"),
                       v2s(request.channel_messages_refresh().channel_id()));
+        break;
+    case Method::kChannelResolveInvite:
+        out->method = QStringLiteral("channel.resolve_invite");
+        params.insert(QStringLiteral("invite"),
+                      v2s(request.channel_resolve_invite().invite()));
         break;
     case Method::kMessageReact:
         out->method = QStringLiteral("message.react");

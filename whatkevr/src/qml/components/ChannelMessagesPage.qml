@@ -34,9 +34,31 @@ Kirigami.ScrollablePage {
 
     onChannelJidChanged: {
         root.lastMarkedKey = ""
+        Whatevr.ProtocolController.clearPendingChannelPost()
         if (root.pageReady && root.channelJid.length > 0) {
             Whatevr.ProtocolController.openChannelMessages(root.channelJid, root.channelName)
             messagesList.positionViewAtBeginning()
+        }
+    }
+
+    // A channel link names one post by server id; scroll it into view once
+    // its row has arrived (the refresh on open may still be fetching).
+    function tryJumpToPost() {
+        const target = String(Whatevr.ProtocolController.pendingChannelPostId || "")
+        if (target.length === 0) {
+            return
+        }
+        const model = Whatevr.ProtocolController.channelMessagesModel
+        if (!model) {
+            return
+        }
+        for (let i = 0; i < model.count; ++i) {
+            const row = model.itemById(model.idAt(i))
+            if (row && String(row.server_id || "") === target) {
+                Whatevr.ProtocolController.clearPendingChannelPost()
+                messagesList.positionViewAtIndex(i, ListView.Center)
+                return
+            }
         }
     }
 
@@ -165,10 +187,20 @@ Kirigami.ScrollablePage {
         target: Whatevr.ProtocolController.channelMessagesModel
         ignoreUnknownSignals: true
         function onReadyChanged() {
-            if (Whatevr.ProtocolController.channelMessagesModel.ready)
+            if (Whatevr.ProtocolController.channelMessagesModel.ready) {
                 root.markVisibleViewed()
+                root.tryJumpToPost()
+            }
         }
-        function onCountChanged() { root.markVisibleViewed() }
+        function onCountChanged() { root.markVisibleViewed(); root.tryJumpToPost() }
+    }
+
+    Connections {
+        target: Whatevr.ProtocolController
+        ignoreUnknownSignals: true
+        // A link open lands here after the resubscribe (or its no-op when
+        // already on the channel): jump if the post is already stored.
+        function onChannelMessagesChanged() { root.tryJumpToPost() }
     }
 
     actions: [

@@ -253,6 +253,9 @@ public:
     QStringList messageCommands;
     // Params of every `poll.vote`, in order.
     QList<QJsonObject> pollVotes;
+    // Params of the last `channel.resolve_invite` (a later refresh for the
+    // opened channel overwrites lastCommandParams).
+    QJsonObject m_resolveInvite;
 
 Q_SIGNALS:
     void reconnectRequested();
@@ -616,6 +619,13 @@ private:
             lastCommandMethod = method;
             lastCommandParams = params;
             reply(id, QJsonObject{});
+            Q_EMIT commandReceived();
+        } else if (method == QLatin1String("channel.resolve_invite")) {
+            lastCommandMethod = method;
+            lastCommandParams = params;
+            m_resolveInvite = params;
+            reply(id, QJsonObject{{QStringLiteral("jid"), QStringLiteral("9@newsletter")},
+                                  {QStringLiteral("name"), QStringLiteral("Linked")}});
             Q_EMIT commandReceived();
         } else if (method == QLatin1String("call.reject")) {
             lastCommandMethod = method;
@@ -1361,6 +1371,16 @@ private Q_SLOTS:
         ctrl.openChannelMessages(QStringLiteral("2@newsletter"), QStringLiteral("Sports"));
         QTest::qWait(50);
         QCOMPARE(daemon.subscribeCountByView.value(QStringLiteral("channel_messages")), 2);
+
+        // A channel link resolves without following, opens the channel and
+        // holds the linked post for the page to scroll to.
+        ctrl.openChannelLink(QStringLiteral("https://whatsapp.com/channel/AbCdEfGhIjKlMnOpQrStUv/30376"));
+        QTRY_COMPARE(ctrl.selectedChannelJid(), QStringLiteral("9@newsletter"));
+        QCOMPARE(ctrl.pendingChannelPostId(), QStringLiteral("30376"));
+        QCOMPARE(daemon.m_resolveInvite.value(QStringLiteral("invite")).toString(),
+                 QStringLiteral("AbCdEfGhIjKlMnOpQrStUv"));
+        ctrl.clearPendingChannelPost();
+        QCOMPARE(ctrl.pendingChannelPostId(), QString());
 
         QSignalSpy commandSpy(&daemon, &FakeDaemon::commandReceived);
         ctrl.followChannel(QStringLiteral("1@newsletter"));
