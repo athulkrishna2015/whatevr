@@ -19,6 +19,16 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.13.0" date="2026-10-10">
+      <description>
+        <p><em>Channel posts refresh on open</em></p>
+        <p>Opening a channel now pulls its latest posts from the server through the new <code>channel.messages_refresh</code> command and stores the unseen ones, so muted channels — which rarely get pushes — show what is there. Fetched posts carry the same ids as pushes and store once.</p>
+        <p><em>Channel switching</em></p>
+        <p>Tapping another channel in the list now resubscribes instead of keeping the previous channel's posts behind the new header; reopening the same channel is a no-op.</p>
+        <p><em>Channel invite links open in place</em></p>
+        <p>Tapping a <code>whatsapp.com/channel/&lt;invite&gt;[/&lt;post&gt;]</code> link in any message resolves the channel without following it (new <code>channel.resolve_invite</code> query), opens its timeline, and scrolls the linked post into view once its row arrives.</p>
+      </description>
+    </release>
     <release version="0.12.0" date="2026-10-09">
       <description>
         <p><em>Saved contacts in search</em></p>
