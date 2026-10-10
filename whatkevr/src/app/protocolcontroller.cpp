@@ -4194,7 +4194,7 @@ void ProtocolController::openChannelLink(const QString &url)
             return;
         }
         m_pendingChannelPostId = post;
-        openChannelMessages(jid, result.value(QStringLiteral("name")).toString());
+        Q_EMIT openChannelMessagesRequested(jid, result.value(QStringLiteral("name")).toString());
         Q_EMIT channelMessagesChanged();
     });
 }
