@@ -7,6 +7,14 @@ PROTOCOL.md (stable at version 1: additive changes only).
 
 ### Added
 
+- Channel pages pull the latest posts from the server on open: a new
+  `channel.messages_refresh` command fetches the newest posts and stores the
+  unseen ones, so muted channels (which rarely get pushes) show what is
+  there. Fetched posts carry the same ids as pushes and store once.
+- Switching channels from the list now resubscribes instead of keeping the
+  previous channel's posts behind the new header; reopening the same channel
+  is a no-op.
+
 - Saved contacts from the phone are searchable and start chats: `search.chats`
   answers matching saved contacts (appstate names, history inline names where
   those are missing) alongside chat rows, in a Contacts section after Chats,

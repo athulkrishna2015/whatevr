@@ -579,6 +579,9 @@ public:
     Q_INVOKABLE void closeChannels();
     Q_INVOKABLE void openChannelMessages(const QString &jid, const QString &name);
     Q_INVOKABLE void closeChannelMessages();
+    // Pulls the channel's latest posts from the server into the local rows;
+    // openChannelMessages already does this on every open.
+    Q_INVOKABLE void refreshChannelMessages(const QString &jid);
     Q_INVOKABLE void followChannel(const QString &jidOrLink);
     Q_INVOKABLE void unfollowChannel(const QString &jid);
     Q_INVOKABLE void muteChannel(const QString &jid, bool muted);

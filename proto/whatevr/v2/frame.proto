@@ -115,6 +115,7 @@ message Request {
     ChannelMute channel_mute = 118;
     ChannelMarkViewed channel_mark_viewed = 119;
     ChannelReact channel_react = 125;
+    ChannelMessagesRefresh channel_messages_refresh = 126;
     MessageText message_text = 72;
 
     // 90-99: media

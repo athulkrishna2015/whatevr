@@ -1314,6 +1314,11 @@ bool buildV2Request(std::uint64_t id, const QString &method, const QJsonObject &
         react->set_emoji(get("emoji").toString().toStdString());
         return true;
     }
+    if (method == QLatin1String("channel.messages_refresh")) {
+        request->mutable_channel_messages_refresh()->set_channel_id(
+            get("channel_id").toString().toStdString());
+        return true;
+    }
     if (method == QLatin1String("message.react")) {
         auto *react = request->mutable_message_react();
         react->set_message_id(get("message_id").toString().toStdString());
@@ -2575,6 +2580,11 @@ bool v2RequestToV1(const whatevr::v2::Request &request, V2RequestV1 *out)
         params.insert(QStringLiteral("server_id"),
                       static_cast<qint64>(request.channel_react().server_id()));
         params.insert(QStringLiteral("emoji"), v2s(request.channel_react().emoji()));
+        break;
+    case Method::kChannelMessagesRefresh:
+        out->method = QStringLiteral("channel.messages_refresh");
+        params.insert(QStringLiteral("channel_id"),
+                      v2s(request.channel_messages_refresh().channel_id()));
         break;
     case Method::kMessageReact:
         out->method = QStringLiteral("message.react");
