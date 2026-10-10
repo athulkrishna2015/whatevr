@@ -92,6 +92,7 @@ func Register(o Options) *Opener {
 		arm(v2.Request_ChannelMute_case):               x.channelMute,
 		arm(v2.Request_ChannelMarkViewed_case):         x.channelViewed,
 		arm(v2.Request_ChannelReact_case):              x.channelReact,
+		arm(v2.Request_ChannelMessagesRefresh_case):    x.channelMessagesRefresh,
 		arm(v2.Request_GroupJoinInvite_case):           x.joinInvite,
 		arm(v2.Request_GroupCreate_case):               x.groupCreate,
 		arm(v2.Request_GroupLeave_case):                x.groupLeave,
@@ -1088,6 +1089,13 @@ func (x *commands) channelReact(ctx context.Context, s *server.Session, req *v2.
 		return nil, invalid("channel_id and server_id are required")
 	}
 	return nil, wire(x.c.ReactToChannelMessage(ctx, p.GetChannelId(), p.GetServerId(), p.GetEmoji()))
+}
+
+func (x *commands) channelMessagesRefresh(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	if strings.TrimSpace(req.GetChannelMessagesRefresh().GetChannelId()) == "" {
+		return nil, invalid("channel_id is required")
+	}
+	return nil, wire(x.c.RefreshChannelPosts(ctx, req.GetChannelMessagesRefresh().GetChannelId()))
 }
 
 func (x *commands) joinInvite(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {

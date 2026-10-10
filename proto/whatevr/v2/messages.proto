@@ -871,6 +871,12 @@ message ChannelMarkViewed {
   repeated int64 server_ids = 2;
 }
 
+// pull a channel's latest posts from the server into the local rows;
+// the channel_messages view serves them like anything else
+message ChannelMessagesRefresh {
+  string channel_id = 1;
+}
+
 message ChannelReact {
   string channel_id = 1;
   int64 server_id = 2;

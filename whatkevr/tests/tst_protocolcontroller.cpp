@@ -611,7 +611,8 @@ private:
                    || method == QLatin1String("channel.unfollow")
                    || method == QLatin1String("channel.mute")
                    || method == QLatin1String("channel.mark_viewed")
-                   || method == QLatin1String("channel.react")) {
+                   || method == QLatin1String("channel.react")
+                   || method == QLatin1String("channel.messages_refresh")) {
             lastCommandMethod = method;
             lastCommandParams = params;
             reply(id, QJsonObject{});
@@ -1340,6 +1341,26 @@ private Q_SLOTS:
         auto *posts = qobject_cast<QAbstractItemModel *>(ctrl.channelMessagesModel());
         QVERIFY(posts);
         QTRY_COMPARE(posts->rowCount(), 1);
+
+        // Opening another channel resubscribes (new params, same model) and
+        // refreshes it: the timeline must follow the header, not keep the
+        // previous channel's rows.
+        QSignalSpy refreshSpy(&daemon, &FakeDaemon::commandReceived);
+        ctrl.openChannelMessages(QStringLiteral("2@newsletter"), QStringLiteral("Sports"));
+        QCOMPARE(ctrl.selectedChannelJid(), QStringLiteral("2@newsletter"));
+        QTRY_COMPARE(daemon.subscribeCountByView.value(QStringLiteral("channel_messages")), 2);
+        QCOMPARE(daemon.lastParamsByView.value(QStringLiteral("channel_messages"))
+                     .value(QStringLiteral("channel")).toString(),
+                 QStringLiteral("2@newsletter"));
+        QTRY_VERIFY(!refreshSpy.isEmpty());
+        QCOMPARE(daemon.lastCommandMethod, QStringLiteral("channel.messages_refresh"));
+        QCOMPARE(daemon.lastCommandParams.value(QStringLiteral("channel_id")).toString(),
+                 QStringLiteral("2@newsletter"));
+
+        // Reopening the same channel is a no-op: no new subscription.
+        ctrl.openChannelMessages(QStringLiteral("2@newsletter"), QStringLiteral("Sports"));
+        QTest::qWait(50);
+        QCOMPARE(daemon.subscribeCountByView.value(QStringLiteral("channel_messages")), 2);
 
         QSignalSpy commandSpy(&daemon, &FakeDaemon::commandReceived);
         ctrl.followChannel(QStringLiteral("1@newsletter"));

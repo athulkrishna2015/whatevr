@@ -7,6 +7,7 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
 
 	"whatevrd/internal/core"
 	"whatevrd/internal/model"
@@ -191,6 +192,45 @@ func (c *Client) ReactToChannelMessage(ctx context.Context, id string, serverID 
 	if err := cli.NewsletterSendReaction(ctx, jid, types.MessageServerID(serverID), strings.TrimSpace(emoji), ""); err != nil {
 		return Errorf(ErrRejected, "%v", err)
 	}
+	return nil
+}
+
+// ChannelMessagesRefresh pulls a channel's latest posts from the server and
+// logs the ones not seen yet, so opening a channel shows what is there even
+// when no push arrived (muted channels rarely get any). Fetched posts carry
+// the same stanza ids as pushes, so a post arriving both ways stores once.
+func (c *Client) RefreshChannelPosts(ctx context.Context, id string) error {
+	cli, err := c.connected()
+	if err != nil {
+		return err
+	}
+	jid, err := c.parseChannelJID(id)
+	if err != nil {
+		return err
+	}
+	msgs, err := cli.GetNewsletterMessages(ctx, jid, &whatsmeow.GetNewsletterMessagesParams{Count: 30})
+	if err != nil {
+		return Errorf(ErrRejected, "%v", err)
+	}
+	for _, m := range msgs {
+		if m == nil || m.Message == nil || m.MessageID == "" {
+			continue
+		}
+		evt := &events.Message{
+			Info: types.MessageInfo{
+				MessageSource: types.MessageSource{Chat: jid, Sender: jid},
+				ID:            string(m.MessageID),
+				ServerID:      m.MessageServerID,
+				Timestamp:     m.Timestamp,
+			},
+			Message:    m.Message,
+			RawMessage: m.Message,
+		}
+		if err := c.ingest.Event(ctx, evt); err != nil {
+			return err
+		}
+	}
+	c.waitLogged(ctx)
 	return nil
 }
 

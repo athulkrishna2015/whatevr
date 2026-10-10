@@ -19,6 +19,7 @@ Kirigami.ScrollablePage {
     Kirigami.Theme.colorSet: Kirigami.Theme.View
 
     Component.onCompleted: {
+        root.pageReady = true
         Whatevr.ProtocolController.openChannelMessages(root.channelJid, root.channelName)
         Qt.callLater(root.markVisibleViewed)
     }
@@ -26,8 +27,18 @@ Kirigami.ScrollablePage {
     Component.onDestruction: { const c = Whatevr.ProtocolController; if (c) c.closeChannelMessages() }
 
     property string lastMarkedKey: ""
+    // A channel switch reuses this page (the loader stays active), so a new
+    // channel id must resubscribe like a fresh open instead of keeping the
+    // previous channel's rows behind the new header.
+    property bool pageReady: false
 
-    onChannelJidChanged: root.lastMarkedKey = ""
+    onChannelJidChanged: {
+        root.lastMarkedKey = ""
+        if (root.pageReady && root.channelJid.length > 0) {
+            Whatevr.ProtocolController.openChannelMessages(root.channelJid, root.channelName)
+            messagesList.positionViewAtBeginning()
+        }
+    }
 
     // Read-more expansion, keyed by message id. The revision keeps the
     // per-row `textExpanded` bindings live without rebuilding the map.

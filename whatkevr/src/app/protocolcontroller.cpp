@@ -4131,7 +4131,13 @@ void ProtocolController::closeChannels()
 
 void ProtocolController::openChannelMessages(const QString &jid, const QString &name)
 {
+    if (!jid.isEmpty() && jid == m_selectedChannelJid && m_channelMessagesSub) {
+        return;
+    }
     closeChannelMessages();
+    if (jid.isEmpty()) {
+        return;
+    }
     m_selectedChannelJid = jid;
     m_selectedChannelName = name;
     Q_EMIT channelMessagesChanged();
@@ -4143,6 +4149,24 @@ void ProtocolController::openChannelMessages(const QString &jid, const QString &
     connect(m_channelMessagesSub, &Subscription::failed, this, [this](const QString &, const QString &) {
         m_channelMessagesModel->onReady(false, true);
         Q_EMIT channelMessagesChanged();
+    });
+    // Pull the latest posts on every open: pushes alone miss muted channels,
+    // and the view only ever shows stored rows.
+    refreshChannelMessages(jid);
+}
+
+void ProtocolController::refreshChannelMessages(const QString &jid)
+{
+    if (jid.trimmed().isEmpty()) {
+        return;
+    }
+    m_client->request(QStringLiteral("channel.messages_refresh"), {{QStringLiteral("channel_id"), jid.trimmed()}},
+                      [this](const QJsonObject &, const ProtocolError &error) {
+        if (error.isError()) {
+            Q_EMIT messageActionFailed(error.message.isEmpty()
+                                           ? i18nc("@info", "Unable to refresh the channel")
+                                           : error.message);
+        }
     });
 }
 
