@@ -14,6 +14,9 @@ type Group struct {
 	Announce  bool
 	Locked    bool
 	Approval  bool
+	// MemberAddMode is "admin_add" (only admins add) or "all_member_add",
+	// empty until a fetch described it.
+	MemberAddMode string
 	Parent    bool
 	LinkedTo  string
 	Deleted   bool
@@ -53,6 +56,8 @@ func (r *Reader) Group(ctx context.Context, grp string) (Group, bool, error) {
 			g.Locked = on
 		case "approval":
 			g.Approval = on
+		case "member_add_mode":
+			g.MemberAddMode = value
 		case "parent":
 			g.Parent = on
 		case "linked_to":

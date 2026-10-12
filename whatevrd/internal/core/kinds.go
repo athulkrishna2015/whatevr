@@ -278,6 +278,9 @@ type GroupInfoHead struct {
 	Approval     *bool  `json:"approval,omitempty"`
 	InviteLink   bool   `json:"invite_link,omitempty"`
 	DeleteReason string `json:"delete_reason,omitempty"`
+	// MemberAddMode is whatsapp's member_add_mode: "admin_add" when only admins
+	// may add people, "all_member_add" when anyone may.
+	MemberAddMode string `json:"member_add_mode,omitempty"`
 	// LinkChange is a community link made ("link") or undone ("unlink"),
 	// LinkType whatsmeow's parent or sub, LinkName the other group's name
 	LinkChange string `json:"link_change,omitempty"`

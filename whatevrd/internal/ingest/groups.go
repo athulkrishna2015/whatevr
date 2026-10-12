@@ -28,6 +28,7 @@ func fullGroup(g *types.GroupInfo, at time.Time) core.GroupInfoHead {
 		Created:   unix(g.GroupCreated),
 		Owner:     jid(g.OwnerJID),
 		Addressed: string(g.AddressingMode),
+		MemberAddMode: string(g.MemberAddMode),
 	}
 	timer := uint32(0)
 	if g.IsEphemeral {

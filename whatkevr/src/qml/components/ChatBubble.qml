@@ -1436,6 +1436,8 @@ Item {
                             root.mentionAllClicked()
                         } else if (link.includes("whatsapp.com/channel/")) {
                             Whatevr.ProtocolController.openChannelLink(link)
+                        } else if (link.includes("chat.whatsapp.com/")) {
+                            Whatevr.ProtocolController.previewGroupInvite(link)
                         } else {
                             Qt.openUrlExternally(link)
                         }

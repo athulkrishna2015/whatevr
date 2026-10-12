@@ -193,6 +193,18 @@ func (c *rc) now(addr string) *v2.Person {
 	return c.person(c.w.Now(model.Norm(addr)))
 }
 
+// PersonNow is key as a row names them today, for a caller outside a view
+// (a command answering with rows it fetched live). It gives up the id and
+// avatar a view would fill in later, since there is no window to patch.
+func (rs *Reads) PersonNow(ctx context.Context, key string) (*v2.Person, error) {
+	c, err := rs.begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	p := c.now(model.Norm(key))
+	return p, c.finish()
+}
+
 // phone is a number address as e164 without the plus.
 func phone(pn string) string {
 	user, _, _ := strings.Cut(pn, "@")

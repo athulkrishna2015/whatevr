@@ -58,6 +58,19 @@ CenteredDialog {
     readonly property bool canAdmin: root.myRole === "admin" || root.myRole === "superadmin"
     readonly property bool announce: root.isGroup && Boolean(root.card.announce ?? false)
     readonly property bool locked: root.isGroup && Boolean(root.card.locked ?? false)
+    // member_add_mode off the daemon's group row: true once a fetch said only
+    // admins may add, false when anyone may. Tri-state because "unknown" and
+    // "anyone may" must not look the same on an admin's screen.
+    readonly property int memberAddModeState: root.isGroup
+        ? (String(root.card.member_add_mode ?? "") === "admin_add" ? 2
+          : (String(root.card.member_add_mode ?? "") === "all_member_add" ? 1 : 0))
+        : 0
+    readonly property bool memberAddModeKnown: root.memberAddModeState > 0
+    readonly property bool onlyAdminsAddMembers: root.memberAddModeState === 2
+    readonly property bool joinApproval: root.isGroup && Boolean(root.card.approval ?? false)
+    // Requests waiting, as the daemon answered group.join_requests.
+    readonly property var joinRequests: Whatevr.ProtocolController.groupJoinRequests ?? []
+    readonly property bool hasJoinRequests: root.joinRequests.length > 0
     readonly property string ownerId: root.isGroup ? String(root.card.owner ?? "") : ""
     // Community membership, same two-phase rule as my_role above: WhatsApp
     // reports it only on the live card fetch, so the section below appears
@@ -609,6 +622,111 @@ CenteredDialog {
                     function onInfoCardChanged() {
                         lockedSwitch.checked = Qt.binding(() => root.locked)
                     }
+                }
+            }
+
+            QQC2.Switch {
+                id: memberAddSwitch
+
+                Kirigami.FormData.label: Whatevr.I18n.i18nc("@label:checkbox admins-only group adds",
+                                                             "Only admins can add members")
+                visible: root.isGroup
+                enabled: root.canAdmin
+                checked: root.onlyAdminsAddMembers
+                onToggled: Whatevr.ProtocolController.setGroupMemberAddMode(root.subjectKey, checked)
+
+                Connections {
+                    target: Whatevr.ProtocolController
+
+                    function onInfoCardChanged() {
+                        memberAddSwitch.checked = Qt.binding(() => root.onlyAdminsAddMembers)
+                    }
+                }
+            }
+
+            QQC2.Switch {
+                id: joinApprovalSwitch
+
+                Kirigami.FormData.label: Whatevr.I18n.i18nc("@label:checkbox group join approval",
+                                                             "Require admin approval to join")
+                visible: root.isGroup
+                enabled: root.canAdmin
+                checked: root.joinApproval
+                onToggled: {
+                    Whatevr.ProtocolController.setGroupJoinApproval(root.subjectKey, checked)
+                    // turning it on is exactly when someone may start waiting
+                    if (checked) {
+                        Whatevr.ProtocolController.refreshGroupJoinRequests(root.subjectKey)
+                    }
+                }
+
+                Connections {
+                    target: Whatevr.ProtocolController
+
+                    function onInfoCardChanged() {
+                        joinApprovalSwitch.checked = Qt.binding(() => root.joinApproval)
+                    }
+                    function onGroupJoinRequestsChanged() {
+                        joinApprovalSwitch.checked = Qt.binding(() => root.joinApproval)
+                    }
+                }
+            }
+
+            // ---- Requests to join (admins of an approval group) ----
+            ColumnLayout {
+                visible: root.isGroup && root.canAdmin && root.hasJoinRequests
+                spacing: Kirigami.Units.smallSpacing
+
+                QQC2.Label {
+                    text: Whatevr.I18n.i18ncp("@label group join requests",
+                                              "%1 request to join",
+                                              "%1 requests to join",
+                                              root.joinRequests.length)
+                    textFormat: Text.PlainText
+                    elide: Text.ElideRight
+                    Layout.maximumWidth: root.preferredWidth - Kirigami.Units.gridUnit * 8
+                }
+
+                Repeater {
+                    model: root.joinRequests
+
+                    delegate: RowLayout {
+                        required property var modelData
+                        Layout.fillWidth: true
+
+                        QQC2.Label {
+                            text: String(delegate.modelData.display_name ?? delegate.modelData.jid ?? "")
+                            textFormat: Text.PlainText
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                        }
+
+                        QQC2.Button {
+                            icon.name: "checkmark"
+                            text: Whatevr.I18n.i18nc("@action:button approve a group join request",
+                                                     "Approve")
+                            onClicked: Whatevr.ProtocolController.resolveGroupJoinRequests(
+                                           root.subjectKey, "approve",
+                                           [String(delegate.modelData.jid ?? "")])
+                        }
+
+                        QQC2.Button {
+                            icon.name: "edit-delete"
+                            text: Whatevr.I18n.i18nc("@action:button reject a group join request",
+                                                     "Reject")
+                            onClicked: Whatevr.ProtocolController.resolveGroupJoinRequests(
+                                           root.subjectKey, "reject",
+                                           [String(delegate.modelData.jid ?? "")])
+                        }
+                    }
+                }
+
+                QQC2.Button {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: Whatevr.I18n.i18nc("@action:button approve every group join request",
+                                             "Approve all")
+                    onClicked: Whatevr.ProtocolController.resolveGroupJoinRequests(
+                                   root.subjectKey, "approve")
                 }
             }
         }

@@ -391,3 +391,169 @@ func (c *Client) UnlinkCommunityGroup(ctx context.Context, community, group stri
 	c.refreshGroup(ctx, cli, groupJID)
 	return nil
 }
+
+// SetGroupMemberAddMode toggles whether anyone in the group may add people,
+// or only admins. whatsapp's "member_add_mode": "all_member_add" / "admin_add".
+func (c *Client) SetGroupMemberAddMode(ctx context.Context, chat string, anyoneCanAdd bool) error {
+	cli, err := c.connected()
+	if err != nil {
+		return err
+	}
+	jid, err := c.groupJID(chat)
+	if err != nil {
+		return err
+	}
+	mode := types.GroupMemberAddModeAdmin
+	if anyoneCanAdd {
+		mode = types.GroupMemberAddModeAllMember
+	}
+	if err := cli.SetGroupMemberAddMode(ctx, jid, mode); err != nil {
+		return Errorf(ErrRejected, "%v", err)
+	}
+	c.refreshGroup(ctx, cli, jid)
+	return nil
+}
+
+// SetGroupJoinApproval toggles whether joining this group needs an admin's
+// approval. Requests themselves live in GroupJoinRequests.
+func (c *Client) SetGroupJoinApproval(ctx context.Context, chat string, required bool) error {
+	cli, err := c.connected()
+	if err != nil {
+		return err
+	}
+	jid, err := c.groupJID(chat)
+	if err != nil {
+		return err
+	}
+	if err := cli.SetGroupJoinApprovalMode(ctx, jid, required); err != nil {
+		return Errorf(ErrRejected, "%v", err)
+	}
+	c.refreshGroup(ctx, cli, jid)
+	return nil
+}
+
+// GroupJoinRequest is one person waiting to be let into a group.
+type GroupJoinRequest struct {
+	JID         string
+	RequestedAt int64
+}
+
+// GroupJoinRequests reads who is waiting, for admins of an approval group.
+func (c *Client) GroupJoinRequests(ctx context.Context, chat string) ([]GroupJoinRequest, error) {
+	cli, err := c.connected()
+	if err != nil {
+		return nil, err
+	}
+	jid, err := c.groupJID(chat)
+	if err != nil {
+		return nil, err
+	}
+	reqs, err := cli.GetGroupRequestParticipants(ctx, jid)
+	if err != nil {
+		return nil, Errorf(ErrRejected, "%v", err)
+	}
+	out := make([]GroupJoinRequest, 0, len(reqs))
+	for _, r := range reqs {
+		out = append(out, GroupJoinRequest{JID: r.JID.ToNonAD().String(), RequestedAt: r.RequestedAt.UnixMilli()})
+	}
+	return out, nil
+}
+
+// ResolveGroupJoinRequests approves or rejects the people waiting to join.
+// action is "approve" or "reject"; an empty member list resolves everyone.
+func (c *Client) ResolveGroupJoinRequests(ctx context.Context, chat, action string, members []string) error {
+	cli, err := c.connected()
+	if err != nil {
+		return err
+	}
+	jid, err := c.groupJID(chat)
+	if err != nil {
+		return err
+	}
+	var change whatsmeow.ParticipantRequestChange
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "approve":
+		change = whatsmeow.ParticipantChangeApprove
+	case "reject":
+		change = whatsmeow.ParticipantChangeReject
+	default:
+		return Errorf(ErrInvalid, "action must be approve or reject")
+	}
+	var jids []types.JID
+	if len(members) == 0 {
+		// nobody named: resolve the whole waiting list, which is what an
+		// admin means by "approve all"
+		reqs, err := cli.GetGroupRequestParticipants(ctx, jid)
+		if err != nil {
+			return Errorf(ErrRejected, "%v", err)
+		}
+		for _, r := range reqs {
+			jids = append(jids, r.JID)
+		}
+	} else {
+		if jids, err = c.memberJIDs(members); err != nil {
+			return err
+		}
+	}
+	if len(jids) == 0 {
+		return nil
+	}
+	if _, err := cli.UpdateGroupRequestParticipants(ctx, jid, jids, change); err != nil {
+		return Errorf(ErrRejected, "%v", err)
+	}
+	c.refreshGroup(ctx, cli, jid)
+	return nil
+}
+
+// GroupInvitePreview is what a chat.whatsapp.com invite leads to, before the
+// frontend commits to joining it.
+type GroupInvitePreview struct {
+	JID          string
+	Name         string
+	Topic        string
+	CreatedMs    int64
+	MemberCount  uint32
+	Announce     bool
+	Locked       bool
+	Approval     bool
+	Parent       bool
+}
+
+// PreviewGroupInvite describes the group behind an invite link or bare code,
+// without joining it. zapfast resolves before it joins; joining blind means
+// committing to a group the user never got to look at.
+func (c *Client) PreviewGroupInvite(ctx context.Context, codeOrLink string) (GroupInvitePreview, error) {
+	cli, err := c.connected()
+	if err != nil {
+		return GroupInvitePreview{}, err
+	}
+	code := strings.TrimSpace(codeOrLink)
+	if code == "" {
+		return GroupInvitePreview{}, Errorf(ErrInvalid, "invite link or code is required")
+	}
+	for _, prefix := range []string{"https://chat.whatsapp.com/", "http://chat.whatsapp.com/", "chat.whatsapp.com/"} {
+		code = strings.TrimPrefix(code, prefix)
+	}
+	if code = strings.TrimSpace(code); code == "" {
+		return GroupInvitePreview{}, Errorf(ErrInvalid, "invite link or code is required")
+	}
+	info, err := cli.GetGroupInfoFromLink(ctx, code)
+	if err != nil {
+		return GroupInvitePreview{}, Errorf(ErrRejected, "%v", err)
+	}
+	if info == nil {
+		return GroupInvitePreview{}, Errorf(ErrNotFound, "no group behind that invite")
+	}
+	return GroupInvitePreview{
+		JID:         info.JID.ToNonAD().String(),
+		Name:        info.Name,
+		Topic:       info.Topic,
+		CreatedMs:   info.GroupCreated.UnixMilli(),
+		MemberCount: uint32(info.ParticipantCount),
+		Announce:    info.IsAnnounce,
+		Locked:      info.IsLocked,
+		Approval:    info.IsJoinApprovalRequired,
+		Parent:      info.IsParent,
+	}, nil
+}
+

@@ -99,6 +99,12 @@ message Request {
     GroupMembers group_members = 80;
     GroupSetAnnounce group_set_announce = 81;
     GroupSetLocked group_set_locked = 82;
+    GroupSetMemberAddMode group_set_member_add_mode = 128;
+    GroupSetJoinApproval group_set_join_approval = 129;
+    GroupResolveJoinRequest group_resolve_join_request = 130;
+    GroupPreviewInvite group_preview_invite = 131;
+    GroupJoinRequests group_join_requests = 133;
+    GroupJoinLink group_join_link = 134;
     CommunityLink community_link = 84;
     CommunityUnlink community_unlink = 85;
     StatusMarkViewed status_mark_viewed = 86;
@@ -180,6 +186,9 @@ message Response {
     StatusViewersResult status_viewers = 97;
     ChannelsRefreshResult channels_refresh = 115;
     MessageTextResult message_text = 72;
+    GroupPreviewInviteResult group_preview_invite = 131;
+    GroupJoinRequestsResult group_join_requests = 133;
+    GroupJoinLinkResult group_join_link = 134;
 
     MediaStreamResult media_stream = 91;
     MediaReadResult media_read = 93;

@@ -26,6 +26,8 @@ message GroupRow {
   bool locked = 10;
   // joining needs an admin's approval
   bool approval = 11;
+  // whether anyone may add members, or only admins; empty until known
+  GroupMemberAddMode member_add_mode = 14;
   // the community this group belongs to
   string community_id = 12;
   // why whatsapp wouldn't describe it, empty when it did
@@ -48,6 +50,15 @@ enum GroupRole {
   GROUP_ROLE_SUPERADMIN = 3;
   // not in the group any more
   GROUP_ROLE_LEFT = 4;
+}
+
+// who may add members to a group
+enum GroupMemberAddMode {
+  GROUP_MEMBER_ADD_MODE_UNSPECIFIED = 0;
+  // only admins may add
+  GROUP_MEMBER_ADD_MODE_ADMIN = 1;
+  // any member may add
+  GROUP_MEMBER_ADD_MODE_ALL_MEMBERS = 2;
 }
 
 // creates a group with an optional member list and photo; answers the chat
@@ -105,6 +116,68 @@ message GroupSetAnnounce {
 message GroupSetLocked {
   string chat_id = 1;
   bool enabled = 2;
+}
+
+// toggles whether anyone may add members, or only admins
+message GroupSetMemberAddMode {
+  string chat_id = 1;
+  bool anyone_can_add = 2;
+}
+
+// toggles whether joining needs an admin's approval
+message GroupSetJoinApproval {
+  string chat_id = 1;
+  bool required = 2;
+}
+
+// who is waiting to be let in, for admins of an approval group
+message GroupJoinRequests {
+  string chat_id = 1;
+}
+
+message GroupJoinRequestsResult {
+  repeated GroupJoinRequestRow requests = 1;
+}
+
+message GroupJoinRequestRow {
+  Person person = 1;
+  int64 requested_ms = 2;
+}
+
+// approves or rejects people waiting to join; an empty member list
+// resolves everyone waiting
+message GroupResolveJoinRequest {
+  string chat_id = 1;
+  // one of approve, reject
+  string action = 2;
+  repeated string members = 3;
+}
+
+// describes the group behind an invite link, without joining it
+message GroupPreviewInvite {
+  // a chat.whatsapp.com link or a bare code
+  string invite = 1;
+}
+
+message GroupPreviewInviteResult {
+  string jid = 1;
+  string name = 2;
+  string topic = 3;
+  int64 created_ms = 4;
+  uint32 member_count = 5;
+  bool announce = 6;
+  bool locked = 7;
+  bool approval = 8;
+  bool parent = 9;
+}
+
+// joins the group behind an invite link or bare code; answers the chat id
+message GroupJoinLink {
+  string invite = 1;
+}
+
+message GroupJoinLinkResult {
+  string chat_id = 1;
 }
 
 message CommunityLink {

@@ -104,6 +104,12 @@ func Register(o Options) *Opener {
 		arm(v2.Request_GroupMembers_case):              x.groupMembers,
 		arm(v2.Request_GroupSetAnnounce_case):          x.groupSetAnnounce,
 		arm(v2.Request_GroupSetLocked_case):            x.groupSetLocked,
+		arm(v2.Request_GroupSetMemberAddMode_case):     x.groupSetMemberAddMode,
+		arm(v2.Request_GroupSetJoinApproval_case):      x.groupSetJoinApproval,
+		arm(v2.Request_GroupResolveJoinRequest_case):   x.groupResolveJoinRequest,
+		arm(v2.Request_GroupPreviewInvite_case):        x.groupPreviewInvite,
+		arm(v2.Request_GroupJoinRequests_case):         x.groupJoinRequests,
+		arm(v2.Request_GroupJoinLink_case):             x.groupJoinLink,
 		arm(v2.Request_CommunityLink_case):             x.communityLink,
 		arm(v2.Request_CommunityUnlink_case):           x.communityUnlink,
 		arm(v2.Request_StatusMarkViewed_case):          x.statusViewed,
@@ -896,6 +902,94 @@ func (x *commands) groupSetLocked(ctx context.Context, s *server.Session, req *v
 		return nil, err
 	}
 	return nil, wire(x.c.SetGroupLocked(ctx, key, p.GetEnabled()))
+}
+
+func (x *commands) groupSetMemberAddMode(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetGroupSetMemberAddMode()
+	key, err := x.group(ctx, p.GetChatId())
+	if err != nil {
+		return nil, err
+	}
+	return nil, wire(x.c.SetGroupMemberAddMode(ctx, key, p.GetAnyoneCanAdd()))
+}
+
+func (x *commands) groupSetJoinApproval(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetGroupSetJoinApproval()
+	key, err := x.group(ctx, p.GetChatId())
+	if err != nil {
+		return nil, err
+	}
+	return nil, wire(x.c.SetGroupJoinApproval(ctx, key, p.GetRequired()))
+}
+
+func (x *commands) groupResolveJoinRequest(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetGroupResolveJoinRequest()
+	key, err := x.group(ctx, p.GetChatId())
+	if err != nil {
+		return nil, err
+	}
+	members := make([]string, 0, len(p.GetMembers()))
+	for _, m := range p.GetMembers() {
+		if id, ok := x.member(ctx, m); ok {
+			members = append(members, id)
+		}
+	}
+	return nil, wire(x.c.ResolveGroupJoinRequests(ctx, key, p.GetAction(), members))
+}
+
+func (x *commands) groupJoinLink(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	key, err := x.c.JoinGroupLink(ctx, req.GetGroupJoinLink().GetInvite())
+	if err != nil {
+		return nil, wire(err)
+	}
+	w, err := x.rs.World(ctx)
+	if err != nil {
+		return nil, err
+	}
+	id, err := x.id(ctx, w.Now(model.Norm(key)))
+	if err != nil {
+		return nil, err
+	}
+	resp := &v2.Response{}
+	resp.SetGroupJoinLink(v2.GroupJoinLinkResult_builder{ChatId: id}.Build())
+	return resp, nil
+}
+
+func (x *commands) groupJoinRequests(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p := req.GetGroupJoinRequests()
+	key, err := x.group(ctx, p.GetChatId())
+	if err != nil {
+		return nil, err
+	}
+	reqs, err := x.c.GroupJoinRequests(ctx, key)
+	if err != nil {
+		return nil, wire(err)
+	}
+	resp := &v2.Response{}
+	rows := make([]*v2.GroupJoinRequestRow, 0, len(reqs))
+	for _, r := range reqs {
+		person, err := x.rs.PersonNow(ctx, r.JID)
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, v2.GroupJoinRequestRow_builder{Person: person, RequestedMs: r.RequestedAt}.Build())
+	}
+	resp.SetGroupJoinRequests(v2.GroupJoinRequestsResult_builder{Requests: rows}.Build())
+	return resp, nil
+}
+
+func (x *commands) groupPreviewInvite(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
+	p, err := x.c.PreviewGroupInvite(ctx, req.GetGroupPreviewInvite().GetInvite())
+	if err != nil {
+		return nil, wire(err)
+	}
+	resp := &v2.Response{}
+	resp.SetGroupPreviewInvite(v2.GroupPreviewInviteResult_builder{
+		Jid: p.JID, Name: p.Name, Topic: p.Topic, CreatedMs: p.CreatedMs,
+		MemberCount: p.MemberCount, Announce: p.Announce, Locked: p.Locked,
+		Approval: p.Approval, Parent: p.Parent,
+	}.Build())
+	return resp, nil
 }
 
 func (x *commands) communityLink(ctx context.Context, s *server.Session, req *v2.Request) (*v2.Response, error) {
