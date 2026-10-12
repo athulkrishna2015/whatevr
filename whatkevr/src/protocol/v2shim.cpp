@@ -243,6 +243,17 @@ void buildV2Unsubscribe(std::uint64_t id, std::uint64_t sub, whatevr::v2::Reques
     out->mutable_unsubscribe()->set_sub(sub);
 }
 
+namespace
+{
+
+// Forward declarations: the person translators live with the body translators
+// further down (all anonymous-namespace blocks in a TU share one namespace).
+// translateV2Response and buildV2Request call them before their definitions.
+QJsonObject translateV2Person(const whatevr::v2::Person &person);
+void v2PersonFromJson(const QJsonObject &person, whatevr::v2::Person *out);
+
+} // namespace
+
 V2ResponseTranslation translateV2Response(const whatevr::v2::Response &response)
 {
     V2ResponseTranslation out;

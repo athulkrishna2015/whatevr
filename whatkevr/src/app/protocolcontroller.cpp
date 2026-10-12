@@ -3084,7 +3084,7 @@ void ProtocolController::previewGroupInvite(const QString &invite)
                                                               : error.message);
                               return;
                           }
-                          m_groupInvitePreview = result;
+                          m_groupInvitePreview = result.toVariantMap();
                           // the join needs the code, not just the JID the
                           // preview answered: keep what the user typed.
                           m_groupInvitePreview.insert(QStringLiteral("invite"), trimmed);
