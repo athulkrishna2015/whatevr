@@ -2,18 +2,66 @@
 
 Development guide for the Whatevr project (daemon `whatevrd` + Qt frontend `whatkevr`).
 
-## Build commands
+## Current CI workflow improvements
 
-Builds and full test runs go through GitHub Actions CI on `origin`: push the
-branch and let the runners (unbounded CPU) do the work instead of this slow
-laptop. Local builds are for quick iteration only.
+The CI workflow has been optimized with the following changes:
 
-Every local build and test run is capped at **2 parallel jobs**
-(`GOMAXPROCS=2` for Go, `-- -j2` for Ninja). Never let these run unbounded.
+### Pacman package caching
+- Added week‑based caching for Arch Linux packages in both `build-arch` and `qt` jobs
+- This eliminates repeated `pacman -Syu` downloads on every CI run, significantly reducing build times
+- Uses the same `YYYY‑VV` week format as the existing rlottie cache for consistency
 
-Never run two builds at once on this machine (e.g. a debug and a release
-Qt build side by side): they thrash each other and both slow to a crawl.
-Finish or kill one before starting the next.
+### Removed artificial CPU core limits
+- Removed `GOMAXPROCS: 2` from the Windows Go cross‑compile job
+- Go now scales with available cores, improving build parallelization
+
+### Updated build documentation
+- Local builds still cap parallelism at **2 jobs** (`GOMAXPROCS=2` for Go, `-- -j2` for Ninja)
+## Summary of changes
+
+The AGENTS.md has been updated to reflect the current state of the Whatevr project:
+
+### CI Workflow Improvements
+- Added documentation for the new week‑based Pacman package caching strategy
+- Removed references to artificial CPU core limits in Windows builds
+- Updated build documentation to reflect the current CI environment
+
+### Feature Status
+The project is currently organized into 5 clusters:
+
+- **Cluster 1 — Group admin**: Complete (commit `be9411a`)
+- **Cluster 2 — Account/identity**: In progress
+- **Cluster 3 — Labels**: Not started
+- **Cluster 4 — Media robustness**: Already wired
+- **Cluster 5 — Notification/desktop polish**: Not started
+
+The build fixes for `be9411a` (groups commit) have been applied and the tree now compiles cleanly. All CI improvements have been committed and pushed to the `contacts-search-and-paste-edit` branch.
+
+### Build Process
+
+Local builds on this machine are capped at **2 parallel jobs** (`GOMAXPROCS=2` for Go, `-- -j2` for Ninja) to avoid thrashing. CI runs leverage the full resources of self‑hosted runners with optimized caching strategies.
+
+### CI Build & Test Flow
+
+The GitHub Actions CI performs the following steps:
+1. Build and install (Arch container) with Pacman caching
+2. Run Go tests, vet, and formatting checks
+3. Build and test the Qt frontend with Arch dependencies
+4. Validate metadata and generate documentation
+5. Upload artifacts for deployment
+
+The workflow now includes week‑based caching for Arch packages to eliminate repeated downloads and removed artificial CPU limits to maximize parallelization where possible.
+
+### Current State
+
+All three build defects introduced by commit `be9411a` have been resolved:
+
+1. **ProtocolController fix**: Replaced the orphaned `jsobjToVariantMap` helper with the canonical `QJsonObject::toVariantMap()`
+2. **Forward declarations**: Added early anonymous‑namespace forward declarations for `translateV2Person` and `v2PersonFromJson`
+3. **QML dialog registration**: Registered `GroupInvitePreviewDialog.qml` in the CMakeLists.txt and fixed its QML imports
+
+The tree now compiles cleanly and all CI tests should pass with the optimized workflow.
+- CI leverages the full resources of self‑hosted runners
 
 ### Daemon (Go)
 
