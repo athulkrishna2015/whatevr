@@ -265,7 +265,6 @@ jobs:
           GOARCH: amd64
           CGO_ENABLED: 1
           CC: gcc
-          GOMAXPROCS: 2
           # The stock pkg-config on PATH (Strawberry Perl's) runs fine;
           # PKG_CONFIG_PATH (set by the step above) gives it our .pc file.
           PKG_CONFIG_PATH: ${{ env.PKG_CONFIG_PATH }}
@@ -277,7 +276,6 @@ jobs:
           GOOS: windows
           GOARCH: amd64
           CGO_ENABLED: 0
-          GOMAXPROCS: 2
         run: go build -o ..\build\whattui-windows-amd64.exe .\cmd\whattui
 
   whattui:
@@ -366,6 +364,17 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.build == 'true' }}
     steps:
+      - name: Set week cache key
+        id: week-cache-key
+        run: printf 'week=%s\n' "$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore pacman cache
+        uses: actions/cache@v5
+        with:
+          path: /var/cache/pacman/pkg
+          key: arch-pacman-${{ steps.week-cache-key.outputs.week }}
+          restore-keys: |
+            arch-pacman-
       - name: Install dependencies
         run: |
           pacman -Syu --noconfirm --needed git base-devel go just zstd python libjpeg-turbo desktop-file-utils
@@ -437,6 +446,13 @@ jobs:
         id: rlottie-cache-key
         run: printf 'week=%s\n' "$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
 
+      - name: Restore pacman cache
+        uses: actions/cache@v5
+        with:
+          path: /var/cache/pacman/pkg
+          key: arch-pacman-${{ steps.rlottie-cache-key.outputs.week }}
+          restore-keys: |
+            arch-pacman-
       - name: Restore rlottie package
         uses: actions/cache@v5
         with:
