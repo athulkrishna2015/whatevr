@@ -7,22 +7,22 @@ import (
 
 // Group is what we know of a group's own facts.
 type Group struct {
-	JID       string
-	Name      string
-	Topic     string
-	TopicBy   string
-	Announce  bool
-	Locked    bool
-	Approval  bool
+	JID      string
+	Name     string
+	Topic    string
+	TopicBy  string
+	Announce bool
+	Locked   bool
+	Approval bool
 	// MemberAddMode is "admin_add" (only admins add) or "all_member_add",
 	// empty until a fetch described it.
 	MemberAddMode string
-	Parent    bool
-	LinkedTo  string
-	Deleted   bool
-	Created   int64
-	Owner     string
-	Ephemeral int
+	Parent        bool
+	LinkedTo      string
+	Deleted       bool
+	Created       int64
+	Owner         string
+	Ephemeral     int
 	// Fetched says a fetch ever described it
 	Fetched bool
 	// Error is why the server would not, newer than any fetch that worked

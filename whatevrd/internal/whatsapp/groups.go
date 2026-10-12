@@ -508,15 +508,15 @@ func (c *Client) ResolveGroupJoinRequests(ctx context.Context, chat, action stri
 // GroupInvitePreview is what a chat.whatsapp.com invite leads to, before the
 // frontend commits to joining it.
 type GroupInvitePreview struct {
-	JID          string
-	Name         string
-	Topic        string
-	CreatedMs    int64
-	MemberCount  uint32
-	Announce     bool
-	Locked       bool
-	Approval     bool
-	Parent       bool
+	JID         string
+	Name        string
+	Topic       string
+	CreatedMs   int64
+	MemberCount uint32
+	Announce    bool
+	Locked      bool
+	Approval    bool
+	Parent      bool
 }
 
 // PreviewGroupInvite describes the group behind an invite link or bare code,
@@ -556,4 +556,3 @@ func (c *Client) PreviewGroupInvite(ctx context.Context, codeOrLink string) (Gro
 		Parent:      info.IsParent,
 	}, nil
 }
-

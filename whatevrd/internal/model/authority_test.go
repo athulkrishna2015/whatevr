@@ -365,4 +365,3 @@ func TestGroupMemberAddModeFollowsTheSetting(t *testing.T) {
 		})
 	}
 }
-
