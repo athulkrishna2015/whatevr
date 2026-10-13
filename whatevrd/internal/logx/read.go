@@ -124,9 +124,32 @@ func (p *printer) follow(ctx context.Context, path string) error {
 			return err
 		}
 		if !sameFile(f, path) {
+			// lumberjack rotates by renaming the live file, so this handle
+			// still holds everything written before the rename. Drain it
+			// before letting go of it: reading the last line and then
+			// closing is how a line written just before a rotation went
+			// missing, because the final read above returned EOF against a
+			// file that was not yet complete.
+			for {
+				chunk, rerr := br.ReadBytes('\n')
+				if len(chunk) > 0 {
+					pending = append(pending, chunk...)
+				}
+				if rerr != nil {
+					break
+				}
+				p.line(pending)
+				pending = pending[:0]
+			}
+			// this handle's stream ended with the rotation, so an unterminated
+			// tail is a whole record, not half of one to be completed by the
+			// next file.
+			if len(bytes.TrimRight(pending, "\n")) > 0 {
+				p.line(pending)
+			}
+			pending = pending[:0]
 			next, err := os.Open(path)
 			if err == nil {
-				// whatever is left in the old handle was read above
 				f.Close()
 				f, br = next, bufio.NewReaderSize(next, 64*1024)
 				continue
