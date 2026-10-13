@@ -95,24 +95,54 @@ just install /home/admin/.local                # release, user-writable prefix
 just install-dev /home/admin/.local            # debug, user-writable prefix
 ```
 
-### After install: it restarts itself
+### After install: you restart it yourself
 
-A new build takes effect only once both processes run the new binaries, so
-`just install` restarts them for you. There is nothing to remember and no
-second command: an install that leaves the old daemon running is an install
-that has not happened yet.
+**`just install` does not restart anything, and there is no `just restart`
+recipe.** `scripts/install.py` says so itself — "Portable, stageable
+installation. Never activates a user service." — and contains no `systemctl`
+call. It only copies files.
 
-```sh
-just install /home/admin/.local
+So a daemon that is already running makes the install **fail**, not slow:
+
+```
+OSError: [Errno 26] Text file busy: '/home/admin/.local/bin/whatevrd'
 ```
 
-It kills the frontend (a window hidden to tray is still running, so it is
-killed rather than asked), restarts `whatevrd.service`, and relaunches the UI.
-It only does this when something was actually running, and never into a
-staging root: a `DESTDIR` install is packaging, and CI skips it.
+`copyfile` opens the destination for writing and the running process holds it.
+Stop the service first, install, then start it:
 
-`just restart /home/admin/.local` is the same thing on its own, for a rebuild
-or a `git pull` that changed code you had installed.
+```sh
+systemctl --user stop whatevrd.service
+just install /home/admin/.local
+systemctl --user start whatevrd.service
+```
+
+### The Qt frontend is a separate install on Linux
+
+`just install` installs `whatevrd` and `whattui` only. It never touches
+`whatkevr`, and neither does the release tarball — `whatevr-<version>-
+linux-<arch>.tar.zst` ships just those two binaries. The Qt app is installed by
+CMake instead (`whatkevr/src/CMakeLists.txt:273`), so it needs its own pass:
+
+```sh
+scripts/configure-frontend --build build/release/whatkevr --build-type Release \
+    --version "$(cat VERSION)" --version-full "$(python3 scripts/version.py full)"
+cmake --build build/release/whatkevr -- -j2
+cmake --install build/release/whatkevr --prefix /home/admin/.local
+```
+
+Skipping this is how a stale `whatkevr` outlives a release: nothing in the
+local install path refreshes it.
+
+### A stale build dir ships the wrong version
+
+`configure-frontend` matters because `whatkevr/CMakeLists.txt:3` reads
+`VERSION` under `if(NOT DEFINED WHATEVR_VERSION)`. A `-DWHATEVR_VERSION_FULL`
+cached in `CMakeCache.txt` wins, so rebuilding an old release dir produces a
+binary that reports whatever version that dir was configured with — an install
+that reports success and lies. Same family as the `CMAKE_PREFIX_PATH` trap
+below: when a release build behaves as if it is from another era, wipe the dir
+or pass `--force`.
 
 **The prefix is a positional argument**, not `prefix=…`: the installed `just`
 (1.58) reads `just install prefix=/path` as a literal prefix of that name and
@@ -150,6 +180,21 @@ The artifact is a debug build: fine for testing, not for keeping. The Arch
 container usually carries newer Qt/KF libraries than the laptop; if the
 binary refuses to start over missing `.so` versions, fall back to a local
 release build of `whatkevr` only.
+
+The artifact is named for the commit the `qt` job **built**, which is the merge
+commit, not the `version:` release commit that follows it. So after a release
+the only artifact still carries the *previous* version string — for v0.14.0
+that was `whatkevr-aeb5979…` reporting `0.13.0-…`, while `VERSION` said
+`0.14.0`. Check `--version` against `python3 scripts/version.py full` before
+believing what you installed. If the `main` push run for the release commit is
+cancelled or its `qt` job never ran, there is no artifact for that version at
+all and only a local release build gets it right.
+
+The daemon is the other way round: it *is* published, and properly. The
+release attaches `whatevr-<version>-linux-<arch>.tar.zst`, a release build at
+the right version, and `SHA256SUMS` to check it against. That package ships
+`whatevrd` and `whattui` only — **no `whatkevr`**. So the fast path is the
+released daemon plus a locally built Qt frontend.
 
 Never `just install` a v2-only daemon over a live v1 session: the Qt app
 still speaks protocol v1, so replacing the daemon breaks the running

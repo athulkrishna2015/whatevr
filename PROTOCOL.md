@@ -412,6 +412,18 @@ pointed at a real account), for an address outside it.
 | `sticker_packs_refresh` | none | `done`: fetches the store's packs again |
 | `notification_dismiss` | `id` | `done`: removed from `notifications` everywhere |
 
+**Groups**
+
+Admins only. Each answers `NOT_FOUND` for a chat that is not a group, and
+`FORBIDDEN` for a member who may not set what they asked for.
+
+| method | params | result |
+| --- | --- | --- |
+| `group_set_member_add_mode` | `chat_id`, `anyone_can_add` | `done`: `true` lets any member add people, `false` admins only. Reads back as `member_add_mode` on the group's head |
+| `group_set_join_approval` | `chat_id`, `required` | `done`: whether joining waits for an admin. Reads back as `approval` on the group's head |
+| `group_resolve_join_request` | `chat_id`, `action` (`approve` or `reject`), `members` | `done`: an empty `members` resolves everyone waiting, so clearing the list is "let them all in" |
+| `group_join_link` | `invite` (a `chat.whatsapp.com` link or a bare code) | the new `chat_id`: answers the group it joined, which then arrives through `chats` like any other |
+
 ## Queries
 
 One answer, nothing live, for data a frontend shows and throws away. The
@@ -424,6 +436,8 @@ results are whole rows inside the response.
 | `search_stickers` | `query`, `limit` | `stickers`, daemon-ordered |
 | `contact_check_phone` | `phone` | `registered`, the normalized `phone`, `person_id`, `name`, `business` |
 | `channel_resolve_invite` | `invite` | the channel invite code or link resolved without following: `jid`, `name` |
+| `group_preview_invite` | `invite` | the group behind a link or bare code, resolved **without joining**: `jid`, `name`, `topic`, `created_ms`, `member_count`, `announce`, `locked`, `approval`, `parent` |
+| `group_join_requests` | `chat_id` | `requests`: who is waiting to be let in, each with the person and `requested_ms`. Empty unless the group requires approval and the caller is an admin |
 | `frontend_list` | none | `frontends`: each one's `id`, `name`, `terminal`, `source`, `connected`, `is_default`, by id |
 
 ## Messages
