@@ -19,6 +19,26 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.14.1" date="2026-10-13">
+      <description>
+        <p>Whatevr now ships the desktop app in its Linux release.</p>
+        <p><em>Fixed</em></p>
+        <ul>
+          <li>A Linux release carried no GUI. The release tarball was staged through the daemon's installer, which installs <code>whatevrd</code> and <code>whattui</code> and never installs <code>whatkevr</code>, so installing from the tarball — or from AUR — got you a terminal client only. The tarball now contains <code>whatkevr</code>, <code>whatevrd</code> and <code>whattui</code>. macOS was unaffected and still ships the <code>Whatevr.app</code> bundle.</li>
+          <li>The six group commands added in 0.14.0 — <code>group_set_member_add_mode</code>, <code>group_set_join_approval</code>, <code>group_resolve_join_request</code>, <code>group_join_link</code>, <code>group_preview_invite</code> and <code>group_join_requests</code> — were implemented and reachable on the wire but absent from <code>PROTOCOL.md</code>. They are documented now: the four that change something under Commands, the two that only answer under Queries.</li>
+        </ul>
+        <p><em>Packaging</em></p>
+        <ul>
+          <li>Both AUR packages gained the runtime dependencies the GUI pulls in (Qt 6, several KF6 modules, KQuickImageEditor) and <code>whatkevr</code> in <code>provides</code>. <code>whatevr-bin</code> picks the frontend up from the tarball; <code>whatevr</code> now builds and installs it itself. The frontend's dependencies are a hard requirement of the package now rather than optional, because the GUI is.</li>
+        </ul>
+        <p><em>Internal</em></p>
+        <ul>
+          <li><code>just build-frontend</code> builds the desktop frontend on its own in Release mode, versioned from <code>scripts/version.py</code>. Compile parallelism is now <code>WHATEVR_BUILD_JOBS</code>, defaulting to 4.</li>
+          <li><code>AGENTS.md</code> had three instructions that did not work: it said <code>just install</code> restarts the daemon and the UI (it does not — the installer never touches a service, and installing over a running daemon fails with <code>Errno 26</code>), it offered a <code>just restart</code> recipe that does not exist, and it did not say that <code>just install</code> never installs the Qt frontend on Linux. It now documents installing from CI artifacts instead of building locally, and the traps that come with it: the <code>whatkevr-&lt;sha&gt;</code> artifact is a debug build named for the commit it built, so after a release it still reports the previous version.</li>
+          <li>A stale <code>CMakeCache.txt</code> can ship a binary reporting the wrong version from an install that reports success; <code>scripts/configure-frontend</code> exists to prevent it and <code>AGENTS.md</code> now explains why it matters.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.14.0" date="2026-10-13">
       <description>
         <p>Group administration, second round. The settings an admin actually has to reach for are now in the app instead of only on the phone.</p>
