@@ -77,6 +77,22 @@ PROTOCOL.md (stable at version 1: additive changes only).
   as intermittent failures of four `internal/core` tests on loaded machines,
   which is why the macOS CI jobs went red on this branch. Only a batch that
   committed moves the counter, so a failed append still leaves it alone.
+- A Linux release carried no GUI. The release tarball was staged through the
+  daemon's installer, which installs `whatevrd` and `whattui` and never installs
+  `whatkevr`, so installing from the tarball or from AUR got a terminal client
+  only. The tarball now carries `whatkevr` too. macOS was unaffected and still
+  ships the `Whatevr.app` bundle.
+- The six group commands added in 0.14.0 — `group_set_member_add_mode`,
+  `group_set_join_approval`, `group_resolve_join_request`, `group_join_link`,
+  `group_preview_invite`, `group_join_requests` — worked but were missing from
+  `PROTOCOL.md`. The four that change something are documented under Commands,
+  the two that only answer under Queries.
+- `AGENTS.md` said `just install` restarts the daemon and the UI, and offered a
+  `just restart` recipe. Neither exists: the installer never touches a service,
+  and installing over a running daemon fails with `Errno 26`. It also did not
+  say that `just install` never installs the Qt frontend on Linux, which is how a
+  stale frontend outlives a release. Corrected, with the CI-artifact install
+  path documented as the default.
 - The initial daemon connection screen now has a finite loading state and a
   retryable error instead of leaving the app on an indefinite spinner. A
   successful connection clears the timeout, and Retry starts a fresh wait.
@@ -99,6 +115,20 @@ PROTOCOL.md (stable at version 1: additive changes only).
 - KQuickImageEditor, for the pre-send photo editor. It is already required by
   the KDE Plasma stack this app is built on, is LGPL like the Kirigami it sits
   beside, and is what NeoChat and Photos use for the same job.
+- Qt 6, several KF6 modules and KQuickImageEditor are now runtime dependencies of
+  the AUR packages rather than absent, because the release now ships the desktop
+  frontend. `whatevr-bin` picks it up from the tarball; `whatevr` builds and
+  installs it itself. Both list `whatkevr` in `provides`.
+
+### Internal
+
+- `just build-frontend` builds the desktop frontend on its own in Release mode,
+  versioned from `scripts/version.py`. The Qt and KF6 dependencies are not part
+  of the daemon build, so a machine without them cannot run it.
+- Compile parallelism for the frontend is `WHATEVR_BUILD_JOBS`, defaulting to 4.
+  The daemon build still takes `GOMAXPROCS` separately.
+- The release runner now installs the same Qt and KF6 package set as the CI
+  frontend job, which it previously lacked entirely.
 
 ## 0.9.1 — 2026-09-27
 
