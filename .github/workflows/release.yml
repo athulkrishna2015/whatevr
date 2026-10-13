@@ -53,6 +53,18 @@ jobs:
       - name: Mark workspace as safe for git
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      # rlottie is not in the Arch repos, and the frontend's configure step
+      # fails outright on a missing 'rlottie' from pkg-config. Same AUR build
+      # the qt CI job does.
+      - name: Install rlottie
+        run: |
+          rm -rf "$RUNNER_TEMP/rlottie"
+          git clone https://aur.archlinux.org/rlottie.git "$RUNNER_TEMP/rlottie"
+          chown -R builduser:builduser "$RUNNER_TEMP/rlottie"
+          cd "$RUNNER_TEMP/rlottie"
+          sudo -u builduser makepkg -s --noconfirm
+          pacman -U --noconfirm rlottie-*.pkg.tar*
+
       - name: Build release artifacts
         run: just artifacts x86_64
 

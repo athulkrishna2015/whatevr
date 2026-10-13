@@ -8,6 +8,7 @@ pkgbase = whatevr-bin
 	license = BSD-3-Clause
 	depends = glibc
 	depends = libjpeg-turbo
+	depends = rlottie
 	depends = qt6-base
 	depends = qt6-declarative
 	depends = qt6-multimedia
