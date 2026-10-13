@@ -247,8 +247,11 @@ func TestFoldResumesFromLastFoldedSeq(t *testing.T) {
 
 	db = open(t, path, Options{})
 	defer db.Close()
-	if folded, appended := db.Progress(); folded != 1 || appended != 3 {
-		t.Fatalf("progress %d %d", folded, appended)
+	// Only the log length is stable here. Recovery starts folding the backlog
+	// before this runs, so folded may already have moved off the checkpoint and
+	// is not ours to assert on; settle below is what waits for it to finish.
+	if _, appended := db.Progress(); appended != 3 {
+		t.Fatalf("appended %d, want 3", appended)
 	}
 	settle(t, db)
 	want := []string{"id=x t=3 text=c", "id=z t=1 text=a"}

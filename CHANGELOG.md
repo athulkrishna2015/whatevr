@@ -7,6 +7,20 @@ PROTOCOL.md (stable at version 1: additive changes only).
 
 ### Added
 
+- Group administration, second round. **Member add mode**: group settings say
+  whether only admins may add people or anyone may, and the mode WhatsApp
+  reports is stored with the group so the toggle is not a guess. **Join
+  approval**: requiring an admin's approval before someone can join is
+  toggleable. **Join requests**: for an approval group, the people waiting to
+  be let in are listed with when they asked, and an admin can approve or reject
+  one or everyone waiting at once. **Invite links**: a `chat.whatsapp.com` link
+  is previewed before joining — name, topic, member count, announce-only,
+  locked, approval, community parent — and can then be joined from the same
+  dialog. Previewing never joins the group.
+- Group details are recorded in full whenever a group is fetched: topic and
+  when it was set, announce-only and locked state, community parent and the
+  group it links to, creation time, owner, addressing mode and member add mode.
+
 - Channel invite links open in place: tapping a
   `whatsapp.com/channel/<invite>[/<post>]` link in a message resolves the
   channel without following it, opens its timeline, and scrolls the linked
@@ -57,6 +71,12 @@ PROTOCOL.md (stable at version 1: additive changes only).
 
 ### Fixed
 
+- A database append acked its caller before publishing the appended counter, so
+  a caller holding its sequence number could still read progress behind work it
+  knew had landed, and conclude the log was folded before it was. This surfaced
+  as intermittent failures of four `internal/core` tests on loaded machines,
+  which is why the macOS CI jobs went red on this branch. Only a batch that
+  committed moves the counter, so a failed append still leaves it alone.
 - The initial daemon connection screen now has a finite loading state and a
   retryable error instead of leaving the app on an indefinite spinner. A
   successful connection clears the timeout, and Retry starts a fresh wait.

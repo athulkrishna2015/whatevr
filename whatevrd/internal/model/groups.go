@@ -112,6 +112,7 @@ func foldGroupInfo(tx *core.Tx, in core.Input) error {
 		{"created", itoa(h.Created), 0, h.Created != 0},
 		{"owner", user(h.Owner), 0, h.Owner != ""},
 		{"addressing", h.Addressed, t, h.Addressed != ""},
+		{"member_add_mode", h.MemberAddMode, t, h.MemberAddMode != ""},
 	}
 	if h.Ephemeral != nil {
 		fields = append(fields, struct {

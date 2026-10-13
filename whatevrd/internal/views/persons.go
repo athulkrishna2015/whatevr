@@ -373,6 +373,12 @@ func (rs *Reads) groupView(ctx context.Context, s *server.Session, req *v2.Subsc
 		if g.LinkedTo != "" {
 			c.wait(model.Norm(g.LinkedTo), func(id, _ string) { row.SetCommunityId(id) })
 		}
+		switch g.MemberAddMode {
+		case "admin_add":
+			row.SetMemberAddMode(v2.GroupMemberAddMode_GROUP_MEMBER_ADD_MODE_ADMIN)
+		case "all_member_add":
+			row.SetMemberAddMode(v2.GroupMemberAddMode_GROUP_MEMBER_ADD_MODE_ALL_MEMBERS)
+		}
 		it := &v2.Upsert{}
 		it.SetGroup(row)
 		return one(it), c.finish()

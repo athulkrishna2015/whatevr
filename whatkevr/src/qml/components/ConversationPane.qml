@@ -1214,6 +1214,21 @@ Kirigami.Page {
         id: contactInfoDialog
     }
 
+    GroupInvitePreviewDialog {
+        id: groupInvitePreviewDialog
+    }
+
+    Connections {
+        target: Whatevr.ProtocolController
+
+        function onGroupInvitePreviewChanged() {
+            const preview = Whatevr.ProtocolController.groupInvitePreview
+            if (Object.keys(preview ?? {}).length > 0) {
+                groupInvitePreviewDialog.openPreview()
+            }
+        }
+    }
+
     // Drag-and-drop in two halves: upper stages as documents, lower as
     // photos/video. Drops land in the staging dialog (caption + Send/Cancel),
     // never straight onto the wire.

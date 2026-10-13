@@ -611,6 +611,15 @@ public:
     Q_INVOKABLE void setGroupPhoto(const QString &chatId, const QUrl &path);
     Q_INVOKABLE void setGroupAnnounce(const QString &chatId, bool enabled);
     Q_INVOKABLE void setGroupLocked(const QString &chatId, bool enabled);
+    Q_INVOKABLE void setGroupMemberAddMode(const QString &chatId, bool anyoneCanAdd);
+    Q_INVOKABLE void setGroupJoinApproval(const QString &chatId, bool required);
+    // Approves or rejects people waiting to join. An empty member list
+    // resolves everyone waiting, which is what "approve all" means.
+    Q_INVOKABLE void resolveGroupJoinRequests(const QString &chatId, const QString &action,
+                                              const QStringList &members = QStringList());
+    Q_INVOKABLE void refreshGroupJoinRequests(const QString &chatId);
+    // Each entry is { jid, display_name, requested_unix }.
+    Q_PROPERTY(QVariantList groupJoinRequests READ groupJoinRequests NOTIFY groupJoinRequestsChanged FINAL)
     // `group.members` with one of add/remove/promote/demote.
     Q_INVOKABLE void updateGroupMembers(const QString &chatId, const QString &action, const QStringList &members);
     // `community.link` / `community.unlink`. Both move the community's
@@ -645,6 +654,8 @@ public:
     [[nodiscard]] QString infoCardError() const { return m_infoCardError; }
     [[nodiscard]] bool infoCardBlocked() const;
     [[nodiscard]] int groupMemberCount() const;
+    [[nodiscard]] QVariantList groupJoinRequests() const;
+    [[nodiscard]] QVariantMap groupInvitePreview() const;
     [[nodiscard]] int groupMembersRevision() const { return m_groupMembersRevision; }
     // Members whose name or phone matches `query` (empty matches all), in the
     // daemon's roster order — PROTOCOL.md names member search as
@@ -787,6 +798,14 @@ public:
     /// path for a group already joined: the daemon joins nothing there and
     /// simply answers with where to go, so the card has one action either way.
     Q_INVOKABLE void joinGroupInvite(const QString &messageId);
+    // Looks the group behind an invite link or bare code up and shows a
+    // preview (name, description, member count, permission flags) before the
+    // user commits to joining.
+    Q_INVOKABLE void previewGroupInvite(const QString &invite);
+    // Joins the group the preview is showing, opens it, clears the preview.
+    Q_INVOKABLE void joinPreviewedGroup();
+    Q_INVOKABLE void clearGroupInvitePreview();
+    Q_PROPERTY(QVariantMap groupInvitePreview READ groupInvitePreview NOTIFY groupInvitePreviewChanged FINAL)
     /// Answers a scheduled event. The answer is whole rather than incremental:
     /// answering again replaces what you said before, which is what the wire
     /// format means. extraGuests is ignored for an event that did not allow it.
@@ -980,6 +999,8 @@ public:
                             const QString &error);
     void infoCardChanged();
     void groupMembersChanged();
+    void groupJoinRequestsChanged();
+    void groupInvitePreviewChanged();
     void chatMembersChanged();
     void pollVotesChanged();
     void eventRSVPsChanged();
@@ -1378,6 +1399,11 @@ private:
     QString m_infoCardSubject;
     QString m_infoCardError;
     int m_groupMembersRevision = 0;
+    // who is waiting to join the group on the open card, as the daemon last
+    // answered group.join_requests
+    QVariantList m_groupJoinRequests;
+    // what group.preview_invite last answered; empty means no preview showing
+    QVariantMap m_groupInvitePreview;
     bool m_privacyPageOpen = false;
     bool m_blocklistPageOpen = false;
 

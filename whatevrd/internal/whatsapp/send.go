@@ -97,6 +97,12 @@ type Draft struct {
 	Chat     string
 	ReplyTo  *Ref
 	Mentions []string
+	// Everyone is an @all: the literal "@all" token stays in the text and bit
+	// 1 of ContextInfo.non_jid_mentions carries the notification, which is
+	// how official clients mention a whole group. Expanding to every member
+	// JID instead breaks in large groups and re-notifies on every forward or
+	// edit that quotes the text.
+	Everyone bool
 	Once     Once
 }
 
@@ -219,6 +225,15 @@ func (c *Client) context(ctx context.Context, cli *whatsmeow.Client, d Draft) (*
 			}
 			ci.MentionedJID = append(ci.MentionedJID, j)
 		}
+	}
+	if d.Everyone {
+		if ci == nil {
+			ci = &waE2E.ContextInfo{}
+		}
+		// bit 1 is the everyone-mention flag; OR the bit in so nothing else
+		// already on the context (a reply's quote) is disturbed. forwards
+		// rebuild the context from scratch, so they never re-notify.
+		ci.NonJIDMentions = proto.Uint32(ci.GetNonJIDMentions() | 1)
 	}
 	return ci, nil
 }

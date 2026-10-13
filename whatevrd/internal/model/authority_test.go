@@ -325,3 +325,43 @@ func TestFactsStayInTheirChat(t *testing.T) {
 		}
 	})
 }
+
+// the group's member_add_mode is a setting like announce or locked: a fetch
+// states it, a later change replaces it, and nothing before the first fetch
+// claims to know it.
+func TestGroupMemberAddModeFollowsTheSetting(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		ins  []core.Input
+		want string
+	}{
+		{"unknown until a fetch says", []core.Input{
+			groupOf(5, nil, boL, caraL),
+		}, ""},
+		{"anyone may add", []core.Input{
+			groupOf(5, nil, boL, caraL),
+			in(core.KindGroupInfo, core.GroupInfoHead{JID: grp, T: at(6).Unix(), MemberAddMode: "all_member_add"}, nil, at(6)),
+		}, "all_member_add"},
+		{"only admins may add", []core.Input{
+			groupOf(5, nil, boL, caraL),
+			in(core.KindGroupInfo, core.GroupInfoHead{JID: grp, T: at(6).Unix(), MemberAddMode: "admin_add"}, nil, at(6)),
+		}, "admin_add"},
+		{"a later change wins", []core.Input{
+			groupOf(5, nil, boL, caraL),
+			in(core.KindGroupInfo, core.GroupInfoHead{JID: grp, T: at(6).Unix(), MemberAddMode: "all_member_add"}, nil, at(6)),
+			in(core.KindGroupInfo, core.GroupInfoHead{JID: grp, T: at(9).Unix(), MemberAddMode: "admin_add"}, nil, at(9)),
+		}, "admin_add"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			both(t, c.ins, func(t *testing.T, db *core.DB, r *Reader) {
+				g, ok, err := r.Group(context.Background(), user(grp))
+				if err != nil || !ok {
+					t.Fatalf("group read: %v %v", ok, err)
+				}
+				if g.MemberAddMode != c.want {
+					t.Fatalf("member add mode %q, want %q", g.MemberAddMode, c.want)
+				}
+			})
+		})
+	}
+}

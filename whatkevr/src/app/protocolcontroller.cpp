@@ -3066,6 +3066,72 @@ bool ProtocolController::openLocalFile(const QString &localPath)
     return QDesktopServices::openUrl(QUrl::fromLocalFile(localPath));
 }
 
+// Looks up the group behind an invite link or bare code and shows a preview
+// dialog: name, description, member count and the announce/lock/approval flags,
+// with Join and Cancel. Joining is the same one-shot as joinGroupInvite, just
+// started from a link instead of a message.
+void ProtocolController::previewGroupInvite(const QString &invite)
+{
+    const QString trimmed = invite.trimmed();
+    if (trimmed.isEmpty()) {
+        return;
+    }
+    m_client->request(QStringLiteral("group.preview_invite"), {{QStringLiteral("invite"), trimmed}},
+                      [this, trimmed](const QJsonObject &result, const ProtocolError &error) {
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(error.message.isEmpty()
+                                                              ? i18nc("@info", "Unable to look up that invite")
+                                                              : error.message);
+                              return;
+                          }
+                          m_groupInvitePreview = result.toVariantMap();
+                          // the join needs the code, not just the JID the
+                          // preview answered: keep what the user typed.
+                          m_groupInvitePreview.insert(QStringLiteral("invite"), trimmed);
+                          Q_EMIT groupInvitePreviewChanged();
+                      });
+}
+
+QVariantMap ProtocolController::groupInvitePreview() const
+{
+    return m_groupInvitePreview;
+}
+
+void ProtocolController::joinPreviewedGroup()
+{
+    const QString invite = m_groupInvitePreview.value(QStringLiteral("invite")).toString();
+    if (invite.isEmpty()) {
+        return;
+    }
+    m_client->request(QStringLiteral("group.join_link"), {{QStringLiteral("invite"), invite}},
+                      [this](const QJsonObject &result, const ProtocolError &error) {
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(error.message.isEmpty()
+                                                              ? i18nc("@info", "Unable to join the group")
+                                                              : error.message);
+                              return;
+                          }
+                          const QString chatId = result.value(QStringLiteral("chat_id")).toString();
+                          m_groupInvitePreview = QVariantMap();
+                          Q_EMIT groupInvitePreviewChanged();
+                          if (chatId.isEmpty()) {
+                              return;
+                          }
+                          clearSearch();
+                          selectChat(chatId);
+                          Q_EMIT openChatRequested(chatId);
+                      });
+}
+
+void ProtocolController::clearGroupInvitePreview()
+{
+    if (m_groupInvitePreview.isEmpty()) {
+        return;
+    }
+    m_groupInvitePreview = QVariantMap();
+    Q_EMIT groupInvitePreviewChanged();
+}
+
 bool ProtocolController::openLogDirectory()
 {
     const QString dir = QStandardPaths::writableLocation(QStandardPaths::GenericCacheLocation)
@@ -4404,6 +4470,65 @@ void ProtocolController::setGroupLocked(const QString &chatId, bool enabled)
                          i18nc("@info", "Unable to change who can edit the group info"));
 }
 
+void ProtocolController::setGroupMemberAddMode(const QString &chatId, bool anyoneCanAdd)
+{
+    if (chatId.isEmpty()) {
+        return;
+    }
+    sendGroupCardCommand(chatId, QStringLiteral("group.set_member_add_mode"),
+                         {{QStringLiteral("chat_id"), chatId}, {QStringLiteral("anyone_can_add"), anyoneCanAdd}},
+                         i18nc("@info", "Unable to change who can add members"));
+}
+
+void ProtocolController::setGroupJoinApproval(const QString &chatId, bool required)
+{
+    if (chatId.isEmpty()) {
+        return;
+    }
+    sendGroupCardCommand(chatId, QStringLiteral("group.set_join_approval"),
+                         {{QStringLiteral("chat_id"), chatId}, {QStringLiteral("required"), required}},
+                         i18nc("@info", "Unable to change whether joining needs approval"));
+}
+
+void ProtocolController::resolveGroupJoinRequests(const QString &chatId, const QString &action, const QStringList &members)
+{
+    if (chatId.isEmpty()) {
+        return;
+    }
+    QJsonObject params{{QStringLiteral("chat_id"), chatId}, {QStringLiteral("action"), action}};
+    if (!members.isEmpty()) {
+        params.insert(QStringLiteral("members"), QJsonArray::fromStringList(members));
+    }
+    m_client->request(QStringLiteral("group.resolve_join_request"), params,
+                      [this, chatId](const QJsonObject &, const ProtocolError &error) {
+                          if (error.isError()) {
+                              Q_EMIT messageActionFailed(error.message.isEmpty()
+                                                              ? i18nc("@info", "Unable to answer the request to join")
+                                                              : error.message);
+                              return;
+                          }
+                          // the waiting list just changed, so read it again
+                          refreshGroupJoinRequests(chatId);
+                      });
+}
+
+void ProtocolController::refreshGroupJoinRequests(const QString &chatId)
+{
+    if (chatId.isEmpty()) {
+        return;
+    }
+    m_client->request(QStringLiteral("group.join_requests"), {{QStringLiteral("chat_id"), chatId}},
+                      [this](const QJsonObject &result, const ProtocolError &) {
+                          m_groupJoinRequests = result.value(QStringLiteral("requests")).toArray().toVariantList();
+                          Q_EMIT groupJoinRequestsChanged();
+                      });
+}
+
+QVariantList ProtocolController::groupJoinRequests() const
+{
+    return m_groupJoinRequests;
+}
+
 void ProtocolController::updateGroupMembers(const QString &chatId, const QString &action, const QStringList &members)
 {
     if (chatId.isEmpty() || members.isEmpty()) {
@@ -4723,6 +4848,11 @@ void ProtocolController::openGroupCard(const QString &chatId)
             });
     m_groupMembersSub = m_client->subscribe(QStringLiteral("group_members"),
                                             {{QStringLiteral("chat_id"), chatId}}, m_groupMembersModel);
+    m_groupJoinRequests.clear();
+    Q_EMIT groupJoinRequestsChanged();
+    // the waiting list is live network state, not a view: ask for it now, and
+    // the approval switch turning on asks again.
+    refreshGroupJoinRequests(chatId);
     Q_EMIT infoCardChanged();
     Q_EMIT groupMembersChanged();
 }

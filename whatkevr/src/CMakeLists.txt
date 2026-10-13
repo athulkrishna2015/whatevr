@@ -172,6 +172,7 @@ set(WHATKEVR_QML_FILES
     qml/components/EventResponsesDialog.qml
     qml/components/EventRSVPChip.qml
     qml/components/GroupInviteBubble.qml
+    qml/components/GroupInvitePreviewDialog.qml
     qml/components/LinkPreviewCard.qml
     qml/components/LiveLocationBanner.qml
     qml/components/LocationBubble.qml
