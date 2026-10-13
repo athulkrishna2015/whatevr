@@ -164,37 +164,62 @@ session: `rm -rf build/release/whatkevr` and install again.
 `whatevrd.socket` stays active after a stop, so the daemon also
 socket-activates on the next UI launch.
 
-### Qt frontend from CI artifacts (no local build)
+### Install from CI, not from a local build
 
-The `qt` CI job (`Qt frontend (Arch)`) configures `whatkevr` with tests,
-builds it, runs `ctest` offscreen, then uploads the `DESTDIR` install tree
-as artifact `whatkevr-<sha>` (7-day retention). Install from it instead of
-compiling on the laptop:
+This is the default way to get a build onto this laptop. Compile locally only
+when CI has not run for the commit you want.
 
-```sh
-gh run download <run-id> --repo athulkrishna2015/whatevr -n whatkevr-<sha> -D /tmp/opencode/qt-root
-cp -r /tmp/opencode/qt-root/usr/. /home/admin/.local/
+```
+edit → commit → push → wait for CI on that commit → download → install → test
 ```
 
-The artifact is a debug build: fine for testing, not for keeping. The Arch
-container usually carries newer Qt/KF libraries than the laptop; if the
-binary refuses to start over missing `.so` versions, fall back to a local
-release build of `whatkevr` only.
+CI publishes the two halves separately, and neither is complete on its own:
 
-The artifact is named for the commit the `qt` job **built**, which is the merge
-commit, not the `version:` release commit that follows it. So after a release
-the only artifact still carries the *previous* version string — for v0.14.0
-that was `whatkevr-aeb5979…` reporting `0.13.0-…`, while `VERSION` said
-`0.14.0`. Check `--version` against `python3 scripts/version.py full` before
-believing what you installed. If the `main` push run for the release commit is
-cancelled or its `qt` job never ran, there is no artifact for that version at
-all and only a local release build gets it right.
+- **Qt frontend** — the `qt` job (`Qt frontend (Arch)`) configures `whatkevr`
+  with tests, builds it, runs `ctest` offscreen, stages the `DESTDIR` tree and
+  uploads it as `whatkevr-<sha>` (7-day retention).
+- **Daemon** — the `Build and install (Arch)` job stages a tree but uploads
+  **nothing**. The daemon only exists as a download from the **Release**
+  workflow, as `whatevr-<version>-linux-<arch>.tar.zst` beside `SHA256SUMS`.
 
-The daemon is the other way round: it *is* published, and properly. The
-release attaches `whatevr-<version>-linux-<arch>.tar.zst`, a release build at
-the right version, and `SHA256SUMS` to check it against. That package ships
-`whatevrd` and `whattui` only — **no `whatkevr`**. So the fast path is the
-released daemon plus a locally built Qt frontend.
+Neither tarball nor Qt artifact contains both, so install both:
+
+```sh
+# 1. the run for the commit you pushed
+run=$(gh run list --repo athulkrishna2015/whatevr --commit <sha> --limit 1 --json databaseId --jq '.[0].databaseId')
+gh run download "$run" --repo athulkrishna2015/whatevr \
+    -n "whatkevr-<sha>" -D /tmp/opencode/qt-root
+
+# 2. the released daemon, checked against the published sums
+gh release download v<version> --repo athulkrishna2015/whatevr \
+    --pattern "whatevr-<version>-linux-$(uname -m).tar.zst" --pattern SHA256SUMS -D /tmp/opencode/rel
+cd /tmp/opencode/rel && sha256sum -c SHA256SUMS --ignore-missing
+
+# 3. install, daemon stopped or the copy fails with Errno 26
+systemctl --user stop whatevrd.service
+cp -r /tmp/opencode/qt-root/usr/. /home/admin/.local/
+tar --zstd -xf "whatevr-<version>-linux-$(uname -m).tar.zst"
+cp -r "whatevr-<version>-linux-$(uname -m)"/usr/. /home/admin/.local/
+systemctl --user start whatevrd.service
+
+# 4. confirm both halves are the build you meant
+~/.local/bin/whatevrd --version && ~/.local/bin/whatkevr --version
+```
+
+Three things that will bite, all of which have bitten this repo:
+
+- **The Qt artifact is a Debug build.** Fine for testing, not for keeping. It
+  also comes from the Arch container, which usually carries newer Qt/KF than the
+  laptop; if it refuses to start over a missing `.so`, build `whatkevr` locally
+  instead — but keep the released daemon.
+- **Match the artifact to the commit you pushed.** `whatkevr-<sha>` is named for
+  the commit the job built, so its version string is `git describe` for *that*
+  commit. After a release, the newest artifact is the merge commit and reports
+  the *previous* version: for v0.14.0 the only artifact was `whatkevr-aeb5979…`
+  reporting `0.13.0-…` while `VERSION` said `0.14.0`. Check `--version`
+  against `python3 scripts/version.py full` on that sha before believing it.
+- **The release package has no `whatkevr`.** It ships `whatevrd` and `whattui`
+  only, which is why both downloads are needed.
 
 Never `just install` a v2-only daemon over a live v1 session: the Qt app
 still speaks protocol v1, so replacing the daemon breaks the running
