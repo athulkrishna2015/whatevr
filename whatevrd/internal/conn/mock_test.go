@@ -105,6 +105,12 @@ var fast = Options{
 func paired(t *testing.T, opts Options) *watched {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
+	// Run must be finished before the next test installs its own mock cert,
+	// which wamock writes into whatsmeow's package-global WACertPubKey. Cleanups
+	// run last-registered-first, so this waits after cancel has unblocked Run:
+	// no client of this test is left reading that global once paired returns.
+	done := make(chan struct{})
+	t.Cleanup(func() { <-done })
 	t.Cleanup(cancel)
 	relay := &qrRelay{}
 	srv, err := wamock.New(ctx, wamock.Options{Seed: 3, Scenario: "empty", Login: relay})
@@ -165,7 +171,10 @@ func paired(t *testing.T, opts Options) *watched {
 	}
 	w.Machine = New(opts)
 	w.Attach(cli)
-	go w.Run(ctx)
+	go func() {
+		defer close(done)
+		w.Run(ctx)
+	}()
 	w.until(t, 0, 10*time.Second, "first online", online)
 	return w
 }
@@ -173,6 +182,10 @@ func paired(t *testing.T, opts Options) *watched {
 // an unpaired device has to say so, or no frontend knows to show the code
 func TestAnUnpairedDevicePublishesNeedLogin(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
+	// Same reason as in paired: this machine must be gone before a later test
+	// rewrites whatsmeow's global cert key.
+	done := make(chan struct{})
+	t.Cleanup(func() { <-done })
 	t.Cleanup(cancel)
 	db, err := sql.Open("sqlite3", "file:"+filepath.Join(t.TempDir(), "session.db")+"?_foreign_keys=on&_busy_timeout=5000&_journal_mode=WAL")
 	if err != nil {
@@ -204,7 +217,10 @@ func TestAnUnpairedDevicePublishesNeedLogin(t *testing.T) {
 	}
 	w.Machine = New(opts)
 	w.Attach(w.cli)
-	go w.Run(ctx)
+	go func() {
+		defer close(done)
+		w.Run(ctx)
+	}()
 	w.until(t, 0, 5*time.Second, "need login", func(s Status) bool { return s.Kind == NeedLogin })
 }
 
