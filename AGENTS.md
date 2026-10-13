@@ -218,8 +218,14 @@ Three things that will bite, all of which have bitten this repo:
   the *previous* version: for v0.14.0 the only artifact was `whatkevr-aeb5979…`
   reporting `0.13.0-…` while `VERSION` said `0.14.0`. Check `--version`
   against `python3 scripts/version.py full` on that sha before believing it.
-- **The release package has no `whatkevr`.** It ships `whatevrd` and `whattui`
-  only, which is why both downloads are needed.
+- **The release package carries all three binaries** — `whatkevr`, `whatevrd` and
+  `whattui` — since `_binary-tarball` gained a frontend build. Before that it
+  shipped the daemon and the TUI only, so a Linux user got no GUI at all; check
+  the tarball with `tar tzf`/`tar --zstd -tf` before assuming.
+
+`just build-frontend` is the frontend half on its own (Release mode, versioned
+from `scripts/version.py`). The Qt/KF6 dependencies are not in the daemon
+build, so a machine without them cannot run it.
 
 Never `just install` a v2-only daemon over a live v1 session: the Qt app
 still speaks protocol v1, so replacing the daemon breaks the running

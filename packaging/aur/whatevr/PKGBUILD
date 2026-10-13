@@ -2,14 +2,19 @@
 pkgname=whatevr
 pkgver=0.14.0
 pkgrel=1
-pkgdesc="Native WhatsApp client for Linux (whatevrd daemon + whattui terminal frontend)"
+pkgdesc="Native WhatsApp client for Linux (whatkevr desktop frontend + whatevrd daemon + whattui terminal frontend)"
 arch=('x86_64' 'aarch64')
 url="https://github.com/codelif/whatevr"
 license=('BSD-3-Clause')
-depends=('glibc' 'libjpeg-turbo')
-optdepends=('ffmpeg: video posters and voice note waveforms')
-makedepends=('go' 'gcc' 'just' 'python')
-provides=('whatevrd' 'whattui')
+depends=('glibc' 'libjpeg-turbo'
+	'qt6-base' 'qt6-declarative' 'qt6-multimedia' 'qt6-shadertools'
+	'kcoreaddons' 'kdbusaddons' 'ki18n' 'kirigami' 'kirigami-addons' 'prison'
+	'qqc2-desktop-style' 'kquickimageeditor')
+optdepends=('ffmpeg: video posters and voice note waveforms'
+	'mpv: video playback')
+makedepends=('go' 'gcc' 'just' 'python' 'cmake' 'ninja' 'extra-cmake-modules'
+	'sqlite' 'protobuf')
+provides=('whatevrd' 'whattui' 'whatkevr')
 conflicts=('whatevr-git' 'whatevr-bin')
 install="$pkgname.install"
 source=("$pkgname-$pkgver.tar.gz::$url/releases/download/v$pkgver/$pkgname-$pkgver.tar.gz")
@@ -18,11 +23,15 @@ sha256sums=('SKIP')
 build() {
 	cd "$srcdir/$pkgname-$pkgver"
 	just build-release
+	just build-frontend
 }
 
 package() {
 	cd "$srcdir/$pkgname-$pkgver"
 	just install /usr "$pkgdir"
+	# just install covers the daemon and the TUI; the desktop frontend is a
+	# cmake install.
+	DESTDIR="$pkgdir" cmake --install build/release/whatkevr --prefix /usr
 	install -Dm644 "$srcdir/$pkgname-$pkgver/LICENSE" \
 		"$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 	local completions="$pkgdir/usr/share"

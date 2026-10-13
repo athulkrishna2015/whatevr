@@ -32,7 +32,12 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
-          pacman -Syu --noconfirm --needed git openssh sudo base-devel go just zstd python libjpeg-turbo
+          pacman -Syu --noconfirm --needed \
+            git openssh sudo base-devel go just zstd python libjpeg-turbo \
+            cmake ninja ccache extra-cmake-modules \
+            qt6-base qt6-declarative qt6-multimedia qt6-shadertools mpv ffmpeg \
+            kcoreaddons kdbusaddons ki18n kirigami kirigami-addons prison qqc2-desktop-style \
+            kquickimageeditor sqlite protobuf
           useradd -m -G wheel builduser
           printf 'builduser ALL=(ALL) NOPASSWD: ALL\n' >> /etc/sudoers
 

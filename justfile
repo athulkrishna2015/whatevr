@@ -2,6 +2,9 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 build_dir := "build"
 version := `scripts/version.py full`
+# Parallel compile jobs. The daemon build takes GOMAXPROCS separately; this is
+# ninja's. CI leaves it alone, this laptop sets WHATEVR_BUILD_JOBS=2.
+jobs := env_var_or_default("WHATEVR_BUILD_JOBS", "4")
 
 default:
     @just --list
@@ -180,6 +183,20 @@ _source-tarball:
     @just _require-whatsmeow
     @python3 scripts/artifacts.py source
 
+# Build the Qt frontend in release mode. it needs cmake, ninja, Qt6 and the KF6
+# modules the qt CI job installs; nothing in the daemon build pulls them in.
+_build-frontend profile dir=build_dir:
+    @test "{{profile}}" = debug -o "{{profile}}" = release
+    @scripts/configure-frontend --build "{{dir}}/{{profile}}/whatkevr" \
+        --build-type "{{profile}}" \
+        --version "$(python3 scripts/version.py numeric)" \
+        --version-full "$(python3 scripts/version.py full)"
+    @cmake --build "{{dir}}/{{profile}}/whatkevr" -- -j{{ jobs }}
+
+# The desktop frontend, which the daemon install does not cover.
+build-frontend dir=build_dir:
+    @just _build-frontend release "{{dir}}"
+
 _binary-tarball arch:
     @if [ "$(uname -s)" = Darwin ]; then just build-release; python3 scripts/artifacts.py darwin "{{arch}}"; exit 0; fi; \
     version="{{version}}"; \
@@ -188,9 +205,14 @@ _binary-tarball arch:
     dist_dir="$(pwd)/{{build_dir}}/$name"; \
     rm -rf "$root" "$dist_dir" "$(pwd)/{{build_dir}}/$name.tar.zst"; \
     just _install release /usr "$root"; \
+    just _build-frontend release; \
+    DESTDIR="$root" cmake --install "{{build_dir}}/release/whatkevr" --prefix /usr; \
     strip --strip-unneeded "$root/usr/bin/whatevrd"; \
     if [ -f "$root/usr/bin/whattui" ]; then \
         strip --strip-unneeded "$root/usr/bin/whattui"; \
+    fi; \
+    if [ -f "$root/usr/bin/whatkevr" ]; then \
+        strip --strip-unneeded "$root/usr/bin/whatkevr"; \
     fi; \
     install -Dm644 LICENSE "$root/usr/share/licenses/whatevr/LICENSE"; \
     mkdir -p "$dist_dir"; \
