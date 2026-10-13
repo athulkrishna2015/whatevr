@@ -243,12 +243,42 @@ migration ever needs reverting, pre-migration binaries live at
 
 ### Watching CI to completion
 
-Poll the branch's latest run in the background instead of local waiting;
-`gh` prints one line per check and the per-job table at the end:
+Run the poll in the **background**, pinned to one run id, and report progress
+as it goes rather than going quiet until it lands:
 
 ```sh
-bash -lc 'for i in $(seq 1 45); do st=$(gh run list --repo athulkrishna2015/whatevr --branch main --limit 1 --json status,conclusion | jq -r ".[0] | [.status, .conclusion] | @tsv"); printf "check %s: %s\n" "$i" "$st"; case "$st" in completed*) break;; esac; sleep 120; done; gh run view $(gh run list --repo athulkrishna2015/whatevr --branch main --limit 1 --json databaseId --jq ".[0].databaseId") --repo athulkrishna2015/whatevr --json jobs,conclusion,url | jq -r ".url, ([.jobs[] | [.name, .conclusion, .status] | @tsv])[]"'
+RUN=<run-id>
+for i in $(seq 1 60); do
+  st=$(gh run view $RUN --repo athulkrishna2015/whatevr \
+         --json status,conclusion --jq '.status + " " + (.conclusion // "-")' 2>/dev/null)
+  printf "check %s: %s\n" "$i" "$st"
+  case "$st" in completed*) break;; esac
+  sleep 100
+done
+gh run view $RUN --repo athulkrishna2015/whatevr --json conclusion,jobs \
+  --jq '"conclusion=" + .conclusion, (.jobs[] | "  " + .name + ": " + (.conclusion // .status))'
 ```
+
+Pin the id from the push, do not poll `--branch main --limit 1`: a second push
+supersedes the run you meant to watch, and the loop silently retargets. Get the
+id once, then poll that.
+
+Four things that have each cost real time here:
+
+- **A `pending` run with zero jobs is blocked, not slow.** Check the job list,
+  not just `.status` — a run that has dispatched nothing is waiting on a
+  runner, and `.status` alone reads as ordinary queueing. Report it, don't
+  narrate it as "in progress".
+- **Cancel the run you superseded.** `gh run cancel <run-id>`. An orphaned run
+  keeps a runner busy and can starve the run that replaced it; that is exactly
+  what happened once, and the replacement sat `pending` with no jobs until the
+  old one was cancelled.
+- **A run can go green without testing anything.** `dorny/paths-filter` skips
+  every job when a commit touches nothing it watches (a changelog-only push
+  does this). `conclusion=success` with eight jobs `skipped` is vacuous — say
+  so, and re-run the commit that actually exercises the change.
+- **Sending a push cancels the in-flight run.** Batch related commits before
+  pushing; each push costs another full CI cycle.
 
 Only `origin` (`athulkrishna2015/whatevr`) is watched and pushed to; release
 tags and releases are never published to `upstream`.
