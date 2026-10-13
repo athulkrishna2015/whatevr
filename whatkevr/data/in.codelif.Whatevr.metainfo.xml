@@ -19,6 +19,29 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.14.0" date="2026-10-13">
+      <description>
+        <p>Group administration, second round. The settings an admin actually has to reach for are now in the app instead of only on the phone.</p>
+        <p><em>Added</em></p>
+        <ul>
+          <li><em>Member add mode.</em> Group settings can now say whether only admins may add people, or anyone in the group may. The mode WhatsApp reports for a group is stored with the rest of its details, so the toggle reflects the group's real setting instead of a guess.</li>
+          <li><em>Join approval.</em> Requiring an admin's approval before someone can join can be turned on and off from the app.</li>
+          <li><em>Join requests.</em> For a group that requires approval, the people waiting to be let in are listed with the time they asked. Approve or reject one, or approve or reject everyone waiting at once.</li>
+          <li><em>Invite links.</em> A <code>chat.whatsapp.com</code> link can be previewed before joining: the group's name and topic, member count, whether it is announce-only, whether it is locked or needs approval, and whether it is part of a community. It can then be joined from the same dialog. Previewing a link never joins the group.</li>
+          <li>Group details are now recorded in full whenever a group is fetched: topic and when it was set, announce-only and locked state, community parent and the group it links to, creation time, owner, addressing mode and member add mode.</li>
+        </ul>
+        <p><em>Fixed</em></p>
+        <ul>
+          <li>A database append acked its caller before publishing the appended counter, so a caller holding its sequence number could read progress behind work it knew had landed, and conclude the log was folded before it was. Only a batch that committed moves the counter, so a failed append still leaves it alone.</li>
+        </ul>
+        <p><em>Internal</em></p>
+        <ul>
+          <li>The six new group commands (<code>group.set_member_add_mode</code>, <code>group.set_join_approval</code>, <code>group.join_requests</code>, <code>group.resolve_join_request</code>, <code>group.preview_invite</code>, <code>group.join_link</code>) are reachable over the protocol.</li>
+          <li>Group admin round 2 fixed three build breaks that had left the tree unable to compile since the feature landed.</li>
+          <li>CI caches Arch packages by ISO week and no longer caps Go build parallelism, which shortens the Linux and cross-platform jobs.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.13.0" date="2026-10-10">
       <description>
         <p><em>Channel posts refresh on open</em></p>
