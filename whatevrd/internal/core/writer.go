@@ -191,6 +191,13 @@ func (w *writer) pragma(mode string) error {
 func (w *writer) commit(batch []appendReq) {
 	seqs, err := w.commitTx(batch)
 	w.db.health.set(&w.db.health.append, err)
+	// Publish appended before answering: a caller that has its seq back must
+	// also see that seq in Progress, or it waits on a counter that is behind
+	// work it already knows landed. Only a batch that committed may advance it.
+	if err == nil {
+		last := seqs[len(seqs)-1]
+		w.db.appended.Store(last[len(last)-1])
+	}
 	for i, req := range batch {
 		if err != nil {
 			req.done <- appendRes{err: err}
@@ -200,10 +207,7 @@ func (w *writer) commit(batch []appendReq) {
 	}
 	if err != nil {
 		w.db.log.Error().Err(err).Int("requests", len(batch)).Msg("core: append failed")
-		return
 	}
-	last := seqs[len(seqs)-1]
-	w.db.appended.Store(last[len(last)-1])
 }
 
 func (w *writer) commitTx(batch []appendReq) ([][]int64, error) {
