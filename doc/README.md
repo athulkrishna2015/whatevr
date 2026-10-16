@@ -15,6 +15,13 @@ two talk over a versioned JSON protocol on a local socket.
 - [Safety policy](safety.md) — how we avoid getting accounts flagged.
 - [Troubleshooting](troubleshooting.md) — tray, logs, socket debugging recipes.
 
+## Screenshots
+
+![whattui conversation](screenshots/whattui-transcript.png)
+![whatkevr conversation](screenshots/whatkevr-conversation.png)
+
+Captured against `whatevrd --mock busy`, so every name and message is fake.
+
 ## Quickstart
 
 ```sh
