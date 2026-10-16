@@ -19,6 +19,31 @@
   </provides>
   <content_rating type="oars-1.1" />
   <releases>
+    <release version="0.15.0" date="2026-10-16">
+      <description>
+        <p><em>Highlights</em></p>
+        <ul>
+          <li>Group administration, second round: member add mode, join approval with a request queue, and invite-link previews that join in place.</li>
+          <li>Channels: invite links open in place and timelines pull the latest posts on open.</li>
+          <li>Saved phone contacts are searchable and can start chats.</li>
+          <li>Pre-send photo editing (crop, rotate, mirror, draw) and a Standard / HD quality choice in the send dialog.</li>
+          <li>Pasted images stage in the attachment dialog instead of sending immediately.</li>
+          <li>Notification mute for archived chats, from Settings.</li>
+        </ul>
+        <p><em>Fixes</em></p>
+        <ul>
+          <li>The Linux release tarball and AUR packages now ship the <code>whatkevr</code> desktop GUI; they previously carried the terminal client only.</li>
+          <li>The six group commands added in 0.14.0 are now documented in PROTOCOL.md.</li>
+          <li>The initial daemon connection screen has a finite loading state with retry instead of an indefinite spinner.</li>
+          <li>Tray menu placement, zoomed-photo pan clamp, and album tiles in the media viewer fixed.</li>
+          <li>Intermittent <code>internal/core</code> test failures on loaded machines fixed.</li>
+        </ul>
+        <p><em>Packaging</em></p>
+        <ul>
+          <li>AUR packages now depend on Qt 6 / KF6 modules and KQuickImageEditor, and both list <code>whatkevr</code> in <code>provides</code>.</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.14.1" date="2026-10-13">
       <description>
         <p>Whatevr now ships the desktop app in its Linux release.</p>
