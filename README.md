@@ -15,6 +15,11 @@ frontend for Linux desktops (chat list, conversation timeline, media gallery,
 calls/status pages where the daemon serves them, settings, tray icon). Both
 are thin: all state lives in the daemon.
 
+![whattui conversation](doc/screenshots/whattui-transcript.png)
+![whatkevr conversation](doc/screenshots/whatkevr-conversation.png)
+
+Screenshots use the mock `busy` scenario, so every name and message is fake.
+
 The daemon knows which frontends are installed, so it can start one when
 nothing is open. Each says who it is in a small manifest; add your own, or pick
 the default:
