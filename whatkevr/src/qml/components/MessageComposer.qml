@@ -1016,6 +1016,9 @@ Frame {
 
             ToolButton {
                 icon.name: root.editing ? "checkmark-symbolic" : "document-send-symbolic"
+                // DESIGN.md button-primary: the send affordance turns green
+                // when there is something to send.
+                icon.color: enabled ? Whatevr.Palette.waGreenInk : Kirigami.Theme.disabledTextColor
                 text: root.editing
                       ? Whatevr.I18n.i18nc("@action:button", "Save edit")
                       : Whatevr.I18n.i18nc("@action:button", "Send")

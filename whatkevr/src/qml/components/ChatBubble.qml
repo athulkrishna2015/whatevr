@@ -914,7 +914,7 @@ Item {
     // is the part the eye follows.
     readonly property color footerTextColor: footerOverArtwork ? "white" : Kirigami.Theme.disabledTextColor
     readonly property color statusTickColor: statusIsRead
-        ? (footerOverArtwork ? Qt.lighter(Whatevr.Palette.highlight, 1.4) : Whatevr.Palette.highlight)
+        ? (footerOverArtwork ? Qt.lighter(Whatevr.Palette.waGreen, 1.25) : Whatevr.Palette.waGreenInk)
         : (footerOverArtwork ? "white" : Kirigami.Theme.disabledTextColor)
     readonly property color statusSingleColor: statusIsFailed
         ? Kirigami.Theme.negativeTextColor
@@ -1142,12 +1142,10 @@ Item {
         corners.bottomLeftRadius: !root.isOutgoing && !root.groupEnd ? bubbleRadius * 0.45 : bubbleRadius
         corners.bottomRightRadius: root.isOutgoing && !root.groupEnd ? bubbleRadius * 0.45 : bubbleRadius
 
-        // Opaque so the wallpaper doodle never shows through. The outgoing tint
-        // is the old translucent highlight composited onto the theme background,
-        // preserving the prior look on the default wallpaper while staying solid.
-        color: root.isOutgoing
-                ? Qt.tint(Kirigami.Theme.backgroundColor, Qt.alpha(Whatevr.Palette.highlight, 0.30))
-                : Kirigami.Theme.backgroundColor
+        // Opaque so the wallpaper doodle never shows through. Direction is
+        // color (DESIGN.md message-bubble-in/out): pale green out, white in
+        // on light; teal-green out, slate in on dark.
+        color: root.isOutgoing ? Whatevr.Palette.chatOut : Whatevr.Palette.chatIn
         border.color: Qt.alpha(Kirigami.Theme.textColor, root.isOutgoing ? 0.05 : 0.12)
         border.width: 1
 

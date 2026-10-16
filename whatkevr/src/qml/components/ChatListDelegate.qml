@@ -216,13 +216,14 @@ ItemDelegate {
                                 Kirigami.Units.gridUnit * 1.5)
                 height: Kirigami.Units.gridUnit * 1.35
                 radius: height / 2
-                color: Kirigami.Theme.highlightColor
+                // DESIGN.md unread-badge: WhatsApp green fill, dark count.
+                color: Whatevr.Palette.waGreen
 
                 Label {
                     id: unreadLabel
                     anchors.centerIn: parent
                     text: root.unreadCount > 99 ? "99+" : String(root.unreadCount)
-                    color: Kirigami.Theme.highlightedTextColor
+                    color: Whatevr.Palette.waGreenContent
                     font.weight: Font.Bold
                     font.pointSize: Kirigami.Theme.smallFont.pointSize
                 }
@@ -302,7 +303,7 @@ ItemDelegate {
                             implicitWidth: root.deliveryIconSize
                             implicitHeight: root.deliveryIconSize
                             color: root.deliveryStatusIsRead
-                                   ? activePalette.highlight
+                                   ? Whatevr.Palette.waGreenInk
                                    : Kirigami.Theme.disabledTextColor
                             isMask: true
                         }
@@ -316,7 +317,7 @@ ItemDelegate {
                             implicitWidth: root.deliveryIconSize
                             implicitHeight: root.deliveryIconSize
                             color: root.deliveryStatusIsRead
-                                   ? activePalette.highlight
+                                   ? Whatevr.Palette.waGreenInk
                                    : Kirigami.Theme.disabledTextColor
                             isMask: true
                         }
@@ -337,7 +338,7 @@ ItemDelegate {
                     elide: Text.ElideRight
                     maximumLineCount: 1
                     color: root.isTyping
-                           ? activePalette.highlight
+                           ? Whatevr.Palette.waGreenInk
                            : (root.unreadCount > 0 ? Kirigami.Theme.textColor : Kirigami.Theme.disabledTextColor)
                     opacity: root.unreadCount > 0 ? 0.84 : 1.0
                 }
