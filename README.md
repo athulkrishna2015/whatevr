@@ -41,25 +41,24 @@ xdg-open 'whatevr://'    # Linux, through the installed whatevr.desktop
 ```
 
 ## Getting it
-On Arch-based systems, Whatevr is available on the AUR:
-```sh
-yay -S whatevr-bin
-```
-Note: You can install the `whatevr` or `whatevr-git` packages also if you want to build yourself
+This fork (`athulkrishna2015/whatevr`) ships no AUR or Homebrew packages
+(the `whatevr-bin` AUR packages and the `codelif/tap` cask install upstream).
+Either take a prebuilt tarball or build from source.
 
-On macOS, from the Homebrew tap, prebuilt:
-```sh
-brew install --cask codelif/tap/whatevr
-```
-or built from source (`--HEAD` for main):
-```sh
-brew install codelif/tap/whatevr
-```
-The cask is ad-hoc signed, not notarized, and clears the quarantine flag on
-install. `brew uninstall --cask --zap whatevr` also removes the login service
-and all data.
+Tagged releases publish Linux tarballs (`whatevr-<version>-linux-<arch>.tar.zst`
+beside `SHA256SUMS`) on the fork's Releases page:
 
-For other systems, for now you can follow the build instructions below:
+```sh
+gh release download v0.15.0 --repo athulkrishna2015/whatevr \
+  --pattern "whatevr-*-linux-$(uname -m).tar.zst" --pattern SHA256SUMS -D /tmp/whatevr-rel
+cd /tmp/whatevr-rel && sha256sum -c SHA256SUMS --ignore-missing
+systemctl --user stop whatevrd.service
+tar --zstd -xf whatevr-*-linux-*.tar.zst
+cp -r whatevr-*-linux-*/usr/. /home/admin/.local/
+systemctl --user start whatevrd.service
+```
+
+On macOS, and for anything newer than the latest release, build from source:
 
 ## Building
 <details>
@@ -131,7 +130,7 @@ cmake --install build/release/whatkevr --prefix "$HOME/.local"
 units under the selected prefix.
 Make sure the chosen `bin` directory is on your `PATH` (e.g. `~/.local/bin`).
 
-The AUR and Homebrew packages install shell completions for `whatevrd`. With
+No package ships shell completions for this fork. With
 `just install`, load them from your shell's rc file:
 
 ```sh
@@ -186,7 +185,8 @@ cp packaging/systemd/whatevrd.socket ~/.config/systemd/user/
 systemctl --user daemon-reload
 ```
 
-Distro packages install both units to `/usr/lib/systemd/user/` (shipped disabled).
+There are no distro packages for this fork; the copy commands above are the
+install, and both units start disabled (enable one).
 
 </details>
 
@@ -379,9 +379,9 @@ frontend connects, including after a crash. Stop a manually running daemon befor
 enabling the service; while the service is enabled, running `whatevrd` by hand on
 the default socket is refused. Enable the service with XDG and `WHATEVR_SOCKET`
 overrides unset, so it uses the same native defaults as normal terminal clients.
-The agent uses the executable path as invoked, so a Homebrew `bin` link keeps
-working across upgrades, and a PATH containing the installation prefix, the
-detected Homebrew prefix, and system tools. Running `whatevrd service enable`
+The agent uses the executable path as invoked, so a `bin` symlink into the
+install prefix keeps working across upgrades, and a PATH containing the installation prefix
+and system tools. Running `whatevrd service enable`
 again replaces an agent written by an older version or from another prefix.
 Disable the service before uninstalling.
 
